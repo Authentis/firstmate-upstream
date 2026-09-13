@@ -1662,7 +1662,8 @@ command_rule() {
   load_decision "$evidence_file"
   acquire_task_control_lock "$id"
   require_tasks_axi
-  show=$(task_show "$id") || fail "task $id is absent from this home's configured backlog (data directory $DATA)"
+  task_show "$id" || fail "task $id is absent from this home's configured backlog (data directory $DATA)"
+  show=$TASK_SHOW_OUTPUT
   state=$(show_field "$show" state)
   hold_kind=$(show_field_value "$show" hold_kind)
   body=$(show_field "$show" body)
@@ -1688,7 +1689,8 @@ command_rule() {
     # satisfy verify without being dressed up as the captain's own word.
     write_resolution_record "$id" ruled "$body"
     remove_interrupted_answer_stamp "$id"
-    show=$(task_show "$id") || fail "task $id disappeared while recording the ruling"
+    task_show "$id" || fail "task $id disappeared while recording the ruling"
+    show=$TASK_SHOW_OUTPUT
     [ "$(show_field "$show" state)" = "done" ] || fail "recording the ruling reopened closed task $id"
     body_has_resolution_record "$(show_field "$show" body)" \
       || fail "task $id did not retain its durable ruling record"
@@ -1710,7 +1712,8 @@ command_rule() {
   fi
   close_answered "$id" 0 || fail "could not close ruled captain-held task $id"
   remove_interrupted_answer_stamp "$id"
-  show=$(task_show "$id") || fail "task $id disappeared after closing"
+  task_show "$id" || fail "task $id disappeared after closing"
+  show=$TASK_SHOW_OUTPUT
   body_has_resolution_record "$(show_field "$show" body)" \
     || fail "captain-held task $id did not retain its durable ruling record"
   publish_parent_resolution_then_retire "$id" "$occurrence" ruled
