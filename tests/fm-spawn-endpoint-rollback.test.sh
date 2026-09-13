@@ -172,7 +172,8 @@ case "$cmd" in
 esac
 exit 0
 SH
-  sed -i "s|@STATEDIR@|$statedir|g" "$fakebin/tmux"
+  sed "s|@STATEDIR@|$statedir|g" "$fakebin/tmux" > "$fakebin/tmux.tmp"
+  mv "$fakebin/tmux.tmp" "$fakebin/tmux"
   chmod +x "$fakebin/tmux"
   fm_fake_exit0 "$fakebin" treehouse
   fm_test_fake_sleep_noop "$fakebin"
