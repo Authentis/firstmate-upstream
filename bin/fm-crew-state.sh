@@ -985,9 +985,9 @@ fi
 # liveness, so a finished-but-pane-closed crew never reaches here. Down here there
 # is no run to consult, so only positive evidence that the target is gone may
 # read as death - a backend that failed to answer is unknown, never death, for
-# both classifier-backed backends (tmux and herdr) - and every death-class
-# verdict reports unknown rather than trusting a possibly-stale status log as
-# the current state.
+# both classifier-backed backends (tmux and herdr). A recovery-grade positive
+# death reports stopped rather than trusting a possibly-stale status log as the
+# current state, while every uncertain verdict remains unknown.
 [ -n "$BACKEND_TARGET" ] || emit unknown none "no backend target recorded"
 if ! pane_readable "$BACKEND_TARGET"; then
   # A failed probe is not itself evidence the pane is gone: the herdr CLI can
@@ -1024,10 +1024,10 @@ if ! pane_readable "$BACKEND_TARGET"; then
     tmux:alive|herdr:alive)
       ;;
     tmux:missing|herdr:missing)
-      emit unknown none "backend target gone: $BACKEND_TARGET"
+      emit stopped endpoint "backend target gone: $BACKEND_TARGET"
       ;;
     tmux:dead|herdr:dead)
-      emit unknown none "backend target gone: $BACKEND_TARGET (agent gone, pane shell remains)"
+      emit stopped endpoint "backend target gone: $BACKEND_TARGET (agent gone, pane shell remains)"
       ;;
     tmux:*|herdr:*)
       emit unknown none "backend unreachable ($TASK_BACKEND endpoint state: $AGENT_STATE)"

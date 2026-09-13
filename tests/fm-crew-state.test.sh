@@ -1901,7 +1901,8 @@ test_no_run_herdr_stale_registration_over_shell_reads_agent_gone() {
   FM_FAKE_HERDR_AGENT_STATUS=idle
   FM_FAKE_HERDR_PROCESS=shell
   local out; out=$(run_crew_state "$d" feat-herdr-stale)
-  assert_contains "$out" "state: unknown" "a stale registration over a shell-only pane is not a live state"
+  assert_contains "$out" "state: stopped" "a stale registration over a shell-only pane is positively stopped"
+  assert_contains "$out" "source: endpoint" "a stale registration exposes recovery-grade endpoint evidence"
   assert_contains "$out" "backend target gone" "a stale registration over a shell-only pane must read as positive agent-gone evidence"
   assert_contains "$out" "agent gone, pane shell remains" "the agent-gone reason must name the remaining shell"
   assert_not_contains "$out" "backend unreachable" "a readable shell-only pane is not unreachable"
@@ -1950,7 +1951,8 @@ test_no_run_herdr_husk_dead_still_reads_gone() {
   FM_FAKE_HERDR_READ_FAIL=1
   FM_FAKE_HERDR_HUSK=1
   local out; out=$(run_crew_state "$d" feat-herdr-husk)
-  assert_contains "$out" "state: unknown" "a husk pane has no live current state"
+  assert_contains "$out" "state: stopped" "a husk pane has a positively stopped current state"
+  assert_contains "$out" "source: endpoint" "a husk pane exposes recovery-grade endpoint evidence"
   assert_contains "$out" "backend target gone" "a husk pane keeps its gone-class death evidence"
   assert_contains "$out" "agent gone, pane shell remains" "the husk verdict names what actually died"
   assert_not_contains "$out" "backend unreachable" "a husk pane is not an unreachable backend"
@@ -2282,8 +2284,8 @@ test_dead_window_ignores_stale_status_log() {
   FM_FAKE_RUNS_LIST=""
   FM_FAKE_TMUX_MISSING=1
   local out; out=$(run_crew_state "$d" feat-dead)
-  assert_contains "$out" "state: unknown" "dead window -> unknown"
-  assert_contains "$out" "source: none" "dead window -> none source"
+  assert_contains "$out" "state: stopped" "dead window -> stopped"
+  assert_contains "$out" "source: endpoint" "dead window -> recovery-grade endpoint source"
   assert_not_contains "$out" "source: status-log" "dead window does not reuse stale log"
   assert_contains "$out" "backend target gone" "an inventory that omits the window is positive death evidence"
   pass "dead window ignores stale status log"

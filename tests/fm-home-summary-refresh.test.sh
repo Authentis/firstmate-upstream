@@ -46,8 +46,13 @@ command -v jq >/dev/null 2>&1 || { echo "skip: jq not found"; exit 0; }
 cat > "$FAKEBIN/tmux" <<'SH'
 #!/usr/bin/env bash
 case "${1:-}" in
-  display-message) printf '%%1\n' ;;
-  capture-pane) printf 'fixture pane\n> \n' ;;
+  display-message|capture-pane)
+    [ "${FM_TEST_TMUX_STOPPED:-0}" = 1 ] && exit 1
+    if [ "$1" = display-message ]; then printf '%%1\n'; else printf 'fixture pane\n> \n'; fi
+    ;;
+  list-windows)
+    # A successful empty inventory proves the recorded endpoint stopped.
+    ;;
 esac
 exit 0
 SH
@@ -161,6 +166,63 @@ jq -S 'del(.generated, .generated_epoch)' "$TMP_ROOT/fresh-summary.json" \
 cmp -s "$TMP_ROOT/published-normalized.json" "$TMP_ROOT/fresh-normalized.json" \
   || fail "the status-triggered ledger differed from the real fresh producer"
 pass "watcher-carried status append publishes the real home summary"
+
+# A positively stopped endpoint with preserved work is not an unavailable
+# child when the in-flight row is durably held for the captain. The same stopped
+# endpoint without that durable hold remains invalid, so stopped never hides a
+# worker that still needs recovery.
+printf 'preserved local branch work\n' > "$HOME_DIR/projects/task/preserved.txt"
+git -C "$HOME_DIR/projects/task" add preserved.txt
+git -C "$HOME_DIR/projects/task" -c user.name=fmtest -c user.email=fmtest@example.invalid \
+  commit -qm 'preserve stopped task work'
+cat > "$HOME_DIR/data/backlog.md" <<'EOF'
+## In flight
+- [ ] ledger-task - Publish the home ledger (repo: firstmate) (kind: ship) (hold: choose the next delivery) (hold-kind: captain) (since 2026-08-28)
+
+## Queued
+
+## Done
+EOF
+printf 'needs-decision [key=ledger-next]: choose the next delivery\n' > "$HOME_DIR/state/ledger-task.status"
+FM_TEST_TMUX_STOPPED=1 run_producer "$NOW_TWO" "$EPOCH_TWO" > "$TMP_ROOT/stopped-held-summary.json" \
+  || fail "stopped held summary production failed"
+jq -e '
+  .valid == true
+  and .state == "captain_decision"
+  and .invalidity == {kind:null,ids:[]}
+  and (.decisions_open | any(.key == "ledger-next"))
+  and (.endpoints | any(.id == "ledger-task" and .state == "stopped" and .source == "endpoint"))
+' "$TMP_ROOT/stopped-held-summary.json" >/dev/null \
+  || fail "a stopped captain-held task invalidated the home summary"
+cat > "$HOME_DIR/data/backlog.md" <<'EOF'
+## In flight
+- [ ] ledger-task - Publish the home ledger (repo: firstmate) (kind: ship) (since 2026-08-28)
+
+## Queued
+
+## Done
+EOF
+FM_TEST_TMUX_STOPPED=1 run_producer "$NOW_TWO" "$EPOCH_TWO" > "$TMP_ROOT/stopped-unheld-summary.json" \
+  || fail "stopped unheld summary production failed"
+jq -e '
+  .valid == false
+  and .state == "unknown"
+  and .invalidity == {kind:"child_current_unavailable",ids:["ledger-task"]}
+' "$TMP_ROOT/stopped-unheld-summary.json" >/dev/null \
+  || fail "a stopped task without a hold was hidden from recovery"
+printf 'blocked [key=ledger-blocker]: awaiting the fixed external dependency\n' > "$HOME_DIR/state/ledger-task.status"
+FM_TEST_TMUX_STOPPED=1 run_producer "$NOW_TWO" "$EPOCH_TWO" > "$TMP_ROOT/stopped-blocked-summary.json" \
+  || fail "stopped blocked summary production failed"
+jq -e '
+  .valid == true
+  and .state == "externally_held"
+  and .invalidity == {kind:null,ids:[]}
+  and (.holds | any(.id == "ledger-task" and .source == "child-state"))
+' "$TMP_ROOT/stopped-blocked-summary.json" >/dev/null \
+  || fail "a stopped task with an open blocker did not remain held"
+# Restore the ordinary active fixture the remaining publication checks cover.
+printf 'working: replacement summary is being computed\n' > "$HOME_DIR/state/ledger-task.status"
+pass "stopped captain-held work stays truthful while unheld work remains invalid"
 
 # A structured in-flight inventory above Linux MAX_ARG_STRLEN must remain
 # publishable through both fleet snapshot modes and the real home-summary writer.

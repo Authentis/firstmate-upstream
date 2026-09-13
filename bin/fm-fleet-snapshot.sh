@@ -1115,7 +1115,7 @@ secondmate_home_summary_json() {  # <backlog-json-file> <tasks-json-file>
     | ([ $tasks[]
          | select(.kind != "secondmate")
          | select(.id as $id | [$owned_in_flight[].id] | index($id) | not)
-         | {id,state:.current_state.state} ]) as $unowned_children
+         | {id,state:(if .current_state.state == "stopped" then "unknown" else .current_state.state end)} ]) as $unowned_children
     | ([ $owned_in_flight[] as $work
          | $tasks[]
          | select(.kind != "secondmate")
@@ -1176,7 +1176,10 @@ secondmate_home_summary_json() {  # <backlog-json-file> <tasks-json-file>
             _hold_identity:{source:"backlog",kind:(.hold_kind // null),reason:(.hold_reason // .blocked_reason // "blocked")}} ]
        + [ $owned_in_flight[] as $work
            | $tasks[]
-           | select(.id == $work.id and (.current_state.state == "parked" or .current_state.state == "paused" or .current_state.state == "blocked"))
+           | select(.id == $work.id and
+                    (.current_state.state == "parked" or .current_state.state == "paused"
+                     or .current_state.state == "blocked"
+                     or (.current_state.state == "stopped" and .hints.blocked_event == true)))
            | select(($work.hold_reason != null and $work.hold_kind != null) | not)
            | {id,title:((.backlog.title // .id) | trunc(90)),blocked_by:null,
               blocked_by_ids:[],unresolved_blocker_ids:[],
