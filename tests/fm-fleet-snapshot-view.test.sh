@@ -1242,7 +1242,43 @@ EOF
     "window=firstmate:fm-dos-analyst-canonical-permission-not-word-union-l351y" \
     "worktree=$home/projects/analyst" "project=alpha" \
     "harness=codex" "kind=ship" "mode=no-mistakes"
-  cp "$ROOT/state/steward-exemptions.json" "$home/state/steward-exemptions.json"
+  cat > "$home/state/steward-exemptions.json" <<'EOF'
+{
+  "schema": "fm-steward-exemptions.v1",
+  "exemptions": [
+    {
+      "task_id": "dos-4r01e-closure-0913",
+      "reason": "mandatory safety-tier closure panel awaits three eligible designated review routes; verification snapshot preserved",
+      "set_by": "captain corr=44b46505b3c830c1",
+      "reviewed_date": "2026-09-17",
+      "expires_on": "2026-10-17",
+      "state": "unknown",
+      "detail": "worktree gone (torn down?)",
+      "hold_identity": {
+        "source": "backlog",
+        "kind": "external",
+        "reason": "Mandatory safety-tier closure panel awaits three eligible designated review routes; verified code and served-artifact evidence remain preserved."
+      },
+      "decision_keys": []
+    },
+    {
+      "task_id": "dos-analyst-canonical-permission-not-word-union-l351y",
+      "reason": "copy8 custody preserved behind dos-analyst-l351y-custody-reconcile-0912 pending D3/D4 disposition",
+      "set_by": "captain corr=44b46505b3c830c1",
+      "reviewed_date": "2026-09-17",
+      "expires_on": "2026-10-17",
+      "state": "stopped",
+      "detail": "bare shell; Codex agent process absent",
+      "hold_identity": {
+        "source": "backlog",
+        "kind": "external",
+        "reason": "Row closure is proven, but guarded cleanup refuses because copy8 still contains uncommitted custody material; preserve behind dos-analyst-l351y-custody-reconcile-0912 pending exact D3/D4 disposition."
+      },
+      "decision_keys": []
+    }
+  ]
+}
+EOF
   fakebin=$(make_fakebin "$home")
   out=$(PATH="$fakebin:$PATH" FM_HOME="$home" FM_SNAPSHOT_NOW=2026-09-17T00:00:00Z "$SNAPSHOT" --secondmate-home-summary)
   printf '%s' "$out" | jq -e '
