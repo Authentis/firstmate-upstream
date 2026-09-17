@@ -1747,7 +1747,10 @@ test_no_run_codex_tmux_pane_reads_working_and_idle() {
   FM_FAKE_PANE_TEXT=$'previous response\n\n›\n\n  gpt-5.5 xhigh · Context 100% left'
   printf 'needs-decision: choose a route\n' > "$d/state/feat-codex-pane.status"
   out=$(run_crew_state "$d" feat-codex-pane)
-  assert_contains "$out" "state: parked" "an idle Codex prompt falls through to its durable state"
+  assert_contains "$out" "state: idle" "an idle Codex prompt overrides a decision-only status log"
+  assert_contains "$out" "source: pane" "the idle Codex prompt reports pane evidence"
+  assert_contains "$out" "positively empty Codex composer" "the idle result names its positive evidence"
+  assert_not_contains "$out" "state: parked" "a decision-only status log cannot override positive idle evidence"
   assert_not_contains "$out" "codex-unverified" "a readable Codex pane is never left unclassified"
 
   for pane in 'fatal: authentication failed' 'Select an option to continue' '$'; do

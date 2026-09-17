@@ -1044,7 +1044,7 @@ if [ "$KIND" != secondmate ]; then
       CODEX_PANE_VERDICT=$(codex_tmux_pane_verdict "$BACKEND_TARGET" 2>/dev/null || true)
       case "$CODEX_PANE_VERDICT" in
         busy) emit working pane "harness busy (codex tmux pane)" ;;
-        idle) ;;
+        idle) emit idle pane "positively empty Codex composer" ;;
         *) emit unknown pane "harness state unavailable ($BUSY_VERDICT)" ;;
       esac
       ;;
