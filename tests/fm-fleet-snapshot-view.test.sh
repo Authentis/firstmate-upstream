@@ -1120,6 +1120,9 @@ EOF
     .valid == true
       and .state == "no_active_work"
       and (.holds | length) == 0
+      and (.decisions_open | length) == 0
+      and .counts.holds == 0
+      and .counts.decisions_open == 0
       and .steward_exemptions == [{task_id:"long-held",reason:"durable external review hold",set_by:"steward",reviewed_date:"2026-09-17",expires_on:"2026-10-17",state:"blocked",detail:"awaiting an external review",active:true}]
   ' >/dev/null || fail "active steward exemption must be declared but removed from holds: $out"
 
@@ -1142,6 +1145,21 @@ EOF
       and (.holds | map(.id) == ["long-held"])
       and .steward_exemptions[0].active == false
   ' >/dev/null || fail "a changed exempted row must surface as terminal inventory drift: $out"
+
+  rm -rf "$home/projects/held"
+  cat > "$home/state/steward-exemptions.json" <<'EOF'
+{"schema":"fm-steward-exemptions.v1","exemptions":[{"task_id":"long-held","reason":"durable stopped external hold","set_by":"steward","reviewed_date":"2026-09-17","expires_on":"2026-10-17","state":"unknown","detail":"worktree gone (torn down?)"}]}
+EOF
+  out=$(PATH="$fakebin:$PATH" FM_HOME="$home" FM_SNAPSHOT_NOW=2026-09-17T00:00:00Z "$SNAPSHOT" --secondmate-home-summary)
+  printf '%s' "$out" | jq -e '
+    .valid == true
+      and .invalidity == {kind:null,ids:[]}
+      and .state == "no_active_work"
+      and (.holds | length) == 0
+      and (.decisions_open | length) == 0
+      and .steward_exemptions[0].active == true
+      and (.endpoints | map(select(.id == "long-held" and .state == "unknown")) | length) == 1
+  ' >/dev/null || fail "an exact stopped-lane exemption must suppress flags without hiding endpoint inventory: $out"
   pass "steward exemptions are declared, narrowly honored, and state-bound"
 }
 
