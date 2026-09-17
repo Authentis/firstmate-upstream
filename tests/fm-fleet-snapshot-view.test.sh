@@ -1171,6 +1171,20 @@ EOF
       and (.holds | map(select(.id == "long-held" and .reason == "awaits a different external review")) | length) == 1
       and .steward_exemptions[0].active == false
   ' >/dev/null || fail "a changed hold identity must resurface both the hold and unknown-child invalidity: $out"
+
+  cat > "$home/state/steward-exemptions.json" <<'EOF'
+{"schema":"fm-steward-exemptions.v1","exemptions":[{"task_id":"long-held","reason":"reviewed route decision","set_by":"steward","reviewed_date":"2026-09-17","expires_on":"2026-10-17","state":"unknown","detail":"worktree gone (torn down?)","decision_keys":["reviewed-route"]}]}
+EOF
+  printf 'needs-decision [key=reviewed-route]: reviewed route\nneeds-decision [key=new-route]: choose a new route\n' > "$home/state/long-held.status"
+  out=$(PATH="$fakebin:$PATH" FM_HOME="$home" FM_SNAPSHOT_NOW=2026-09-17T00:00:00Z "$SNAPSHOT" --secondmate-home-summary)
+  printf '%s' "$out" | jq -e '
+    .valid == false
+      and .invalidity == {kind:"child_current_unavailable",ids:["long-held"]}
+      and .state == "unknown"
+      and (.holds | map(select(.id == "long-held" and .reason == "awaits a different external review")) | length) == 1
+      and (.decisions_open | map({id,key,summary})) == [{id:"long-held",key:"new-route",summary:"choose a new route"}]
+      and .steward_exemptions[0].active == true
+  ' >/dev/null || fail "a decision-bound exemption must not suppress a distinct hold, decision, or invalidity: $out"
   pass "steward exemptions are declared, identity-bound, and state-bound"
 }
 
