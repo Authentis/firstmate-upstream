@@ -237,6 +237,17 @@ steward_exemptions_json() {  # <file> -> validated exemption entries or []
   captured=$(LC_ALL=C head -c 65537 "$file") || { printf '[]\n'; return 0; }
   [ "$(printf '%s' "$captured" | wc -c | tr -d ' ')" -le 65536 ] || { printf '[]\n'; return 0; }
   printf '%s' "$captured" | jq -c '
+    def valid_date:
+      test("^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
+      and (split("-") | map(tonumber)) as $parts
+      | $parts[0] as $year
+      | $parts[1] as $month
+      | $parts[2] as $day
+      | ($year % 4 == 0 and ($year % 100 != 0 or $year % 400 == 0)) as $leap
+      | ($month >= 1 and $month <= 12
+         and $day >= 1
+         and $day <= ([31, (if $leap then 29 else 28 end), 31, 30, 31, 30,
+                        31, 31, 30, 31, 30, 31][$month - 1]));
     if type == "object" and .schema == "fm-steward-exemptions.v1"
        and (.exemptions | type) == "array" then
       [.exemptions[]
@@ -248,8 +259,8 @@ steward_exemptions_json() {  # <file> -> validated exemption entries or []
                 and (.expires_on | type) == "string"
                 and (.state | type) == "string"
                 and (.detail | type) == "string" and (.detail | length) > 0)
-       | select(.reviewed_date | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}$"))
-       | select(.expires_on | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}$"))
+       | select(.reviewed_date | valid_date)
+       | select(.expires_on | valid_date)
        | select((has("decision_keys") | not)
                 or ((.decision_keys | type) == "array"
                     and all(.decision_keys[]; type == "string" and length > 0)))

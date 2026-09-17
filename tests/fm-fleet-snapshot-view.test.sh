@@ -36,7 +36,7 @@ case "${1:-}" in
     case "$*" in
       *pane_current_command*)
         case "$target" in
-          *long-held*) printf 'zsh\n' ;;
+          *long-held*|*dos-analyst-canonical-permission-not-word-union-l351y*) printf 'zsh\n' ;;
           *dead-secondmate*) printf 'zsh\n' ;;
           *) printf 'codex\n' ;;
         esac
@@ -47,7 +47,7 @@ case "${1:-}" in
   capture-pane)
     case "$target" in
       *ship-task*|*active-secondmate*) printf 'work in progress\nesc to interrupt\n' ;;
-      *long-held*) printf '$\n' ;;
+      *long-held*|*dos-analyst-canonical-permission-not-word-union-l351y*) printf '$\n' ;;
       *) printf 'all quiet\n> \n' ;;
     esac
     ;;
@@ -1211,13 +1211,66 @@ EOF
       and (.endpoints | map(select(.id == "long-held" and .state == "stopped")) | length) == 1
       and .steward_exemptions[0].active == false
   ' >/dev/null || fail "a superseded unknown exemption must not match a stopped pane state: $out"
+
+  sed -i 's/"expires_on":"2026-10-17"/"expires_on":"2026-02-31"/' "$home/state/steward-exemptions.json"
+  out=$(PATH="$fakebin:$PATH" FM_HOME="$home" FM_SNAPSHOT_NOW=2026-02-01T00:00:00Z "$SNAPSHOT" --secondmate-home-summary)
+  printf '%s' "$out" | jq -e '
+    (.holds | map(.id) == ["long-held"])
+      and .steward_exemptions == []
+  ' >/dev/null || fail "an impossible calendar expiry must not admit or activate an exemption: $out"
   pass "steward exemptions are declared, identity-bound, and state-bound"
+}
+
+test_named_steward_exemptions_deploy_with_exact_identities() {
+  local home fakebin out
+  home=$(make_home named-steward-exemptions)
+  mkdir -p "$home/projects/analyst"
+  cat > "$home/data/backlog.md" <<'EOF'
+## In flight
+- [ ] dos-4r01e-closure-0913 - Closure panel hold (repo: alpha) (kind: ship) (hold: Mandatory safety-tier closure panel awaits three eligible designated review routes; verified code and served-artifact evidence remain preserved.) (hold-kind: external) (since 2026-09-13)
+- [ ] dos-analyst-canonical-permission-not-word-union-l351y - Copy8 custody hold (repo: alpha) (kind: ship) (hold: Row closure is proven, but guarded cleanup refuses because copy8 still contains uncommitted custody material; preserve behind dos-analyst-l351y-custody-reconcile-0912 pending exact D3/D4 disposition.) (hold-kind: external) (since 2026-09-12)
+
+## Queued
+
+## Done
+EOF
+  fm_write_meta "$home/state/dos-4r01e-closure-0913.meta" \
+    "window=firstmate:fm-dos-4r01e-closure-0913" \
+    "worktree=$home/projects/missing-closure" "project=alpha" \
+    "harness=claude" "kind=ship" "mode=no-mistakes"
+  fm_write_meta "$home/state/dos-analyst-canonical-permission-not-word-union-l351y.meta" \
+    "window=firstmate:fm-dos-analyst-canonical-permission-not-word-union-l351y" \
+    "worktree=$home/projects/analyst" "project=alpha" \
+    "harness=codex" "kind=ship" "mode=no-mistakes"
+  cp "$ROOT/state/steward-exemptions.json" "$home/state/steward-exemptions.json"
+  fakebin=$(make_fakebin "$home")
+  out=$(PATH="$fakebin:$PATH" FM_HOME="$home" FM_SNAPSHOT_NOW=2026-09-17T00:00:00Z "$SNAPSHOT" --secondmate-home-summary)
+  printf '%s' "$out" | jq -e '
+    .valid == true
+      and (.holds | length) == 0
+      and (.steward_exemptions | map(select(.active)) | map(.task_id) | sort)
+        == ["dos-4r01e-closure-0913","dos-analyst-canonical-permission-not-word-union-l351y"]
+      and (.endpoints | map({id,state}) | sort_by(.id))
+        == [{id:"dos-4r01e-closure-0913",state:"unknown"},
+            {id:"dos-analyst-canonical-permission-not-word-union-l351y",state:"stopped"}]
+  ' >/dev/null || fail "the deployed named records must exempt both exact durable holds: $out"
+
+  sed -i 's/pending exact D3\/D4 disposition/pending a changed disposition/' "$home/data/backlog.md"
+  out=$(PATH="$fakebin:$PATH" FM_HOME="$home" FM_SNAPSHOT_NOW=2026-09-17T00:00:00Z "$SNAPSHOT" --secondmate-home-summary)
+  printf '%s' "$out" | jq -e '
+    (.holds | map(.id) == ["dos-analyst-canonical-permission-not-word-union-l351y"])
+      and (.steward_exemptions | map({task_id,active}) | sort_by(.task_id))
+        == [{task_id:"dos-4r01e-closure-0913",active:true},
+            {task_id:"dos-analyst-canonical-permission-not-word-union-l351y",active:false}]
+  ' >/dev/null || fail "a changed named hold identity must resurface only that durable row: $out"
+  pass "named steward exemption deployment is exact-identity bound"
 }
 
 test_empty_fleet_json
 test_fixture_snapshot_json
 test_home_summary_excludes_secondmate_from_child_inventory
 test_home_summary_declares_active_steward_exemption_without_hiding_state_change
+test_named_steward_exemptions_deploy_with_exact_identities
 test_undated_captain_hold_phrasing_and_aging
 test_hold_buckets_are_total_and_text_blind
 test_main_inventory_orphan_and_unstructured_disclosure
