@@ -1037,13 +1037,33 @@ secondmate_home_summary_json() {  # <backlog-json-file> <tasks-json-file>
             hold_bucket:(.hold_bucket // null),
             hold_age_days:(.hold_age_days // null),source:"backlog",
             _hold_identity:{source:"backlog",kind:(.hold_kind // null),reason:.hold_reason}} ]) as $captain_holds_all
+    | ([ $queued_all[]
+         | select((.unresolved_blocker_ids | length) > 0 or (.hold_reason != null and .hold_kind != null))
+         | {id,identity:{source:"backlog",kind:(.hold_kind // null),reason:(.hold_reason // .blocked_reason // "blocked")}} ]
+       + [ $owned_in_flight[] as $work
+           | $tasks[]
+           | select(.id == $work.id and (.current_state.state == "parked" or .current_state.state == "paused" or .current_state.state == "blocked"))
+           | select(($work.hold_reason != null and $work.hold_kind != null) | not)
+           | {id,identity:{source:"child-state",kind:null,reason:(.current_state.detail // .current_state.state)}} ]) as $durable_hold_identities
+    | ([ $tasks[] as $task | ($task.hints.open_decisions // [])[] | {id:$task.id,key} ]) as $durable_decision_identities
     | ([ $steward_exemptions[] as $exemption
          | ([ $tasks[] | select(.id == $exemption.task_id) | .current_state ] | first) as $current_state
          | $exemption + {active:($current_state != null
                                   and $current_state.state == $exemption.state
                                   and $current_state.detail == $exemption.detail
                                   and $exemption.reviewed_date <= $today
-                                  and $today <= $exemption.expires_on)} ]) as $declared_exemptions
+                                  and $today <= $exemption.expires_on
+                                  and (if $exemption | has("hold_identity") then
+                                         any($durable_hold_identities[];
+                                             .id == $exemption.task_id and .identity == $exemption.hold_identity)
+                                       elif (($exemption.decision_keys // []) | length) > 0 then
+                                         any($durable_decision_identities[];
+                                             . as $identity
+                                             | $identity.id == $exemption.task_id
+                                               and ((($exemption.decision_keys // []) | index($identity.key)) != null))
+                                       else
+                                         any($durable_hold_identities[]; .id == $exemption.task_id)
+                                       end))} ]) as $declared_exemptions
     | ($declared_exemptions | map(select(.active) | .task_id)) as $active_exemption_ids
     | ([ $backlog.records[]? | select(landed_record)
          | {id:(.id | trunc(120)),title:(.title | trunc(120)),

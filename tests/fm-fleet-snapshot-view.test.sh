@@ -1161,7 +1161,17 @@ EOF
       and .steward_exemptions[0].active == true
       and (.endpoints | map(select(.id == "long-held" and .state == "unknown")) | length) == 1
   ' >/dev/null || fail "an exact stopped-lane exemption must suppress flags without hiding endpoint inventory: $out"
-  pass "steward exemptions are declared, narrowly honored, and state-bound"
+
+  sed -i 's/awaits an external review/awaits a different external review/' "$home/data/backlog.md"
+  out=$(PATH="$fakebin:$PATH" FM_HOME="$home" FM_SNAPSHOT_NOW=2026-09-17T00:00:00Z "$SNAPSHOT" --secondmate-home-summary)
+  printf '%s' "$out" | jq -e '
+    .valid == false
+      and .invalidity == {kind:"child_current_unavailable",ids:["long-held"]}
+      and .state == "unknown"
+      and (.holds | map(select(.id == "long-held" and .reason == "awaits a different external review")) | length) == 1
+      and .steward_exemptions[0].active == false
+  ' >/dev/null || fail "a changed hold identity must resurface both the hold and unknown-child invalidity: $out"
+  pass "steward exemptions are declared, identity-bound, and state-bound"
 }
 
 test_empty_fleet_json
