@@ -42,14 +42,17 @@
 #     hold_age_days is the hold's age when computable, else null.
 #     Aging is a projection safety net only: the durable deferral remains
 #     re-holding with --until.
-#   steward_exemptions[]: local state/steward-exemptions.json entries that have
-#     an unexpired review and match the child's current parked, paused, blocked,
-#     stopped, or unavailable state and detail. Active entries are declared and
-#     remove their matching row from steward flags; a state or detail change,
-#     expiry, hold-identity change, new decision key, or malformed entry never
-#     suppresses a row. The state-side file's schema is fm-steward-exemptions.v1
-#     and each entry names task_id, reason, set_by, reviewed_date, expires_on,
-#     state, detail, and optionally hold_identity and decision_keys.
+#   steward_exemptions[]: validated local state/steward-exemptions.json entries,
+#     each projected with an active boolean. An entry is active only while its
+#     review dates include today, its parked, paused, blocked, stopped, or unknown
+#     state and detail match, and one bound hold identity or decision key matches
+#     the exact durable steward row. Only that matching row is removed from
+#     steward flags; a state or detail change, expiry, identity change, distinct
+#     decision key, missing binding for the row's identity class, or malformed
+#     entry never suppresses it. The state-side file's schema is
+#     fm-steward-exemptions.v1 and each entry names task_id, reason, set_by,
+#     reviewed_date, expires_on, state, detail, and optionally hold_identity and
+#     decision_keys.
 #     Renderers keep every non-live bucket out of the default Captain's Call,
 #     project it as a Charted Next gate stating why, and disclose it in
 #     omitted[]; --all-decisions reveals every captain hold available within the
@@ -294,6 +297,9 @@ inventory contradictions or unavailable child state invalid.
 kind=secondmate meta records are not child inventory for unowned_current or
 terminal_in_flight; they never have backlog rows.
 Its invalidity object names the normalized failure kind and affected ids.
+Validated state/steward-exemptions.json entries remain declared in the summary;
+only an active exact identity, state, detail, and date match suppresses its bound
+steward row.
 Actionable tasks-axi captain holds appear as decisions_open and stay visible in
 queued with hold_reason, hold_kind, hold_until,
 hold_bucket, hold_age_days, and plural blocker fields for downstream
