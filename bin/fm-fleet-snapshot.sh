@@ -44,10 +44,11 @@
 #     re-holding with --until.
 #   steward_exemptions[]: local state/steward-exemptions.json entries that have
 #     an unexpired review and match the child's current parked, paused, or
-#     blocked state. Active entries are declared and remove only their matching
-#     row from holds; a state change, expiry, or malformed entry never suppresses
-#     a row. The state-side file's schema is fm-steward-exemptions.v1 and each
-#     entry names task_id, reason, set_by, reviewed_date, expires_on, and state.
+#     blocked state and detail. Active entries are declared and remove only their
+#     matching row from holds; a state or detail change, expiry, or malformed
+#     entry never suppresses a row. The state-side file's schema is
+#     fm-steward-exemptions.v1 and each entry names task_id, reason, set_by,
+#     reviewed_date, expires_on, state, and detail.
 #     Renderers keep every non-live bucket out of the default Captain's Call,
 #     project it as a Charted Next gate stating why, and disclose it in
 #     omitted[]; --all-decisions reveals every captain hold available within the
@@ -244,7 +245,8 @@ steward_exemptions_json() {  # <file> -> validated exemption entries or []
                 and (.set_by | type) == "string" and (.set_by | length) > 0
                 and (.reviewed_date | type) == "string"
                 and (.expires_on | type) == "string"
-                and (.state | type) == "string")
+                and (.state | type) == "string"
+                and (.detail | type) == "string" and (.detail | length) > 0)
        | select(.reviewed_date | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}$"))
        | select(.expires_on | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}$"))
        | select(.state == "parked" or .state == "paused" or .state == "blocked")]
@@ -1092,8 +1094,9 @@ secondmate_home_summary_json() {  # <backlog-json-file> <tasks-json-file>
               blocked_by_ids:[],unresolved_blocker_ids:[],
               reason:((.current_state.detail // .current_state.state) | trunc(120)),source:"child-state"} ]) as $holds_unfiltered
     | ([ $steward_exemptions[] as $exemption
-         | ([ $tasks[] | select(.id == $exemption.task_id) | .current_state.state ] | first) as $current_state
-         | $exemption + {active:($current_state == $exemption.state
+         | ([ $tasks[] | select(.id == $exemption.task_id) | .current_state ] | first) as $current_state
+         | $exemption + {active:($current_state.state == $exemption.state
+                                  and $current_state.detail == $exemption.detail
                                   and $exemption.reviewed_date <= $today
                                   and $today <= $exemption.expires_on)} ]) as $declared_exemptions
     | ($declared_exemptions | map(select(.active) | .task_id)) as $active_exemption_ids
@@ -1134,7 +1137,7 @@ secondmate_home_summary_json() {  # <backlog-json-file> <tasks-json-file>
         active_children:$active_all[:$child_n],
         decisions_open:$decisions_all[:$decisions_n],
         holds:$holds_all[:$queued_n],
-        steward_exemptions:($declared_exemptions | map({task_id,reason,set_by,reviewed_date,expires_on,state,active})),
+        steward_exemptions:($declared_exemptions | map({task_id,reason,set_by,reviewed_date,expires_on,state,detail,active})),
         queued:([$queued_all[] | {id:(.id | trunc(120)),title:(.title | trunc(120)),
           blocked_by:((.blocked_by // null) | if . == null then null else trunc(120) end),
           blocked_by_ids:((.blocked_by_ids // []) | map(trunc(120))),

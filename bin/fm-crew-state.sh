@@ -274,8 +274,19 @@ crew_busy_verdict() {  # <target>
 # This does not alter fm-busy-lib.sh's semantic busy-record contract for Codex
 # or any other harness or backend.
 codex_tmux_pane_verdict() {  # <target> -> busy|idle|unknown
+  local busy_state composer_state
   [ "$TASK_BACKEND" = tmux ] && case "$HARNESS" in codex*) : ;; *) return 1 ;; esac
-  fm_pane_busy_state "$1" codex
+  busy_state=$(fm_pane_busy_state "$1" codex)
+  if [ "$busy_state" = busy ]; then
+    printf 'busy'
+    return
+  fi
+  composer_state=$(fm_tmux_composer_state "$1")
+  if [ "$composer_state" = empty ]; then
+    printf 'idle'
+  else
+    printf 'unknown'
+  fi
 }
 
 # --- no-mistakes run lookup (authoritative when a run matches this branch) --
