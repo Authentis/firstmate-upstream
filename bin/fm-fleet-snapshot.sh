@@ -43,8 +43,8 @@
 #     Aging is a projection safety net only: the durable deferral remains
 #     re-holding with --until.
 #   steward_exemptions[]: local state/steward-exemptions.json entries that have
-#     an unexpired review and match the child's current parked, paused, or
-#     blocked or unavailable state and detail. Active entries are declared and
+#     an unexpired review and match the child's current parked, paused, blocked,
+#     stopped, or unavailable state and detail. Active entries are declared and
 #     remove their matching row from steward flags; a state or detail change,
 #     expiry, hold-identity change, new decision key, or malformed entry never
 #     suppresses a row. The state-side file's schema is fm-steward-exemptions.v1
@@ -259,7 +259,8 @@ steward_exemptions_json() {  # <file> -> validated exemption entries or []
                     and ((.hold_identity.kind | type) == "string" or .hold_identity.kind == null)
                     and (.hold_identity.reason | type) == "string"
                     and (.hold_identity.reason | length) > 0))
-       | select(.state == "parked" or .state == "paused" or .state == "blocked" or .state == "unknown")]
+       | select(.state == "parked" or .state == "paused" or .state == "blocked"
+                or .state == "stopped" or .state == "unknown")]
     else [] end' 2>/dev/null || printf '[]\n'
 }
 
