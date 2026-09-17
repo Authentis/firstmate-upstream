@@ -255,7 +255,8 @@ pane_readable() {  # <target>
 # crew_busy_verdict: the crew's semantic busy state from the one contract
 # owner (bin/fm-busy-lib.sh), as "<busy|idle|unknown> <source>". A converted
 # adapter answers from its own lifecycle record; Grok answers from its
-# isolated rendered-tail fallback; a herdr crew's native `busy` is accepted
+# isolated rendered-tail fallback; an unverified Codex tmux lane uses the
+# bounded delivery-pane classifier below; a herdr crew's native `busy` is accepted
 # when no record exists, but its native `idle` is NOT, because agent.get
 # reports generation state (idle while a crew blocks on its own long-running
 # foreground tool call) rather than turn state.
@@ -265,6 +266,16 @@ crew_busy_verdict() {  # <target>
     grok*) tail40=$(fm_backend_capture "$TASK_BACKEND" "$1" 40 "$EXPECTED_LABEL" 2>/dev/null) || tail40='' ;;
   esac
   fm_busy_classify "$TASK_BACKEND" "$1" "$HARNESS" "$ID" "$STATE" "$tail40"
+}
+
+# codex_tmux_pane_verdict is a narrow current-state fallback for the interactive
+# Codex TUI while its lifecycle hooks remain unverified.
+# It reuses the bounded pane classifier that watcher delivery already uses.
+# This does not alter fm-busy-lib.sh's semantic busy-record contract for Codex
+# or any other harness or backend.
+codex_tmux_pane_verdict() {  # <target> -> busy|idle|unknown
+  [ "$TASK_BACKEND" = tmux ] && case "$HARNESS" in codex*) : ;; *) return 1 ;; esac
+  fm_pane_busy_state "$1" codex
 }
 
 # --- no-mistakes run lookup (authoritative when a run matches this branch) --
@@ -1018,7 +1029,14 @@ if [ "$KIND" != secondmate ]; then
   case "${BUSY_VERDICT%% *}" in
     busy) emit working pane "harness busy (${BUSY_VERDICT#* })" ;;
     idle) ;;
-    *) emit unknown pane "harness state unavailable ($BUSY_VERDICT)" ;;
+    *)
+      CODEX_PANE_VERDICT=$(codex_tmux_pane_verdict "$BACKEND_TARGET" 2>/dev/null || true)
+      case "$CODEX_PANE_VERDICT" in
+        busy) emit working pane "harness busy (codex tmux pane)" ;;
+        idle) ;;
+        *) emit unknown pane "harness state unavailable ($BUSY_VERDICT)" ;;
+      esac
+      ;;
   esac
 fi
 

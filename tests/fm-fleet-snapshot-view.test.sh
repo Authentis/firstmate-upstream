@@ -1094,9 +1094,51 @@ EOF
   pass "home-summary excludes kind=secondmate from unowned_current and terminal_in_flight"
 }
 
+test_home_summary_declares_active_steward_exemption_without_hiding_state_change() {
+  local home fakebin out
+  home=$(make_home steward-exemption)
+  mkdir -p "$home/projects/held"
+  cat > "$home/data/backlog.md" <<'EOF'
+## In flight
+- [ ] long-held - Long explained external hold (repo: alpha) (kind: ship) (hold: awaits an external review) (hold-kind: external) (since 2026-09-01)
+
+## Queued
+
+## Done
+EOF
+  fm_write_meta "$home/state/long-held.meta" \
+    "window=firstmate:fm-long-held" "worktree=$home/projects/held" \
+    "project=alpha" "harness=claude" "kind=ship" "mode=no-mistakes"
+  record_claude_idle "$home/state" long-held
+  printf 'blocked: awaiting an external review\n' > "$home/state/long-held.status"
+  cat > "$home/state/steward-exemptions.json" <<'EOF'
+{"schema":"fm-steward-exemptions.v1","exemptions":[{"task_id":"long-held","reason":"durable external review hold","set_by":"steward","reviewed_date":"2026-09-17","expires_on":"2026-10-17","state":"blocked"}]}
+EOF
+  fakebin=$(make_fakebin "$home")
+  out=$(PATH="$fakebin:$PATH" FM_HOME="$home" FM_SNAPSHOT_NOW=2026-09-17T00:00:00Z "$SNAPSHOT" --secondmate-home-summary)
+  printf '%s' "$out" | jq -e '
+    .valid == true
+      and .state == "no_active_work"
+      and (.holds | length) == 0
+      and .steward_exemptions == [{task_id:"long-held",reason:"durable external review hold",set_by:"steward",reviewed_date:"2026-09-17",expires_on:"2026-10-17",state:"blocked",active:true}]
+  ' >/dev/null || fail "active steward exemption must be declared but removed from holds: $out"
+
+  printf 'done: review completed\n' > "$home/state/long-held.status"
+  out=$(PATH="$fakebin:$PATH" FM_HOME="$home" FM_SNAPSHOT_NOW=2026-09-17T00:00:00Z "$SNAPSHOT" --secondmate-home-summary)
+  printf '%s' "$out" | jq -e '
+    .valid == false
+      and .invalidity == {kind:"terminal_in_flight",ids:["long-held"]}
+      and .state == "externally_held"
+      and (.holds | map(.id) == ["long-held"])
+      and .steward_exemptions[0].active == false
+  ' >/dev/null || fail "a changed exempted row must surface as terminal inventory drift: $out"
+  pass "steward exemptions are declared, narrowly honored, and state-bound"
+}
+
 test_empty_fleet_json
 test_fixture_snapshot_json
 test_home_summary_excludes_secondmate_from_child_inventory
+test_home_summary_declares_active_steward_exemption_without_hiding_state_change
 test_undated_captain_hold_phrasing_and_aging
 test_hold_buckets_are_total_and_text_blind
 test_main_inventory_orphan_and_unstructured_disclosure
