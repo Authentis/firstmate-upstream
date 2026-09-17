@@ -42,6 +42,12 @@
 #     hold_age_days is the hold's age when computable, else null.
 #     Aging is a projection safety net only: the durable deferral remains
 #     re-holding with --until.
+#   steward_exemptions[]: local state/steward-exemptions.json entries that have
+#     an unexpired review and match the child's current parked, paused, or
+#     blocked state. Active entries are declared and remove only their matching
+#     row from holds; a state change, expiry, or malformed entry never suppresses
+#     a row. The state-side file's schema is fm-steward-exemptions.v1 and each
+#     entry names task_id, reason, set_by, reviewed_date, expires_on, and state.
 #     Renderers keep every non-live bucket out of the default Captain's Call,
 #     project it as a Charted Next gate stating why, and disclose it in
 #     omitted[]; --all-decisions reveals every captain hold available within the
@@ -222,6 +228,28 @@ esac
 . "$SCRIPT_DIR/fm-landed-lib.sh"  # FM_LANDED_JQ_DEFS: the shared landed selector
 # shellcheck source=bin/fm-merge-authority-lib.sh
 . "$SCRIPT_DIR/fm-merge-authority-lib.sh"
+
+steward_exemptions_json() {  # <file> -> validated exemption entries or []
+  local file=$1 captured
+  [ -f "$file" ] && [ ! -L "$file" ] || { printf '[]\n'; return 0; }
+  captured=$(LC_ALL=C head -c 65537 "$file") || { printf '[]\n'; return 0; }
+  [ "$(printf '%s' "$captured" | wc -c | tr -d ' ')" -le 65536 ] || { printf '[]\n'; return 0; }
+  printf '%s' "$captured" | jq -c '
+    if type == "object" and .schema == "fm-steward-exemptions.v1"
+       and (.exemptions | type) == "array" then
+      [.exemptions[]
+       | select(type == "object"
+                and (.task_id | type) == "string" and (.task_id | length) > 0
+                and (.reason | type) == "string" and (.reason | length) > 0
+                and (.set_by | type) == "string" and (.set_by | length) > 0
+                and (.reviewed_date | type) == "string"
+                and (.expires_on | type) == "string"
+                and (.state | type) == "string")
+       | select(.reviewed_date | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}$"))
+       | select(.expires_on | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}$"))
+       | select(.state == "parked" or .state == "paused" or .state == "blocked")]
+    else [] end' 2>/dev/null || printf '[]\n'
+}
 
 usage() {
   cat <<'EOF'
@@ -954,6 +982,7 @@ main_inventory_json() {  # <backlog-json-file> <tasks-json-file>
 secondmate_home_summary_json() {  # <backlog-json-file> <tasks-json-file>
   jq -n \
     --arg generated "$SNAPSHOT_NOW" \
+    --arg today "$SNAPSHOT_TODAY" \
     --argjson generated_epoch "$SNAPSHOT_EPOCH" \
     --arg home "$FM_HOME" \
     --argjson child_n "$FM_SNAPSHOT_SECONDMATE_CHILDREN" \
@@ -961,9 +990,11 @@ secondmate_home_summary_json() {  # <backlog-json-file> <tasks-json-file>
     --argjson decisions_n "$FM_SNAPSHOT_SECONDMATE_DECISIONS" \
     --argjson landed_n "$FM_SNAPSHOT_SECONDMATE_LANDED_PER_HOME" \
     --slurpfile backlog "$1" \
-    --slurpfile tasks "$2" --slurpfile contributions "$CONTRIBUTIONS_JSON_FILE" "$FM_LANDED_JQ_DEFS"'
+    --slurpfile tasks "$2" --slurpfile contributions "$CONTRIBUTIONS_JSON_FILE" \
+    --slurpfile steward_exemptions "$STEWARD_EXEMPTIONS_JSON_FILE" "$FM_LANDED_JQ_DEFS"'
     ($backlog[0]) as $backlog
     | ($tasks[0]) as $tasks
+    | ($steward_exemptions[0]) as $steward_exemptions
     | def trunc($n):
       tostring | gsub("\\s+"; " ")
       | if length > $n then .[:$n] + "…" else . end;
@@ -1059,7 +1090,14 @@ secondmate_home_summary_json() {  # <backlog-json-file> <tasks-json-file>
            | select(($work.hold_reason != null and $work.hold_kind != null) | not)
            | {id,title:((.backlog.title // .id) | trunc(90)),blocked_by:null,
               blocked_by_ids:[],unresolved_blocker_ids:[],
-              reason:((.current_state.detail // .current_state.state) | trunc(120)),source:"child-state"} ]) as $holds_all
+              reason:((.current_state.detail // .current_state.state) | trunc(120)),source:"child-state"} ]) as $holds_unfiltered
+    | ([ $steward_exemptions[] as $exemption
+         | ([ $tasks[] | select(.id == $exemption.task_id) | .current_state.state ] | first) as $current_state
+         | $exemption + {active:($current_state == $exemption.state
+                                  and $exemption.reviewed_date <= $today
+                                  and $today <= $exemption.expires_on)} ]) as $declared_exemptions
+    | ($declared_exemptions | map(select(.active) | .task_id)) as $active_exemption_ids
+    | ($holds_unfiltered | map(select(.id as $id | $active_exemption_ids | index($id) | not))) as $holds_all
     | ($backlog.present == true
        and ($unstructured_current | length) == 0
        and ($unknown_children | length) == 0
@@ -1096,6 +1134,7 @@ secondmate_home_summary_json() {  # <backlog-json-file> <tasks-json-file>
         active_children:$active_all[:$child_n],
         decisions_open:$decisions_all[:$decisions_n],
         holds:$holds_all[:$queued_n],
+        steward_exemptions:($declared_exemptions | map({task_id,reason,set_by,reviewed_date,expires_on,state,active})),
         queued:([$queued_all[] | {id:(.id | trunc(120)),title:(.title | trunc(120)),
           blocked_by:((.blocked_by // null) | if . == null then null else trunc(120) end),
           blocked_by_ids:((.blocked_by_ids // []) | map(trunc(120))),
@@ -1989,10 +2028,13 @@ MAIN_INVENTORY_JSON_FILE="$JSON_TRANSPORT_DIR/main-inventory.json"
 SCOUT_REPORTS_JSON_FILE="$JSON_TRANSPORT_DIR/scout-reports.json"
 SECONDMATE_CURRENT_JSON_FILE="$JSON_TRANSPORT_DIR/secondmate-current.json"
 SECONDMATE_LANDED_JSON_FILE="$JSON_TRANSPORT_DIR/secondmate-landed.json"
+STEWARD_EXEMPTIONS_JSON_FILE="$JSON_TRANSPORT_DIR/steward-exemptions.json"
 printf '%s\n' "$BACKLOG_JSON" > "$BACKLOG_JSON_FILE" \
   || { echo "fm-fleet-snapshot: temporary backlog file write failed" >&2; exit 1; }
 printf '%s\n' "$TASKS_JSON" > "$TASKS_JSON_FILE" \
   || { echo "fm-fleet-snapshot: temporary task file write failed" >&2; exit 1; }
+steward_exemptions_json "$STATE/steward-exemptions.json" > "$STEWARD_EXEMPTIONS_JSON_FILE" \
+  || { echo "fm-fleet-snapshot: steward exemption read failed" >&2; exit 1; }
 
 CONTRIBUTIONS_JSON_FILE="$JSON_TRANSPORT_DIR/contributions.json"
 CONTRIBUTION_TASKS_JSON=$(contribution_tasks_json) \
