@@ -1112,7 +1112,7 @@ EOF
   record_claude_idle "$home/state" long-held
   printf 'blocked: awaiting an external review\n' > "$home/state/long-held.status"
   cat > "$home/state/steward-exemptions.json" <<'EOF'
-{"schema":"fm-steward-exemptions.v1","exemptions":[{"task_id":"long-held","reason":"durable external review hold","set_by":"steward","reviewed_date":"2026-09-17","expires_on":"2026-10-17","state":"blocked","detail":"awaiting an external review"}]}
+{"schema":"fm-steward-exemptions.v1","exemptions":[{"task_id":"long-held","reason":"durable external review hold","set_by":"steward","reviewed_date":"2026-09-17","expires_on":"2026-10-17","state":"blocked","detail":"awaiting an external review","hold_identity":{"source":"backlog","kind":"external","reason":"awaits an external review"},"decision_keys":["default"]}]}
 EOF
   fakebin=$(make_fakebin "$home")
   out=$(PATH="$fakebin:$PATH" FM_HOME="$home" FM_SNAPSHOT_NOW=2026-09-17T00:00:00Z "$SNAPSHOT" --secondmate-home-summary)
@@ -1123,7 +1123,7 @@ EOF
       and (.decisions_open | length) == 0
       and .counts.holds == 0
       and .counts.decisions_open == 0
-      and .steward_exemptions == [{task_id:"long-held",reason:"durable external review hold",set_by:"steward",reviewed_date:"2026-09-17",expires_on:"2026-10-17",state:"blocked",detail:"awaiting an external review",active:true}]
+      and .steward_exemptions == [{task_id:"long-held",reason:"durable external review hold",set_by:"steward",reviewed_date:"2026-09-17",expires_on:"2026-10-17",state:"blocked",detail:"awaiting an external review",hold_identity:{source:"backlog",kind:"external",reason:"awaits an external review"},decision_keys:["default"],active:true}]
   ' >/dev/null || fail "active steward exemption must be declared but removed from holds: $out"
 
   printf 'blocked: credentials revoked\n' > "$home/state/long-held.status"
@@ -1148,15 +1148,16 @@ EOF
 
   rm -rf "$home/projects/held"
   cat > "$home/state/steward-exemptions.json" <<'EOF'
-{"schema":"fm-steward-exemptions.v1","exemptions":[{"task_id":"long-held","reason":"durable stopped external hold","set_by":"steward","reviewed_date":"2026-09-17","expires_on":"2026-10-17","state":"unknown","detail":"worktree gone (torn down?)"}]}
+{"schema":"fm-steward-exemptions.v1","exemptions":[{"task_id":"long-held","reason":"durable stopped external hold","set_by":"steward","reviewed_date":"2026-09-17","expires_on":"2026-10-17","state":"unknown","detail":"worktree gone (torn down?)","hold_identity":{"source":"backlog","kind":"external","reason":"awaits an external review"}}]}
 EOF
+  printf 'needs-decision [key=new-route]: choose a new route\n' > "$home/state/long-held.status"
   out=$(PATH="$fakebin:$PATH" FM_HOME="$home" FM_SNAPSHOT_NOW=2026-09-17T00:00:00Z "$SNAPSHOT" --secondmate-home-summary)
   printf '%s' "$out" | jq -e '
     .valid == true
       and .invalidity == {kind:null,ids:[]}
-      and .state == "no_active_work"
+      and .state == "captain_decision"
       and (.holds | length) == 0
-      and (.decisions_open | length) == 0
+      and (.decisions_open | map({id,key,summary})) == [{id:"long-held",key:"new-route",summary:"choose a new route"}]
       and .steward_exemptions[0].active == true
       and (.endpoints | map(select(.id == "long-held" and .state == "unknown")) | length) == 1
   ' >/dev/null || fail "an exact stopped-lane exemption must suppress flags without hiding endpoint inventory: $out"
