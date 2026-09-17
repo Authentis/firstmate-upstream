@@ -1758,6 +1758,12 @@ test_no_run_codex_tmux_pane_reads_working_and_idle() {
   assert_not_contains "$out" "state: parked" "a decision-only status log cannot override positive idle evidence"
   assert_not_contains "$out" "codex-unverified" "a readable Codex pane is never left unclassified"
 
+  FM_FAKE_PANE_TEXT=$'previous response\n\n› draft not submitted\n\n  gpt-5.5 xhigh · Context 100% left · Ready'
+  out=$(run_crew_state "$d" feat-codex-pane)
+  assert_contains "$out" "state: idle" "a ready Codex composer containing a draft reads idle"
+  assert_contains "$out" "source: pane" "the drafted idle Codex prompt reports pane evidence"
+  assert_not_contains "$out" "codex-unverified" "a ready Codex draft is never left unclassified"
+
   for pane in 'fatal: authentication failed' 'Select an option to continue' '$'; do
     FM_FAKE_PANE_TEXT=$pane
     out=$(run_crew_state "$d" feat-codex-pane)
