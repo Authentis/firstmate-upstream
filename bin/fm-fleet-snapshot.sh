@@ -1020,6 +1020,15 @@ secondmate_home_summary_json() {  # <backlog-json-file> <tasks-json-file>
       | sort_by((.value | filed_epoch) as $epoch
           | if $epoch == null then [1, 0, .key] else [0, -$epoch, .key] end)
       | map(.value);
+    def steward_exemption_matches($entry; $exemption):
+      $exemption._eligible == true
+      and $exemption.task_id == $entry.id
+      and (if $entry._identity_class == "hold" then
+             ($exemption.hold_identity | type) == "object"
+             and $exemption.hold_identity == $entry._hold_identity
+           elif $entry._identity_class == "decision" then
+             (($exemption.decision_keys // []) | index($entry.key)) != null
+           else false end);
     ([ $backlog.records[]?
        | select((.state == "in_flight" or .state == "queued") and (.structured | not)) ]) as $unstructured_current
     | ([ $backlog.records[]? | select(.state == "in_flight" and .structured) ]) as $owned_in_flight
@@ -1039,32 +1048,24 @@ secondmate_home_summary_json() {  # <backlog-json-file> <tasks-json-file>
             _hold_identity:{source:"backlog",kind:(.hold_kind // null),reason:.hold_reason}} ]) as $captain_holds_all
     | ([ $queued_all[]
          | select((.unresolved_blocker_ids | length) > 0 or (.hold_reason != null and .hold_kind != null))
-         | {id,identity:{source:"backlog",kind:(.hold_kind // null),reason:(.hold_reason // .blocked_reason // "blocked")}} ]
+         | {id,_identity_class:"hold",_hold_identity:{source:"backlog",kind:(.hold_kind // null),reason:(.hold_reason // .blocked_reason // "blocked")}} ]
        + [ $owned_in_flight[] as $work
            | $tasks[]
            | select(.id == $work.id and (.current_state.state == "parked" or .current_state.state == "paused" or .current_state.state == "blocked"))
            | select(($work.hold_reason != null and $work.hold_kind != null) | not)
-           | {id,identity:{source:"child-state",kind:null,reason:(.current_state.detail // .current_state.state)}} ]) as $durable_hold_identities
-    | ([ $tasks[] as $task | ($task.hints.open_decisions // [])[] | {id:$task.id,key} ]) as $durable_decision_identities
+           | {id,_identity_class:"hold",_hold_identity:{source:"child-state",kind:null,reason:(.current_state.detail // .current_state.state)}} ]
+       + [ $tasks[] as $task
+           | ($task.hints.open_decisions // [])[]
+           | {id:$task.id,key,_identity_class:"decision"} ]) as $durable_steward_rows
     | ([ $steward_exemptions[] as $exemption
          | ([ $tasks[] | select(.id == $exemption.task_id) | .current_state ] | first) as $current_state
-         | $exemption + {active:($current_state != null
-                                  and $current_state.state == $exemption.state
-                                  and $current_state.detail == $exemption.detail
-                                  and $exemption.reviewed_date <= $today
-                                  and $today <= $exemption.expires_on
-                                  and (if $exemption | has("hold_identity") then
-                                         any($durable_hold_identities[];
-                                             .id == $exemption.task_id and .identity == $exemption.hold_identity)
-                                       elif (($exemption.decision_keys // []) | length) > 0 then
-                                         any($durable_decision_identities[];
-                                             . as $identity
-                                             | $identity.id == $exemption.task_id
-                                               and ((($exemption.decision_keys // []) | index($identity.key)) != null))
-                                       else
-                                         any($durable_hold_identities[]; .id == $exemption.task_id)
-                                       end))} ]) as $declared_exemptions
-    | ($declared_exemptions | map(select(.active) | .task_id)) as $active_exemption_ids
+         | ($exemption + {_eligible:($current_state != null
+                                      and $current_state.state == $exemption.state
+                                      and $current_state.detail == $exemption.detail
+                                      and $exemption.reviewed_date <= $today
+                                      and $today <= $exemption.expires_on)}) as $candidate
+         | $candidate + {active:any($durable_steward_rows[];
+                                    steward_exemption_matches(.; $candidate))} ]) as $declared_exemptions
     | ([ $backlog.records[]? | select(landed_record)
          | {id:(.id | trunc(120)),title:(.title | trunc(120)),
             kind:((.kind // null) | if . == null then null else trunc(40) end),
@@ -1082,7 +1083,14 @@ secondmate_home_summary_json() {  # <backlog-json-file> <tasks-json-file>
     | ([ $tasks[]
          | select(.current_state.state == "unknown"
                   or (.current_state.state == "stopped" and (.id as $id | $held_stopped_ids | index($id) | not)))
-         | select(.id as $id | $active_exemption_ids | index($id) | not) ]) as $unknown_children
+         | select(. as $task
+                  | any($durable_steward_rows[];
+                        . as $entry
+                        | $entry.id == $task.id
+                          and $entry._identity_class == "hold"
+                          and any($declared_exemptions[];
+                                  steward_exemption_matches($entry; .)))
+                    | not) ]) as $unknown_children
     | ([ $owned_in_flight[]
          | select(.requires_child_metadata)
          | select(.id as $id | [$tasks[].id] | index($id) | not) ]) as $orphan_in_flight
@@ -1125,20 +1133,20 @@ secondmate_home_summary_json() {  # <backlog-json-file> <tasks-json-file>
             source:.current_state.source,
             doing:((.current_state.detail // "") | trunc(120))} ]) as $active_all
     | (($captain_holds_all
+        | map(._identity_class = "hold")
         | map(select(. as $entry
                      | any($declared_exemptions[];
-                           .active and .task_id == $entry.id
-                           and ((has("hold_identity") | not)
-                                or .hold_identity == $entry._hold_identity))
+                           steward_exemption_matches($entry; .))
                        | not))
-        | map(del(._hold_identity)))
+        | map(del(._identity_class, ._hold_identity)))
        + ([ $tasks[] as $t | ($t.hints.open_decisions // [])[]
-            | {id:$t.id,key,verb,summary:(.summary | trunc(160)),reason:null,source:"status"} ]
+            | {id:$t.id,key,verb,summary:(.summary | trunc(160)),reason:null,source:"status",
+               _identity_class:"decision"} ]
           | map(select(. as $entry
                        | any($declared_exemptions[];
-                             .active and .task_id == $entry.id
-                             and ((.decision_keys // []) | index($entry.key)) != null)
-                         | not)))) as $decisions_all
+                             steward_exemption_matches($entry; .))
+                         | not))
+          | map(del(._identity_class)))) as $decisions_all
     | ([ $queued_all[]
          | select((.unresolved_blocker_ids | length) > 0 or (.hold_reason != null and .hold_kind != null))
          | {id:(.id | trunc(120)),title:(.title | trunc(90)),
@@ -1146,6 +1154,7 @@ secondmate_home_summary_json() {  # <backlog-json-file> <tasks-json-file>
             blocked_by_ids:(.blocked_by_ids | map(trunc(120))),
             unresolved_blocker_ids:(.unresolved_blocker_ids | map(trunc(120))),
             reason:((.hold_reason // .blocked_reason // "blocked") | trunc(120)),source:"backlog",
+            _identity_class:"hold",
             _hold_identity:{source:"backlog",kind:(.hold_kind // null),reason:(.hold_reason // .blocked_reason // "blocked")}} ]
        + [ $owned_in_flight[] as $work
            | $tasks[]
@@ -1154,15 +1163,14 @@ secondmate_home_summary_json() {  # <backlog-json-file> <tasks-json-file>
            | {id,title:((.backlog.title // .id) | trunc(90)),blocked_by:null,
               blocked_by_ids:[],unresolved_blocker_ids:[],
               reason:((.current_state.detail // .current_state.state) | trunc(120)),source:"child-state",
+              _identity_class:"hold",
               _hold_identity:{source:"child-state",kind:null,reason:(.current_state.detail // .current_state.state)}} ]) as $holds_unfiltered
     | ($holds_unfiltered
        | map(select(. as $entry
                     | any($declared_exemptions[];
-                          .active and .task_id == $entry.id
-                          and ((has("hold_identity") | not)
-                               or .hold_identity == $entry._hold_identity))
+                          steward_exemption_matches($entry; .))
                       | not))
-       | map(del(._hold_identity))) as $holds_all
+       | map(del(._identity_class, ._hold_identity))) as $holds_all
     | ($backlog.present == true
        and ($unstructured_current | length) == 0
        and ($unknown_children | length) == 0
