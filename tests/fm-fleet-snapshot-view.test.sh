@@ -1112,7 +1112,7 @@ EOF
   record_claude_idle "$home/state" long-held
   printf 'blocked: awaiting an external review\n' > "$home/state/long-held.status"
   cat > "$home/state/steward-exemptions.json" <<'EOF'
-{"schema":"fm-steward-exemptions.v1","exemptions":[{"task_id":"long-held","reason":"durable external review hold","set_by":"steward","reviewed_date":"2026-09-17","expires_on":"2026-10-17","state":"blocked"}]}
+{"schema":"fm-steward-exemptions.v1","exemptions":[{"task_id":"long-held","reason":"durable external review hold","set_by":"steward","reviewed_date":"2026-09-17","expires_on":"2026-10-17","state":"blocked","detail":"awaiting an external review"}]}
 EOF
   fakebin=$(make_fakebin "$home")
   out=$(PATH="$fakebin:$PATH" FM_HOME="$home" FM_SNAPSHOT_NOW=2026-09-17T00:00:00Z "$SNAPSHOT" --secondmate-home-summary)
@@ -1120,8 +1120,18 @@ EOF
     .valid == true
       and .state == "no_active_work"
       and (.holds | length) == 0
-      and .steward_exemptions == [{task_id:"long-held",reason:"durable external review hold",set_by:"steward",reviewed_date:"2026-09-17",expires_on:"2026-10-17",state:"blocked",active:true}]
+      and .steward_exemptions == [{task_id:"long-held",reason:"durable external review hold",set_by:"steward",reviewed_date:"2026-09-17",expires_on:"2026-10-17",state:"blocked",detail:"awaiting an external review",active:true}]
   ' >/dev/null || fail "active steward exemption must be declared but removed from holds: $out"
+
+  printf 'blocked: credentials revoked\n' > "$home/state/long-held.status"
+  out=$(PATH="$fakebin:$PATH" FM_HOME="$home" FM_SNAPSHOT_NOW=2026-09-17T00:00:00Z "$SNAPSHOT" --secondmate-home-summary)
+  printf '%s' "$out" | jq -e '
+    .valid == true
+      and .state == "externally_held"
+      and (.holds | map(.id) == ["long-held"])
+      and (.decisions_open | map(select(.id == "long-held" and .summary == "credentials revoked")) | length) == 1
+      and .steward_exemptions[0].active == false
+  ' >/dev/null || fail "same-state detail changes must deactivate steward exemptions: $out"
 
   printf 'done: review completed\n' > "$home/state/long-held.status"
   out=$(PATH="$fakebin:$PATH" FM_HOME="$home" FM_SNAPSHOT_NOW=2026-09-17T00:00:00Z "$SNAPSHOT" --secondmate-home-summary)
