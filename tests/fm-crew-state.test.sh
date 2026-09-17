@@ -174,11 +174,13 @@ case "${1:-}" in
     # A successful but empty inventory: it omits the crew's window, so absence
     # is proved by the answer rather than by an addressed call failing. Only
     # reached once display-message has already failed.
+    [ -z "${FM_FAKE_TMUX_WINDOW_NAME:-}" ] || printf '%s\n' "$FM_FAKE_TMUX_WINDOW_NAME"
     ;;
   display-message)
     [ "${FM_FAKE_TMUX_MISSING:-0}" = 1 ] && exit 1
     case "${*: -1}" in
       '#{cursor_y}') printf '%s\n' "${FM_FAKE_CURSOR_Y:-1}" ;;
+      '#{pane_current_command}') printf '%s\n' "${FM_FAKE_TMUX_CURRENT_COMMAND:-}" ;;
       *) printf '%%1\n' ;;
     esac ;;
   capture-pane)
@@ -294,6 +296,8 @@ reset_fakes() {
   FM_FAKE_PANE_TEXT=
   FM_FAKE_TMUX_MISSING=0
   FM_FAKE_TMUX_UNREADABLE=0
+  FM_FAKE_TMUX_WINDOW_NAME=
+  FM_FAKE_TMUX_CURRENT_COMMAND=
   FM_FAKE_HERDR_BUSY=0
   FM_FAKE_HERDR_MISSING=0
   FM_FAKE_HERDR_READ_FAIL=0
@@ -313,6 +317,7 @@ reset_fakes() {
   FM_FAKE_GLAB_READ_LOG=
   unset FM_FAKE_PR_47_STATE FM_FAKE_PR_47_MERGED FM_FAKE_PR_48_STATE FM_FAKE_PR_48_MERGED
   export FM_FAKE_AXI_STATUS FM_FAKE_AXI_STATUS_RUN FM_FAKE_RUNS_LIST FM_FAKE_BUSY FM_FAKE_BUSY_TEXT FM_FAKE_CURSOR_Y FM_FAKE_PANE_TEXT FM_FAKE_TMUX_MISSING FM_FAKE_TMUX_UNREADABLE
+  export FM_FAKE_TMUX_WINDOW_NAME FM_FAKE_TMUX_CURRENT_COMMAND
   export FM_FAKE_HERDR_BUSY FM_FAKE_HERDR_MISSING FM_FAKE_HERDR_READ_FAIL FM_FAKE_HERDR_HUSK FM_FAKE_HERDR_AGENT_STATUS FM_FAKE_HERDR_PROCESS FM_FAKE_HERDR_SHELL_PID FM_FAKE_CI_LOGS
   export FM_FAKE_DAEMON_DOWN FM_FAKE_AXI_HOME
   export FM_FAKE_AXI_HOME_ERROR FM_FAKE_AXI_STATUS_RUN_ERROR FM_FAKE_AXI_STATUS_ERROR
@@ -1759,6 +1764,15 @@ test_no_run_codex_tmux_pane_reads_working_and_idle() {
     assert_contains "$out" "state: unknown" "a Codex pane without a proven composer stays unknown"
     assert_not_contains "$out" "state: parked" "an ambiguous Codex pane cannot expose a stale status state"
   done
+
+  FM_FAKE_TMUX_WINDOW_NAME=fm-feat-codex-pane
+  FM_FAKE_TMUX_CURRENT_COMMAND=zsh
+  FM_FAKE_PANE_TEXT='$'
+  out=$(run_crew_state "$d" feat-codex-pane)
+  assert_contains "$out" "state: stopped" "a bare-shell Codex pane reads stopped"
+  assert_contains "$out" "source: pane" "the bare-shell verdict reports pane evidence"
+  assert_contains "$out" "bare shell; Codex agent process absent" "the stopped result names its positive evidence"
+  assert_not_contains "$out" "state: unknown" "a proven agent-free shell is not unclassified"
   pass "Codex tmux panes classify active and idle states without lifecycle hooks"
 }
 

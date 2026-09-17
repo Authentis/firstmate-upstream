@@ -273,8 +273,8 @@ crew_busy_verdict() {  # <target>
 # It reuses the bounded pane classifier that watcher delivery already uses.
 # This does not alter fm-busy-lib.sh's semantic busy-record contract for Codex
 # or any other harness or backend.
-codex_tmux_pane_verdict() {  # <target> -> busy|idle|unknown
-  local busy_state composer_state
+codex_tmux_pane_verdict() {  # <target> -> busy|idle|stopped|unknown
+  local busy_state composer_state agent_state
   [ "$TASK_BACKEND" = tmux ] && case "$HARNESS" in codex*) : ;; *) return 1 ;; esac
   busy_state=$(fm_pane_busy_state "$1" codex)
   if [ "$busy_state" = busy ]; then
@@ -284,6 +284,11 @@ codex_tmux_pane_verdict() {  # <target> -> busy|idle|unknown
   composer_state=$(fm_tmux_composer_state "$1")
   if [ "$composer_state" = empty ]; then
     printf 'idle'
+    return
+  fi
+  agent_state=$(fm_backend_agent_state "$TASK_BACKEND" "$1")
+  if [ "$agent_state" = dead ]; then
+    printf 'stopped'
   else
     printf 'unknown'
   fi
@@ -1045,6 +1050,7 @@ if [ "$KIND" != secondmate ]; then
       case "$CODEX_PANE_VERDICT" in
         busy) emit working pane "harness busy (codex tmux pane)" ;;
         idle) emit idle pane "positively empty Codex composer" ;;
+        stopped) emit stopped pane "bare shell; Codex agent process absent" ;;
         *) emit unknown pane "harness state unavailable ($BUSY_VERDICT)" ;;
       esac
       ;;
