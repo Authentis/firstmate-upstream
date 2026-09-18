@@ -1164,7 +1164,7 @@ EOF
       and (.endpoints | map(select(.id == "long-held" and .state == "unknown")) | length) == 1
   ' >/dev/null || fail "an exact stopped-lane exemption must suppress flags without hiding endpoint inventory: $out"
 
-  sed -i 's/awaits an external review/awaits a different external review/' "$home/data/backlog.md"
+  sed -i.bak 's/awaits an external review/awaits a different external review/' "$home/data/backlog.md" && rm -f "$home/data/backlog.md.bak"
   out=$(PATH="$fakebin:$PATH" FM_HOME="$home" FM_SNAPSHOT_NOW=2026-09-17T00:00:00Z "$SNAPSHOT" --secondmate-home-summary)
   printf '%s' "$out" | jq -e '
     .valid == false
@@ -1188,7 +1188,7 @@ EOF
       and .steward_exemptions[0].active == true
   ' >/dev/null || fail "a decision-bound exemption must not suppress a distinct hold, decision, or invalidity: $out"
 
-  sed -i 's/awaits a different external review/awaits an external review/' "$home/data/backlog.md"
+  sed -i.bak 's/awaits a different external review/awaits an external review/' "$home/data/backlog.md" && rm -f "$home/data/backlog.md.bak"
   mkdir -p "$home/projects/held"
   fm_write_meta "$home/state/long-held.meta" \
     "window=firstmate:fm-long-held" "worktree=$home/projects/held" \
@@ -1204,7 +1204,7 @@ EOF
       and .steward_exemptions[0].active == true
   ' >/dev/null || fail "a stopped-bound exemption must activate for the exact stopped pane state: $out"
 
-  sed -i 's/"state":"stopped","detail":"bare shell; Codex agent process absent"/"state":"unknown","detail":"harness state unavailable (unknown codex-unverified)"/' "$home/state/steward-exemptions.json"
+  sed -i.bak 's/"state":"stopped","detail":"bare shell; Codex agent process absent"/"state":"unknown","detail":"harness state unavailable (unknown codex-unverified)"/' "$home/state/steward-exemptions.json" && rm -f "$home/state/steward-exemptions.json.bak"
   out=$(PATH="$fakebin:$PATH" FM_HOME="$home" FM_SNAPSHOT_NOW=2026-09-17T00:00:00Z "$SNAPSHOT" --secondmate-home-summary)
   printf '%s' "$out" | jq -e '
     (.holds | map(.id) == ["long-held"])
@@ -1212,7 +1212,7 @@ EOF
       and .steward_exemptions[0].active == false
   ' >/dev/null || fail "a superseded unknown exemption must not match a stopped pane state: $out"
 
-  sed -i 's/"expires_on":"2026-10-17"/"expires_on":"2026-02-31"/' "$home/state/steward-exemptions.json"
+  sed -i.bak 's/"expires_on":"2026-10-17"/"expires_on":"2026-02-31"/' "$home/state/steward-exemptions.json" && rm -f "$home/state/steward-exemptions.json.bak"
   out=$(PATH="$fakebin:$PATH" FM_HOME="$home" FM_SNAPSHOT_NOW=2026-02-01T00:00:00Z "$SNAPSHOT" --secondmate-home-summary)
   printf '%s' "$out" | jq -e '
     (.holds | map(.id) == ["long-held"])
@@ -1291,7 +1291,7 @@ EOF
             {id:"dos-analyst-canonical-permission-not-word-union-l351y",state:"stopped"}]
   ' >/dev/null || fail "the deployed named records must exempt both exact durable holds: $out"
 
-  sed -i 's/pending exact D3\/D4 disposition/pending a changed disposition/' "$home/data/backlog.md"
+  sed -i.bak 's/pending exact D3\/D4 disposition/pending a changed disposition/' "$home/data/backlog.md" && rm -f "$home/data/backlog.md.bak"
   out=$(PATH="$fakebin:$PATH" FM_HOME="$home" FM_SNAPSHOT_NOW=2026-09-17T00:00:00Z "$SNAPSHOT" --secondmate-home-summary)
   printf '%s' "$out" | jq -e '
     (.holds | map(.id) == ["dos-analyst-canonical-permission-not-word-union-l351y"])
