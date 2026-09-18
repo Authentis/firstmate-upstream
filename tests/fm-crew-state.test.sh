@@ -1782,6 +1782,43 @@ test_no_run_codex_tmux_pane_reads_working_and_idle() {
   pass "Codex tmux panes classify active and idle states without lifecycle hooks"
 }
 
+# The Codex pane fallback is scoped to Codex crews on tmux. A non-tmux crew or a
+# non-Codex harness whose semantic verdict is unknown must never be relabelled
+# as a stopped Codex shell, even when its backend proves the agent is gone.
+test_no_run_codex_pane_fallback_ignores_other_backends_and_harnesses() {
+  command -v jq >/dev/null 2>&1 || { pass "codex fallback scope test skipped without jq"; return; }
+  reset_fakes
+  local d out
+  d=$(new_case codex-fallback-scope)
+  make_repo_on_branch "$d/wt" fm/feat-scope-herdr
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/feat-scope-herdr.meta" "window=default:w1:p2" "worktree=$d/wt" "kind=ship" \
+    "backend=herdr" "harness=claude"
+  FM_FAKE_AXI_STATUS=""
+  FM_FAKE_RUNS_LIST=""
+  FM_FAKE_TMUX_MISSING=1
+  FM_FAKE_HERDR_AGENT_STATUS=idle
+  FM_FAKE_HERDR_PROCESS=shell
+  out=$(run_crew_state "$d" feat-scope-herdr)
+  assert_contains "$out" "state: unknown" "a herdr crew with an unknown verdict stays unknown"
+  assert_not_contains "$out" "state: stopped" "a herdr crew is never read by the Codex pane fallback"
+  assert_not_contains "$out" "Codex agent process absent" "a herdr crew never carries Codex pane evidence"
+
+  reset_fakes
+  make_repo_on_branch "$d/wt2" fm/feat-scope-tmux
+  fm_write_meta "$d/state/feat-scope-tmux.meta" "window=fm:fm-feat-scope-tmux" "worktree=$d/wt2" "kind=ship" \
+    "harness=claude"
+  FM_FAKE_AXI_STATUS=""
+  FM_FAKE_RUNS_LIST=""
+  FM_FAKE_TMUX_WINDOW_NAME=fm-feat-scope-tmux
+  FM_FAKE_TMUX_CURRENT_COMMAND=zsh
+  FM_FAKE_PANE_TEXT='$'
+  out=$(run_crew_state "$d" feat-scope-tmux)
+  assert_contains "$out" "state: unknown" "a non-Codex tmux crew with an unknown verdict stays unknown"
+  assert_not_contains "$out" "Codex agent process absent" "a non-Codex tmux crew never carries Codex pane evidence"
+  pass "the Codex pane fallback ignores non-tmux backends and non-Codex harnesses"
+}
+
 # Grok keeps its isolated temporary rendered-tail fallback until its structured
 # lifecycle is live-verified, so a grok crew still reads working from its own
 # verified signature.
@@ -3652,6 +3689,7 @@ test_other_branch_run_ignored
 test_no_run_busy_pane
 test_no_run_footer_text_alone_is_not_working
 test_no_run_codex_tmux_pane_reads_working_and_idle
+test_no_run_codex_pane_fallback_ignores_other_backends_and_harnesses
 test_no_run_grok_uses_isolated_fallback
 test_no_run_herdr_unknown_uses_backend_capture
 test_no_run_herdr_cli_failure_reads_unreachable_not_gone

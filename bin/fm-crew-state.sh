@@ -278,7 +278,8 @@ crew_busy_verdict() {  # <target>
 # or any other harness or backend.
 codex_tmux_pane_verdict() {  # <target> -> busy|idle-empty|idle-draft|stopped|unknown
   local busy_state composer_state agent_state
-  [ "$TASK_BACKEND" = tmux ] && case "$HARNESS" in codex*) : ;; *) return 1 ;; esac
+  [ "$TASK_BACKEND" = tmux ] || return 1
+  case "$HARNESS" in codex*) ;; *) return 1 ;; esac
   busy_state=$(fm_pane_busy_state "$1" codex)
   if [ "$busy_state" = busy ]; then
     printf 'busy'

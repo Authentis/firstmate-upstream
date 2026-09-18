@@ -1074,7 +1074,8 @@ secondmate_home_summary_json() {  # <backlog-json-file> <tasks-json-file>
            | {id,_identity_class:"hold",_hold_identity:{source:"child-state",kind:null,reason:(.current_state.detail // .current_state.state)}} ]
        + [ $tasks[] as $task
            | ($task.hints.open_decisions // [])[]
-           | {id:$task.id,key,_identity_class:"decision"} ]) as $durable_steward_rows
+           | {id:$task.id,key,_identity_class:"decision"} ]
+       + [ $captain_holds_all[] | {id,_identity_class:"hold",_hold_identity} ]) as $durable_steward_rows
     | ([ $steward_exemptions[] as $exemption
          | ([ $tasks[] | select(.id == $exemption.task_id) | .current_state ] | first) as $current_state
          | ($exemption + {_eligible:($current_state != null
