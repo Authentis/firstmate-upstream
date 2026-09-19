@@ -447,9 +447,9 @@ test_matrix_codex_idle_starfield_furniture() {
 }
 
 test_matrix_pi_separated_needs_identity() {
-  # Real idle pi: a blank row between two solid rules. The blank row alone is
+  # Real Pi: a blank row between two solid rules. The blank row alone is
   # exactly what the strict rule refuses; only structure PLUS a live
-  # idle/done pi identity proves the composer (herdr's rule, now
+  # idle/done/working pi identity proves the composer (herdr's rule, now
   # fleet-wide; tmux supplies identity from its foreground-process probe).
   local screen typed pi_idle pi_working pi_blocked none
   screen=$'transcript\n────────────────────────\n\n────────────────────────\n footer'
@@ -463,8 +463,9 @@ test_matrix_pi_separated_needs_identity() {
     || fail "an identity-capable profile should request the lazy identity probe"
   # No identity capability (cmux/orca/zellij): the shape is unprovable.
   assert_screen "pi pair without identity capability" unknown "$CAPS_PLAIN" "$screen"
-  # A working pi cannot authorize injection into the blank region.
-  assert_screen "working pi defers" unknown "$CAPS_STYLED" "$screen" '' "$pi_working"
+  # A working Pi queues typed input in this structurally proven blank composer.
+  assert_screen "working pi queues in blank composer" empty "$CAPS_STYLED" "$screen" '' "$pi_working"
+  assert_screen "working pi queues on tmux" empty "$CAPS_TMUX" "$screen" 2 "$pi_working"
   # A pi parked on an interactive prompt reports `blocked`: it is waiting on a
   # human keystroke, so the blank region is a menu's, not a free composer's.
   # Typing there answers the prompt and the text is discarded (issue #2797).
@@ -476,13 +477,14 @@ test_matrix_pi_separated_needs_identity() {
   assert_screen "absent identity cannot prove blank pi pair" unknown "$CAPS_TMUX" "$screen" 2 probe-absent
   typed=$'────────────────────────\nfix the flaky test\n────────────────────────'
   assert_screen "pi typed" pending "$CAPS_STYLED" "$typed" '' "$pi_idle"
+  assert_screen "working pi typed" pending "$CAPS_STYLED" "$typed" '' "$pi_working"
   typed=$'────────────────────────\n❯\n────────────────────────'
   assert_screen "pi lone-glyph draft with identity" pending "$CAPS_STYLED" "$typed" '' "$pi_idle"
   assert_screen "pi lone-glyph draft on tmux" pending "$CAPS_TMUX" "$typed" 1 "$pi_idle"
   assert_screen "lone glyph without identity capability" empty "$CAPS_STYLED_NOID" "$typed"
   assert_screen "lone glyph on plain backend" empty "$CAPS_PLAIN" "$typed"
   assert_screen "lone glyph with non-pi identity" empty "$CAPS_STYLED" "$typed" '' "$none"
-  pass "matrix: pi's separated composer needs identity + structure; the blank row alone never proves it"
+  pass "matrix: Pi's separated composer needs identity + structure; the blank row alone never proves it"
 }
 
 test_matrix_opencode_leftbar_signals() {
