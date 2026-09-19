@@ -1,0 +1,61 @@
+=== S1: absent ledger -> []
+$ bin/fm-nm-findings-lib.sh fold $DATA no-such-task
+[]
+exit=0
+
+=== S2: round 1 review presents A,B,C; worker selects only A; round 2 presents only C (B dropped by the gate)
+{"round":1,"step":"review","finding":{"id":"A","severity":"warning","description":"alpha original text"}}
+{"round":1,"step":"review","finding":{"id":"B","severity":"warning","description":"beta: unselected, later dropped by the gate"}}
+{"round":1,"step":"review","finding":{"id":"C","severity":"info","description":"gamma original"}}
+{"round":1,"step":"review","finding_id":"A","disposition":"fixed"}
+{"round":2,"step":"review","finding":{"id":"C","severity":"info","description":"gamma REPHRASED in round 2"}}
+{"round":2,"step":"review","finding_id":"C","disposition":"deferred","deferred_owner":"github","deferred_id":"#123"}
+$ bin/fm-nm-findings-lib.sh fold $DATA demo-nm
+{"step":"review","id":"A","disposition":"fixed","first_seen":{"round":1,"step":"review"},"last_seen":{"round":1,"step":"review"},"deferred_owner":null,"deferred_id":null,"desc":"alpha original text"}
+{"step":"review","id":"B","disposition":"open","first_seen":{"round":1,"step":"review"},"last_seen":{"round":1,"step":"review"},"deferred_owner":null,"deferred_id":null,"desc":"beta: unselected, later dropped by the gate"}
+{"step":"review","id":"C","disposition":"deferred","first_seen":{"round":1,"step":"review"},"last_seen":{"round":2,"step":"review"},"deferred_owner":"github","deferred_id":"#123","desc":"gamma original"}
+exit=
+
+=== S3: same id 'unused-helper' from review and document; only review's is fixed
+{"round":3,"step":"review","finding":{"id":"unused-helper","description":"review: helper x unused"}}
+{"round":3,"step":"document","finding":{"id":"unused-helper","description":"document: helper y undocumented"}}
+{"round":3,"step":"review","finding_id":"unused-helper","disposition":"fixed"}
+$ bin/fm-nm-findings-lib.sh fold $DATA demo-nm
+{"step":"document","id":"unused-helper","disposition":"open","first_seen":{"round":3,"step":"document"},"last_seen":{"round":3,"step":"document"},"deferred_owner":null,"deferred_id":null,"desc":"document: helper y undocumented"}
+{"step":"review","id":"A","disposition":"fixed","first_seen":{"round":1,"step":"review"},"last_seen":{"round":1,"step":"review"},"deferred_owner":null,"deferred_id":null,"desc":"alpha original text"}
+{"step":"review","id":"B","disposition":"open","first_seen":{"round":1,"step":"review"},"last_seen":{"round":1,"step":"review"},"deferred_owner":null,"deferred_id":null,"desc":"beta: unselected, later dropped by the gate"}
+{"step":"review","id":"C","disposition":"deferred","first_seen":{"round":1,"step":"review"},"last_seen":{"round":2,"step":"review"},"deferred_owner":"github","deferred_id":"#123","desc":"gamma original"}
+{"step":"review","id":"unused-helper","disposition":"fixed","first_seen":{"round":3,"step":"review"},"last_seen":{"round":3,"step":"review"},"deferred_owner":null,"deferred_id":null,"desc":"review: helper x unused"}
+exit=
+
+=== S4: adversarial lines - fabricated closure for B with no step match, B closed under wrong step, deferred without owner, garbage, then A re-presented after fix
+{"round":4,"step":"document","finding_id":"B","disposition":"fixed"}
+{"round":4,"step":"review","finding_id":"ghost","disposition":"fixed"}
+{"round":4,"step":"review","finding_id":"B","disposition":"deferred","deferred_owner":"github"}
+{"round":4,"step":"review","finding_id":"B","disposition":"fixed","deferred_owner":"x","deferred_id":"y"}
+this is not json {{{
+{"round":4,"step":"review","finding":{"id":"A","description":"alpha presented again"}}
+$ bin/fm-nm-findings-lib.sh fold $DATA demo-nm
+{"step":"document","id":"unused-helper","disposition":"open","first_seen":{"round":3,"step":"document"},"last_seen":{"round":3,"step":"document"},"deferred_owner":null,"deferred_id":null,"desc":"document: helper y undocumented"}
+{"step":"review","id":"A","disposition":"open","first_seen":{"round":1,"step":"review"},"last_seen":{"round":4,"step":"review"},"deferred_owner":null,"deferred_id":null,"desc":"alpha original text"}
+{"step":"review","id":"B","disposition":"open","first_seen":{"round":1,"step":"review"},"last_seen":{"round":1,"step":"review"},"deferred_owner":null,"deferred_id":null,"desc":"beta: unselected, later dropped by the gate"}
+{"step":"review","id":"C","disposition":"deferred","first_seen":{"round":1,"step":"review"},"last_seen":{"round":2,"step":"review"},"deferred_owner":"github","deferred_id":"#123","desc":"gamma original"}
+{"step":"review","id":"unused-helper","disposition":"fixed","first_seen":{"round":3,"step":"review"},"last_seen":{"round":3,"step":"review"},"deferred_owner":null,"deferred_id":null,"desc":"review: helper x unused"}
+exit=
+
+=== S5: explicit closures for B and A (review) then document's unused-helper
+$ bin/fm-nm-findings-lib.sh fold $DATA demo-nm
+{"step":"document","id":"unused-helper","disposition":"fixed","first_seen":{"round":3,"step":"document"},"last_seen":{"round":3,"step":"document"},"deferred_owner":null,"deferred_id":null,"desc":"document: helper y undocumented"}
+{"step":"review","id":"A","disposition":"fixed","first_seen":{"round":1,"step":"review"},"last_seen":{"round":4,"step":"review"},"deferred_owner":null,"deferred_id":null,"desc":"alpha original text"}
+{"step":"review","id":"B","disposition":"skipped-closed","first_seen":{"round":1,"step":"review"},"last_seen":{"round":1,"step":"review"},"deferred_owner":null,"deferred_id":null,"desc":"beta: unselected, later dropped by the gate"}
+{"step":"review","id":"C","disposition":"deferred","first_seen":{"round":1,"step":"review"},"last_seen":{"round":2,"step":"review"},"deferred_owner":"github","deferred_id":"#123","desc":"gamma original"}
+{"step":"review","id":"unused-helper","disposition":"fixed","first_seen":{"round":3,"step":"review"},"last_seen":{"round":3,"step":"review"},"deferred_owner":null,"deferred_id":null,"desc":"review: helper x unused"}
+exit=
+open count: 0
+
+=== S6: sourced function form matches CLI
+[["document","unused-helper","fixed"],["review","A","fixed"],["review","B","skipped-closed"],["review","C","deferred"],["review","unused-helper","fixed"]]
+
+=== usage error
+usage: fm-nm-findings-lib.sh fold <data-dir> <task-id>
+exit=2
