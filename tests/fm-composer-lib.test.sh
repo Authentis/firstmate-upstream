@@ -451,9 +451,9 @@ test_matrix_pi_separated_needs_identity() {
   # exactly what the strict rule refuses; only structure PLUS a live
   # idle/done/working pi identity proves the composer (herdr's rule, now
   # fleet-wide; tmux supplies identity from its foreground-process probe).
-  local screen typed pi_idle pi_working pi_blocked none
+  local screen typed pi_idle pi_working pi_busy pi_blocked none
   screen=$'transcript\n────────────────────────\n\n────────────────────────\n footer'
-  pi_idle=$(printf 'pi\tidle'); pi_working=$(printf 'pi\tworking'); none=$(printf 'zsh\t')
+  pi_idle=$(printf 'pi\tidle'); pi_working=$(printf 'pi\tworking'); pi_busy=$(printf 'pi\tbusy'); none=$(printf 'zsh\t')
   pi_blocked=$(printf 'pi\tblocked')
   assert_screen "pi idle with identity" empty "$CAPS_STYLED" "$screen" '' "$pi_idle"
   assert_screen "pi idle on tmux with identity" empty "$CAPS_TMUX" "$screen" 2 "$pi_idle"
@@ -465,7 +465,8 @@ test_matrix_pi_separated_needs_identity() {
   assert_screen "pi pair without identity capability" unknown "$CAPS_PLAIN" "$screen"
   # A working Pi queues typed input in this structurally proven blank composer.
   assert_screen "working pi queues in blank composer" empty "$CAPS_STYLED" "$screen" '' "$pi_working"
-  assert_screen "working pi queues on tmux" empty "$CAPS_TMUX" "$screen" 2 "$pi_working"
+  # tmux infers busy from the footer and cannot tell working from blocked.
+  assert_screen "footer-busy pi on tmux stays unknown" unknown "$CAPS_TMUX" "$screen" 2 "$pi_busy"
   # A pi parked on an interactive prompt reports `blocked`: it is waiting on a
   # human keystroke, so the blank region is a menu's, not a free composer's.
   # Typing there answers the prompt and the text is discarded (issue #2797).
