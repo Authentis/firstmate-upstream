@@ -1559,11 +1559,13 @@ _fm_composer_classify_bare_pi_overlap() {  # <screen> <styled> <has-identity> <i
 # rule, now fleet-wide). A missing identity capability keeps the shape
 # unknown; an unfetched identity on an identity-capable backend asks the
 # adapter to probe (lazily) and re-call. Proven input remains pending for every
-# live pi state, while only an idle/done pi proves an empty composer. A blocked
-# pi is parked on an interactive prompt waiting for a human keystroke: its menu
-# is drawn above the separator pair, so the composer region looks free while the
-# keys would answer the prompt instead of composing (issue #2797). Structure
-# cannot disprove that, so a blocked pi defers rather than claiming empty.
+# live pi state, while idle/done/working pi proves an empty composer. The
+# structural proof is unchanged: a working Pi queues typed input in its blank
+# composer. A blocked pi is parked on an interactive prompt waiting for a human
+# keystroke: its menu is drawn above the separator pair, so the composer region
+# looks free while the keys would answer the prompt instead of composing (issue
+# #2797). Structure cannot disprove that, so a blocked pi defers rather than
+# claiming empty.
 _fm_composer_pi_verdict() {  # <screen> <styled> <has_identity> <identity>
   local screen=$1 styled=$2 has_identity=$3 identity=$4 agent agent_status state
   if [ "$has_identity" != 1 ]; then
@@ -1590,7 +1592,7 @@ _fm_composer_pi_verdict() {  # <screen> <styled> <has_identity> <identity>
     return 0
   fi
   case "$agent_status" in
-    idle|done) printf 'empty' ;;
+    idle|done|working) printf 'empty' ;;
     *) printf 'unknown' ;;
   esac
 }

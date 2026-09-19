@@ -701,6 +701,19 @@ test_idle_agent_is_not_interrupted() {
   pass "fm-control exit: an idle agent goes straight to its exit command"
 }
 
+test_working_pi_with_empty_separated_composer_exits() {
+  local dir out rc
+  dir=$(new_case working-pi-composer)
+  add_task "$dir" t1 pi
+  alive_as "$dir" pi
+  printf '────────────────────────\n\n────────────────────────\nworking Pi footer\n' > "$dir/fake/pane"
+  out=$(FM_BUSY_REGEX='working Pi footer' run_control "$dir" t1 exit); rc=$?
+  expect_code 0 "$rc" "a working Pi with a structurally empty composer should exit"$'\n'"$out"
+  [ "$(literals "$dir")" = /quit ] \
+    || fail "a working Pi with an empty separated composer should receive /quit, got: $(literals "$dir")"
+  pass "fm-control exit: a working Pi with a structurally empty separated composer receives /quit"
+}
+
 test_interrupt_without_acknowledgement_preserves_busy_state() {
   local dir gen before after out rc
   dir=$(new_case unconfirmed)
@@ -905,6 +918,7 @@ test_interrupt_refuses_when_no_agent_runs
 test_ambiguous_endpoint_refuses
 test_busy_agent_is_interrupted_before_the_exit_command
 test_idle_agent_is_not_interrupted
+test_working_pi_with_empty_separated_composer_exits
 test_interrupt_without_acknowledgement_preserves_busy_state
 test_muse_interrupt_confirms_adapter_acknowledgement
 test_interrupt_revalidates_agent_after_acknowledgement_wait
