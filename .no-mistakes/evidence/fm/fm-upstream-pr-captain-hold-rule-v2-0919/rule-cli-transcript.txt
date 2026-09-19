@@ -1,0 +1,298 @@
+=== S1: rule closes an actively held call with evidence, no board request
+$ tasks-axi add moot-call Captain call: ship PR 512? --repo sample
+ok: added moot-call (repo sample) -> Queued
+task:
+  id: moot-call
+  title: "Captain call: ship PR 512?"
+  state: queued
+  blocked: no
+  blocked_by: none
+  held: no
+  hold_reason: "-"
+  hold_kind: "-"
+  hold_until: "-"
+  kind: task
+  repo: sample
+  priority: "-"
+  created: 2026-09-19
+  closed: "-"
+  deps: none
+  links: none
+  body: ""
+help[2]:
+  - Run `tasks-axi start moot-call` to move it to in flight
+  - Run `tasks-axi block moot-call --by <other>` to record a dependency
+[exit 0]
+$ fm-captain-hold.sh hold moot-call --reason ship PR 512?
+moot-call
+[exit 0]
+$ fm-captain-hold.sh open moot-call
+[exit 0]
+$ fm-captain-hold.sh reconcile close moot-call --evidence-file /tmp/fmrule.Exqt/ev.txt
+fm-captain-hold: task moot-call has no pending board-created reconcile request
+[exit 1]
+$ fm-captain-hold.sh rule moot-call --evidence-file /tmp/fmrule.Exqt/ev.txt
+ruled: moot-call
+[exit 0]
+$ tasks-axi show moot-call --full
+task:
+  id: moot-call
+  title: "Captain call: ship PR 512?"
+  state: done
+  blocked: no
+  blocked_by: none
+  held: no
+  hold_reason: ship PR 512?
+  hold_kind: captain
+  hold_until: "-"
+  kind: task
+  repo: sample
+  priority: "-"
+  created: "-"
+  closed: 2026-09-19
+  deps: none
+  links: none
+  body: "Resolution recorded by fm-captain-hold.\nDecision digest: d2e2b747820334278ac89b32aa7286db580ed9f2a553010adf7dae12bd4527e5\nResolution mode: ruled\n\nFirstmate ruling:\nPR #512 was superseded and closed on 2026-09-05; the ship question is moot."
+[exit 0]
+$ fm-captain-hold.sh open moot-call
+[exit 1]
+=== S2: idempotent retry, drifted evidence refused, answer replay refused
+$ fm-captain-hold.sh rule moot-call --evidence-file /tmp/fmrule.Exqt/ev.txt
+ruled: moot-call
+[exit 0]
+$ fm-captain-hold.sh rule moot-call --evidence-file /tmp/fmrule.Exqt/ev2.txt
+fm-captain-hold: task moot-call records a different resolution; it cannot be ruled again
+[exit 1]
+$ fm-captain-hold.sh answer moot-call --decision-file /tmp/fmrule.Exqt/ev.txt
+fm-captain-hold: task moot-call records this resolution with mode ruled; it is not a captain-answer replay
+[exit 1]
+=== S3: missing / empty evidence refused
+$ tasks-axi add moot2 Captain call: other --repo sample
+ok: added moot2 (repo sample) -> Queued
+task:
+  id: moot2
+  title: "Captain call: other"
+  state: queued
+  blocked: no
+  blocked_by: none
+  held: no
+  hold_reason: "-"
+  hold_kind: "-"
+  hold_until: "-"
+  kind: task
+  repo: sample
+  priority: "-"
+  created: 2026-09-19
+  closed: "-"
+  deps: none
+  links: none
+  body: ""
+help[2]:
+  - Run `tasks-axi start moot2` to move it to in flight
+  - Run `tasks-axi block moot2 --by <other>` to record a dependency
+[exit 0]
+$ fm-captain-hold.sh hold moot2 --reason other
+moot2
+[exit 0]
+$ fm-captain-hold.sh rule moot2
+fm-captain-hold: --evidence-file is required; a firstmate ruling closes on durable evidence, never on assertion
+[exit 1]
+$ fm-captain-hold.sh rule moot2 --evidence-file /tmp/fmrule.Exqt/empty.txt
+fm-captain-hold: decision file must not be empty
+[exit 1]
+$ tasks-axi show moot2 --full
+task:
+  id: moot2
+  title: "Captain call: other"
+  state: queued
+  blocked: no
+  blocked_by: none
+  held: yes
+  hold_reason: other
+  hold_kind: captain
+  hold_until: "-"
+  kind: task
+  repo: sample
+  priority: "-"
+  created: 2026-09-19
+  closed: "-"
+  deps: none
+  links: none
+  body: "Captain hold set: 2026-09-19T14:17:16Z"
+[exit 0]
+=== S4: ordinary (never captain-held) tasks refused, open and done
+$ tasks-axi add plain-open Ordinary work --kind ship --repo sample --start
+ok: added plain-open (ship, repo sample) -> In flight
+task:
+  id: plain-open
+  title: Ordinary work
+  state: in_flight
+  blocked: no
+  blocked_by: none
+  held: no
+  hold_reason: "-"
+  hold_kind: "-"
+  hold_until: "-"
+  kind: ship
+  repo: sample
+  priority: "-"
+  created: 2026-09-19
+  closed: "-"
+  deps: none
+  links: none
+  body: ""
+help[2]:
+  - Run `tasks-axi done plain-open --pr <url>` when it ships
+  - Run `tasks-axi block plain-open --by <other>` to record a dependency
+[exit 0]
+$ fm-captain-hold.sh rule plain-open --evidence-file /tmp/fmrule.Exqt/ev.txt
+fm-captain-hold: task plain-open was never held for the captain; there is no ruling to record
+[exit 1]
+$ tasks-axi add plain-done Ordinary finished work --kind ship --repo sample
+ok: added plain-done (ship, repo sample) -> Queued
+task:
+  id: plain-done
+  title: Ordinary finished work
+  state: queued
+  blocked: no
+  blocked_by: none
+  held: no
+  hold_reason: "-"
+  hold_kind: "-"
+  hold_until: "-"
+  kind: ship
+  repo: sample
+  priority: "-"
+  created: 2026-09-19
+  closed: "-"
+  deps: none
+  links: none
+  body: ""
+help[2]:
+  - Run `tasks-axi start plain-done` to move it to in flight
+  - Run `tasks-axi block plain-done --by <other>` to record a dependency
+[exit 0]
+$ tasks-axi done plain-done
+ok: done plain-done -> Done
+help[1]:
+  - Run `tasks-axi ready` to dispatch work unblocked by this
+[exit 0]
+$ fm-captain-hold.sh rule plain-done --evidence-file /tmp/fmrule.Exqt/ev.txt
+fm-captain-hold: task plain-done was never held for the captain; there is no ruling to record
+[exit 1]
+$ tasks-axi show plain-done --full
+task:
+  id: plain-done
+  title: Ordinary finished work
+  state: done
+  blocked: no
+  blocked_by: none
+  held: no
+  hold_reason: "-"
+  hold_kind: "-"
+  hold_until: "-"
+  kind: ship
+  repo: sample
+  priority: "-"
+  created: "-"
+  closed: 2026-09-19
+  deps: none
+  links: none
+  body: ""
+[exit 0]
+=== S5: captain-held call closed out of band gets retroactive ruling
+$ tasks-axi add oob-call Captain call: repair path --repo sample
+ok: added oob-call (repo sample) -> Queued
+task:
+  id: oob-call
+  title: "Captain call: repair path"
+  state: queued
+  blocked: no
+  blocked_by: none
+  held: no
+  hold_reason: "-"
+  hold_kind: "-"
+  hold_until: "-"
+  kind: task
+  repo: sample
+  priority: "-"
+  created: 2026-09-19
+  closed: "-"
+  deps: none
+  links: none
+  body: ""
+help[2]:
+  - Run `tasks-axi start oob-call` to move it to in flight
+  - Run `tasks-axi block oob-call --by <other>` to record a dependency
+[exit 0]
+$ fm-captain-hold.sh hold oob-call --reason repair path
+oob-call
+[exit 0]
+$ tasks-axi done oob-call
+ok: done oob-call -> Done
+help[1]:
+  - Run `tasks-axi ready` to dispatch work unblocked by this
+[exit 0]
+$ fm-captain-hold.sh rule oob-call --evidence-file /tmp/fmrule.Exqt/ev.txt
+ruled: oob-call
+[exit 0]
+$ tasks-axi show oob-call --full
+task:
+  id: oob-call
+  title: "Captain call: repair path"
+  state: done
+  blocked: no
+  blocked_by: none
+  held: no
+  hold_reason: repair path
+  hold_kind: captain
+  hold_until: "-"
+  kind: task
+  repo: sample
+  priority: "-"
+  created: "-"
+  closed: 2026-09-19
+  deps: none
+  links: none
+  body: "Resolution recorded by fm-captain-hold.\nDecision digest: d2e2b747820334278ac89b32aa7286db580ed9f2a553010adf7dae12bd4527e5\nResolution mode: ruled\n\nFirstmate ruling:\nPR #512 was superseded and closed on 2026-09-05; the ship question is moot."
+[exit 0]
+$ fm-captain-hold.sh rule oob-call --evidence-file /tmp/fmrule.Exqt/ev.txt
+ruled: oob-call
+[exit 0]
+=== S6: task answered by captain cannot be relabeled as ruling
+$ tasks-axi add ans-call Captain call: answered --repo sample
+ok: added ans-call (repo sample) -> Queued
+task:
+  id: ans-call
+  title: "Captain call: answered"
+  state: queued
+  blocked: no
+  blocked_by: none
+  held: no
+  hold_reason: "-"
+  hold_kind: "-"
+  hold_until: "-"
+  kind: task
+  repo: sample
+  priority: "-"
+  created: 2026-09-19
+  closed: "-"
+  deps: none
+  links: none
+  body: ""
+help[2]:
+  - Run `tasks-axi start ans-call` to move it to in flight
+  - Run `tasks-axi block ans-call --by <other>` to record a dependency
+[exit 0]
+$ fm-captain-hold.sh hold ans-call --reason answered
+ans-call
+[exit 0]
+$ fm-captain-hold.sh answer ans-call --decision-file /tmp/fmrule.Exqt/dec.txt
+answered: ans-call
+[exit 0]
+$ fm-captain-hold.sh rule ans-call --evidence-file /tmp/fmrule.Exqt/dec.txt
+fm-captain-hold: task ans-call was not closed by a firstmate ruling
+[exit 1]
+$ fm-captain-hold.sh rule ans-call --evidence-file /tmp/fmrule.Exqt/ev.txt
+fm-captain-hold: task ans-call records a different resolution; it cannot be ruled again
+[exit 1]

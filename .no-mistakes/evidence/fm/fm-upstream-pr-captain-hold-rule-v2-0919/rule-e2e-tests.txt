@@ -1,0 +1,4 @@
+ok - cleanup preserves every byte of a retained body's non-ASCII characters
+ok - a secondmate home publishes a firstmate ruling on the parent channel
+ok - rule closes a moot call with evidence when reconcile close has no board request to close through
+ok - rule records a truthful evidence-only closure without fabricating captain provenance
