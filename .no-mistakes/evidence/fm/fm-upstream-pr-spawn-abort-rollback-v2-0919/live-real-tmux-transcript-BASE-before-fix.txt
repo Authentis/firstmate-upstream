@@ -1,0 +1,19 @@
+# real tmux tmux 3.6b server on isolated socket (pid 1601)
+
+=== CASE retry (task fm-live-retry-a1) ===
+--- pane runs on 'treehouse get': sleep 0.2
+--- tmux windows BEFORE: @0=zsh 
+--- fm-spawn exit=1; relevant output:
+error: treehouse get did not enter an isolated worktree within 60s (last seen '$W/retry/project': it is the spawning project itself; spawning project '$W/retry/project'); inspect window firstmate:fm-fm-live-retry-a1
+--- tmux windows AFTER:  @0=bash @1=fm-fm-live-retry-a1 
+--- task record: absent
+### retry the same task id; the pane now enters the worktree
+--- retry exit=1
+error: window firstmate:fm-fm-live-retry-a1 already exists
+--- tmux windows AFTER retry: @0=bash cwd=/Users/lundi/.no-mistakes/worktrees/7e4b90506ed5/01M2WKZYGNP7PE7W7BCYN4HYYN @1=fm-fm-live-retry-a1 cwd=$W/retry/project 
+--- retry task record:
+grep: /private/tmp/fmlive.TW1r/retry/home/state/fm-live-retry-a1.meta: No such file or directory
+
+--- final pane_current_command per window:
+@0=bash cmd=bash
+# temp world left at /private/tmp/fmlive.TW1r (under /tmp)

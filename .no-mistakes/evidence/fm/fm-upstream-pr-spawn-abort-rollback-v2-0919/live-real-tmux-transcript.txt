@@ -1,0 +1,50 @@
+# real tmux tmux 3.6b server on isolated socket (pid 56394)
+
+=== CASE retry (task fm-live-retry-a1) ===
+--- pane runs on 'treehouse get': sleep 0.2
+--- tmux windows BEFORE: @0=zsh 
+--- fm-spawn exit=1; relevant output:
+error: treehouse get did not enter an isolated worktree within 60s (last seen '$W/retry/project': it is the spawning project itself; spawning project '$W/retry/project'); inspect window firstmate:fm-fm-live-retry-a1
+--- tmux windows AFTER:  @0=bash 
+--- task record: absent
+### retry the same task id; the pane now enters the worktree
+--- retry exit=0
+spawned fm-live-retry-a1 harness=codex kind=ship mode=no-mistakes yolo=off window=firstmate:fm-fm-live-retry-a1 worktree=$W/retry/wt
+--- tmux windows AFTER retry: @0=bash cwd=/Users/lundi/.no-mistakes/worktrees/7e4b90506ed5/01M2WKZYGNP7PE7W7BCYN4HYYN @2=fm-fm-live-retry-a1 cwd=$W/retry/wt 
+--- retry task record:
+window=firstmate:fm-fm-live-retry-a1
+worktree=$W/retry/wt
+
+=== CASE replaced (task fm-live-replaced-b2) ===
+--- pane runs on 'treehouse get': tmux rename-window -t firstmate:fm-fm-live-replaced-b2 fm-someone-else
+--- tmux windows BEFORE: @0=bash 
+--- fm-spawn exit=1; relevant output:
+error: treehouse get did not enter an isolated worktree within 60s (last seen '$W/replaced/project': it is the spawning project itself; spawning project '$W/replaced/project'); inspect window firstmate:fm-fm-live-replaced-b2
+warning: leaving endpoint firstmate:fm-fm-live-replaced-b2 for task fm-live-replaced-b2 open; the window this spawn created no longer answers as fm-fm-live-replaced-b2, so a pre-existing or replaced window is never closed
+--- tmux windows AFTER:  @0=bash @3=fm-someone-else 
+--- task record: absent
+
+=== CASE partial (task fm-live-partial-c3) ===
+--- pane runs on 'treehouse get': printf "window=x\n" > $W/partial/home/state/fm-live-partial-c3.meta
+--- tmux windows BEFORE: @0=bash @3=fm-someone-else 
+--- fm-spawn exit=1; relevant output:
+error: treehouse get did not enter an isolated worktree within 60s (last seen '$W/partial/project': it is the spawning project itself; spawning project '$W/partial/project'); inspect window firstmate:fm-fm-live-partial-c3
+warning: leaving endpoint firstmate:fm-fm-live-partial-c3 for task fm-live-partial-c3 open; a task record exists, so this aborted spawn no longer owns it
+--- tmux windows AFTER:  @0=bash @3=fm-someone-else @4=fm-fm-live-partial-c3 
+--- task record: present
+
+=== CASE agent (task fm-live-agent-d4) ===
+--- pane runs on 'treehouse get': (exec -a claude /bin/sleep 3600)
+--- tmux windows BEFORE: @0=bash @3=fm-someone-else @4=fm-fm-live-partial-c3 
+--- fm-spawn exit=1; relevant output:
+error: treehouse get did not enter an isolated worktree within 60s (last seen '$W/agent/project': it is the spawning project itself; spawning project '$W/agent/project'); inspect window firstmate:fm-fm-live-agent-d4
+warning: leaving endpoint firstmate:fm-fm-live-agent-d4 for task fm-live-agent-d4 open; its agent state is 'alive', not provably agent-free
+--- tmux windows AFTER:  @0=bash @3=fm-someone-else @4=fm-fm-live-partial-c3 @5=fm-fm-live-agent-d4 
+--- task record: absent
+
+--- final pane_current_command per window:
+@0=bash cmd=bash
+@3=fm-someone-else cmd=bash
+@4=fm-fm-live-partial-c3 cmd=bash
+@5=fm-fm-live-agent-d4 cmd=sleep
+# temp world left at /private/tmp/fmlive.7ayd (under /tmp)
