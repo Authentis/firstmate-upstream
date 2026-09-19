@@ -70,7 +70,8 @@
 #   separated  - pi: content rows between two solid horizontal `─` rules, no
 #                glyph and no side border. Provable only with a live agent
 #                identity reporting an idle/done pi (herdr `agent
-#                get`; the tmux foreground-process probe), because a blank
+#                get`; the tmux foreground-process probe), or a working pi
+#                from a native status (herdr only), because a blank
 #                region between two transcript rules is otherwise exactly the
 #                strict rule's unidentifiable blank row.
 #
@@ -1559,9 +1560,12 @@ _fm_composer_classify_bare_pi_overlap() {  # <screen> <styled> <has-identity> <i
 # rule, now fleet-wide). A missing identity capability keeps the shape
 # unknown; an unfetched identity on an identity-capable backend asks the
 # adapter to probe (lazily) and re-call. Proven input remains pending for every
-# live pi state, while idle/done/working pi proves an empty composer. The
-# structural proof is unchanged: a working Pi queues typed input in its blank
-# composer. A blocked pi is parked on an interactive prompt waiting for a human
+# live pi state, while idle/done pi proves an empty composer on every
+# identity backend. A working pi proves it only when the status is native
+# (herdr `agent get`), because a native-status backend also reports `blocked`:
+# a working Pi queues typed input in its blank composer. A footer-inferred
+# status (tmux) cannot distinguish working from blocked and reports `busy`,
+# which stays unknown. A blocked pi is parked on an interactive prompt waiting for a human
 # keystroke: its menu is drawn above the separator pair, so the composer region
 # looks free while the keys would answer the prompt instead of composing (issue
 # #2797). Structure cannot disprove that, so a blocked pi defers rather than
