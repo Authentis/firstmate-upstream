@@ -1,0 +1,18 @@
+=== tmux idle Pi
+20:08:32 tmux identity=[pi idle] composer_state=empty top_rule=────────────────────────────────────────
+=== tmux working Pi probe 1
+20:08:36 tmux identity=[pi idle] composer_state=unknown top_rule=────────────────────────────────────────
+=== tmux working Pi probe 2
+20:08:40 tmux identity=[pi idle] composer_state=unknown top_rule=────────────────────────────────────────
+=== tmux working Pi probe 3
+20:08:45 tmux identity=[pi idle] composer_state=unknown top_rule=────────────────────────────────────────
+=== tmux working Pi probe 4
+20:08:49 tmux identity=[pi idle] composer_state=unknown top_rule=────────────────────────────────────────
+=== tmux working Pi probe 5
+20:08:53 tmux identity=[pi idle] composer_state=unknown top_rule=────────────────────────────────────────
+ $ sleep 30 (timeout 40s)
+ Elapsed 18.0s
+── ⠇ Working ───────────────────────────────────────────────────────────────────────────────────────────────────────────
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+/private/tmp/fmnm-pi-cwd
+↑2.6k ↓24 $0.014 (sub) 1.0%/272k (auto)                                                 (openai-codex) gpt-5.6-sol • low

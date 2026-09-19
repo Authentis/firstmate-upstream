@@ -1,0 +1,36 @@
+=== working turn, blank composer
+20:06:35 identity=[pi working] composer_state=empty top_rule=── ⠧ Working ───────────────────────────
+=== working turn, human draft typed (no Enter)
+20:06:36 identity=[pi working] composer_state=pending top_rule=── ⠏ Working ───────────────────────────
+ Elapsed 5.0s
+── ⠏ Working ──────────────────────────────────────────────────────────────────────────────────────────────────────────
+fix the flaky test
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+/private/tmp/fmnm-pi-cwd
+↑5.5k ↓53 R2.6k CH0.0% $0.030 (sub) 1.0%/272k (auto)                                   (openai-codex) gpt-5.6-sol • low
+=== working turn, draft cleared
+20:06:44 identity=[pi working] composer_state=empty top_rule=── ⠹ Working ───────────────────────────
+=== gated delivery: fm_backend_send_text_submit only if composer_state=empty
+gate composer_state=empty
+submit verdict=empty
+ $ sleep 45 (timeout 55s)
+ Elapsed 17.0s
+ Steering: When you finish, also say QUEUED-OK.
+ ↳ Option+Up to edit all queued messages
+── ⠴ Working ──────────────────────────────────────────────────────────────────────────────────────────────────────────
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+/private/tmp/fmnm-pi-cwd
+↑5.5k ↓53 R2.6k CH0.0% $0.030 (sub) 1.0%/272k (auto)                                   (openai-codex) gpt-5.6-sol • low
+=== after turn ends (status=idle)
+ Took 40.1s
+ done
+ Run the shell command sleep 45 with your bash tool, then reply with the single word done.
+ $ sleep 45 (timeout 55s)
+ (no output)
+ Took 45.2s
+ When you finish, also say QUEUED-OK.
+ done QUEUED-OK
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+/private/tmp/fmnm-pi-cwd
+↑8.2k ↓63 R2.6k CH0.0% $0.044 (sub) 1.0%/272k (auto)                                   (openai-codex) gpt-5.6-sol • low
