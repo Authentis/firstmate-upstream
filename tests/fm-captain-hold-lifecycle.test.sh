@@ -2174,11 +2174,11 @@ test_rule_closes_an_actively_held_call_without_a_board_request() {
   pass "rule closes a moot call with evidence when reconcile close has no board request to close through"
 }
 
-# An investigation inventory entry can settle as ordinary work, held for the
-# captain or not; `rule` lets that truthful closure satisfy `verify` without
-# forcing a fabricated captain answer onto the record.
-test_rule_records_an_ordinary_closure_without_fabricating_captain_words() {
-  local home id show
+# A captain-held call closed out of band leaves no resolution record; `rule`
+# lets that truthful closure satisfy `verify` without forcing a fabricated
+# captain answer onto the record.
+test_rule_records_an_out_of_band_closure_without_fabricating_captain_words() {
+  local home id show out rc
   home=$(make_home rule-ordinary-closure)
   id=sample-rule-repair-review
   mkdir -p "$home/data/$id"
@@ -2215,18 +2215,21 @@ test_rule_records_an_ordinary_closure_without_fabricating_captain_words() {
   run_teardown "$home" "$id" >/dev/null 2> "$home/teardown.err" \
     || fail "teardown still refused after the ruling was recorded: $(cat "$home/teardown.err")"
 
-  # An ordinary finished task was never the captain's item at all; `rule` can
-  # still record the truthful evidence-only attestation on it, unlike `answer`.
+  # An ordinary finished task was never the captain's item; `rule` refuses to
+  # attach a captain-call resolution to it, exactly as `answer` does.
   tasks_in "$home" add sample-rule-ordinary-work "Ordinary finished sample work" \
     --kind ship --repo sample >/dev/null
   tasks_in "$home" "done" sample-rule-ordinary-work >/dev/null
-  run_captain "$home" rule sample-rule-ordinary-work --evidence-file "$home/repair-evidence.txt" >/dev/null \
-    || fail "rule refused an ordinary finished task that was never held for the captain"
-  show=$(tasks_in "$home" show sample-rule-ordinary-work --full)
-  assert_contains "$show" "Resolution mode: ruled" "the ordinary closure did not record its ruling"
-  assert_contains "$show" "Firstmate ruling:" "the ordinary closure lost its evidence label"
-  case "$show" in
-    *"Captain decision:"*) fail "an ordinary closure's ruling was recorded as the captain's own words" ;;
+  set +e
+  out=$(run_captain "$home" rule sample-rule-ordinary-work \
+    --evidence-file "$home/repair-evidence.txt" 2>&1)
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "rule attached a resolution to an ordinary task never held for the captain"
+  assert_contains "$out" "was never held for the captain" \
+    "the refusal for an ordinary finished task did not explain itself: $out"
+  case "$(tasks_in "$home" show sample-rule-ordinary-work --full)" in
+    *"Resolution recorded by fm-captain-hold."*) fail "the refused ruling still wrote a resolution record" ;;
   esac
   pass "rule records a truthful evidence-only closure without fabricating captain provenance"
 }
@@ -4224,7 +4227,7 @@ test_normal_answers_retire_pending_reconcile_requests
 test_reconcile_closes_with_evidence_or_keeps_the_call_open
 test_reconcile_outcomes_retry_partial_failures_once
 test_rule_closes_an_actively_held_call_without_a_board_request
-test_rule_records_an_ordinary_closure_without_fabricating_captain_words
+test_rule_records_an_out_of_band_closure_without_fabricating_captain_words
 test_unbound_source_closes_no_hold
 test_legacy_identities_keep_working
 test_board_answer_reaches_the_keyed_answer_intake

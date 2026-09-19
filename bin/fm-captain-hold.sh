@@ -125,13 +125,12 @@
 # record under a `Firstmate ruling:` label - never `Captain decision:` or
 # `Reconciliation evidence:` - and, when the task is still actively held for
 # the captain, closes it the same way `reconcile close` does but without that
-# pending-request precondition. It also accepts a task already closed with no
-# resolution record of any kind, captain-held or not, and retroactively
-# attaches the same truthful record; that is what lets a truthful ordinary
-# task closure satisfy `verify` instead of being forced through `answer`'s
-# captain-provenance record. A task neither held for the captain nor already
-# closed has nothing to rule on and is refused, exactly like `reconcile close`
-# refuses a task with no captain call. An exact retry is idempotent; a
+# pending-request precondition. It also accepts a captain-held task already
+# closed out of band with no resolution record of any kind, and retroactively
+# attaches the same truthful record so it can satisfy `verify` without being
+# forced through `answer`'s captain-provenance record. A task never held for
+# the captain has nothing to rule on and is refused, exactly like `answer`'s
+# retroactive path refuses one. An exact retry is idempotent; a
 # different evidence text, or a task already closed under a different
 # resolution mode, is refused rather than relabeled.
 #
@@ -1677,6 +1676,10 @@ command_rule() {
   hold_kind=$(show_field_value "$show" hold_kind)
   body=$(show_field "$show" body)
   occurrence=$(( $(resolution_record_count "$body") + 1 ))
+  # tasks-axi keeps hold_kind through a close, so it is the surviving proof
+  # this really was the captain's call rather than ordinary finished work.
+  [ "$hold_kind" = captain ] \
+    || fail "task $id was never held for the captain; there is no ruling to record"
 
   if [ "$state" = "done" ]; then
     if body_has_resolution_record "$body"; then
@@ -1688,28 +1691,25 @@ command_rule() {
         || fail "task $id was not closed by a firstmate ruling"
       remove_interrupted_answer_stamp "$id"
       occurrence=$(resolution_record_count "$body")
-      [ "$hold_kind" != captain ] || publish_parent_resolution_then_retire "$id" "$occurrence" ruled
+      publish_parent_resolution_then_retire "$id" "$occurrence" ruled
       printf 'ruled: %s\n' "$id"
       return 0
     fi
-    # Closed as ordinary work with no resolution record of any kind, held for
-    # the captain or not: the truthful attestation that firstmate settled it
-    # on evidence, retroactively attached so a truthful ordinary closure can
-    # satisfy verify without being dressed up as the captain's own word.
+    # A captain-held call closed out of band with no resolution record: the
+    # truthful attestation that firstmate settled it on evidence, attached
+    # retroactively instead of being dressed up as the captain's own word.
     write_resolution_record "$id" ruled "$body"
     remove_interrupted_answer_stamp "$id"
     task_show "$id" || fail "task $id disappeared while recording the ruling"
     show=$TASK_SHOW_OUTPUT
     [ "$(show_field "$show" state)" = "done" ] || fail "recording the ruling reopened closed task $id"
     body_has_resolution_record "$(show_field "$show" body)" \
-      || fail "task $id did not retain its durable ruling record"
-    [ "$hold_kind" != captain ] || publish_parent_resolution_then_retire "$id" "$occurrence" ruled
+      || fail "captain-held task $id did not retain its durable ruling record"
+    publish_parent_resolution_then_retire "$id" "$occurrence" ruled
     printf 'ruled: %s\n' "$id"
     return 0
   fi
 
-  [ "$hold_kind" = captain ] \
-    || fail "task $id is not held for the captain and is not already closed; there is no ruling to record"
   if body_has_resolution_record "$body" \
     && [ "$(recorded_decision_digest "$body" || true)" = "$DECISION_DIGEST" ]; then
     recorded_mode=$(recorded_resolution_mode "$body" || true)
