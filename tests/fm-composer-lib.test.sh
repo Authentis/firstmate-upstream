@@ -451,7 +451,7 @@ test_matrix_pi_separated_needs_identity() {
   # exactly what the strict rule refuses; only structure PLUS a live
   # idle/done/working pi identity proves the composer (herdr's rule, now
   # fleet-wide; tmux supplies identity from its foreground-process probe).
-  local screen typed pi_idle pi_working pi_busy pi_blocked none
+  local screen typed labelled pi_idle pi_working pi_busy pi_blocked none
   screen=$'transcript\n────────────────────────\n\n────────────────────────\n footer'
   pi_idle=$(printf 'pi\tidle'); pi_working=$(printf 'pi\tworking'); pi_busy=$(printf 'pi\tbusy'); none=$(printf 'zsh\t')
   pi_blocked=$(printf 'pi\tblocked')
@@ -471,6 +471,16 @@ test_matrix_pi_separated_needs_identity() {
   # human keystroke, so the blank region is a menu's, not a free composer's.
   # Typing there answers the prompt and the text is discarded (issue #2797).
   assert_screen "blocked pi defers" unknown "$CAPS_STYLED" "$screen" '' "$pi_blocked"
+  # Real Pi 0.85.1 labels a working turn's top rule with its spinner. That
+  # labelled rule is still the composer's top separator, but only a native
+  # `working` status admits it: tmux's footer probe reads this screen as idle.
+  labelled=$'transcript\n── ⠏ Working ───────────────\n\n────────────────────────\n footer'
+  assert_screen "labelled working rule with native working" empty "$CAPS_STYLED" "$labelled" '' "$pi_working"
+  assert_screen "labelled working rule with idle identity" unknown "$CAPS_STYLED" "$labelled" '' "$pi_idle"
+  assert_screen "labelled working rule on tmux" unknown "$CAPS_TMUX" "$labelled" 2 "$pi_idle"
+  assert_screen "labelled working rule blocked" unknown "$CAPS_STYLED" "$labelled" '' "$pi_blocked"
+  typed=$'── ⠏ Working ───────────────\nfix the flaky test\n────────────────────────'
+  assert_screen "labelled working rule typed" pending "$CAPS_STYLED" "$typed" '' "$pi_working"
   # The audit's live counterexample: a plain shell running sleep, cursor
   # parked on a blank line between two rules, NO pi process. The permissive
   # rule read this `empty`; identity+structure refuses it.

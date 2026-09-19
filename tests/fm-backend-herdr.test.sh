@@ -3922,6 +3922,19 @@ test_composer_state_pi_separator_working_is_empty() {
   pass "fm_backend_herdr_composer_state: lazy Pi working identity admits a blank separator composer"
 }
 
+test_composer_state_pi_labelled_working_rule_is_empty() {
+  # Real Pi 0.85.1 while working: the top composer rule carries its spinner.
+  local dir log resp fb out
+  dir="$TMP_ROOT/composer-pi-labelled-working"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
+  printf ' Elapsed 9.0s\n\n\n── ⠏ Working ──────────────────────────────────────────\n\n─────────────────────────────────────────────────────\n/private/tmp/cwd\n' > "$resp/1.out"
+  printf '{"result":{"agent":{"agent":"pi","agent_status":"working"}}}\n' > "$resp/2.out"
+  fb=$(make_herdr_fakebin "$dir")
+  out=$( PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" \
+    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_composer_state lab:w1:p2' "$ROOT" )
+  [ "$out" = empty ] || fail "a working native Pi under its labelled spinner rule should read empty, got '$out'"
+  pass "fm_backend_herdr_composer_state: native working Pi admits its labelled spinner rule as the composer top"
+}
+
 test_composer_state_pi_separator_requires_safe_native_identity() {
   local dir log resp fb out status case_id idx=0
   for case_id in non-pi unreadable over-tall; do
@@ -5364,6 +5377,8 @@ test_composer_state_pi_parked_prompt_is_not_empty
 test_composer_state_pi_separator_idle_is_empty
 test_composer_state_pi_separator_real_text_is_pending
 test_composer_state_pi_incomplete_separator_below_stale_generic_is_unknown
+test_composer_state_pi_separator_working_is_empty
+test_composer_state_pi_labelled_working_rule_is_empty
 test_composer_state_pi_separator_requires_safe_native_identity
 test_composer_state_claude_unbordered_prompt_is_empty
 test_composer_state_claude_unbordered_prompt_is_pending
