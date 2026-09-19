@@ -32,12 +32,16 @@
 #   malformed line and is excluded from the fold rather than trusted.
 #   A `finding` object's only required field is a non-empty string `id`;
 #   every other field is caller-defined and preserved verbatim.
+#   A finding's identity is the pair (step, id): a disposition line closes
+#   only the finding its own "step" and "finding_id" name, because two steps
+#   may independently report the same id.
 #   Lines are never rewritten, reordered, or deleted; an absent ledger file
 #   is a valid empty ledger (a task with no no-mistakes findings yet, or a
 #   task predating this contract), never an error.
 #
 # FOLD SEMANTICS.
-#   Every distinct finding id folds to exactly one current record:
+#   Every distinct (step, finding id) pair folds to exactly one current
+#   record carrying that `step` and `id`; "that id" below means that pair:
 #     - `finding`: the verbatim finding object from that id's FIRST seen
 #       event (the original text and fields the reviewer actually reported),
 #       never a later round's rephrasing.
@@ -50,7 +54,8 @@
 #       disposed of, so it is reopened until a newer disposition closes it);
 #       otherwise the LATEST disposition event's value. A finding is never
 #       silently dropped: the only way off "open" is an explicit disposition
-#       line naming that exact id, appended after its latest seen line.
+#       line naming that exact step and id, appended after its latest seen
+#       line.
 #     - `deferred_owner` / `deferred_id`: from the latest disposition event
 #       when the folded disposition is "deferred", otherwise null.
 #   A disposition event for an id with no matching seen event is dropped from
@@ -102,17 +107,18 @@ fm_nm_findings_fold() {  # <data-dir> <task-id>
     to_entries | map(.value + {_pos: .key})
     | (map(select(valid_seen))) as $seens
     | (map(select(valid_disp))) as $disps
-    | ($seens | group_by(.finding.id) | map(sort_by(._pos)) | map({
+    | ($seens | group_by([.step, .finding.id]) | map(sort_by(._pos)) | map({
+        step: .[0].step,
         id: .[0].finding.id,
         finding: .[0].finding,
         first_seen: {round: .[0].round, step: .[0].step},
         last_seen: {round: (.[-1].round), step: (.[-1].step)},
         _last_seen_pos: .[-1]._pos
       })) as $folded_seen
-    | ($disps | group_by(.finding_id) | map(max_by(._pos))) as $latest_disp
+    | ($disps | group_by([.step, .finding_id]) | map(max_by(._pos))) as $latest_disp
     | $folded_seen | map(
         . as $f
-        | ($latest_disp | map(select(.finding_id == $f.id and ._pos > $f._last_seen_pos)) | .[0]) as $d
+        | ($latest_disp | map(select(.step == $f.step and .finding_id == $f.id and ._pos > $f._last_seen_pos)) | .[0]) as $d
         | ($f | del(._last_seen_pos)) + {
             disposition: ($d.disposition // "open"),
             deferred_owner: (if ($d.disposition // "") == "deferred" then $d.deferred_owner else null end),

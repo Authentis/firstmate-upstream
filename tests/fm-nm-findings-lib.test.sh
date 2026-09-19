@@ -215,6 +215,29 @@ test_represented_finding_after_disposition_reopens() {
   pass "fm-nm-findings-lib: reopens a finding presented again after its disposition"
 }
 
+test_same_id_in_two_steps_folds_separately() {
+  local data id ledger folded
+
+  id=same-id-two-steps
+  data=$(new_case "$id")
+  ledger=$(ledger_path "$data" "$id")
+
+  append_line "$ledger" '{"round":1,"step":"review","finding":{"id":"unused-helper","severity":"info","file":"a.sh","description":"review text"}}'
+  append_line "$ledger" '{"round":1,"step":"document","finding":{"id":"unused-helper","severity":"info","file":"README.md","description":"document text"}}'
+  append_line "$ledger" '{"round":1,"step":"review","finding_id":"unused-helper","disposition":"fixed"}'
+
+  folded=$("$LIB" fold "$data" "$id")
+  assert_equals 2 "$(printf '%s' "$folded" | jq 'length')" \
+    "the same id reported by two steps must fold to two separate findings"
+  assert_equals fixed "$(printf '%s' "$folded" | jq -r '.[] | select(.step=="review" and .id=="unused-helper") | .disposition')" \
+    "the review step's finding must fold to its own fixed disposition"
+  assert_equals open "$(printf '%s' "$folded" | jq -r '.[] | select(.step=="document" and .id=="unused-helper") | .disposition')" \
+    "closing the review step's finding must leave the document step's same-id finding open"
+  assert_equals "document text" "$(printf '%s' "$folded" | jq -r '.[] | select(.step=="document") | .finding.description')" \
+    "the document step's finding must keep its own verbatim text"
+  pass "fm-nm-findings-lib: keys findings by step and id so one step cannot close another"
+}
+
 test_malformed_lines_do_not_crash_the_fold() {
   local data id ledger folded
 
@@ -241,4 +264,5 @@ test_fixed_with_deferred_fields_is_rejected
 test_disposition_for_unseen_finding_is_not_fabricated
 test_backward_compatible_with_absent_or_empty_ledger
 test_represented_finding_after_disposition_reopens
+test_same_id_in_two_steps_folds_separately
 test_malformed_lines_do_not_crash_the_fold
