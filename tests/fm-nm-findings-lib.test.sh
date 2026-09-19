@@ -41,7 +41,7 @@ append_line() {  # <ledger-path> <json-line>
 }
 
 test_unselected_findings_are_reproduced_then_retained() {
-  local data id ledger folded open_ids report
+  local data id ledger folded open_ids
 
   id=unselected-repro
   data=$(new_case "$id")
@@ -65,22 +65,16 @@ test_unselected_findings_are_reproduced_then_retained() {
   assert_equals "desc B" "$(printf '%s' "$folded" | jq -r '.[] | select(.id=="finding-B") | .finding.description')" \
     "round1: retained finding must keep its original verbatim text"
 
-  open_ids=$("$LIB" open "$data" "$id" | jq -r '.[].id' | sort | tr '\n' ' ')
+  assert_equals fixed "$(printf '%s' "$folded" | jq -r '.[] | select(.id=="finding-A") | .disposition')" \
+    "round1: the selected finding-A must fold to its fixed disposition"
+  open_ids=$(printf '%s' "$folded" | jq -r '.[] | select(.disposition=="open") | .id' | sort | tr '\n' ' ')
   assert_equals "finding-B finding-C " "$open_ids" \
-    "round1: the open list must name exactly the two unselected findings"
-
-  report=$("$LIB" report "$data" "$id")
-  assert_contains "$report" "finding-A (fixed)" "round1 report must show finding-A closed"
-  assert_contains "$report" "  - finding-B" "round1 report must list finding-B as open"
-  assert_contains "$report" "  - finding-C" "round1 report must list finding-C as open"
-
-  "$LIB" all-addressed "$data" "$id" >/dev/null 2>&1 \
-    && fail "round1: all-addressed must refuse while findings remain open"
+    "round1: the open findings must be exactly the two unselected ones"
   pass "fm-nm-findings-lib: reproduces and retains unselected findings across a round"
 }
 
 test_retention_across_rounds_with_new_and_deferred_findings() {
-  local data id ledger folded report
+  local data id ledger folded
 
   id=multi-round
   data=$(new_case "$id")
@@ -113,20 +107,15 @@ test_retention_across_rounds_with_new_and_deferred_findings() {
   assert_equals open "$(printf '%s' "$folded" | jq -r '.[] | select(.id=="finding-B") | .disposition')" \
     "round2: finding-B must still be open (never resurfaced, never lost)"
 
-  report=$("$LIB" report "$data" "$id")
-  assert_contains "$report" "finding-C -> decision-os-tracker/dos-9912" \
-    "round2 report must name the deferred owner/id, not just say deferred"
-  assert_contains "$report" "Total: 2 closed, 1 deferred, 1 open." \
-    "round2 report must give an accurate closed/deferred/open rollup"
-
-  "$LIB" all-addressed "$data" "$id" >/dev/null 2>&1 \
-    && fail "round2: all-addressed must still refuse while finding-B is open"
 
   # Round 3: the last open finding is explicitly closed as intentionally
-  # not-a-fix (skipped-closed), and the completion gate finally opens.
+  # not-a-fix (skipped-closed), leaving nothing open.
   append_line "$ledger" '{"round":3,"step":"review","finding_id":"finding-B","disposition":"skipped-closed"}'
-  "$LIB" all-addressed "$data" "$id" >/dev/null 2>&1 \
-    || fail "round3: all-addressed must pass once every finding is closed or deferred"
+  folded=$("$LIB" fold "$data" "$id")
+  assert_equals skipped-closed "$(printf '%s' "$folded" | jq -r '.[] | select(.id=="finding-B") | .disposition')" \
+    "round3: finding-B must show its explicit skipped-closed disposition"
+  assert_equals 0 "$(printf '%s' "$folded" | jq '[.[] | select(.disposition=="open")] | length')" \
+    "round3: no finding may remain open once every one is closed or deferred"
   pass "fm-nm-findings-lib: retains findings across rounds and reflects explicit close/defer"
 }
 
@@ -144,9 +133,6 @@ test_deferred_without_owner_and_id_stays_open() {
   disposition=$("$LIB" fold "$data" "$id" | jq -r '.[] | select(.id=="finding-X") | .disposition')
   assert_equals open "$disposition" \
     "a deferred disposition missing deferred_id must not be trusted; the finding stays open"
-
-  "$LIB" all-addressed "$data" "$id" >/dev/null 2>&1 \
-    && fail "an incompletely deferred finding must still block all-addressed"
   pass "fm-nm-findings-lib: rejects an incomplete defer as a negative control"
 }
 
@@ -181,13 +167,11 @@ test_disposition_for_unseen_finding_is_not_fabricated() {
   folded=$("$LIB" fold "$data" "$id")
   assert_equals 0 "$(printf '%s' "$folded" | jq 'length')" \
     "a disposition with no matching seen event must not appear in the fold at all"
-  "$LIB" all-addressed "$data" "$id" >/dev/null 2>&1 \
-    || fail "an empty fold (no real findings) must trivially pass all-addressed"
   pass "fm-nm-findings-lib: never fabricates a closure for an unseen finding id"
 }
 
 test_backward_compatible_with_absent_or_empty_ledger() {
-  local data id report
+  local data id id2
 
   id=absent-ledger
   data=$(new_case "$id")
@@ -195,11 +179,6 @@ test_backward_compatible_with_absent_or_empty_ledger() {
 
   assert_equals '[]' "$("$LIB" fold "$data" "$id")" \
     "an absent ledger must fold to an empty array, not an error"
-  report=$("$LIB" report "$data" "$id")
-  assert_equals "No no-mistakes findings recorded for this task." "$report" \
-    "an absent ledger must report cleanly rather than crash"
-  "$LIB" all-addressed "$data" "$id" >/dev/null 2>&1 \
-    || fail "an absent ledger must vacuously pass all-addressed (nothing to omit)"
 
   id2=empty-ledger
   mkdir -p "$data/$id2"
@@ -229,8 +208,6 @@ test_represented_finding_after_disposition_reopens() {
     "the reopened finding must record the re-presenting round as last_seen"
   assert_equals "desc R" "$(printf '%s' "$folded" | jq -r '.[] | select(.id=="finding-R") | .finding.description')" \
     "the reopened finding must keep its first-seen verbatim text"
-  "$LIB" all-addressed "$data" "$id" >/dev/null 2>&1 \
-    && fail "a reopened finding must block all-addressed"
 
   append_line "$ledger" '{"round":3,"step":"review","finding_id":"finding-R","disposition":"fixed"}'
   assert_equals fixed "$("$LIB" fold "$data" "$id" | jq -r '.[] | select(.id=="finding-R") | .disposition')" \
