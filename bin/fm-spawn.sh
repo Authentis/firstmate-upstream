@@ -196,21 +196,16 @@
 #   that never reaches an isolated worktree refuses at the end of that wait,
 #   naming the last path seen and why it was rejected.
 #   Such a refusal, or any abort between endpoint creation and task-record
-#   publication, rolls back the endpoint transactionally: the window or pane
-#   this spawn just created is closed only after proving it still answers as
-#   this spawn's own endpoint, holds no agent and no composer work, has no
-#   task record (partial ones included), and acquired no isolated copy - so a
-#   refused launch leaves no unowned endpoint behind to block the clean retry
-#   with "window <session>:fm-<id> already exists", and a pre-existing or
-#   replaced endpoint is never closed. Armed only on backends whose liveness
-#   classifier is recovery-grade (tmux, herdr); once the task record is
-#   published, teardown owns the endpoint and the rollback disarms.
-#   That placement is proven only at launch. Every ship or scout pane therefore
-#   also receives `export FM_TASK_ID=<task-id>` before the launch command, on
-#   the same channel as GOTMPDIR, and bin/fm-test-run.sh refuses to execute the
-#   behavior suite from the repository primary checkout while that marker is
-#   set (its header owns the refusal). A secondmate runs in its own home and is
-#   not marked.
+#   publication, closes the window or pane this spawn just created once it is
+#   proven to be this spawn's own empty, unrecorded endpoint, so the retry is
+#   not refused on "window <session>:fm-<id> already exists" (tmux and herdr
+#   only; spawn_endpoint_abort_rollback owns the proofs).
+#   Worktree placement is proven only at launch. Every ship or scout pane
+#   therefore also receives `export FM_TASK_ID=<task-id>` before the launch
+#   command, on the same channel as GOTMPDIR, and bin/fm-test-run.sh refuses to
+#   execute the behavior suite from the repository primary checkout while that
+#   marker is set (its header owns the refusal). A secondmate runs in its own
+#   home and is not marked.
 #   Only after this isolation check, every fresh ship or scout requires a clean
 #   task worktree. When an origin configuration is detected, spawn fetches it,
 #   resolves the current remote default branch, and resets to its tip. When none
@@ -1107,12 +1102,10 @@ parse_orca_worktree_result() {
 }
 
 # Transactional rollback for the endpoint a fresh spawn created but never
-# recorded. The fm-dos-qwus2 incident: Treehouse returned the spawning project
-# with every pool copy in use or dirty, the isolation wait refused at its
-# deadline, and the window fm_backend_tmux_create_task had just created
-# survived as an unrecorded idle endpoint - no task record names it, so nothing
-# else can ever close it, and the clean retry refused on "window
-# <session>:fm-<id> already exists". This guard closes exactly that endpoint,
+# recorded. No task record names such an endpoint, so nothing else can ever
+# close it, and the clean retry would refuse on "window <session>:fm-<id>
+# already exists" (for example after the isolation wait refuses because every
+# pool copy is in use or dirty). This guard closes exactly that endpoint,
 # and only after every proof that it still belongs to this aborted spawn:
 #   no task record    - state/<id>.meta was never published, so no record
 #                       (a partial one included) owns the endpoint;
