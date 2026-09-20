@@ -120,6 +120,12 @@ fm_nm_run_status_class() {  # <status_word>
 # toolchain. A capped overview requires an optional Python 3 sqlite3 reader
 # for a read-only same-branch query of NM_HOME/state.sqlite (default:
 # ~/.no-mistakes/state.sqlite; relative NM_HOME resolves from the worktree).
+# The real CLI overview never carries a `repo: ` identity line (observed
+# 2026-09-20: a truncated overview with zero rows for this task's branch has
+# only `count:`/`runs[...]:`), so repo identity is looked up by the task
+# worktree path itself, which is exactly what `no-mistakes` records as a
+# repo's `working_path`; a task worktree that is somehow not absolute cannot
+# be matched and reads as unreadable rather than guessed.
 # If that reader or inventory is unavailable, report unknown with available
 # candidate ids rather than treating the displayed window as complete.
 # Structural completeness applies to the whole table; semantic validation
@@ -226,18 +232,14 @@ from pathlib import Path
 branch, overview, worktree, available_ids = sys.argv[1:]
 ids = available_ids.split(", ") if available_ids else []
 try:
-    repos = [line[6:].strip() for line in overview.splitlines() if line.startswith("repo: ")]
-    if len(repos) != 1:
-        raise ValueError
-    repo_path = json.loads(repos[0]) if repos[0].startswith('"') else repos[0]
-    if not isinstance(repo_path, str) or not os.path.isabs(repo_path):
+    if not os.path.isabs(worktree):
         raise ValueError
     root = Path(os.environ.get("NM_HOME") or Path.home() / ".no-mistakes")
     if not root.is_absolute():
         root = Path(worktree) / root
-    with closing(sqlite3.connect((root / "state.sqlite").as_uri() + "?mode=ro", uri=True, timeout=1)) as db:
+    with closing(sqlite3.connect((root / "state.sqlite").as_uri() + "?mode=ro", uri=True, timeout=30)) as db:
         db.execute("BEGIN")
-        repo = db.execute("SELECT id FROM repos WHERE working_path = ?", (repo_path,)).fetchall()
+        repo = db.execute("SELECT id FROM repos WHERE working_path = ?", (worktree,)).fetchall()
         if len(repo) != 1:
             raise ValueError
         rows = db.execute(
