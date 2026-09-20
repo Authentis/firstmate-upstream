@@ -41,6 +41,7 @@ case "${1:-}" in
           *) printf 'codex\n' ;;
         esac
         ;;
+      *pane_tty*) printf '\n' ;;
       *) printf '%%1\n' ;;
     esac
     ;;

@@ -38,7 +38,7 @@ SH
   cat > "$fb/tmux" <<'SH'
 #!/usr/bin/env bash
 case "${1:-}" in
-  display-message) case "$*" in *dead-*) exit 1 ;; *) printf '%%1\n' ;; esac ;;
+  display-message) case "$*" in *dead-*) exit 1 ;; *pane_tty*) printf '\n' ;; *) printf '%%1\n' ;; esac ;;
   capture-pane)
     case "$*" in
       *fm-domain-alpha*) printf 'stale terminal summary: Phase 7 started\n> \n' ;;
