@@ -1221,6 +1221,57 @@ EOF
   pass "steward exemptions are declared, identity-bound, and state-bound"
 }
 
+# unknown_children only ever matched a steward exemption through a durable
+# "hold" row, and that row was synthesized from live current-state ONLY for
+# parked/paused/blocked - never for unknown or stopped, the two states
+# unknown_children actually gates on. A plain in-flight child with no backlog
+# hold at all (current_role == "worker", not "held") could therefore never be
+# exempted once its endpoint went unknown or stopped: a fully valid,
+# date-current, state-and-detail-matching exemption still read as inactive,
+# and the home stayed reported invalid forever. This must now activate, and
+# an equivalent child with no exemption at all must still read invalid.
+test_home_summary_child_state_exemption_covers_unknown_and_stopped() {
+  local home fakebin out
+  home=$(make_home child-state-exemption)
+  mkdir -p "$home/projects/plain-a" "$home/projects/plain-b"
+  cat > "$home/data/backlog.md" <<'EOF'
+## In flight
+- [ ] plain-exempt - Plain child, no backlog hold (repo: alpha) (kind: ship) (since 2026-09-01)
+- [ ] plain-unexempt - Second plain child, no backlog hold (repo: alpha) (kind: ship) (since 2026-09-01)
+
+## Queued
+
+## Done
+EOF
+  fm_write_meta "$home/state/plain-exempt.meta" \
+    "window=firstmate:fm-plain-exempt" "worktree=$home/projects/plain-a" \
+    "project=alpha" "harness=claude" "kind=ship" "mode=no-mistakes"
+  printf 'working: doing stuff\n' > "$home/state/plain-exempt.status"
+  fm_write_meta "$home/state/plain-unexempt.meta" \
+    "window=firstmate:fm-plain-unexempt" "worktree=$home/projects/plain-b" \
+    "project=alpha" "harness=claude" "kind=ship" "mode=no-mistakes"
+  printf 'working: doing stuff\n' > "$home/state/plain-unexempt.status"
+  rm -rf "$home/projects/plain-a" "$home/projects/plain-b"
+  fakebin=$(make_fakebin "$home")
+
+  out=$(PATH="$fakebin:$PATH" FM_HOME="$home" "$SNAPSHOT" --secondmate-home-summary)
+  printf '%s' "$out" | jq -e '
+    .valid == false
+      and .invalidity == {kind:"child_current_unavailable",ids:["plain-exempt","plain-unexempt"]}
+  ' >/dev/null || fail "two plain unowned-worktree children with no backlog hold must both read unknown before any exemption: $out"
+
+  cat > "$home/state/steward-exemptions.json" <<'EOF'
+{"schema":"fm-steward-exemptions.v1","exemptions":[{"task_id":"plain-exempt","reason":"steward reviewed and is retaining this dead endpoint on purpose","set_by":"steward","reviewed_date":"2026-09-17","expires_on":"2026-10-17","state":"unknown","detail":"worktree gone (torn down?)","hold_identity":{"source":"child-state","kind":null,"reason":"worktree gone (torn down?)"}}]}
+EOF
+  out=$(PATH="$fakebin:$PATH" FM_HOME="$home" FM_SNAPSHOT_NOW=2026-09-17T00:00:00Z "$SNAPSHOT" --secondmate-home-summary)
+  printf '%s' "$out" | jq -e '
+    .valid == false
+      and .invalidity == {kind:"child_current_unavailable",ids:["plain-unexempt"]}
+      and (.steward_exemptions | map(select(.task_id == "plain-exempt")) | .[0].active) == true
+  ' >/dev/null || fail "a state-and-detail-matching child-state exemption must activate and exclude only its own child, leaving an unexempted sibling invalid: $out"
+  pass "a child-state steward exemption covers unknown and stopped children with no backlog hold"
+}
+
 test_named_steward_exemptions_deploy_with_exact_identities() {
   local home fakebin out
   home=$(make_home named-steward-exemptions)
@@ -1306,6 +1357,7 @@ test_empty_fleet_json
 test_fixture_snapshot_json
 test_home_summary_excludes_secondmate_from_child_inventory
 test_home_summary_declares_active_steward_exemption_without_hiding_state_change
+test_home_summary_child_state_exemption_covers_unknown_and_stopped
 test_named_steward_exemptions_deploy_with_exact_identities
 test_undated_captain_hold_phrasing_and_aging
 test_hold_buckets_are_total_and_text_blind

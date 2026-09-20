@@ -126,6 +126,20 @@ fm_nm_run_status_class() {  # <status_word>
 # worktree path itself, which is exactly what `no-mistakes` records as a
 # repo's `working_path`; a task worktree that is somehow not absolute cannot
 # be matched and reads as unreadable rather than guessed.
+# A pooled lane is a git worktree whose `git rev-parse --git-common-dir`
+# resolves to the primary checkout, and the daemon registers ONE repo row for
+# that primary path with every lane's runs filed under it - an exact-path
+# lookup against the lane's own worktree path then returns zero rows even
+# though the branch's runs are readable. This reader also tries the lane's
+# resolved primary-checkout path (derived from its common dir) as a second
+# identity candidate, and, when no repo row matches either path, falls back
+# to a runs-by-branch lookup: task branches are unique, so a branch match is
+# trusted only when it resolves to EXACTLY ONE repo_id in the runs table:
+# two repos coincidentally sharing a branch name stays unresolved rather than
+# guessed, which is exactly the cross-repo bleed the exact-path lookup exists
+# to prevent. A genuinely unreadable database (missing table, corrupt file,
+# or an ambiguous branch-only fallback) still reports unreadable; only the
+# no-matching-repo-row case with a provably unique repo is recovered.
 # If that reader or inventory is unavailable, report unknown with available
 # candidate ids rather than treating the displayed window as complete.
 # Structural completeness applies to the whole table; semantic validation
@@ -220,7 +234,10 @@ fm_nm_select_run() {  # <branch> <axi-overview> <worktree>
     incomplete\|*) available_ids=${selection#*|} ;;
     *) printf '%s\n' "$selection"; return ;;
   esac
-  if ! inventory=$(python3 - "$1" "$2" "$3" "$available_ids" 2>/dev/null <<'PY'
+  local worktree=$3 common_dir='' primary_dir=''
+  common_dir=$(git -C "$worktree" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || true
+  case "$common_dir" in */.git) primary_dir=${common_dir%/.git} ;; esac
+  if ! inventory=$(python3 - "$1" "$2" "$3" "$available_ids" "$primary_dir" 2>/dev/null <<'PY'
 import json
 import os
 import re
@@ -229,7 +246,7 @@ import sys
 from contextlib import closing
 from pathlib import Path
 
-branch, overview, worktree, available_ids = sys.argv[1:]
+branch, overview, worktree, available_ids, primary_dir = sys.argv[1:]
 ids = available_ids.split(", ") if available_ids else []
 try:
     if not os.path.isabs(worktree):
@@ -237,14 +254,37 @@ try:
     root = Path(os.environ.get("NM_HOME") or Path.home() / ".no-mistakes")
     if not root.is_absolute():
         root = Path(worktree) / root
+    candidates = [worktree]
+    if primary_dir and os.path.isabs(primary_dir) and primary_dir not in candidates:
+        candidates.append(primary_dir)
     with closing(sqlite3.connect((root / "state.sqlite").as_uri() + "?mode=ro", uri=True, timeout=30)) as db:
         db.execute("BEGIN")
-        repo = db.execute("SELECT id FROM repos WHERE working_path = ?", (worktree,)).fetchall()
-        if len(repo) != 1:
-            raise ValueError
+        placeholders = ",".join("?" for _ in candidates)
+        repo_ids = sorted({
+            row[0] for row in
+            db.execute("SELECT id FROM repos WHERE working_path IN (%s)" % placeholders, candidates).fetchall()
+        })
+        if not repo_ids:
+            # No repo row matches this worktree's own path or its resolved
+            # primary-checkout path (the pooled-lane case: the daemon filed
+            # every lane's runs under one row for the primary path only, and
+            # even that row's identity can be recorded differently than
+            # derived here). Task branches are unique, so fall back to the
+            # repo_id(s) that actually carry a row for this branch anywhere
+            # in the database - but only when that resolves to exactly ONE
+            # repo. Two repos sharing a branch name is a coincidence the
+            # exact-path lookup exists to guard against, so an ambiguous
+            # branch-only match is left unresolved rather than guessed.
+            repo_ids = sorted({
+                row[0] for row in
+                db.execute("SELECT DISTINCT repo_id FROM runs WHERE branch = ?", (branch,)).fetchall()
+            })
+            if len(repo_ids) != 1:
+                raise ValueError
+        qmarks = ",".join("?" for _ in repo_ids)
         rows = db.execute(
-            "SELECT id, branch, status, head_sha FROM runs WHERE repo_id = ? AND branch = ? "
-            "ORDER BY created_at DESC, id DESC", (repo[0][0], branch)
+            "SELECT id, branch, status, head_sha FROM runs WHERE repo_id IN (%s) AND branch = ? "
+            "ORDER BY created_at DESC, id DESC" % qmarks, (*repo_ids, branch)
         ).fetchall()
     displayed_ids = set(ids)
     for row in rows:

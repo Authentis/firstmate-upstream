@@ -1069,7 +1069,10 @@ secondmate_home_summary_json() {  # <backlog-json-file> <tasks-json-file>
          | {id,_identity_class:"hold",_hold_identity:{source:"backlog",kind:(.hold_kind // null),reason:(.hold_reason // .blocked_reason // "blocked")}} ]
        + [ $owned_in_flight[] as $work
            | $tasks[]
-           | select(.id == $work.id and (.current_state.state == "parked" or .current_state.state == "paused" or .current_state.state == "blocked"))
+           | select(.id == $work.id and
+                    (.current_state.state == "parked" or .current_state.state == "paused"
+                     or .current_state.state == "blocked" or .current_state.state == "unknown"
+                     or .current_state.state == "stopped"))
            | select(($work.hold_reason != null and $work.hold_kind != null) | not)
            | {id,_identity_class:"hold",_hold_identity:{source:"child-state",kind:null,reason:(.current_state.detail // .current_state.state)}} ]
        + [ $tasks[] as $task
