@@ -623,6 +623,47 @@ The sweep must finish inside `FM_CHECK_TIMEOUT` (default 30), because a run the 
 So a budget larger than that timeout allows is cut down to what fits instead of being refused, and the cut is reported in the report line.
 A budget that is not a whole number from 1 to 120 is still refused outright.
 
+## Fleet steward (config/fleet-steward.json)
+
+`config/fleet-steward.json` is an optional local, gitignored configuration for one home's verified ready queue and persistent low-capacity wake.
+It is firstmate-maintained, human-editable, and not inherited by secondmate homes because every home owns its capacity source and project checkout.
+This section is the single owner of the canonical schema.
+[`bin/fm-fleet-steward.sh`](../bin/fm-fleet-steward.sh) owns refresh, check, registration, timer, and exemption mechanics.
+
+```json
+{
+  "schema": "fm-fleet-steward.v1",
+  "project_path": "/absolute/path/to/project",
+  "repository": "owner/repository",
+  "capacity_log": "/absolute/path/to/lane-reaper.log",
+  "exclusions": [
+    {
+      "id": "bead-id",
+      "kind": "captain",
+      "reason": "awaiting a captain-owned choice"
+    },
+    {
+      "id": "another-bead-id",
+      "kind": "deferred",
+      "reason": "explicitly deferred until a named prerequisite"
+    }
+  ]
+}
+```
+
+`project_path` names the absolute project checkout whose `br ready` and `origin/main` state are verified.
+`repository` is the GitHub `owner/repository` read through `gh-axi` for merged pull request verification.
+`capacity_log` names the absolute lane-reaper log containing the latest productive and uncertain counts.
+`exclusions` is the authoritative explicit registry for captain-held and deferred bead ids, so the refresher never infers those states from prose.
+Every exclusion has a non-empty reason and a `kind` of `captain` or `deferred`.
+
+Run `bin/fm-fleet-steward.sh arm` once in the owning home after creating the configuration.
+Arming registers `fleet-steward` as an authenticated custom check in that exact home and enables the persistent `next-up-refresh.timer`, which refreshes after one minute and then every thirty minutes.
+The check emits only after a fresh, certain capacity sample stays below six productive lanes for at least fifteen minutes while `data/next-up.md` contains a verified ready row.
+The wake names `action=finish-then-refill`, whose handling procedure is owned by the agent-only `fleet-steward` skill.
+`data/next-up.md` is generated selection input rather than a second backlog, and a failed refresh preserves its last known-good bytes without authorizing dispatch from stale data.
+Run `bin/fm-fleet-steward.sh disarm` to retire the check and timer for that home.
+
 ## Mail plane (.env)
 
 The mail plane (bin/fm-mail.sh) reads unseen IMAP messages and sends one SMTP message.
