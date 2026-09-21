@@ -3338,6 +3338,44 @@ PY
   pass 'a capped overview with no repo: line and zero same-branch rows reports absent, not unreadable'
 }
 
+# The capped-overview sqlite reader runs inside the same per-read budget as
+# every other no-mistakes state read, so a contended database cannot stall a
+# crew poll: a reader that never returns must be killed and fall through to the
+# reader-unavailable verdict.
+test_capped_inventory_reader_is_time_bounded() {
+  make_capped_runs_case capped-slow-reader running pending hidden
+  local d=$TMP_ROOT/capped-slow-reader out started elapsed
+  cat > "$d/fakebin/python3" <<'SH'
+#!/usr/bin/env bash
+sleep 30
+SH
+  chmod +x "$d/fakebin/python3"
+  FM_CREW_STATE_NM_TIMEOUT=1
+  export FM_CREW_STATE_NM_TIMEOUT
+  started=$SECONDS
+  out=$(run_crew_state "$d" competing)
+  elapsed=$((SECONDS - started))
+  unset FM_CREW_STATE_NM_TIMEOUT
+  [ "$elapsed" -lt 10 ] || fail "the capped inventory reader ran unbounded for ${elapsed}s"
+  assert_contains "$out" 'state: unknown' 'an unreachable inventory reader cannot establish a verdict'
+  assert_contains "$out" 'reader unavailable' 'a killed reader reports the same unavailable reader path'
+  pass 'the capped inventory reader is bounded by the crew read budget'
+}
+
+# A task meta file records the worktree path as written, not as canonicalized;
+# `no-mistakes` records the resolved path. The same repository must still be
+# recognized when the two spellings differ.
+test_capped_inventory_matches_noncanonical_worktree_path() {
+  make_capped_runs_case capped-noncanonical running pending hidden
+  local d=$TMP_ROOT/capped-noncanonical out
+  fm_write_meta "$d/state/competing.meta" "window=fm:fm-competing" "worktree=$d/wt/./" "kind=ship"
+  out=$(run_crew_state "$d" competing)
+  assert_not_contains "$out" 'unreadable' 'a differently spelled worktree path still names its repository'
+  assert_contains "$out" '01NEW' 'the hidden newer run is read from the inventory'
+  assert_contains "$out" '01OLD' 'the hidden older run is read from the inventory'
+  pass 'a non-canonical worktree path still matches its registered repo row'
+}
+
 test_capped_replacement_keeps_gate_and_inventory_unchanged() {
   make_capped_runs_case "capped reviewer's replacement" running cancelled
   local d="$TMP_ROOT/capped reviewer's replacement" out before after
@@ -4835,6 +4873,8 @@ test_no_run_herdr_stale_working_record_is_never_busy
 test_capped_competing_live_runs_report_both_ids
 test_capped_overview_without_branch_rows_reports_both_ids
 test_capped_overview_without_repo_line_and_no_runs_reports_absent
+test_capped_inventory_reader_is_time_bounded
+test_capped_inventory_matches_noncanonical_worktree_path
 test_capped_replacement_keeps_gate_and_inventory_unchanged
 test_capped_inventory_failures_report_unknown
 test_complete_inventory_ignores_unrelated_semantics
