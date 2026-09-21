@@ -3376,6 +3376,37 @@ test_capped_inventory_matches_noncanonical_worktree_path() {
   pass 'a non-canonical worktree path still matches its registered repo row'
 }
 
+# `no-mistakes` keeps `repos.working_path` unique only as a string, so the same
+# real directory can be registered under more than one spelling. Neither the
+# recorded spelling nor a differently spelled sibling row may turn a readable
+# inventory into an unreadable one.
+test_capped_inventory_tolerates_duplicate_repo_spellings() {
+  local mode rc=0
+  for mode in exact canonical; do
+    (
+      make_capped_runs_case "capped-dup-repo-$mode" running pending hidden
+      d=$TMP_ROOT/capped-dup-repo-$mode
+      python3 - "$NM_HOME/state.sqlite" "$d/wt/." <<'PY'
+import sqlite3
+import sys
+with sqlite3.connect(sys.argv[1]) as db:
+    db.execute("INSERT INTO repos VALUES ('repo-dup', ?)", (sys.argv[2],))
+PY
+      [ "$mode" = exact ] || fm_write_meta "$d/state/competing.meta" \
+        "window=fm:fm-competing" "worktree=$d/wt/./" "kind=ship"
+      out=$(run_crew_state "$d" competing)
+      assert_not_contains "$out" 'unreadable' \
+        "a second spelling of the same directory is not an ambiguous repository ($mode)"
+      if [ "$mode" = exact ]; then
+        assert_contains "$out" '01NEW' 'the recorded spelling selects the repository that owns the runs'
+        assert_contains "$out" '01OLD' 'the older hidden run is read from that repository'
+      fi
+      pass "duplicate repo spellings stay readable ($mode worktree spelling)"
+    ) || rc=1
+  done
+  [ "$rc" = 0 ] || fail 'duplicate repo spellings'
+}
+
 test_capped_replacement_keeps_gate_and_inventory_unchanged() {
   make_capped_runs_case "capped reviewer's replacement" running cancelled
   local d="$TMP_ROOT/capped reviewer's replacement" out before after
@@ -4873,6 +4904,7 @@ test_no_run_herdr_stale_working_record_is_never_busy
 test_capped_competing_live_runs_report_both_ids
 test_capped_overview_without_branch_rows_reports_both_ids
 test_capped_overview_without_repo_line_and_no_runs_reports_absent
+test_capped_inventory_tolerates_duplicate_repo_spellings
 test_capped_inventory_reader_is_time_bounded
 test_capped_inventory_matches_noncanonical_worktree_path
 test_capped_replacement_keeps_gate_and_inventory_unchanged
