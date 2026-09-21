@@ -162,6 +162,95 @@ run_check() {
   FM_HOME="$home" FM_FLEET_STEWARD_NOW="$now" "$STEWARD" check
 }
 
+test_refresh_missing_tool_writes_visible_failure_record() {
+  local home tools rc=0
+
+  home=$(make_home refresh-missing-tool)
+  write_config "$home"
+  write_refresh_fixture "$home"
+  tools=$(make_refresh_tools "$home")
+  rm -f -- "$tools/br"
+
+  env FM_HOME="$home" PATH="$tools:/usr/bin:/bin" \
+    FM_TEST_CALLS="$home/calls" FM_TEST_BR_JSON="$home/br.json" \
+    FM_TEST_PRS_JSON="$home/prs.json" FM_TEST_MAIN_LOG="$home/main.log" \
+    "$STEWARD" refresh >/dev/null 2>"$home/stderr" || rc=$?
+
+  [ "$rc" -ne 0 ] || fail "refresh succeeded with a required tool missing"
+  assert_contains "$(cat "$home/stderr")" 'required tool not found: br' "refresh did not name the missing tool"
+  [ -f "$home/state/.fleet-steward-refresh-failure" ] \
+    || fail "a missing required tool left no visible failure record"
+  assert_contains "$(cat "$home/state/.fleet-steward-refresh-failure")" 'required tool not found: br' \
+    "failure record did not name the missing tool"
+  pass "a genuinely missing required tool fails nonzero and leaves a visible failure record"
+}
+
+test_refresh_succeeds_with_the_paths_the_armed_service_would_supply() {
+  local home tools systemctl arming_path unit_path rc=0
+
+  home=$(make_home refresh-minimal-path)
+  write_config "$home"
+  write_refresh_fixture "$home"
+  tools=$(make_refresh_tools "$home")
+  systemctl=$(make_systemctl "$home")
+  arming_path="$tools:$PATH"
+
+  FM_HOME="$home" FM_SYSTEMD_USER_DIR_OVERRIDE="$home/systemd" \
+    FM_SYSTEMCTL="$systemctl" FM_TEST_SYSTEMCTL_LOG="$home/systemctl.log" \
+    PATH="$arming_path" "$STEWARD" arm >/dev/null || fail "arm failed"
+  unit_path=$(sed -n 's/^Environment=PATH=//p' "$home/systemd/next-up-refresh.service")
+  [ -n "$unit_path" ] || fail "generated service unit carried no PATH environment line"
+
+  # A bare login-shell PATH is what a user systemd unit sees without the fix;
+  # it deliberately excludes the fake tool directory the fixture tools live in.
+  env FM_HOME="$home" PATH="$unit_path" \
+    FM_TEST_CALLS="$home/calls" FM_TEST_BR_JSON="$home/br.json" \
+    FM_TEST_PRS_JSON="$home/prs.json" FM_TEST_MAIN_LOG="$home/main.log" \
+    "$STEWARD" refresh >/dev/null 2>"$home/stderr" || rc=$?
+
+  [ "$rc" -eq 0 ] || fail "refresh restricted to the armed unit's PATH failed: $(cat "$home/stderr")"
+  [ ! -f "$home/state/.fleet-steward-refresh-failure" ] \
+    || fail "a successful refresh left a stale failure record"
+  pass "a refresh run with exactly the armed service unit's PATH still finds every required tool"
+}
+
+test_check_surfaces_a_new_refresh_failure_once() {
+  local home out
+  home=$(make_home refresh-failure-check)
+  write_config "$home"
+  printf 'fm-fleet-steward-refresh-failure.v1\nat=1000\nreason=required tool not found: br\n' \
+    > "$home/state/.fleet-steward-refresh-failure"
+
+  out=$(run_check "$home" 1000)
+  assert_contains "$out" 'fleet-steward: refresh failed at=1000: required tool not found: br' \
+    "check did not surface the refresh failure"
+
+  out=$(run_check "$home" 1005)
+  [ -z "$out" ] || fail "check re-reported an already-surfaced failure: $out"
+
+  printf 'fm-fleet-steward-refresh-failure.v1\nat=2000\nreason=required tool not found: br\n' \
+    > "$home/state/.fleet-steward-refresh-failure"
+  out=$(run_check "$home" 2000)
+  assert_contains "$out" 'fleet-steward: refresh failed at=2000' "check did not surface a newer refresh failure"
+  pass "check surfaces each new refresh failure once and stays silent on a repeat poll"
+}
+
+test_arm_writes_the_arming_shells_path_into_the_service_unit() {
+  local home systemctl custom_path
+  home=$(make_home arm-path)
+  write_config "$home"
+  systemctl=$(make_systemctl "$home")
+  custom_path="/custom/tool/dir:$PATH"
+
+  FM_HOME="$home" FM_SYSTEMD_USER_DIR_OVERRIDE="$home/systemd" \
+    FM_SYSTEMCTL="$systemctl" FM_TEST_SYSTEMCTL_LOG="$home/systemctl.log" \
+    PATH="$custom_path" "$STEWARD" arm >/dev/null || fail "arm failed"
+
+  assert_contains "$(cat "$home/systemd/next-up-refresh.service")" "Environment=PATH=$custom_path" \
+    "service unit did not carry the arming shell's own PATH"
+  pass "arm writes the arming shell's own PATH into the generated service unit"
+}
+
 test_check_requires_fifteen_persistent_minutes_and_emits_once() {
   local home out
   home=$(make_home grace)
@@ -303,6 +392,10 @@ JSON
 
 test_refresh_filters_verified_nonwork_and_ranks_survivors
 test_refresh_failure_preserves_last_known_good_queue
+test_refresh_missing_tool_writes_visible_failure_record
+test_refresh_succeeds_with_the_paths_the_armed_service_would_supply
+test_check_surfaces_a_new_refresh_failure_once
+test_arm_writes_the_arming_shells_path_into_the_service_unit
 test_check_requires_fifteen_persistent_minutes_and_emits_once
 test_check_resets_for_no_ready_work_and_suppresses_uncertainty
 test_arm_registers_home_check_and_installs_thirty_minute_timer

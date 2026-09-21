@@ -29,8 +29,17 @@
 # `arm` installs and registers state/fleet-steward.check.sh in this exact home,
 # writes the user units next-up-refresh.service and next-up-refresh.timer, and
 # enables the persistent thirty-minute timer.
+# The generated service unit carries `Environment=PATH=...` copied from the
+# arming shell's own PATH, because a user systemd unit does not inherit the
+# login PATH, so the scheduled refresh can otherwise fail to find tools such
+# as `br` that only resolve through login-shell PATH entries.
 # `disarm` retires the check through fm-check-unregister.sh and disables only
 # those two named units.
+#
+# A failed `refresh` writes a durable failure record
+# (state/.fleet-steward-refresh-failure) instead of only exiting nonzero, and
+# the registered `check` surfaces each new failure once as a wake so a broken
+# scheduled refresh is never silently mistaken for an empty ready queue.
 set -u
 export LC_ALL=C
 export GIT_TERMINAL_PROMPT=0
@@ -41,6 +50,8 @@ STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}/fleet-steward.json"
 QUEUE="${FM_DATA_OVERRIDE:-$FM_HOME/data}/next-up.md"
 LOW_RECORD="$STATE/.fleet-steward-low"
+FAILURE_RECORD="$STATE/.fleet-steward-refresh-failure"
+FAILURE_REPORTED="$STATE/.fleet-steward-refresh-failure-reported"
 CHECK_ID=fleet-steward
 CHECK_SHIM="$STATE/$CHECK_ID.check.sh"
 REGISTER_BIN="$SCRIPT_DIR/fm-check-register.sh"
@@ -147,20 +158,60 @@ id_on_main() {
   grep -Fxq -- "br:$id" "$main_log"
 }
 
+failure_record_write() {
+  local reason=$1 tmp
+  tmp=$(umask 077; mktemp "$STATE/.fleet-steward-refresh-failure.XXXXXX") || return 1
+  {
+    printf 'fm-fleet-steward-refresh-failure.v1\n'
+    printf 'at=%s\n' "$(record_epoch_now)"
+    printf 'reason=%s\n' "$(printf '%s' "$reason" | tr '\t\r\n' '   ')"
+  } > "$tmp" || { rm -f -- "$tmp"; return 1; }
+  chmod 0600 "$tmp" || { rm -f -- "$tmp"; return 1; }
+  mv -f -- "$tmp" "$FAILURE_RECORD"
+}
+
+failure_record_clear() {
+  rm -f -- "$FAILURE_RECORD" "$FAILURE_REPORTED"
+}
+
+failure_record_read() {
+  local version at_line reason_line
+  FAILURE_AT=
+  FAILURE_REASON=
+  [ -f "$FAILURE_RECORD" ] && [ ! -L "$FAILURE_RECORD" ] || return 1
+  {
+    IFS= read -r version
+    IFS= read -r at_line
+    IFS= read -r reason_line
+  } < "$FAILURE_RECORD" || return 1
+  [ "$version" = fm-fleet-steward-refresh-failure.v1 ] || return 1
+  FAILURE_AT=${at_line#at=}
+  FAILURE_REASON=${reason_line#reason=}
+  require_uint at "$FAILURE_AT" >/dev/null 2>&1 || return 1
+  [ -n "$FAILURE_REASON" ] || return 1
+}
+
+refresh_fail() {
+  fail "$1"
+  failure_record_write "$1" || true
+  return 1
+}
+
 action_refresh() {
   local project repository tmpdir ready_json prs_raw merged_tokens main_log candidates output
   local row id title priority issue_type status labels normalized
-  config_validate || return 1
+  config_validate || { failure_record_write "config does not match fm-fleet-steward.v1"; return 1; }
   for tool in br git gh-axi jq base64 sort; do
-    command -v "$tool" >/dev/null 2>&1 || { fail "required tool not found: $tool"; return 1; }
+    command -v "$tool" >/dev/null 2>&1 || { refresh_fail "required tool not found: $tool"; return 1; }
   done
   project=$(config_value '.project_path')
   repository=$(config_value '.repository')
-  [ -d "$project" ] || { fail "project path is unavailable: $project"; return 1; }
-  [ -d "$(dirname "$QUEUE")" ] || { fail "queue directory is unavailable: $(dirname "$QUEUE")"; return 1; }
-  [ -d "$STATE" ] || { fail "state directory is unavailable: $STATE"; return 1; }
+  [ -d "$project" ] || { refresh_fail "project path is unavailable: $project"; return 1; }
+  [ -d "$(dirname "$QUEUE")" ] || { refresh_fail "queue directory is unavailable: $(dirname "$QUEUE")"; return 1; }
+  [ -d "$STATE" ] || { refresh_fail "state directory is unavailable: $STATE"; return 1; }
 
-  tmpdir=$(mktemp -d "$STATE/.fleet-steward-refresh.XXXXXX") || return 1
+  tmpdir=$(mktemp -d "$STATE/.fleet-steward-refresh.XXXXXX") \
+    || { refresh_fail "could not create refresh scratch directory"; return 1; }
   ready_json="$tmpdir/ready.json"
   prs_raw="$tmpdir/prs-raw.json"
   merged_tokens="$tmpdir/merged-tokens"
@@ -170,26 +221,26 @@ action_refresh() {
   trap 'rm -rf -- "$tmpdir"' EXIT HUP INT TERM
 
   git -C "$project" fetch origin main >/dev/null 2>&1 \
-    || { fail "could not refresh origin/main"; return 1; }
+    || { refresh_fail "could not refresh origin/main"; return 1; }
   (cd "$project" && br ready --json --no-auto-flush --no-auto-import) > "$ready_json" 2>/dev/null \
-    || { fail "br ready failed"; return 1; }
+    || { refresh_fail "br ready failed"; return 1; }
   jq -e 'type == "array"' "$ready_json" >/dev/null 2>&1 \
-    || { fail "br ready returned invalid JSON"; return 1; }
+    || { refresh_fail "br ready returned invalid JSON"; return 1; }
   gh-axi api --full --paginate "/repos/$repository/pulls?state=closed&per_page=100" \
     --jq '[.[] | select(.merged_at != null) | ((.title // "") + " " + (.head.ref // "")) | splits("[^A-Za-z0-9_.-]+") | select(length > 0)] | unique | .[]' \
     > "$prs_raw" 2>/dev/null \
-    || { fail "merged pull request verification failed"; return 1; }
+    || { refresh_fail "merged pull request verification failed"; return 1; }
   grep -Fxq '  truncated: false' "$prs_raw" \
-    || { fail "merged pull request verification returned invalid JSON"; return 1; }
+    || { refresh_fail "merged pull request verification returned invalid JSON"; return 1; }
   sed -n 's/^  body: //p' "$prs_raw" | jq -r . > "$merged_tokens" 2>/dev/null \
-    || { fail "merged pull request verification returned invalid JSON"; return 1; }
+    || { refresh_fail "merged pull request verification returned invalid JSON"; return 1; }
   git -C "$project" log origin/main --format='%s%n%b' > "$main_log" 2>/dev/null \
-    || { fail "origin/main verification failed"; return 1; }
+    || { refresh_fail "origin/main verification failed"; return 1; }
 
   : > "$candidates"
   while IFS= read -r row; do
     [ -n "$row" ] || continue
-    normalized=$(decode_base64 "$row") || { fail "could not decode br ready row"; return 1; }
+    normalized=$(decode_base64 "$row") || { refresh_fail "could not decode br ready row"; return 1; }
     id=$(printf '%s' "$normalized" | jq -r '.id // empty')
     title=$(printf '%s' "$normalized" | jq -r '.title // empty')
     priority=$(printf '%s' "$normalized" | jq -r '.priority // 999')
@@ -216,11 +267,12 @@ action_refresh() {
       | while IFS="$(printf '\t')" read -r _priority id title; do
           printf -- '- READY %s | acceptance: %s | preconditions: br ready verified; origin/main and merged pull requests clear\n' "$id" "$title"
         done
-  } > "$output" || { fail "could not render queue"; return 1; }
-  chmod 0600 "$output" || return 1
-  mv -f -- "$output" "$QUEUE" || { fail "could not publish queue"; return 1; }
+  } > "$output" || { refresh_fail "could not render queue"; return 1; }
+  chmod 0600 "$output" || { refresh_fail "could not secure generated queue"; return 1; }
+  mv -f -- "$output" "$QUEUE" || { refresh_fail "could not publish queue"; return 1; }
   trap - EXIT HUP INT TERM
   rm -rf -- "$tmpdir"
+  failure_record_clear
 }
 
 capacity_read() {
@@ -273,7 +325,15 @@ episode_reset() {
 }
 
 action_check() {
-  local capacity_log now ready age
+  local capacity_log now ready age reported=
+  if failure_record_read; then
+    [ -f "$FAILURE_REPORTED" ] && reported=$(cat "$FAILURE_REPORTED" 2>/dev/null)
+    if [ "$reported" != "$FAILURE_AT" ]; then
+      printf 'fleet-steward: refresh failed at=%s: %s\n' "$FAILURE_AT" "$FAILURE_REASON"
+      printf '%s\n' "$FAILURE_AT" > "$FAILURE_REPORTED" 2>/dev/null || true
+      return 0
+    fi
+  fi
   config_validate || return 0
   require_uint FM_FLEET_STEWARD_GRACE_SECONDS "$GRACE_SECONDS" >/dev/null 2>&1 || return 0
   require_uint FM_FLEET_STEWARD_PRODUCTIVE_MIN "$PRODUCTIVE_MIN" >/dev/null 2>&1 || return 0
@@ -402,6 +462,7 @@ service_content() {
     '[Service]' \
     'Type=oneshot' \
     "Environment=FM_HOME=$FM_HOME" \
+    "Environment=PATH=$PATH" \
     "ExecStart=$SCRIPT_DIR/fm-fleet-steward.sh refresh" \
     'Nice=19' \
     'IOSchedulingClass=best-effort' \
@@ -461,7 +522,8 @@ action_arm() {
 action_disarm() {
   "$SYSTEMCTL" --user disable --now next-up-refresh.timer >/dev/null 2>&1 || true
   FM_HOME="$FM_HOME" "$UNREGISTER_BIN" "$CHECK_ID" >/dev/null 2>&1 || true
-  rm -f -- "$SYSTEMD_USER_DIR/next-up-refresh.service" "$SYSTEMD_USER_DIR/next-up-refresh.timer" "$LOW_RECORD"
+  rm -f -- "$SYSTEMD_USER_DIR/next-up-refresh.service" "$SYSTEMD_USER_DIR/next-up-refresh.timer" \
+    "$LOW_RECORD" "$FAILURE_RECORD" "$FAILURE_REPORTED"
   "$SYSTEMCTL" --user daemon-reload >/dev/null 2>&1 || true
   printf 'disarmed: fleet-steward check and next-up-refresh.timer\n'
 }

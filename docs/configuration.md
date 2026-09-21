@@ -677,9 +677,11 @@ Every exclusion has a non-empty reason and a `kind` of `captain` or `deferred`.
 
 Run `bin/fm-fleet-steward.sh arm` once in the owning home after creating the configuration.
 Arming registers `fleet-steward` as an authenticated custom check in that exact home and enables the persistent `next-up-refresh.timer`, which refreshes after one minute and then every thirty minutes.
+The generated `next-up-refresh.service` carries a single `Environment=PATH=...` line copied from the arming shell's own `PATH`, because a user systemd unit does not otherwise inherit the login `PATH` and the scheduled refresh would then fail to find tools such as `br` that only resolve through login-shell `PATH` entries.
 The check emits only after a fresh, certain capacity sample stays below six productive lanes for at least fifteen minutes while `data/next-up.md` contains a verified ready row.
 The wake names `action=finish-then-refill`, whose handling procedure is owned by the agent-only `fleet-steward` skill.
 `data/next-up.md` is generated selection input rather than a second backlog, and a failed refresh preserves its last known-good bytes without authorizing dispatch from stale data.
+A failed refresh also writes a durable failure record, which the registered check surfaces once per new failure as a `fleet-steward: refresh failed ...` wake, so a broken scheduled refresh is never mistaken for a healthy but empty ready queue.
 Run `bin/fm-fleet-steward.sh disarm` to retire the check and timer for that home.
 
 ## Mail plane (.env)
