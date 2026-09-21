@@ -164,8 +164,14 @@ test_write_is_durable_and_exact() {
     || fail "every record in one inbox should ring the same drain-all doorbell"
   assert_contains "$doorbell" "'$state/t1.inbox'/*.msg" "doorbell should quote and name all unhandled records"
   assert_contains "$doorbell" "numeric order" "doorbell should require ordered processing"
-  assert_contains "$doorbell" "'$state/t1.inbox'/handled/" "doorbell should quote and name the handled dir"
+  assert_contains "$doorbell" "'$ROOT/bin/fm-inbox-ack.sh'" \
+    "doorbell should quote and name the acknowledgement helper, not a bare mv"
+  assert_contains "$doorbell" "'$state/t1.inbox' NNN.msg to acknowledge it" \
+    "doorbell should tell the worker to run the helper against the inbox dir"
   assert_contains "$doorbell" "Firstmate instruction waiting" "doorbell should be self-describing"
+  case "$doorbell" in
+    *'mv '*) fail "the doorbell must not name mv directly: $doorbell" ;;
+  esac
   case "$doorbell" in
     *$'\n'*) fail "the doorbell must be a single line" ;;
   esac
