@@ -131,15 +131,11 @@ fm_nm_run_status_class() {  # <status_word>
 # 2026-09-20: a truncated overview with zero rows for this task's branch has
 # only `count:`/`runs[...]:`), so repo identity is looked up by the task
 # worktree path itself, which is exactly what `no-mistakes` records as a
-# repo's `working_path`; the recorded spelling is matched first, then
-# canonicalized comparison so a trailing slash, an uncollapsed segment or a
-# symlinked parent still matches the same repository, and several spellings of
-# one directory are one repository rather than an ambiguity. A task worktree
-# that is somehow not absolute, or a recorded path that is not, cannot be
-# matched and reads as unreadable rather than guessed.
-# The reader subprocess is bounded by $4 seconds (default 10) so a contended
-# database can never outlast the caller's per-read budget; its own sqlite busy
-# timeout absorbs ordinary lock contention within that bound.
+# repo's `working_path`; the recorded spelling is matched exactly, so a task
+# worktree that is not absolute, or whose spelling differs from the recorded
+# one, reads as unreadable rather than guessed among candidates.
+# The reader subprocess is bounded by $4 seconds (default 10), so a contended
+# database can never outlast the caller's per-read budget.
 # If that reader or inventory is unavailable, report unknown with available
 # candidate ids rather than treating the displayed window as complete.
 # Structural completeness applies to the whole table; semantic validation
@@ -249,23 +245,17 @@ ids = available_ids.split(", ") if available_ids else []
 try:
     if not os.path.isabs(worktree):
         raise ValueError
-    canonical = os.path.realpath(worktree)
     root = Path(os.environ.get("NM_HOME") or Path.home() / ".no-mistakes")
     if not root.is_absolute():
-        root = Path(canonical) / root
+        root = Path(worktree) / root
     with closing(sqlite3.connect((root / "state.sqlite").as_uri() + "?mode=ro", uri=True, timeout=30)) as db:
         db.execute("BEGIN")
-        repo = [row[0] for row in db.execute(
-            "SELECT id FROM repos WHERE working_path = ?", (worktree,)).fetchall()]
-        if not repo:
-            repo = [row[0] for row in db.execute("SELECT id, working_path FROM repos").fetchall()
-                    if isinstance(row[1], str) and os.path.isabs(row[1])
-                    and os.path.realpath(row[1]) == canonical][:1]
+        repo = db.execute("SELECT id FROM repos WHERE working_path = ?", (worktree,)).fetchall()
         if len(repo) != 1:
             raise ValueError
         rows = db.execute(
             "SELECT id, branch, status, head_sha FROM runs WHERE repo_id = ? AND branch = ? "
-            "ORDER BY created_at DESC, id DESC", (repo[0], branch)
+            "ORDER BY created_at DESC, id DESC", (repo[0][0], branch)
         ).fetchall()
     displayed_ids = set(ids)
     for row in rows:

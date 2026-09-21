@@ -3362,49 +3362,18 @@ SH
   pass 'the capped inventory reader is bounded by the crew read budget'
 }
 
-# A task meta file records the worktree path as written, not as canonicalized;
-# `no-mistakes` records the resolved path. The same repository must still be
-# recognized when the two spellings differ.
-test_capped_inventory_matches_noncanonical_worktree_path() {
+# Repo identity is looked up by the exact recorded `working_path`; a worktree
+# spelled differently from the registered row is not guessed at, and reads as
+# an unreadable inventory that still names every candidate run id.
+test_capped_inventory_requires_exact_worktree_path() {
   make_capped_runs_case capped-noncanonical running pending hidden
   local d=$TMP_ROOT/capped-noncanonical out
   fm_write_meta "$d/state/competing.meta" "window=fm:fm-competing" "worktree=$d/wt/./" "kind=ship"
   out=$(run_crew_state "$d" competing)
-  assert_not_contains "$out" 'unreadable' 'a differently spelled worktree path still names its repository'
-  assert_contains "$out" '01NEW' 'the hidden newer run is read from the inventory'
-  assert_contains "$out" '01OLD' 'the hidden older run is read from the inventory'
-  pass 'a non-canonical worktree path still matches its registered repo row'
-}
-
-# `no-mistakes` keeps `repos.working_path` unique only as a string, so the same
-# real directory can be registered under more than one spelling. Neither the
-# recorded spelling nor a differently spelled sibling row may turn a readable
-# inventory into an unreadable one.
-test_capped_inventory_tolerates_duplicate_repo_spellings() {
-  local mode rc=0
-  for mode in exact canonical; do
-    (
-      make_capped_runs_case "capped-dup-repo-$mode" running pending hidden
-      d=$TMP_ROOT/capped-dup-repo-$mode
-      python3 - "$NM_HOME/state.sqlite" "$d/wt/." <<'PY'
-import sqlite3
-import sys
-with sqlite3.connect(sys.argv[1]) as db:
-    db.execute("INSERT INTO repos VALUES ('repo-dup', ?)", (sys.argv[2],))
-PY
-      [ "$mode" = exact ] || fm_write_meta "$d/state/competing.meta" \
-        "window=fm:fm-competing" "worktree=$d/wt/./" "kind=ship"
-      out=$(run_crew_state "$d" competing)
-      assert_not_contains "$out" 'unreadable' \
-        "a second spelling of the same directory is not an ambiguous repository ($mode)"
-      if [ "$mode" = exact ]; then
-        assert_contains "$out" '01NEW' 'the recorded spelling selects the repository that owns the runs'
-        assert_contains "$out" '01OLD' 'the older hidden run is read from that repository'
-      fi
-      pass "duplicate repo spellings stay readable ($mode worktree spelling)"
-    ) || rc=1
-  done
-  [ "$rc" = 0 ] || fail 'duplicate repo spellings'
+  assert_contains "$out" 'state: unknown' 'an unmatched worktree spelling cannot establish a verdict'
+  assert_contains "$out" 'unreadable' 'an unmatched repo lookup reports the inventory unreadable'
+  assert_not_contains "$out" 'absent' 'an unmatched repo lookup never reads as a branch without runs'
+  pass 'a worktree spelling the inventory does not record reads unreadable'
 }
 
 test_capped_replacement_keeps_gate_and_inventory_unchanged() {
@@ -4904,9 +4873,8 @@ test_no_run_herdr_stale_working_record_is_never_busy
 test_capped_competing_live_runs_report_both_ids
 test_capped_overview_without_branch_rows_reports_both_ids
 test_capped_overview_without_repo_line_and_no_runs_reports_absent
-test_capped_inventory_tolerates_duplicate_repo_spellings
 test_capped_inventory_reader_is_time_bounded
-test_capped_inventory_matches_noncanonical_worktree_path
+test_capped_inventory_requires_exact_worktree_path
 test_capped_replacement_keeps_gate_and_inventory_unchanged
 test_capped_inventory_failures_report_unknown
 test_complete_inventory_ignores_unrelated_semantics
