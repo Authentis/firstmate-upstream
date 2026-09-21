@@ -500,6 +500,27 @@ FM_COMPOSER_PI_MAX_LINES=${FM_COMPOSER_PI_MAX_LINES:-8}
 # different overhang or scales it with title/model-name length.
 FM_COMPOSER_GROK_TITLE_OVERHANG=3
 
+# A newer Pi release (captured live 2026-09-21, task
+# fm-overlay-pi-composer-idle-unknown-0921, data/fm-overlay-pi-composer-idle-
+# unknown-0921-capture.txt) draws only ONE separator for a truly empty
+# composer instead of the rule/blank/rule sandwich the rest of this file
+# assumes: the would-be second rule is replaced by two status rows pinned to
+# the pane's own bottom - a cwd+branch line, then a resource line
+# (`↑<tokens> ↓<tokens> R<mem>M <pct>%/<ctx>K (<mode>)`). Without
+# recognizing that shape, `_fm_composer_scan_screen` never sees a pair (only
+# one separator was ever drawn) and every caller reads the pane `unknown`
+# forever, which is exactly what blocked `bin/fm-remote-secondmate-control.sh
+# relaunch`'s `/quit` proof even while herdr's own `agent get` reported the
+# Pi idle. The resource line's arrows and fixed `R<n>M`/`%/<n>K` tokens are
+# not something a human composes by hand, so requiring it (branch line
+# optional, resource line mandatory) as the tail of the screen is genuine
+# NEW structural proof, not a relaxation of the existing blank-row rule: it
+# replaces the missing second rule with an equally positive marker rather
+# than trusting an unidentified blank region. See the trailing-footer
+# fallback in `_fm_composer_scan_screen` below.
+FM_COMPOSER_PI_FOOTER_STATS_RE_DEFAULT='^↑[0-9]+(\.[0-9]+)?[[:alpha:]]?[[:space:]]+↓[0-9]+(\.[0-9]+)?[[:alpha:]]?[[:space:]]+R[0-9]+M[[:space:]]+[0-9]+(\.[0-9]+)?%/[0-9]+[[:alpha:]][[:space:]]+\([[:alpha:]]+\)$'
+FM_COMPOSER_PI_FOOTER_BRANCH_RE_DEFAULT='^[~/][^()[:space:]]*[[:space:]]\([^()[:space:]][^()]*\)$'
+
 # 0 when <content> is exactly one glyph drawn from <glyph-list>.
 _fm_composer_is_prompt_glyph() {  # <content> <glyph-list>
   local content=$1 glyph
@@ -911,6 +932,49 @@ _fm_composer_scan_screen() {  # <plain-screen> <cursor-or-empty> [extract-wrap]
   done <<EOF
 $pane
 EOF
+  # Trailing Pi footer fallback (see FM_COMPOSER_PI_FOOTER_STATS_RE_DEFAULT
+  # above): only when the ordinary rule/blank/rule pairing above found no
+  # pair at all, and only a LONE separator exists to anchor it, so a normal
+  # two-rule pair and every non-pi candidate above are completely untouched.
+  # The footer's resource line is required as the screen's own LAST row and
+  # its optional branch line as the row directly above that, so nothing can
+  # hide below the footer and nothing between the rule and the footer goes
+  # unexamined: closing on the footer's first row makes that gap the
+  # composer's content region, scanned by _fm_composer_classify_pi_rows
+  # exactly as a real second rule's content region would be.
+  if [ "$FM_COMPOSER_SCAN_PI_PAIR_FOUND" != 1 ] && [ "$FM_COMPOSER_SCAN_PI_LAST_SEPARATOR" -ge 0 ]; then
+    local pf_last=$((row - 1)) pf_close=-1 pf_row pf_trimmed pf_lines
+    local pf_stats_re=${FM_COMPOSER_PI_FOOTER_STATS_RE:-$FM_COMPOSER_PI_FOOTER_STATS_RE_DEFAULT}
+    local pf_branch_re=${FM_COMPOSER_PI_FOOTER_BRANCH_RE:-$FM_COMPOSER_PI_FOOTER_BRANCH_RE_DEFAULT}
+    if [ "$pf_last" -gt "$FM_COMPOSER_SCAN_PI_LAST_SEPARATOR" ]; then
+      pf_row=$(_fm_composer_screen_row "$pf_last" "$pane")
+      pf_trimmed=$pf_row
+      fm_composer_normalize_trim_var pf_trimmed
+      if printf '%s' "$pf_trimmed" | grep -qE "$pf_stats_re"; then
+        pf_close=$pf_last
+        if [ "$pf_last" -gt $((FM_COMPOSER_SCAN_PI_LAST_SEPARATOR + 1)) ]; then
+          pf_row=$(_fm_composer_screen_row "$((pf_last - 1))" "$pane")
+          pf_trimmed=$pf_row
+          fm_composer_normalize_trim_var pf_trimmed
+          if printf '%s' "$pf_trimmed" | grep -qE "$pf_branch_re"; then
+            pf_close=$((pf_last - 1))
+          fi
+        fi
+      fi
+    fi
+    if [ "$pf_close" -ge 0 ]; then
+      FM_COMPOSER_SCAN_PI_PAIR_FOUND=1
+      FM_COMPOSER_SCAN_PI_OPEN=$FM_COMPOSER_SCAN_PI_LAST_SEPARATOR
+      FM_COMPOSER_SCAN_PI_CLOSE=$pf_close
+      FM_COMPOSER_SCAN_PI_OPEN_LABELLED=$pi_open_labelled
+      pf_lines=$((pf_close - FM_COMPOSER_SCAN_PI_LAST_SEPARATOR - 1))
+      if [ "$pf_lines" -ge 0 ] && [ "$pf_lines" -le "$pi_max" ]; then
+        FM_COMPOSER_SCAN_PI_PAIR_VALID=1
+      else
+        FM_COMPOSER_SCAN_PI_PAIR_VALID=0
+      fi
+    fi
+  fi
   if [ -n "$cy" ] && [ "$top" -ge 0 ] && [ "$top" -lt "$cy" ]; then
     FM_COMPOSER_SCAN_UNSAFE=1
   fi

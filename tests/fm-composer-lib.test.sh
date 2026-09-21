@@ -498,6 +498,42 @@ test_matrix_pi_separated_needs_identity() {
   pass "matrix: Pi's separated composer needs identity + structure; the blank row alone never proves it"
 }
 
+test_matrix_pi_lone_separator_footer() {
+  # A newer Pi release draws only ONE separator for a truly empty composer:
+  # the would-be second rule is replaced by its own status furniture (a
+  # cwd+branch line, then a resource line with unmistakable, unTYPEable
+  # tokens). Real idle capture, task fm-overlay-pi-composer-idle-unknown-0921
+  # (data/fm-overlay-pi-composer-idle-unknown-0921-capture.txt): unrelated
+  # transcript/queued-follow-up text above a single rule, then the footer -
+  # nothing a rule/blank/rule pair was ever going to match.
+  local screen typed pi_idle pi_working pi_blocked none stats branch
+  # shellcheck disable=SC2088 # literal captured row text, never expanded
+  branch='~/fm-secondmate-upstream-20260907 (main)'
+  stats='↑3.7M ↓544k R312M 48.2%/262k (auto)'
+  pi_idle=$(printf 'pi\tidle'); pi_working=$(printf 'pi\tworking')
+  pi_blocked=$(printf 'pi\tblocked'); none=$(printf 'zsh\t')
+  screen=$'queued follow-up text\nabove the rule\n────────────────────────\n'"$branch"$'\n'"$stats"
+  assert_screen "lone-separator footer idle" empty "$CAPS_STYLED" "$screen" '' "$pi_idle"
+  assert_screen "lone-separator footer without identity capability" unknown "$CAPS_STYLED_NOID" "$screen"
+  assert_screen "lone-separator footer blocked defers" unknown "$CAPS_STYLED" "$screen" '' "$pi_blocked"
+  assert_screen "lone-separator footer non-pi identity" unknown "$CAPS_STYLED" "$screen" '' "$none"
+  # A working Pi still queues in the collapsed blank composer.
+  assert_screen "lone-separator footer working" empty "$CAPS_STYLED" "$screen" '' "$pi_working"
+  # Typed text between the rule and the footer stays pending, never empty.
+  typed=$'transcript\n────────────────────────\nfix the flaky test\n'"$branch"$'\n'"$stats"
+  assert_screen "lone-separator footer with typed content" pending "$CAPS_STYLED" "$typed" '' "$pi_idle"
+  # The resource line alone, with no branch line, still proves the footer.
+  screen=$'transcript\n────────────────────────\n'"$stats"
+  assert_screen "lone-separator footer without a branch line" empty "$CAPS_STYLED" "$screen" '' "$pi_idle"
+  # A malformed or absent resource line proves nothing: no new pair, unknown.
+  screen=$'transcript\n────────────────────────\n'"$branch"
+  assert_screen "lone separator with only a branch line stays unknown" unknown "$CAPS_STYLED" "$screen" '' "$pi_idle"
+  # Content that overflows the bounded composer height still fails closed.
+  screen=$'────────────────────────\nline 1\nline 2\nline 3\nline 4\nline 5\nline 6\nline 7\nline 8\nline 9\n'"$branch"$'\n'"$stats"
+  assert_screen "lone-separator footer over the line bound stays unknown" unknown "$CAPS_STYLED" "$screen" '' "$pi_idle"
+  pass "matrix: a lone Pi separator plus its own resource footer proves an empty composer"
+}
+
 test_matrix_opencode_leftbar_signals() {
   # Real idle opencode: `┃`-prefixed rows holding an "Ask anything" hint,
   # blanks, and a Build-mode footer. Two independent idle signals: the shared
@@ -803,6 +839,7 @@ test_matrix_herdr_halfblock_rule_bounds_bare_wrap
 test_matrix_omp_status_row_bounds_bare_composer
 test_matrix_codex_idle_starfield_furniture
 test_matrix_pi_separated_needs_identity
+test_matrix_pi_lone_separator_footer
 test_matrix_opencode_leftbar_signals
 test_matrix_grok_titled_bottom_border
 test_matrix_kimi_bordered_shell_glyph_box
