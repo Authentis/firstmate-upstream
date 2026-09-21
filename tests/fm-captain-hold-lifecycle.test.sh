@@ -1549,13 +1549,13 @@ test_secondmate_home_publishes_rulings() {
   run_captain "$mate" hold rule-channel-call --reason "verify current release state" >/dev/null \
     || fail "could not hold the rule channel call"
   assert_grep 'needs-decision [key=captain-hold-rule-channel-call-1]: captain hold rule-channel-call: verify current release state' \
-    "$channel" "the mate's hold did not reach the parent channel"
+    <(sed -E 's/ \[at=[0-9]+\]//' "$channel") "the mate's hold did not reach the parent channel"
   printf 'The underlying release already shipped, with no board request filed.\n' > "$evidence"
 
   run_captain "$mate" rule rule-channel-call --evidence-file "$evidence" >/dev/null \
     || fail "could not rule the mate call without a board request"
   assert_grep 'resolved [key=captain-hold-rule-channel-call-1]: captain hold rule-channel-call: ruled' \
-    "$channel" "the ruling did not close the parent decision"
+    <(sed -E 's/ \[at=[0-9]+\]//' "$channel") "the ruling did not close the parent decision"
   run_captain "$mate" rule rule-channel-call --evidence-file "$evidence" >/dev/null \
     || fail "an idempotent rule retry failed"
   [ "$(grep -c 'captain-hold-rule-channel-call-1' "$channel")" = 2 ] \
