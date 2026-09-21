@@ -1,0 +1,25 @@
+=== fm-crew-state CLI verdicts (bin/fm-crew-state.sh, fake no-mistakes CLI + real sqlite inventory) ===
+
+--- the overview the CLI returns for this home (real captured shape: no 'repo:' line) ---
+count: 10 of 11 total
+runs[10]{id,branch,status,head,pr}:
+  "01OTHER00",fm/other-0,running,5e1db00626194d24a2eae49317d3ec133fb597e2,""
+  "01OTHER01",fm/other-1,running,5e1db00626194d24a2eae49317d3ec133fb597e2,""
+  "01OTHER02",fm/other-2,running,5e1db00626194d24a2eae49317d3ec133fb597e2,""
+  "01OTHER03",fm/other-3,running,5e1db00626194d24a2eae49317d3ec133fb597e2,""
+  "01OTHER04",fm/other-4,running,5e1db00626194d24a2eae49317d3ec133fb597e2,""
+  "01OTHER05",fm/other-5,running,5e1db00626194d24a2eae49317d3ec133fb597e2,""
+  "01OTHER06",fm/other-6,running,5e1db00626194d24a2eae49317d3ec133fb597e2,""
+  "01OTHER07",fm/other-7,running,5e1db00626194d24a2eae49317d3ec133fb597e2,""
+  "01OTHER08",fm/other-8,running,5e1db00626194d24a2eae49317d3ec133fb597e2,""
+  "01OTHER09",fm/other-9,running,5e1db00626194d24a2eae49317d3ec133fb597e2,""
+
+$ fm-crew-state.sh orphan   # branch fm/orphan-branch has NO run; a live run exists on fm/other-0
+state: working · source: pane · harness busy (claude-hook)
+
+$ fm-crew-state.sh competing   # two live same-branch runs: still ambiguous, both ids kept
+state: unknown · source: run-step · competing live runs; run ids: 01NEW, 01OLD; last reported run id: 01NEW
+
+$ fm-crew-state.sh competing   # worktree spelled differently from the recorded working_path: unreadable, not guessed
+state: unknown · source: run-step · complete same-branch run inventory unreadable; run ids: ; last reported run id: 01NEW
+

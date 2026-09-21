@@ -1,0 +1,7 @@
+### BASE 631bc26d (before the patch)
+not ok - a branch with no run of its own is not an unreadable runs table (unexpected: 'unreadable')
+--- output ---
+state: unknown · source: run-step · complete same-branch run inventory unreadable; run ids: 
+
+### WITH THE PATCH (f4fa0421)
+ok - no run for this branch beside a live run elsewhere reads absent, not unreadable
