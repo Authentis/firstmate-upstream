@@ -1,0 +1,74 @@
+== spawn output ==
+warning: /tmp/fm-live-kimi-target-prelaunch.aa8He1/home/data/kimi-live-prelaunch-c1/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+error: task launch directory /tmp/fm-kimi-live-prelaunch-c1+2ec0c416af0dc4c01856e69e767d04b36d7ad6c2f28d770aa9c3fc76a25f95f4 already exists and is not a private directory owned by this user; refusing to stage the launch command there; inspect and remove it, then retry
+
+== state/ after spawn ==
+total 16
+drwxr-xr-x@ 5 lundi  wheel   160 Sep 22 16:11 .
+drwxr-xr-x@ 7 lundi  wheel   224 Sep 22 16:11 ..
+-rw-r--r--@ 1 lundi  wheel     0 Sep 22 16:11 .last-watcher-beat
+-rw-------@ 1 lundi  wheel  1396 Sep 22 16:11 home-summary.json
+-rw-r--r--@ 1 lundi  wheel    16 Sep 22 16:11 kimi-live-prelaunch-c1.kimi-turnend-token
+
+== state/kimi-live-prelaunch-c1.meta ==
+cat: /tmp/fm-live-kimi-target-prelaunch.aa8He1/home/state/kimi-live-prelaunch-c1.meta: No such file or directory
+
+== state/kimi-live-prelaunch-c1.status ==
+cat: /tmp/fm-live-kimi-target-prelaunch.aa8He1/home/state/kimi-live-prelaunch-c1.status: No such file or directory
+
+== home-summary endpoint for kimi-live-prelaunch-c1 ==
+[{"id":"kimi-live-prelaunch-c1","state":"unknown","source":"pane","endpoint":{"target":"firstmate:fm-kimi-live-prelaunch-c1","exists":true,"agent_alive":"not_checked","status":"unknown","observed_at":"2026-09-22T12:11:27Z","freshness":"fresh"}}]
+
+== tmux windows (isolated server) ==
+firstmate:zsh pane_pid=68520 cwd=/private/tmp/fm-live-kimi-target-prelaunch.aa8He1/home
+firstmate:fm-kimi-live-prelaunch-c1 pane_pid=69248 cwd=/private/tmp/fm-live-kimi-target-prelaunch.aa8He1/wt
+
+== pane processes in fm-kimi-live-prelaunch-c1 ==
+69248 bash
+
+== live pane capture fm-kimi-live-prelaunch-c1 ==
+
+The default interactive shell is now zsh.
+To update your account to use zsh, please run `chsh -s /bin/zsh`.
+For more details, please visit https://support.apple.com/kb/HT208050.
+bash-3.2$ treehouse get
+
+The default interactive shell is now zsh.
+To update your account to use zsh, please run `chsh -s /bin/zsh`.
+For more details, please visit https://support.apple.com/kb/HT208050.
+bash-3.2$ export GOTMPDIR=/tmp/fm-kimi-live-prelaunch-c1/gotmp
+bash-3.2$ export COMPACT_ADVISER_DISABLE=1
+bash-3.2$ export FM_TASK_ID=kimi-live-prelaunch-c1
+bash-3.2$
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+== launch dir /tmp/fm-kimi-live-prelaunch-c1+2ec0c416af0dc4c01856e69e767d04b36d7ad6c2f28d770aa9c3fc76a25f95f4 ==
+total 0
+drwxrwxrwx@    2 lundi  wheel     64 Sep 22 16:11 .
+drwxrwxrwt  2099 root   wheel  67168 Sep 22 16:11 ..

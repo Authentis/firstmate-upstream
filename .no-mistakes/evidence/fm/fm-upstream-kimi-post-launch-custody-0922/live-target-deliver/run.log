@@ -1,0 +1,3 @@
+tmux server pid=36222 socket=/tmp/fm-live-kimi-target-deliver.rpYawj/tmux.sock
+spawn exit code: 0
+teardown done

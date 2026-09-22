@@ -1,0 +1,61 @@
+
+The default interactive shell is now zsh.
+To update your account to use zsh, please run `chsh -s /bin/zsh`.
+For more details, please visit https://support.apple.com/kb/HT208050.
+bash-3.2$ treehouse get
+
+The default interactive shell is now zsh.
+To update your account to use zsh, please run `chsh -s /bin/zsh`.
+For more details, please visit https://support.apple.com/kb/HT208050.
+bash-3.2$ export GOTMPDIR=/tmp/fm-kimi-live-deliver-d1/gotmp
+bash-3.2$ export COMPACT_ADVISER_DISABLE=1
+bash-3.2$ export FM_TASK_ID=kimi-live-deliver-d1
+bash-3.2$ . '/tmp/fm-kimi-live-deliver-d1+4e83b5eed0a3fc3ad06f0f5364ee44c67cdb24fe3a1865d1e5f9f5133c00a247/launch.s17900
+79099.77702.22559.sh'
+Welcome to Kimi Code!
+context: 0% (0/256k)
+╭────────────────────────────────╮
+│ >                              │
+╰────────────────────────────────╯
+Read the brief at /private/tmp/fm-live-kimi-target-deliver.dXdkwH/home/data/kimi-live-deliver-d1/launch-brief.md and fol
+low it exactly.
+Welcome to Kimi Code!
+✨ Read the brief at /private/tmp/fm-live-kimi-target-deliver.dXdkwH/home/data/kimi-live-deliver-d1/launch-brief.md and
+follow it exactly.
+context: 1% (2k/256k)
+╭────────────────────────────────╮
+│ >                              │
+╰────────────────────────────────╯
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

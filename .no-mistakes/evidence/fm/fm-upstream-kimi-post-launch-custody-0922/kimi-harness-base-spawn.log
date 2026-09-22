@@ -1,0 +1,15 @@
+ok - Kimi hook install is idempotent and removal restores every foreign config byte
+ok - Kimi hook removal preserves owned newline boundaries and pristine bytes
+ok - Kimi hook install refuses missing, malformed, and surprising config without writing
+ok - Kimi hook install refuses without jq before any config write
+ok - fm-spawn: kimi launches, delivers its brief, and registers a guarded turn-end token
+ok - fm-spawn: unsafe task roots are refused, owned roots are tightened, and launch files stay unique and 0600
+ok - Kimi hook stays silent and inert without a Firstmate registry token
+ok - fm-spawn: unsafe Kimi global config refuses before pane creation
+ok - fm-teardown: Kimi task pointer and registry token are removed
+ok - fm-spawn: Kimi fallback expands the active HOME
+ok - fm-spawn: missing Kimi executable refuses before pane creation
+not ok - unconfirmed Kimi delivery did not name the supported recovery record (missing: 'task record is preserved for the live worker')
+--- output ---
+warning: /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-kimi-harness.T51JcP/drop/home/data/kimi-drop-z2/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+error: kimi brief pointer delivery was not confirmed; inspect window firstmate:fm-kimi-drop-z2

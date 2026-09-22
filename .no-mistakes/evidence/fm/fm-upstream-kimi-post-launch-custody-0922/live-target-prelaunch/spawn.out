@@ -1,0 +1,2 @@
+warning: /tmp/fm-live-kimi-target-prelaunch.MsjUfA/home/data/kimi-live-prelaunch-c2/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+error: task launch directory /tmp/fm-kimi-live-prelaunch-c2+955ce60260e9a2f0cd3536b4ffa3e8f05fde201f8c13e7bf337143037ef4ab4e already exists and is not a private directory owned by this user; refusing to stage the launch command there; inspect and remove it, then retry

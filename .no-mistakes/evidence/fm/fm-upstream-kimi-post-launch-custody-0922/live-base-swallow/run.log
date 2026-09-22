@@ -1,0 +1,3 @@
+tmux server pid=65478 socket=/tmp/fm-live-kimi-base-swallow.oipjNc/tmux.sock
+spawn exit code: 1
+teardown done

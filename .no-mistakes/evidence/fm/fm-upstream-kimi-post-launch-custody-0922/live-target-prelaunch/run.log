@@ -1,0 +1,3 @@
+tmux server pid=81116 socket=/tmp/fm-live-kimi-target-prelaunch.MsjUfA/tmux.sock
+spawn exit code: 1
+teardown done
