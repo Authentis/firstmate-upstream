@@ -618,6 +618,7 @@ This section is the single owner of the canonical schema.
       "version_args": ["<optional args that make it print its version, default --version>"],
       "announce_pattern": "<optional extended regex matching the tool's own update announcement>",
       "announce_args": ["<optional args for the command that carries that announcement, default version_args>"],
+      "update_args": ["<optional args that make `command` apply its own update, e.g. [\"update\"]>"],
       "git": {
         "repo": "<optional absolute path to a local clone>",
         "remote": "<optional remote name, default origin>",
@@ -636,6 +637,8 @@ An `announce_pattern` that is not a usable extended regular expression stops `ar
 A `git` entry reports how many commits the local clone is behind its remote branch, and stays silent when the clone is current or ahead.
 An omitted `branch` uses the remote's default branch, taken from the clone's own record of it and otherwise asked of the remote directly, so a `--single-branch` clone still resolves.
 Both probe kinds are read-only and bounded, and a probe that cannot answer is reported as a check failure rather than assumed current.
+`update_args` is consumed only by the applier below; the check never reads it and never applies anything itself.
+A `command` entry with no `update_args` is reported manual-only by the applier rather than guessed at, and a `git` entry needs no extra field because its existing `repo`/`remote`/`branch` are enough to attempt a fast-forward pull.
 See [`docs/examples/watched-tools.json`](examples/watched-tools.json) for a starting point to copy into local `config/watched-tools.json`.
 
 Arm the check once per home with `bin/fm-tool-update-check.sh arm`.
@@ -652,6 +655,14 @@ A sweep that runs out of budget says which tool it did not reach rather than rep
 The sweep must finish inside `FM_CHECK_TIMEOUT` (default 30), because a run the watcher kills prints nothing and records nothing and would then repeat that silence on every poll.
 So a budget larger than that timeout allows is cut down to what fits instead of being refused, and the cut is reported in the report line.
 A budget that is not a whole number from 1 to 120 is still refused outright.
+
+Detection is only half of it: [`bin/fm-tool-update.sh`](../bin/fm-tool-update.sh) is the applier, run when the check's `check:` wake says a watched tool needs attention.
+`fm-tool-update.sh apply` applies updates on this host alone; `fm-tool-update.sh` (or `fm-tool-update.sh fleet`) applies on this host and then on every host registered in `data/secondmates.md`, a local secondmate through its own copy of the script and a remote one through `bin/fm-on.sh`, because `config/watched-tools.json` is not inherited and each host watches and applies against its own copy.
+Every tool is verified, never assumed: a command tool is asked its own version before and after its `update_args` run, and an unchanged version after a clean exit is reported failed rather than done, because that is the PATH-skew shape this check exists to catch.
+A git tool's own HEAD is its verification, advanced only with `git pull --ff-only`.
+Neither path ever passes `--force`: a command tool's nonzero exit, or git's own refusal on a dirty or diverged tree, is read as that tool's authoritative refusal and reported skipped, never retried or worked around.
+Each host prints one line per tool (`done`, `skipped`, `failed`, `manual`, or `unreachable`) and one `host-summary:` line; a fleet run adds one final `fleet-summary:` line summing every host.
+`FM_TOOL_UPDATE_PROBE_SECS` (default 5) bounds each version probe and `FM_TOOL_APPLY_SECS` (default 180, 1 to 1800) bounds one update or git-pull attempt.
 
 ## Fleet steward (config/fleet-steward.json)
 

@@ -18,7 +18,8 @@
       "command": "no-mistakes",
       "version_args": ["--version"],
       "announce_args": ["--help"],
-      "announce_pattern": "A new version of no-mistakes is available: [^ ]+ -> [^ ]+"
+      "announce_pattern": "A new version of no-mistakes is available: [^ ]+ -> [^ ]+",
+      "update_args": ["update"]
     }
   ]
 }
