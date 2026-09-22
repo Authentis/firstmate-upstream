@@ -33,7 +33,7 @@ The startup input-readiness window is the established cause; the banner is not.
 An early Enter can expand the composer to multiple content rows, leaving pointer text on the first row and the cursor on an empty later row.
 The shared tmux reader therefore locates the complete bordered composer and treats real text on any content row as positive evidence that submission remains pending.
 No rendering signal proves Kimi will accept input during this window, so delivery retries Enter through the shared submit core and retains the postcondition verification rather than relaxing readiness.
-Once the launch command has been submitted, a Kimi readiness or pointer-delivery failure records `failed: <detail>` in the task status and keeps the already published task record, its worktree, and its endpoint rather than rolling them back: that record is the authoritative ownership path for the live worker, and the diagnostic says the record is preserved so the window can be inspected. Only a failure before the agent is launched, such as a missing executable or a launch command that could not be delivered, still discards the fresh record. `tests/fm-kimi-harness.test.sh` pins both halves.
+After launch, Kimi leaves an unconfirmed readiness or pointer-delivery endpoint available for inspection, so it follows the common post-launch custody boundary in bin/fm-spawn.sh rather than closing the endpoint.
 
 Observed spinner captures had optional leading whitespace, a moon-phase glyph, whitespace around `·`, and rotating tip text, including during tool execution.
 The delivery-only matcher requires the observed whitespace, deliberately excludes the unobserved zero-whitespace form, and does not require trailing tip text.

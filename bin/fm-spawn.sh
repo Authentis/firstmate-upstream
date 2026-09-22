@@ -1098,7 +1098,7 @@ SPAWN_META_LOCK_HELD=0
 SPAWN_META_PUBLISH_STARTED=0
 SPAWN_FRESH_COMMIT_PENDING=0
 SPAWN_AGENT_LAUNCHED=0
-SPAWN_POST_AGENT_FAILURE_PRESERVED=0
+SPAWN_POST_LAUNCH_CUSTODY_PRESERVED=0
 SPAWN_TASK_SET_LOCK=
 SPAWN_TASK_SET_LOCK_HELD=0
 SPAWN_TREEHOUSE_PROJECT_LOCK=
@@ -1227,10 +1227,9 @@ spawn_abort_cleanup() {
     fm_lock_release "$SPAWN_TASK_LOCK" || true
   fi
   if [ "$SPAWN_FRESH_COMMIT_PENDING" = 1 ] &&
-    [ "$SPAWN_POST_AGENT_FAILURE_PRESERVED" = 1 ]; then
-    # A post-agent gate can fail after the fresh record is published but before
-    # the final backlog transition. Keep that record: it is the authoritative
-    # ownership path for the live worker and its status names the failed gate.
+    [ "$SPAWN_POST_LAUNCH_CUSTODY_PRESERVED" = 1 ]; then
+    # A post-launch gate left its endpoint live or unconfirmed, so its record
+    # remains the authoritative ownership path and names the failed gate.
     SPAWN_FRESH_COMMIT_PENDING=0
   elif [ "$SPAWN_FRESH_COMMIT_PENDING" = 1 ]; then
     if ! spawn_fresh_commit_rollback; then
@@ -3667,16 +3666,33 @@ kimi_wait_for_delivery() {
   return 1
 }
 
-kimi_spawn_fail() { # <detail>
-  if [ "$SPAWN_AGENT_LAUNCHED" = 1 ] && [ -f "$STATE/$ID.meta" ]; then
-    SPAWN_POST_AGENT_FAILURE_PRESERVED=1
-  fi
+spawn_record_failure() { # <detail>
   printf '%s\n' "$(status_stamp_line "failed: $1")" >>"$STATE/$ID.status"
-  if [ "$SPAWN_POST_AGENT_FAILURE_PRESERVED" = 1 ]; then
+}
+
+# Every post-launch failure must either close the exact endpoint or keep the
+# published task record that owns it. This helper marks the latter outcome for
+# the abort trap, which otherwise retains pre-launch rollback semantics.
+spawn_preserve_post_launch_custody() {
+  if [ "$SPAWN_AGENT_LAUNCHED" = 1 ] && [ -f "$STATE/$ID.meta" ]; then
+    SPAWN_POST_LAUNCH_CUSTODY_PRESERVED=1
+    return 0
+  fi
+  return 1
+}
+
+spawn_post_launch_failure() { # <detail>
+  if spawn_preserve_post_launch_custody; then
+    spawn_record_failure "$1"
     echo "error: $1; task record is preserved for the live worker, inspect window $T" >&2
   else
+    spawn_record_failure "$1"
     echo "error: $1; inspect window $T" >&2
   fi
+}
+
+kimi_spawn_fail() { # <detail>
+  spawn_post_launch_failure "$1"
 }
 
 # rovo mirrors kimi's launch-then-send shape exactly: a positional brief is
@@ -3743,26 +3759,29 @@ rovo_wait_for_delivery() {
 }
 
 rovo_spawn_fail() { # <detail>
-  printf '%s\n' "$(status_stamp_line "failed: $1")" >>"$STATE/$ID.status"
+  if ! spawn_close_live_endpoint; then
+    spawn_post_launch_failure "$1"
+    return
+  fi
+  spawn_record_failure "$1"
   echo "error: $1; inspect window $T" >&2
-  rovo_endpoint_cleanup
 }
 
 # The launch-then-confirm gates run after the task record is published, when
 # ORCA_ABORT_CLEANUP is already cleared and neither the abort trap nor a
-# teardown owns this endpoint yet, so a gate failure must close the launched
-# process here or it keeps running as an orphaned autonomous agent outside
-# task control. Mirrors fm-teardown.sh's own generic kill call. On orca only
-# the exact terminal is closed: that stops the CLI while its worktree stays
-# for the record's own teardown, which owns worktree deletion.
-rovo_endpoint_cleanup() {
+# teardown owns this endpoint yet. A successful close permits rollback; a
+# failed close leaves the record as the endpoint's authoritative custody.
+# Mirrors fm-teardown.sh's own generic kill call. On orca only the exact
+# terminal is closed: that stops the CLI while its worktree stays for the
+# record's own teardown, which owns worktree deletion.
+spawn_close_live_endpoint() {
   if [ "$BACKEND" = orca ]; then
-    fm_backend_kill orca "$T" 2>/dev/null || true
-    return 0
+    fm_backend_kill orca "$T"
+    return
   fi
   local tab_id=
   [ "$BACKEND" = zellij ] && tab_id=$ZELLIJ_TAB_ID
-  fm_backend_kill "$BACKEND" "$T" "$tab_id" "fm-$ID" 2>/dev/null || true
+  fm_backend_kill "$BACKEND" "$T" "$tab_id" "fm-$ID"
 }
 
 # agy carries its brief on the launch command, so it needs no delivery gate,
@@ -3816,9 +3835,12 @@ agy_wait_for_working() {
 }
 
 agy_spawn_fail() {  # <detail>
-  printf '%s\n' "$(status_stamp_line "failed: $1")" >>"$STATE/$ID.status"
+  if ! spawn_close_live_endpoint; then
+    spawn_post_launch_failure "$1"
+    return
+  fi
+  spawn_record_failure "$1"
   echo "error: $1; inspect window $T" >&2
-  rovo_endpoint_cleanup
 }
 
 if [ "$RELAUNCH" -eq 1 ]; then

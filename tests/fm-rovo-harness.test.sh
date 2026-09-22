@@ -63,8 +63,18 @@ case "$*" in
 esac
 case "${1:-}" in
   display-message) printf 'firstmate\n'; exit 0 ;;
-  list-windows) exit 0 ;;
-  has-session|new-session|new-window|kill-window) exit 0 ;;
+  list-windows)
+    [ -f "$FM_FAKE_ROVO_KILL_ATTEMPTED" ] && printf '%s\n' "$FM_FAKE_ROVO_WINDOW"
+    exit 0
+    ;;
+  has-session|new-session|new-window) exit 0 ;;
+  kill-window)
+    if [ "$FM_FAKE_ROVO_KILL_FAIL" = yes ]; then
+      : > "$FM_FAKE_ROVO_KILL_ATTEMPTED"
+      exit 1
+    fi
+    exit 0
+    ;;
   send-keys)
     prev=
     literal=
@@ -181,6 +191,9 @@ run_spawn() {
     FM_FAKE_BRIEF_REAL="$(cd "$home/data/$id" && pwd -P)/launch-brief.md" \
     FM_FAKE_ROVO_READY="${FM_FAKE_ROVO_READY:-yes}" \
     FM_FAKE_ROVO_DELIVERY="${FM_FAKE_ROVO_DELIVERY:-yes}" \
+    FM_FAKE_ROVO_KILL_FAIL="${FM_FAKE_ROVO_KILL_FAIL:-no}" \
+    FM_FAKE_ROVO_KILL_ATTEMPTED="$case_dir/rovo-kill-attempted" \
+    FM_FAKE_ROVO_WINDOW="fm-$id" \
     FM_ROVO_READY_POLLS=3 FM_ROVO_DELIVERY_POLLS=3 FM_ROVO_POLL_INTERVAL=0 \
     PATH="$fakebin:$BASE_PATH" \
     "$SPAWN" "$id" "$proj" --harness rovo --mode no-mistakes --yolo off "$@" 2>&1
@@ -327,6 +340,29 @@ test_rovo_unconfirmed_delivery_fails_loudly() {
   grep -q "kill-window.*fm-$id" "$CASE_DIR/tmux-calls.log" \
     || fail "an unconfirmed rovo delivery must tear down the exact endpoint it created instead of leaking an orphaned --yolo process"
   pass "fm-spawn: rovo treats a silent pointer drop as a failed spawn, and tears down the created endpoint"
+}
+
+test_rovo_cleanup_failure_preserves_live_endpoint_custody() {
+  local id rec out rc meta
+  id="rovo-close-fails-z8-$$"
+  rec=$(make_spawn_case close-fails "$id")
+  read_spawn_record "$rec"
+  rc=0
+  out=$(FM_FAKE_ROVO_DELIVERY=no FM_FAKE_ROVO_KILL_FAIL=yes run_spawn \
+    "$CASE_DIR" "$HOME_DIR" "$PROJ_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$id") || rc=$?
+  [ "$rc" -ne 0 ] || fail "a failed Rovo endpoint close reported success"
+  assert_contains "$out" "task record is preserved for the live worker" \
+    "a failed Rovo endpoint close did not retain authoritative custody"
+  meta="$HOME_DIR/state/$id.meta"
+  assert_present "$meta" \
+    "a failed Rovo endpoint close erased the live worker's task record"
+  assert_contains "$(cat "$meta")" "window=firstmate:fm-$id" \
+    "the retained Rovo record did not identify its endpoint"
+  assert_contains "$(cat "$meta")" "endpoint_task_id=$id" \
+    "the retained Rovo record did not bind the endpoint to its task"
+  grep -q "kill-window.*fm-$id" "$CASE_DIR/tmux-calls.log" \
+    || fail "the failed Rovo close did not target the recorded endpoint"
+  pass "fm-spawn: a failed Rovo endpoint close preserves live endpoint custody"
 }
 
 test_rovo_missing_binary_refuses_before_pane_creation() {
@@ -479,6 +515,7 @@ test_rovo_effort_xhigh_is_recorded_but_omitted
 test_rovo_effort_high_sets_config_override
 test_rovo_readiness_gate_precedes_pointer
 test_rovo_unconfirmed_delivery_fails_loudly
+test_rovo_cleanup_failure_preserves_live_endpoint_custody
 test_rovo_missing_binary_refuses_before_pane_creation
 test_rovo_secondmate_is_refused
 test_rovo_detection_precedence_and_ancestry
