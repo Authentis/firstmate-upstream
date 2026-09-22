@@ -274,7 +274,30 @@ stage() {  # <stage-name>: breadcrumb for the parent's truncation banner
 # shellcheck source=bin/fm-session-lock-lib.sh
 . "$SCRIPT_DIR/fm-session-lock-lib.sh"
 
-if [ -z "${FM_SESSION_START_STAGE_FILE:-}" ]; then
+# A stale FM_SESSION_START_STAGE_FILE inherited from an unrelated ancestor
+# shell (not created by the block below for THIS invocation) must never be
+# read as proof that the runtime bound already wraps this process: that
+# reading skips fm_run_timed entirely, so a real hang anywhere below runs
+# forever instead of hitting the ordinary bound. The block below always
+# creates this file moments before handing it to the exact child that reads
+# it, so a genuine handoff is always both present and only instants old;
+# requiring both tells that live handoff apart from an inherited variable
+# whose file has since been cleaned up by its own owner, and from one whose
+# process was killed before it could clean up but is long since finished.
+fm_session_start_stage_file_handoff() {
+  local f=$1 mtime now
+  [ -n "$f" ] && [ -e "$f" ] || return 1
+  if [ "$(uname -s 2>/dev/null)" = Darwin ]; then
+    mtime=$(/usr/bin/stat -f %m "$f" 2>/dev/null)
+  else
+    mtime=$(stat -c %Y "$f" 2>/dev/null)
+  fi
+  case "$mtime" in ''|*[!0-9]*) return 1 ;; esac
+  now=$(date +%s)
+  [ $(( now - mtime )) -le 5 ]
+}
+
+if ! fm_session_start_stage_file_handoff "${FM_SESSION_START_STAGE_FILE:-}"; then
   SESSION_START_BUDGET=${FM_SESSION_START_TIMEOUT:-120}
   # A non-positive or non-numeric budget is not a budget (`timeout 0` disables
   # the deadline outright), so an unusable value falls back to the default
