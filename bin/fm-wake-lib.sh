@@ -2346,6 +2346,7 @@ fm_wake_latest_event() {  # <validated-status-path> <tail-byte-cap>
 fm_wake_print_annotations() {  # <deduped-raw-rows> [<presentation-snapshot>]
   local rows=$1 snapshot=${2:-} manifest status_key mode path prefix line task endpoint
   local snapshot_task snapshot_endpoint _snapshot_ident offset last_event event_line
+  local task_mode
   local LC_ALL=C
 
   manifest=$(fm_wake_annotation_manifest "$rows" | awk -F '\t' '
@@ -2388,6 +2389,7 @@ fm_wake_print_annotations() {  # <deduped-raw-rows> [<presentation-snapshot>]
     if [ "$mode" = historical ] && fm_wake_signal_seen_current "$STATE" "$path"; then
       continue
     fi
+    task_mode=$(_fm_status_mode "$path")
     offset=$(fm_wake_status_cursor_offset "$path") || return 1
     endpoint=
     if [ -n "$snapshot" ]; then
@@ -2419,6 +2421,9 @@ EOF
         prefix="$prefix; historical / not necessarily the triggering event"
       fi
       line="$prefix: $status_key: $event_line"
+      if ! status_done_mode_shape_ok "$event_line" "$task_mode"; then
+        line="DONE SHAPE MISMATCH (recorded mode=$task_mode names no matching pull request or ready-in-branch shape, so this is not a completion): $line"
+      fi
       printf '%s\n' "$line" || return 1
     done <<EOF
 $FM_WAKE_UNREAD_LINES

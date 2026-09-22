@@ -675,6 +675,54 @@ _fm_status_kind() {
   case "$kind" in ship|scout|secondmate) printf '%s' "$kind" ;; *) printf unknown ;; esac
 }
 
+# The ship delivery mode a task's meta recorded at spawn (bin/fm-brief.sh's
+# --mode, AGENTS.md section 7), or empty when the meta is absent, unreadable,
+# or names none - which is the normal case for a scout or secondmate, neither
+# of which ships a mode-shaped done report.
+_fm_status_mode() {
+  local meta=${1%.status}.meta mode='' line
+  [ -f "$meta" ] && [ -r "$meta" ] && [ ! -L "$meta" ] || { printf ''; return 0; }
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in mode=*) mode=${line#mode=} ;; esac
+  done < "$meta"
+  printf '%s' "$mode"
+}
+
+# 0 when a `done:` event's shape matches the ready-signal its recorded mode
+# promises, or when the line is not a `done:` event, or when the mode is
+# unset/unrecognized (a scout, secondmate, or unreadable meta is not judged).
+# Non-zero only for an actual mismatch: a no-mistakes or direct-PR ship's done
+# line must carry a pull request URL (`done: PR <url>` or
+# `done: PR <url> checks green`, bin/fm-dod-lib.sh); a local-only ship's must
+# say `ready in branch`. This exists because kunchenguid dbc0bc4b only
+# strengthens the done report of a worker that CLAIMS a pull request, by
+# making it read that pull request back from the forge; a worker whose done
+# line names a branch and a commit and claims no pull request at all is
+# invisible to that check. Two 2026-09-21 mode=no-mistakes instances did
+# exactly that, and neither was caught until a supervisor checked the forge by
+# hand. This is a pure shape comparison against the already-recorded mode, no
+# new record and no forge call.
+status_done_mode_shape_ok() {  # <event-line> <mode>
+  local line=$1 mode=$2 note
+  [ "$(status_line_verb "$line")" = "done" ] || return 0
+  note=$(status_line_note "$line")
+  case "$mode" in
+    no-mistakes|direct-PR)
+      case "$note" in
+        'PR '*'/pull/'[0-9]*) return 0 ;;
+      esac
+      return 1
+      ;;
+    local-only)
+      case "$note" in
+        'ready in branch '*) return 0 ;;
+      esac
+      return 1
+      ;;
+    *) return 0 ;;
+  esac
+}
+
 _fm_decision_fold_line() {  # <open-set> <status-line> <resolve-verb> <held-verb> <kind>
   local open=$1 line=$2 resolve=$3 held=$4 kind=$5 verb key note unstamped
   # Both colon tests below ask where the head ends, the same question the note
