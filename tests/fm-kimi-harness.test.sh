@@ -690,11 +690,13 @@ test_kimi_missing_binary_refuses_before_pane_creation() {
   if grep -Eq '(^| )new-(session|window)( |$)' "$CASE_DIR/tmux-calls.log"; then
     fail "missing Kimi executable created a tmux container or pane"
   fi
+  assert_absent "$HOME_DIR/state/$id.meta" \
+    "a pre-agent Kimi launch refusal published a task record"
   pass "fm-spawn: missing Kimi executable refuses before pane creation"
 }
 
 test_kimi_unconfirmed_delivery_fails_loudly() {
-  local id rec out rc
+  local id rec out rc meta
   id=kimi-drop-z2
   rec=$(make_spawn_case drop "$id")
   read_spawn_record "$rec"
@@ -704,9 +706,22 @@ test_kimi_unconfirmed_delivery_fails_loudly() {
   [ "$rc" -ne 0 ] || fail "an unconfirmed kimi delivery should fail"
   assert_contains "$out" "kimi brief pointer delivery was not confirmed" \
     "unconfirmed kimi delivery lacked a loud diagnostic"
+  assert_contains "$out" "task record is preserved for the live worker" \
+    "unconfirmed Kimi delivery did not name the supported recovery record"
   assert_grep 'failed: kimi brief pointer delivery was not confirmed' <(sed -E 's/ \[at=[0-9]+\]//' "$HOME_DIR/state/$id.status") \
     "unconfirmed kimi delivery did not leave a supervisor-visible failure"
-  pass "fm-spawn: kimi treats a silent pointer drop as a failed spawn"
+  meta="$HOME_DIR/state/$id.meta"
+  assert_present "$meta" \
+    "an unconfirmed Kimi pointer delivery left the live worker without an authoritative task record"
+  assert_contains "$(cat "$meta")" "window=firstmate:fm-$id" \
+    "the preserved Kimi task record did not identify the live endpoint"
+  assert_contains "$(cat "$meta")" "endpoint_task_id=$id" \
+    "the preserved Kimi task record did not bind the endpoint to its task"
+  assert_contains "$(cat "$meta")" "worktree=$WT_DIR" \
+    "the preserved Kimi task record did not identify the assigned worktree"
+  assert_not_contains "$(cat "$CASE_DIR/tmux-calls.log")" 'kill-window' \
+    "an unconfirmed Kimi pointer delivery tore down the live worker it recorded"
+  pass "fm-spawn: Kimi preserves its authoritative task record after a silent pointer drop"
 }
 
 test_kimi_readiness_gate_precedes_pointer() {
