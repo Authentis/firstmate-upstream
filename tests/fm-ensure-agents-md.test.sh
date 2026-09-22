@@ -344,12 +344,16 @@ test_distinct_real_files_are_refused() {
   rc=$?
   [ "$rc" -ne 0 ] || fail "expected a non-zero exit for distinct real AGENTS.md and CLAUDE.md"
   assert_contains "$out" "conflict:" "distinct real files did not report a conflict"
+  assert_contains "$out" "sanctioned alternative:" \
+    "distinct real files refusal did not name the sanctioned alternative"
+  assert_contains "$out" "do not hand-write AGENTS.md" \
+    "distinct real files refusal did not warn against hand-writing AGENTS.md"
   cmp -s "$repo/.agents-before" "$repo/AGENTS.md" \
     || fail "distinct-real-files refusal modified AGENTS.md"
   cmp -s "$repo/.claude-before" "$repo/CLAUDE.md" \
     || fail "distinct-real-files refusal modified CLAUDE.md"
   [ ! -L "$repo/CLAUDE.md" ] || fail "distinct-real-files refusal turned CLAUDE.md into a symlink"
-  pass "fm-ensure-agents-md.sh: refuses distinct real AGENTS.md and CLAUDE.md"
+  pass "fm-ensure-agents-md.sh: refuses distinct real AGENTS.md and CLAUDE.md, naming the sanctioned alternative"
 }
 
 test_agents_md_symlink_is_refused() {

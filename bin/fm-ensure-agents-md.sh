@@ -6,7 +6,9 @@
 # when neither file exists, promotes a real CLAUDE.md file when it is the only
 # file present (unless it is already the canonical pointer), converts a correct
 # CLAUDE.md -> AGENTS.md symlink into the pointer file, and refuses to clobber
-# distinct real files or wrong symlinks.
+# distinct real files or wrong symlinks. Every refusal names the sanctioned
+# alternative on stderr so a worker blocked from the pointer convention is never
+# pushed toward hand-writing a project's AGENTS.md instead.
 # Owns the canonical "## Maintaining this file" self-governance wording for
 # project AGENTS.md files, injecting it idempotently into created skeletons,
 # promoted CLAUDE.md files, and existing AGENTS.md files lacking both the exact
@@ -227,7 +229,9 @@ if [ -e "$AGENTS" ]; then
       fi
       exit 0
     fi
-    echo "conflict: both AGENTS.md and CLAUDE.md are real files in $DIR; reconcile them manually" >&2
+    echo "conflict: both AGENTS.md and CLAUDE.md are real files in $DIR" >&2
+    echo "sanctioned alternative: if this project deliberately keeps both as separate real files by its own doctrine, that split is not this script's business; leave both files exactly as they are and do not hand-write AGENTS.md" >&2
+    echo "if the split was accidental instead, reconcile it yourself: keep one file as the real AGENTS.md content, then replace CLAUDE.md with the two-line @AGENTS.md pointer this script installs, and re-run it" >&2
     exit 1
   fi
   echo "conflict: CLAUDE.md exists in $DIR but is not a regular file or symlink" >&2
