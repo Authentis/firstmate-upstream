@@ -209,6 +209,7 @@ The process-event runner applies each captured delta through this adapter as soo
 A mirrored line that carries a correlation token settles its pending-reply record and closes that request's own open escalation decision.
 Because a remote reply reaches the primary only through this asynchronous mirror, the primary treats a missing correlated report as a missed report only once the mirror has been read through the end of the remote log after that turn ended.
 A remote mate that did answer is therefore never asked to repost while its answer is still in flight, and a genuinely missing answer still gets exactly one repost once the mirror is known to be current.
+While a mate stays unavailable, its waiting requests cost the watcher no per-poll work, and the owner can retire requests that have become obsolete with `bin/fm-pending-reply.sh retire`, so repairing the mirror later cannot release a burst of stale reposts.
 The [process-to-event operating contract](configuration.md#process-to-event-sources-stateprocevent) owns automatic application, one-announcement replay deduplication, and the unhandled fallback path.
 The source log is never truncated or consumed.
 A shortened or changed prefix stops the relay and surfaces a continuity failure instead of silently resetting the cursor.

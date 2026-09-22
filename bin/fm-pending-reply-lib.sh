@@ -21,6 +21,10 @@
 #
 # Record location (parent FM_HOME):
 #   state/pending-replies/<corr_id>
+# Settled records move to state/pending-replies/archive/<corr_id> once they are
+# older than FM_PENDING_REPLY_RETAIN_SECS, beside the append-only retirement
+# ledger archive/retired.log (epoch, corr, task, prior phase, reason); nothing
+# in the archive is ever deleted by this library.
 # One more durable input, owned by bin/fm-procevent-remote-reply.sh and read
 # here: state/remote-replies/<task_id>.caught-up, the remote reply mirror's
 # watermark (see the remote reply-channel freshness section below).
@@ -37,7 +41,10 @@
 #                           (empty until delivery; delivery never resolves)
 #   phase=                  awaiting_report | delivery_unknown | recovery_sending |
 #                           recovery_sent | recovery_failed | recovery_unknown |
-#                           escalated | resolved
+#                           escalated | resolved | retired
+#                           retired is the owner's explicit terminal disposition
+#                           of an obsolete request (fm_pending_reply_retire):
+#                           never reposted, escalated, reopened, or resolved
 #                           An escalated record with an empty delivered_epoch is
 #                           a delivery-unknown escalation, not a missed report:
 #                           its owner may still resend the same correlation, and
@@ -60,6 +67,9 @@
 #                           lifecycle note below); empty until then
 #   resolved_epoch=
 #   resolved_via=           status | document | helper | empty
+#   retired_epoch=          when the owner retired the request (phase=retired)
+#   retired_from_phase=     phase the record held when it was retired
+#   retired_reason=         the owner's sanitized one-line reason
 #   wrong_home_hits=        count of corr sightings under the secondmate home
 #   wrong_home_first_sighting= encoded path:line identity of the first sighting
 #   wrong_home_sightings=   comma-separated encoded path:line identities
@@ -100,6 +110,8 @@
 #
 # Tunables (env):
 #   FM_PENDING_REPLY_GRACE_SECS   default 120
+#   FM_PENDING_REPLY_RETAIN_SECS  default 604800; age after which a settled
+#                                 record is archived by the tick
 #   FM_PENDING_REPLY_DIR_OVERRIDE override the pending-replies directory (tests)
 #   FM_PENDING_REPLY_SEND_HOOK    optional command template for recovery delivery
 #                                 (tests); receives task_id and full message as args
@@ -555,6 +567,7 @@ fm_pending_reply_discard_undelivered() {  # <state-dir> <corr_id>
   local state=$1 corr=$2 rec delivered marker
   rec=$(fm_pending_reply_path "$state" "$corr")
   [ -f "$rec" ] || return 0
+  [ "$(fm_pending_reply_get "$rec" phase)" != retired ] || return 1
   delivered=$(fm_pending_reply_get "$rec" delivered_epoch)
   [ -z "$delivered" ] || return 1
   marker=$(fm_pending_reply_delivery_confirmation_path "$state" "$corr")
@@ -656,10 +669,14 @@ _fm_pending_reply_try_resolve_locked() {  # <state-dir> <corr_id> [status-file-o
   rec=$(fm_pending_reply_path "$state" "$corr")
   [ -f "$rec" ] || return 1
   phase=$(fm_pending_reply_get "$rec" phase)
-  if [ "$phase" = resolved ]; then
-    _fm_pending_reply_close_escalation_locked "$state" "$corr" || true
-    return 0
-  fi
+  case "$phase" in
+    resolved|retired)
+      # A retired expectation is settled by its owner; a late correlated
+      # report neither reopens nor re-resolves it.
+      _fm_pending_reply_close_escalation_locked "$state" "$corr" || true
+      return 0
+      ;;
+  esac
   delivered=$(fm_pending_reply_get "$rec" delivered_epoch)
   if [ -z "$delivered" ]; then
     marker=$(fm_pending_reply_delivery_confirmation_path "$state" "$corr")
@@ -1145,7 +1162,7 @@ _fm_pending_reply_close_escalation_locked() {  # <state-dir> <corr_id>
   local open_line open_key open_note now close_line close_rc _task _via
   rec=$(fm_pending_reply_path "$state" "$corr")
   [ -f "$rec" ] || return 1
-  [ "$(fm_pending_reply_get "$rec" phase)" = resolved ] || return 0
+  case "$(fm_pending_reply_get "$rec" phase)" in resolved|retired) ;; *) return 0 ;; esac
   escalated=$(fm_pending_reply_get "$rec" escalated_epoch)
   [ -n "$escalated" ] || return 0
   closed=$(fm_pending_reply_get "$rec" escalation_closed_epoch)
@@ -1170,6 +1187,7 @@ _fm_pending_reply_close_escalation_locked() {  # <state-dir> <corr_id>
       # OPEN above stays a plain append because a new blocker must wake.
       _task=$(fm_pending_reply_get "$rec" task_id)
       _via=$(fm_pending_reply_get "$rec" resolved_via)
+      [ "$(fm_pending_reply_get "$rec" phase)" != retired ] || _via=retired
       close_line="resolved [key=${key}]: $(fm_pending_reply_resolved_note "$_task" "$corr" "$_via")"
       close_rc=0
       fm_wake_status_append_self_announced "${parent_status%/*}" "$parent_status" "$close_line" \
@@ -1431,30 +1449,213 @@ fm_pending_reply_tick_one() {  # <state-dir> <corr_id> <busy_state> [secondmate-
   return 0
 }
 
+# Load the fields the tick's fast paths need from one record in a single
+# builtin read (no subprocess), with fm_pending_reply_get's last-wins rule.
+_fm_pending_reply_load() {  # <record-path>
+  local line key value
+  _FPR_CORR='' _FPR_TASK='' _FPR_PHASE='' _FPR_DELIVERED='' _FPR_COMPLETED=''
+  _FPR_ATTEMPTED='' _FPR_ESCALATED='' _FPR_CLOSED='' _FPR_CREATED=''
+  _FPR_RESOLVED_EPOCH='' _FPR_RETIRED_EPOCH='' _FPR_PARENT_STATUS='' _FPR_SCAN_SIG=''
+  [ -f "$1" ] || return 1
+  while IFS= read -r line || [ -n "$line" ]; do
+    key=${line%%=*}
+    [ "$key" != "$line" ] || continue
+    value=${line#*=}
+    case "$key" in
+      corr_id) _FPR_CORR=$value ;;
+      task_id) _FPR_TASK=$value ;;
+      phase) _FPR_PHASE=$value ;;
+      delivered_epoch) _FPR_DELIVERED=$value ;;
+      request_turn_completed_epoch) _FPR_COMPLETED=$value ;;
+      recovery_attempted_epoch) _FPR_ATTEMPTED=$value ;;
+      escalated_epoch) _FPR_ESCALATED=$value ;;
+      escalation_closed_epoch) _FPR_CLOSED=$value ;;
+      created_epoch) _FPR_CREATED=$value ;;
+      resolved_epoch) _FPR_RESOLVED_EPOCH=$value ;;
+      retired_epoch) _FPR_RETIRED_EPOCH=$value ;;
+      parent_status) _FPR_PARENT_STATUS=$value ;;
+      parent_status_scan_signature) _FPR_SCAN_SIG=$value ;;
+    esac
+  done < "$1"
+}
+
+# Seconds a settled (resolved or retired) record stays in the live directory
+# before the tick moves it to the archive. Settled records never act again, so
+# only their durable evidence matters, and leaving them in place made every
+# watcher poll pay for all of them.
+fm_pending_reply_retain_secs() {
+  local s=${FM_PENDING_REPLY_RETAIN_SECS:-604800}
+  case "$s" in ''|*[!0-9]*) s=604800 ;; esac
+  printf '%s' "$s"
+}
+
+# Archive directory for settled records and the retirement ledger. It is a
+# subdirectory, so every live-directory scan (which admits regular files only)
+# skips it, and nothing in it is ever deleted.
+fm_pending_reply_archive_dir() {  # <state-dir>
+  printf '%s/archive' "$(fm_pending_reply_dir "$1")"
+}
+
+# Move one settled record into the archive under its per-correlation lock.
+# Refuses anything that is not settled with no open escalation.
+fm_pending_reply_archive() {  # <state-dir> <corr_id>
+  local state=$1 corr=$2 lock rc=0 rec archive
+  local STATE FM_WAKE_QUEUE FM_WAKE_QUEUE_LOCK
+  STATE=$state
+  lock="$state/.pending-reply-$corr.lock"
+  # shellcheck source=bin/fm-wake-lib.sh
+  . "$_FM_PENDING_REPLY_LIB_DIR/fm-wake-lib.sh"
+  fm_lock_acquire_wait "$lock" || return 1
+  rec=$(fm_pending_reply_path "$state" "$corr")
+  archive=$(fm_pending_reply_archive_dir "$state")
+  if _fm_pending_reply_load "$rec" && [ ! -L "$rec" ] \
+    && { [ "$_FPR_PHASE" = resolved ] || [ "$_FPR_PHASE" = retired ]; } \
+    && { [ -z "$_FPR_ESCALATED" ] || [ -n "$_FPR_CLOSED" ]; } \
+    && mkdir -p "$archive" && chmod 700 "$archive" 2>/dev/null; then
+    mv -f -- "$rec" "$archive/$corr" || rc=1
+    rm -f -- "$(fm_pending_reply_delivery_confirmation_path "$state" "$corr")" 2>/dev/null || true
+  else
+    rc=1
+  fi
+  fm_lock_release "$lock"
+  return "$rc"
+}
+
+# Retire one unsettled expectation on its owner's explicit decision, for a
+# request that has become obsolete (for example while its mate is unavailable
+# for a long time). Retirement is terminal: the record can never repost,
+# escalate, reopen, or be resolved by a late report, so a later reply-mirror
+# repair cannot release it. The record keeps every field plus retired_* fields,
+# closes any escalation decision it opened, and is appended to the archive's
+# retirement ledger. Returns 0 on retirement, 3 when already settled (untouched),
+# and 1 when refused (recovery repost in flight) or on error.
+fm_pending_reply_retire() {  # <state-dir> <corr_id> <reason>
+  local state=$1 corr=$2 reason=$3 lock rc=0
+  local STATE FM_WAKE_QUEUE FM_WAKE_QUEUE_LOCK
+  STATE=$state
+  lock="$state/.pending-reply-$corr.lock"
+  # shellcheck source=bin/fm-wake-lib.sh
+  . "$_FM_PENDING_REPLY_LIB_DIR/fm-wake-lib.sh"
+  fm_lock_acquire_wait "$lock" || return 1
+  _fm_pending_reply_retire_locked "$@" || rc=$?
+  fm_lock_release "$lock"
+  return "$rc"
+}
+
+_fm_pending_reply_retire_locked() {  # <state-dir> <corr_id> <reason>
+  local state=$1 corr=$2 reason rec now archive
+  reason=$(printf '%s' "$3" | tr '\t\r\n' '   ' | tr -cd '\40-\176')
+  [ -n "$reason" ] || return 1
+  rec=$(fm_pending_reply_path "$state" "$corr")
+  [ -f "$rec" ] && [ ! -L "$rec" ] || return 1
+  _fm_pending_reply_load "$rec" || return 1
+  case "$_FPR_PHASE" in
+    resolved|retired) return 3 ;;
+    recovery_sending) return 1 ;;
+  esac
+  now=$(fm_pending_reply_now)
+  fm_pending_reply_set "$rec" retired_from_phase "$_FPR_PHASE" || return 1
+  fm_pending_reply_set "$rec" retired_epoch "$now" || return 1
+  fm_pending_reply_set "$rec" retired_reason "$reason" || return 1
+  fm_pending_reply_set "$rec" phase retired || return 1
+  rm -f -- "$(fm_pending_reply_delivery_confirmation_path "$state" "$corr")" 2>/dev/null || true
+  archive=$(fm_pending_reply_archive_dir "$state")
+  mkdir -p "$archive" && chmod 700 "$archive" 2>/dev/null
+  printf '%s\t%s\t%s\t%s\t%s\n' "$now" "$corr" "$_FPR_TASK" "$_FPR_PHASE" "$reason" \
+    >> "$archive/retired.log" || return 1
+  # A close failure stays retryable from the watcher tick, like a resolve.
+  _fm_pending_reply_close_escalation_locked "$state" "$corr" || true
+  return 0
+}
+
 # Scan every pending record for this parent state. Safe to call every poll.
 # Never scrapes secondmate conversation; uses only parent status, backend busy
 # state, and optional secondmate-home wrong-home path checks.
+# Its cost must stay bounded because the watcher runs it before every signal
+# scan: settled records cost one builtin read until they are archived, and a
+# remote record that can only wait for its reply mirror (the turn ended, no
+# repost yet, the mirror watermark is still behind that turn, and the parent
+# status log is unchanged since its last scan) is skipped without any lock or
+# subprocess, because no step of the full path could change it.
 fm_pending_reply_tick() {  # <state-dir>
   local state=$1 dir rec corr task_id phase delivered meta backend target label busy sm_home harness remote_host
-  local observation observation_task found i
+  local observation observation_task found i now retain settled_at mark watermark signature
   local -a observation_tasks=() observation_values=()
+  local -a remote_tasks=() remote_marks=() signature_paths=() signature_values=()
   dir=$(fm_pending_reply_dir "$state")
   [ -d "$dir" ] || return 0
+  now=$(fm_pending_reply_now)
+  retain=$(fm_pending_reply_retain_secs)
   for rec in "$dir"/*; do
     [ -f "$rec" ] || continue
-    case "$(basename "$rec")" in
+    case "${rec##*/}" in
       .*) continue ;;
     esac
-    corr=$(fm_pending_reply_get "$rec" corr_id)
-    [ -n "$corr" ] || corr=$(basename "$rec")
-    task_id=$(fm_pending_reply_get "$rec" task_id)
-    phase=$(fm_pending_reply_get "$rec" phase)
-    if [ "$phase" = resolved ]; then
-      # Cheap no-op unless an escalation for this record is still open; this is
-      # the retry that makes the close converge after a transient write failure.
-      fm_pending_reply_close_escalation "$state" "$corr" || true
-      continue
-    fi
+    _fm_pending_reply_load "$rec" || continue
+    corr=${_FPR_CORR:-${rec##*/}}
+    task_id=$_FPR_TASK
+    phase=$_FPR_PHASE
+    case "$phase" in
+      resolved|retired)
+        if [ -n "$_FPR_ESCALATED" ] && [ -z "$_FPR_CLOSED" ]; then
+          # The retry that makes an escalation close converge after a
+          # transient write failure.
+          fm_pending_reply_close_escalation "$state" "$corr" || true
+          continue
+        fi
+        settled_at=${_FPR_RESOLVED_EPOCH:-${_FPR_RETIRED_EPOCH:-$_FPR_CREATED}}
+        case "$settled_at" in ''|*[!0-9]*) continue ;; esac
+        if [ $((now - settled_at)) -ge "$retain" ]; then
+          fm_pending_reply_archive "$state" "$corr" || true
+        fi
+        continue
+        ;;
+      awaiting_report)
+        if [ -n "$_FPR_DELIVERED" ] && [ -n "$_FPR_COMPLETED" ] && [ -z "$_FPR_ATTEMPTED" ] \
+          && [ -n "$task_id" ] && [ -n "$_FPR_SCAN_SIG" ] && [ -n "$_FPR_PARENT_STATUS" ]; then
+          mark=
+          found=0
+          for ((i = 0; i < ${#remote_tasks[@]}; i++)); do
+            [ "${remote_tasks[$i]}" = "$task_id" ] || continue
+            mark=${remote_marks[$i]}
+            found=1
+            break
+          done
+          if [ "$found" = 0 ]; then
+            # "local" for a local target, else the mirror watermark (possibly empty).
+            if fm_pending_reply_target_is_remote "$state" "$task_id"; then
+              mark="remote:$(fm_pending_reply_remote_channel_epoch "$state" "$task_id")"
+            else
+              mark=local
+            fi
+            remote_tasks+=("$task_id")
+            remote_marks+=("$mark")
+          fi
+          case "$mark" in
+            remote:*)
+              watermark=${mark#remote:}
+              case "$_FPR_COMPLETED" in ''|*[!0-9]*) watermark=skip ;; esac
+              if [ "$watermark" != skip ] && { [ -z "$watermark" ] || [ "$watermark" -lt "$_FPR_COMPLETED" ]; }; then
+                signature=
+                found=0
+                for ((i = 0; i < ${#signature_paths[@]}; i++)); do
+                  [ "${signature_paths[$i]}" = "$_FPR_PARENT_STATUS" ] || continue
+                  signature=${signature_values[$i]}
+                  found=1
+                  break
+                done
+                if [ "$found" = 0 ]; then
+                  signature=$(fm_pending_reply_file_signature "$_FPR_PARENT_STATUS")
+                  signature_paths+=("$_FPR_PARENT_STATUS")
+                  signature_values+=("$signature")
+                fi
+                [ "$signature" != "$_FPR_SCAN_SIG" ] || continue
+              fi
+              ;;
+          esac
+        fi
+        ;;
+    esac
     fm_pending_reply_reconcile_delivery "$state" "$corr" || true
     phase=$(fm_pending_reply_get "$rec" phase)
     delivered=$(fm_pending_reply_get "$rec" delivered_epoch)
@@ -1557,7 +1758,7 @@ fm_pending_reply_task_has_open() {  # <state-dir> <task_id>
     tid=$(fm_pending_reply_get "$rec" task_id)
     [ "$tid" = "$task_id" ] || continue
     phase=$(fm_pending_reply_get "$rec" phase)
-    [ "$phase" != resolved ] || continue
+    case "$phase" in resolved|retired) continue ;; esac
     return 0
   done
   return 1

@@ -1600,6 +1600,244 @@ test_escalated_undelivered_correlation_stays_retryable() {
   pass "an escalated correlation stays retryable only while undelivered"
 }
 
+# Clone the real record <src-corr> as <count> sibling records with fresh ids,
+# so bulk fixtures carry exactly the fields the library itself wrote.
+clone_records() {  # <state> <src-corr> <count> <id-prefix>
+  local state=$1 src=$2 count=$3 prefix=$4 dir n id
+  dir=$(fm_pending_reply_dir "$state")
+  for ((n = 0; n < count; n++)); do
+    id=$(printf '%s%010x' "$prefix" "$n")
+    id=${id:0:16}
+    sed "s/^corr_id=.*/corr_id=$id/" "$dir/$src" > "$dir/$id"
+  done
+}
+
+# Stand in for ssh so remote busy observations stay local: unreachable (255).
+stub_ssh() {  # <home> -> exports FM_SSH_BIN
+  printf '#!/usr/bin/env bash\nexit 255\n' > "$1/ssh-stub"
+  chmod +x "$1/ssh-stub"
+  export FM_SSH_BIN="$1/ssh-stub"
+}
+
+# An obsolete remote request: delivered, turn ended, mirror never caught up.
+seed_stale_remote_request() {  # <home> <state> <task> <summary> -> corr
+  local corr
+  corr=$(fm_pending_reply_create "$1" "$2" "$3" "$4")
+  fm_pending_reply_mark_delivered "$2" "$corr"
+  fm_pending_reply_mark_turn_completed "$2" "$corr" request
+  printf '%s' "$corr"
+}
+
+test_settled_records_cost_no_work_and_archive_after_retention() {
+  (
+    local home state dir template escalated calls live archived before
+    home=$(setup_parent settled-retention)
+    state="$home/state"
+    dir=$(fm_pending_reply_dir "$state")
+    calls="$home/calls.log"
+    : > "$calls"
+    # shellcheck disable=SC2030,SC2031
+    export FM_PENDING_REPLY_NOW=20000 FM_PENDING_REPLY_RETAIN_SECS=1000
+    template=$(fm_pending_reply_create "$home" "$state" old "settled request")
+    fm_pending_reply_mark_delivered "$state" "$template"
+    printf 'done [corr=%s]: complete\n' "$template" > "$state/old.status"
+    fm_pending_reply_try_resolve "$state" "$template" || fail "template should resolve"
+    clone_records "$state" "$template" 300 aa
+    # An escalation whose close has not converged yet must keep its retry.
+    escalated=$(fm_pending_reply_create "$home" "$state" old "escalated request")
+    fm_pending_reply_set "$(fm_pending_reply_path "$state" "$escalated")" phase delivery_unknown
+    fm_pending_reply_maybe_escalate "$state" "$escalated" || fail "fixture should escalate"
+    printf 'done [corr=%s]: late\n' "$escalated" >> "$state/old.status"
+    fm_pending_reply_set "$(fm_pending_reply_path "$state" "$escalated")" phase resolved
+    # shellcheck disable=SC2329
+    fm_pending_reply_reconcile_delivery() { printf 'reconcile %s\n' "$2" >> "$calls"; }
+    # shellcheck disable=SC2329
+    fm_pending_reply_close_escalation() { printf 'close %s\n' "$2" >> "$calls"; }
+    before=$(find "$dir" -maxdepth 1 -type f | wc -l | tr -d ' ')
+    fm_pending_reply_tick "$state"
+    [ "$(grep -c '^reconcile' "$calls")" = 0 ] || fail "settled records must not reach delivery reconciliation"
+    [ "$(grep -c "^close $escalated" "$calls")" = 1 ] || fail "an unclosed escalation must keep its close retry"
+    [ "$(grep -c '^close' "$calls")" = 1 ] || fail "settled records with no open escalation need no close work"
+    live=$(find "$dir" -maxdepth 1 -type f | wc -l | tr -d ' ')
+    [ "$live" = "$before" ] || fail "records younger than the retention window must stay live"
+
+    FM_PENDING_REPLY_NOW=30000
+    fm_pending_reply_tick "$state"
+    live=$(find "$dir" -maxdepth 1 -type f | wc -l | tr -d ' ')
+    archived=$(find "$dir/archive" -maxdepth 1 -type f | wc -l | tr -d ' ')
+    [ "$live" = 1 ] || fail "only the record with an open escalation should stay live, got $live"
+    [ "$archived" = 301 ] || fail "every settled record past retention should be archived, got $archived"
+    [ -f "$(fm_pending_reply_path "$state" "$escalated")" ] || fail "open escalation must not be archived"
+    [ "$(fm_pending_reply_get "$dir/archive/$template" resolved_via)" = status ] \
+      || fail "archived records must keep their durable evidence"
+  ) || fail "settled-record retention regression failed"
+  pass "settled records cost no per-poll work and are archived after retention"
+}
+
+test_stale_remote_watermark_records_are_skipped_until_evidence_changes() {
+  (
+    local home state c1 c2 c3 calls hook_log
+    home=$(setup_parent stale-watermark)
+    state="$home/state"
+    stub_ssh "$home"
+    calls="$home/calls.log"
+    hook_log="$home/hook.log"
+    : > "$calls"
+    : > "$hook_log"
+    # shellcheck disable=SC2030,SC2031
+    export FM_PENDING_REPLY_NOW=7000
+    # Invoked indirectly through FM_PENDING_REPLY_SEND_HOOK.
+    # shellcheck disable=SC2329
+    stale_hook() { printf '%s\n' "$1" >> "$hook_log"; }
+    export -f stale_hook
+    # shellcheck disable=SC2030,SC2031
+    export FM_PENDING_REPLY_SEND_HOOK=stale_hook
+    fm_write_meta "$state/away.meta" \
+      "window=fm-remote:w1:p1" "harness=pi" "kind=secondmate" "mode=secondmate" \
+      "remote_host=away-host" "remote_root=/remote/root" "remote_backend=herdr"
+    : > "$state/away.status"
+    fm_pending_reply_note_remote_channel_caught_up "$state" away 100
+    c1=$(seed_stale_remote_request "$home" "$state" away "first")
+    c2=$(seed_stale_remote_request "$home" "$state" away "second")
+    c3=$(seed_stale_remote_request "$home" "$state" away "third")
+    # The first tick scans each record once and records the status signature.
+    fm_pending_reply_tick "$state"
+    [ ! -s "$hook_log" ] || fail "no repost while the reply mirror is behind"
+    (
+      # shellcheck disable=SC2329
+      fm_pending_reply_reconcile_delivery() { printf 'reconcile %s\n' "$2" >> "$calls"; }
+      fm_pending_reply_tick "$state"
+    )
+    [ ! -s "$calls" ] || fail "records waiting only on a stale mirror must be skipped: $(cat "$calls")"
+    # New parent status evidence ends the skip for exactly that evidence.
+    sleep 1
+    printf 'done [corr=%s]: answered late\n' "$c2" >> "$state/away.status"
+    fm_pending_reply_tick "$state"
+    [ "$(phase_of "$state" "$c2")" = resolved ] || fail "a mirrored correlated reply must still resolve"
+    [ "$(phase_of "$state" "$c1")" = awaiting_report ] || fail "unanswered request stays armed"
+    # A caught-up mirror ends the skip and a genuine miss still gets its repost.
+    fm_pending_reply_note_remote_channel_caught_up "$state" away 7000
+    fm_pending_reply_tick "$state"
+    [ "$(wc -l < "$hook_log" | tr -d ' ')" = 2 ] || fail "each genuine miss gets exactly one repost once caught up"
+    [ "$(phase_of "$state" "$c3")" = recovery_sent ] || fail "third request should be reposted"
+  ) || fail "stale-watermark skip regression failed"
+  pass "records waiting on a stale reply mirror are skipped until evidence changes"
+}
+
+test_tick_stays_bounded_for_a_large_backlog() {
+  (
+    local home state template stale start elapsed
+    home=$(setup_parent bounded-tick)
+    state="$home/state"
+    # shellcheck disable=SC2030,SC2031
+    export FM_PENDING_REPLY_NOW=50000
+    fm_write_meta "$state/away.meta" \
+      "window=fm-remote:w1:p1" "harness=pi" "kind=secondmate" "mode=secondmate" \
+      "remote_host=away-host" "remote_root=/remote/root" "remote_backend=herdr"
+    : > "$state/away.status"
+    template=$(fm_pending_reply_create "$home" "$state" old "settled request")
+    fm_pending_reply_mark_delivered "$state" "$template"
+    printf 'done [corr=%s]: complete\n' "$template" > "$state/old.status"
+    fm_pending_reply_try_resolve "$state" "$template" || fail "template should resolve"
+    clone_records "$state" "$template" 800 bb
+    stale=$(seed_stale_remote_request "$home" "$state" away "obsolete")
+    fm_pending_reply_tick_one "$state" "$stale" unknown "" || true
+    clone_records "$state" "$stale" 200 cc
+    # The production shape that made one watcher poll take about five minutes:
+    # every poll must now finish well inside the signal-delivery budget.
+    start=$(date +%s)
+    fm_pending_reply_tick "$state"
+    elapsed=$(( $(date +%s) - start ))
+    printf '# 1000-record tick: %ss\n' "$elapsed"
+    [ "$elapsed" -le 30 ] || fail "a 1000-record backlog tick took ${elapsed}s; signal delivery would lag"
+  ) || fail "bounded tick regression failed"
+  pass "a large settled and stale-remote backlog keeps the tick bounded"
+}
+
+test_retired_obsolete_requests_never_repost() {
+  (
+    local home state cli a1 a2 esc resolved other sending hook_log out rc before_other status_before
+    home=$(setup_parent retire)
+    state="$home/state"
+    stub_ssh "$home"
+    cli="$ROOT/bin/fm-pending-reply.sh"
+    hook_log="$home/hook.log"
+    : > "$hook_log"
+    # shellcheck disable=SC2030,SC2031
+    export FM_PENDING_REPLY_NOW=8000
+    # Invoked indirectly through FM_PENDING_REPLY_SEND_HOOK.
+    # shellcheck disable=SC2329
+    retire_hook() { printf '%s\n' "$1" >> "$hook_log"; }
+    export -f retire_hook
+    # shellcheck disable=SC2030,SC2031
+    export FM_PENDING_REPLY_SEND_HOOK=retire_hook
+    for t in away other; do
+      fm_write_meta "$state/$t.meta" \
+        "window=fm-remote:w1:p1" "harness=pi" "kind=secondmate" "mode=secondmate" \
+        "remote_host=$t-host" "remote_root=/remote/root" "remote_backend=herdr"
+      : > "$state/$t.status"
+    done
+    a1=$(seed_stale_remote_request "$home" "$state" away "obsolete one")
+    a2=$(seed_stale_remote_request "$home" "$state" away "obsolete two")
+    esc=$(fm_pending_reply_create "$home" "$state" away "never delivered")
+    fm_pending_reply_set "$(fm_pending_reply_path "$state" "$esc")" phase delivery_unknown
+    fm_pending_reply_maybe_escalate "$state" "$esc" || fail "fixture should escalate"
+    [ -n "$(status_open_decisions "$state/away.status")" ] || fail "fixture escalation should be open"
+    resolved=$(seed_stale_remote_request "$home" "$state" away "answered")
+    printf 'done [corr=%s]: answered\n' "$resolved" >> "$state/away.status"
+    fm_pending_reply_try_resolve "$state" "$resolved" || fail "fixture should resolve"
+    sending=$(seed_stale_remote_request "$home" "$state" away "repost in flight")
+    fm_pending_reply_set "$(fm_pending_reply_path "$state" "$sending")" phase recovery_sending
+    other=$(seed_stale_remote_request "$home" "$state" other "unrelated open request")
+    before_other=$(cat "$(fm_pending_reply_path "$state" "$other")")
+
+    rc=0; out=$(env -u FM_HOME "$cli" retire away --reason x 2>&1) || rc=$?
+    [ "$rc" = 2 ] || fail "retire must refuse without an explicit FM_HOME"
+    rc=0; FM_HOME="$home" "$cli" retire away >/dev/null 2>&1 || rc=$?
+    [ "$rc" = 2 ] || fail "retire must require a reason"
+    status_before=$(cat "$state/away.status")
+    out=$(FM_HOME="$home" "$cli" retire away --reason "mate paused for weeks" --dry-run)
+    case "$out" in *"would-retire	$a1"*) : ;; *) fail "dry run should list $a1: $out" ;; esac
+    [ "$(phase_of "$state" "$a1")" = awaiting_report ] || fail "dry run must change nothing"
+
+    rc=0; out=$(FM_HOME="$home" "$cli" retire away --reason "mate paused for weeks" 2>&1) || rc=$?
+    [ "$rc" = 1 ] || fail "an in-flight repost must be refused and reported, rc=$rc: $out"
+    for c in "$a1" "$a2" "$esc"; do
+      [ "$(phase_of "$state" "$c")" = retired ] || fail "$c should be retired"
+    done
+    [ "$(phase_of "$state" "$resolved")" = resolved ] || fail "a resolved record must stay untouched"
+    [ "$(phase_of "$state" "$sending")" = recovery_sending ] || fail "an in-flight repost must be refused"
+    [ "$(cat "$(fm_pending_reply_path "$state" "$other")")" = "$before_other" ] \
+      || fail "another task's records must be byte-identical"
+    [ -z "$(status_open_decisions "$state/away.status")" ] || fail "retirement must close the escalation it opened"
+    [ "$(wc -l < "$(fm_pending_reply_archive_dir "$state")/retired.log" | tr -d ' ')" = 3 ] \
+      || fail "each retirement must append one ledger line"
+    [ "$(fm_pending_reply_get "$(fm_pending_reply_path "$state" "$a1")" retired_from_phase)" = awaiting_report ] \
+      || fail "retired record must keep its prior phase as evidence"
+    [ -n "$status_before" ] || fail "fixture sanity"
+
+    # A later mirror repair (caught-up watermark) and a late correlated report
+    # must never release a repost or reopen a retired request.
+    fm_pending_reply_note_remote_channel_caught_up "$state" away 9000
+    fm_pending_reply_note_remote_channel_caught_up "$state" other 9000
+    printf 'done [corr=%s]: very late\n' "$a2" >> "$state/away.status"
+    FM_PENDING_REPLY_NOW=9500 fm_pending_reply_tick "$state"
+    [ "$(phase_of "$state" "$a1")" = retired ] || fail "retired stays retired after mirror repair"
+    [ "$(phase_of "$state" "$a2")" = retired ] || fail "a late report must not reopen a retired request"
+    grep -qx other "$hook_log" || fail "the unrelated open request must still get its genuine repost"
+    ! grep -qx away "$hook_log" || fail "no retired request may ever be reposted"
+    if fm_pending_reply_discard_undelivered "$state" "$esc"; then
+      fail "discarding must refuse a retired record"
+    fi
+    [ -f "$(fm_pending_reply_path "$state" "$esc")" ] || fail "retired evidence must survive discard attempts"
+    if fm_pending_reply_task_has_open "$state" away; then
+      # the in-flight record is the only open one
+      [ "$(phase_of "$state" "$sending")" = recovery_sending ] || fail "only the refused record may stay open"
+    fi
+  ) || fail "retirement regression failed"
+  pass "retired obsolete requests never repost, reopen, or touch other tasks"
+}
+
 # --- run --------------------------------------------------------------------
 
 test_normal_correlated_reply_resolves_once
@@ -1641,5 +1879,9 @@ test_mechanical_helper_writes_parent_channel
 test_remote_parent_replies_is_not_wrong_home
 test_local_parent_replies_is_wrong_home_evidence
 test_escalated_undelivered_correlation_stays_retryable
+test_settled_records_cost_no_work_and_archive_after_retention
+test_stale_remote_watermark_records_are_skipped_until_evidence_changes
+test_tick_stays_bounded_for_a_large_backlog
+test_retired_obsolete_requests_never_repost
 
 printf 'ok - all pending-reply tests passed\n'
