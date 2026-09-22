@@ -1107,6 +1107,8 @@ SPAWN_META_LOCK=
 SPAWN_META_LOCK_HELD=0
 SPAWN_META_PUBLISH_STARTED=0
 SPAWN_FRESH_COMMIT_PENDING=0
+SPAWN_AGENT_LAUNCHED=0
+SPAWN_POST_AGENT_FAILURE_PRESERVED=0
 SPAWN_TASK_SET_LOCK=
 SPAWN_TASK_SET_LOCK_HELD=0
 SPAWN_TREEHOUSE_PROJECT_LOCK=
@@ -1312,7 +1314,13 @@ spawn_abort_cleanup() {
     SPAWN_TASK_LOCK_HELD=0
     fm_lock_release "$SPAWN_TASK_LOCK" || true
   fi
-  if [ "$SPAWN_FRESH_COMMIT_PENDING" = 1 ]; then
+  if [ "$SPAWN_FRESH_COMMIT_PENDING" = 1 ] &&
+    [ "$SPAWN_POST_AGENT_FAILURE_PRESERVED" = 1 ]; then
+    # A post-agent gate can fail after the fresh record is published but before
+    # the final backlog transition.  Keep that record: it is the authoritative
+    # ownership path for the live worker and its status names the failed gate.
+    SPAWN_FRESH_COMMIT_PENDING=0
+  elif [ "$SPAWN_FRESH_COMMIT_PENDING" = 1 ]; then
     if ! spawn_fresh_commit_rollback; then
       status=1
     fi
@@ -3765,8 +3773,15 @@ kimi_wait_for_delivery() {
 }
 
 kimi_spawn_fail() { # <detail>
+  if [ "$SPAWN_AGENT_LAUNCHED" = 1 ] && [ -f "$STATE/$ID.meta" ]; then
+    SPAWN_POST_AGENT_FAILURE_PRESERVED=1
+  fi
   printf '%s\n' "$(status_stamp_line "failed: $1")" >>"$STATE/$ID.status"
-  echo "error: $1; inspect window $T" >&2
+  if [ "$SPAWN_POST_AGENT_FAILURE_PRESERVED" = 1 ]; then
+    echo "error: $1; task record is preserved for the live worker, inspect window $T" >&2
+  else
+    echo "error: $1; inspect window $T" >&2
+  fi
 }
 
 # rovo mirrors kimi's launch-then-send shape exactly: a positional brief is
@@ -4942,13 +4957,20 @@ if ! (umask 077 && printf '%s\n' "$LAUNCH" >"$LAUNCH_STAGE" &&
   exit 1
 fi
 sleep 0.3
-spawn_send_literal "$T" ". $(shell_quote "$LAUNCH_FILE")"
+if ! spawn_send_literal "$T" ". $(shell_quote "$LAUNCH_FILE")"; then
+  echo "error: launch command could not be delivered to $W" >&2
+  exit 1
+fi
 sleep 0.3
 if [ "${HERDR_PROJECTED:-0}" -eq 1 ]; then
   HERDR_PROJECTION_ABORT_CLEANUP=0
   spawn_herdr_presentation_order_lock_release
 fi
-spawn_send_key "$T" Enter
+if ! spawn_send_key "$T" Enter; then
+  echo "error: launch command could not be submitted to $W" >&2
+  exit 1
+fi
+SPAWN_AGENT_LAUNCHED=1
 if [ "$HARNESS" = kimi ]; then
   if ! kimi_wait_for_ready; then
     kimi_spawn_fail "$KIMI_READY_FAILURE_DETAIL"
