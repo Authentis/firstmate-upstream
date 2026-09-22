@@ -232,6 +232,7 @@ if [ -z "${FM_HOME+x}" ] || [ -z "${FM_HOME:-}" ]; then
 fi
 
 STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
+DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 if [ ! -d "$FM_HOME" ]; then
   echo "error: FM_HOME '$FM_HOME' is not a directory; fm-send cannot resolve this home's state" >&2
   exit 1
@@ -697,8 +698,25 @@ fi
 # DECISIONS without a matching watcher seen marker; any concurrent foreign
 # status bytes, or a worker line the fold read but never listed, leave the
 # watcher's wake path untouched.
+#
+# A gate finding's disposition also gets a full, untruncated durable copy
+# beside the task's own deliverable in data/<task>/decisions.md, because
+# teardown removes state/<id>.status - the close line above - along with the
+# rest of task state once the task lands. The status-log close line stays the
+# supervisor-actionable event; this file is the record worth auditing after
+# cleanup. A write failure here is reported but never reopens or fails the
+# already-durably-closed decision.
+fm_send_record_decision_provenance() {  # <key> <full-answer-text>
+  local k=$1 note=$2 dir="$DATA/$RESOLVE_TASK_ID" file stamp
+  file="$dir/decisions.md"
+  stamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  if ! mkdir -p -- "$dir" || ! printf '## %s [key=%s]\n\n%s\n\n' "$stamp" "$k" "$note" >> "$file"; then
+    echo "warning: decision key '$k' closed in $RESOLVE_STATUS_FILE, but its full disposition could not be durably recorded to $file" >&2
+  fi
+}
+
 fm_send_close_resolved_keys() { # <answer-text>
-  local note=$1 k close_note append_rc still manual_close_cmd close_lines=() i=0
+  local note=$1 raw_note=$1 k close_note append_rc still manual_close_cmd close_lines=() i=0
   note=$(printf '%s' "$note" | tr '\n\r\t' '   ' | LC_ALL=C tr -d '\000-\037\177')
   for k in $RESOLVE_STATUS_KEYS; do
     close_note=$(fm_send_resolve_close_note "$k" "$note")
@@ -724,6 +742,9 @@ fm_send_close_resolved_keys() { # <answer-text>
       ;;
     esac
     i=$((i + 1))
+  done
+  for k in $RESOLVE_STATUS_KEYS; do
+    fm_send_record_decision_provenance "$k" "$raw_note"
   done
 }
 

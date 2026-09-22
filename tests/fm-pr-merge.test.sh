@@ -455,6 +455,42 @@ test_verified_merge_records_pr_and_head() {
   pass "fm-pr-merge records pr= and pr_head= for a verified GitHub merge"
 }
 
+# state/<id>.merge-authority proves WHO merged (away/attended); state's
+# pr_head= proves WHICH head. Both live only in task state, which teardown
+# removes once the task lands - exactly the record most worth auditing.
+# fm-pr-merge must also durably write that proof beside the task's own
+# deliverable, in data/<id>/, so cleanup can never leave a merged pull request
+# indistinguishable from a control failure.
+test_verified_merge_records_durable_merge_proof() {
+  local case_dir rc file
+  case_dir=$(make_case durable-merge-proof)
+  mkdir -p "$case_dir/wt"
+  add_gh_mocks "$case_dir" deadbeefcafefeed0000000000000000deadbeef
+  : > "$case_dir/gh-axi.log"
+
+  set +e
+  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/9 \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 0 "$rc" "durable-merge-proof: fm-pr-merge should succeed"
+  file="$case_dir/home/data/task-x1/merge-proof.md"
+  [ -f "$file" ] || fail "durable-merge-proof: no merge proof was recorded at $file"
+  assert_grep 'https://github.com/example/repo/pull/9' "$file" \
+    "durable-merge-proof: the recorded proof is missing the PR URL"
+  assert_grep 'deadbeefcafefeed0000000000000000deadbeef' "$file" \
+    "durable-merge-proof: the recorded proof is missing the verified head"
+  assert_grep 'attended' "$file" \
+    "durable-merge-proof: the recorded proof is missing the merge authority"
+
+  # Tearing down the task removes state/task-x1.meta and .merge-authority; the
+  # durable proof beside the deliverable must survive that removal.
+  rm -f "$case_dir/state/task-x1.meta" "$case_dir/state/task-x1.merge-authority"
+  [ -f "$file" ] || fail "durable-merge-proof: the durable proof did not survive task-state cleanup"
+  pass "fm-pr-merge durably records who merged and against which head in data/<id>/merge-proof.md, surviving task-state cleanup"
+}
+
 # The forge call is the point of no return: once gh-axi has merged, nothing this
 # script does afterwards can un-merge it. Proving pr= is already in the task's
 # meta at that moment is what makes a later failure unable to lose the merge.
@@ -2159,6 +2195,7 @@ test_github_closed_unqueued_outcome_omits_retry_flags
 test_github_agreeing_queue_rules_keep_retry_guidance
 test_github_conflicting_queue_rules_report_ambiguity
 test_verified_merge_records_pr_and_head
+test_verified_merge_records_durable_merge_proof
 test_pr_metadata_is_recorded_before_the_forge_call
 test_merge_failure_propagates_after_recording
 test_github_open_unqueued_outcome_refuses

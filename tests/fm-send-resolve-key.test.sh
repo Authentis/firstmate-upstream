@@ -30,6 +30,9 @@
 #      (the operator path the OPEN DECISIONS hint names), while an unrelated
 #      writer's answered: note still cannot hijack or clear that key. A reserved
 #      key this send cannot close refuses before anything is sent.
+#   9. The full, untruncated answer is also durably recorded in
+#      data/<id>/decisions.md, beside the task's own deliverable, and survives
+#      the removal of the task's own state.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -150,6 +153,36 @@ test_answer_send_closes_open_decision() {
     fail "the answered decision still lists as open: $out"
   fi
   pass "fm-send --resolve-key: the answer send itself closes the open decision"
+}
+
+# A gate finding's disposition must survive teardown, which removes
+# state/<id>.status along with the rest of task state once the task lands.
+# The closing status line stays capped to one line; the full, untruncated
+# answer also lands in data/<id>/decisions.md, which teardown never touches.
+test_answer_close_records_durable_decision_provenance() {
+  local dir fb log home rc file
+  dir="$TMP_ROOT/durable-provenance"; mkdir -p "$dir"
+  fb=$(make_stubs "$dir"); log="$dir/send.log"
+  home=$(setup_home durable-provenance)
+  fm_write_meta "$home/state/t1.meta" "window=sess:fm-t1" "kind=ship"
+  printf 'needs-decision [key=api-shape]: pick REST or RPC\n' > "$home/state/t1.status"
+
+  run_send "$fb" "$home" "$log" t1 --resolve-key api-shape \
+    "go with REST: it matches the accepted contract and needs no new subsystem"
+  rc=$?
+  expect_code 0 "$rc" "the answer send should succeed"
+  file="$home/data/t1/decisions.md"
+  [ -f "$file" ] || fail "the decision's disposition was not durably recorded at $file"
+  grep -qF "[key=api-shape]" "$file" \
+    || fail "the durable record is missing the decision key: $(cat "$file" 2>/dev/null)"
+  grep -qF "go with REST: it matches the accepted contract and needs no new subsystem" "$file" \
+    || fail "the durable record is missing the full, untruncated answer: $(cat "$file" 2>/dev/null)"
+
+  # Tearing down the task removes its status log and meta but must never
+  # touch the durable record sitting beside the task's own deliverable.
+  rm -f "$home/state/t1.status" "$home/state/t1.meta"
+  [ -f "$file" ] || fail "the durable decision record did not survive task-state cleanup"
+  pass "fm-send --resolve-key: a gate finding's full disposition is durably recorded in data/<id>/decisions.md and outlives task-state cleanup"
 }
 
 # The answerer's close is this home's own bookkeeping: it must not re-wake the
@@ -850,6 +883,7 @@ test_decision_answer_partition_relocates_under_the_record() {
 }
 
 test_answer_send_closes_open_decision
+test_answer_close_records_durable_decision_provenance
 test_answer_close_is_self_announced
 test_colon_first_key_position_is_answerable
 test_answer_starts_work_never_orphans

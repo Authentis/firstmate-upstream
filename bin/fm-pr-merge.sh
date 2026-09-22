@@ -114,6 +114,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
+DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 
 # shellcheck source=bin/fm-pr-lib.sh
 . "$SCRIPT_DIR/fm-pr-lib.sh"
@@ -956,6 +957,28 @@ persist_accepted_merge_authority() {
   return 1
 }
 
+# Durable proof of WHO merged and against WHICH head, written beside the
+# task's own deliverable in data/<id>/ rather than only into
+# state/<id>.merge-authority and state/<id>.meta's pr_head=, both of which
+# teardown removes once the task lands. Without this copy, a captain-held
+# gate finding sitting next to a merged pull request is indistinguishable
+# from a control failure once cleanup has run.
+record_merge_proof() {
+  local dir="$DATA/$ID" file stamp
+  file="$dir/merge-proof.md"
+  stamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  if ! mkdir -p -- "$dir" || ! {
+    printf '## %s\n\n' "$stamp"
+    printf -- '- PR: %s\n' "$URL"
+    printf -- '- verified head: %s\n' "${FM_PR_MERGE_HEAD:-unknown}"
+    printf -- '- authority: %s\n' "${FM_PR_MERGE_AUTHORITY:-unknown}"
+    printf '\n'
+  } >> "$file"; then
+    printf 'actionable: merged %s but could not durably record the merge proof to %s\n' \
+      "$URL" "$file" >&2
+  fi
+}
+
 # While away, a merge proceeds only when the base branch's rules prove no
 # merge queue, because a queued merge can land after its away authority
 # lapses with the record's archive. A repository whose
@@ -1229,6 +1252,7 @@ esac
 # Reached only after the forge confirmed the merge landed: set -e exits on a
 # refused or failed merge above, and a queued forge merge exits without an
 # outcome while its existing poll remains armed.
+record_merge_proof
 outcome_rc=0
 fm_merge_outcome_report "$FM_HOME" "$STATE" "$ID" "$URL" self \
   "${FM_PR_MERGE_AUTHORITY:-}" || outcome_rc=$?
