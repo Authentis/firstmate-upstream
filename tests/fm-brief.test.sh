@@ -221,6 +221,30 @@ test_ship_modes_generate_clean_briefs() {
   pass "fm-brief.sh: no-mistakes/direct-PR/local-only briefs generate cleanly"
 }
 
+# The two worker-conduct sentences (never disposition your own gate finding,
+# never run an unanswerable confirmation silently) are mode-independent: they
+# must render into every ship mode's Definition of done, not only no-mistakes,
+# because the workers that break these rules are the ones who have not been
+# corrected yet, on whatever mode they happen to be dispatched on.
+test_dod_worker_conduct_sentences_render_in_every_mode() {
+  local home id mode brief
+  home="$TMP_ROOT/worker-conduct-home"
+  write_registry "$home"
+
+  for id_mode in "brief-conduct-a1:no-mistakes" "brief-conduct-a2:direct-PR" "brief-conduct-a3:local-only"; do
+    id=${id_mode%%:*}
+    mode=${id_mode##*:}
+    FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --mode "$mode" >/dev/null 2>&1
+    brief="$home/data/$id/brief.md"
+    assert_present "$brief" "$id: brief was not scaffolded"
+    assert_grep "A worker never approves, skips, or otherwise dispositions its own validation gate finding, no matter how confident it is - even when the cause is obvious - and routes every one to firstmate instead." "$brief" \
+      "$id ($mode): Definition of done must forbid a worker from dispositioning its own gate finding"
+    assert_grep "A worker never runs a command that requires a confirmation it is not positioned to answer, and where one is unavoidable it says so to firstmate BEFORE running it, not after." "$brief" \
+      "$id ($mode): Definition of done must forbid running an unanswerable confirmation without saying so first"
+  done
+  pass "fm-brief.sh: Definition of done teaches both worker-conduct sentences in every ship mode"
+}
+
 # A ship task's delivery mode is firstmate's per-task decision, so a missing or
 # unusable value must stop the scaffold instead of silently defaulting. The
 # no-mistakes-prod-only row is the conditional registry policy: it is never a task
@@ -1120,6 +1144,7 @@ test_script_parses
 test_no_heredoc_in_command_substitution
 test_help_includes_entire_header
 test_ship_modes_generate_clean_briefs
+test_dod_worker_conduct_sentences_render_in_every_mode
 test_ship_mode_is_required_and_closed_set
 test_ship_mode_is_explicit_not_registry
 test_delivery_flags_are_refused_where_they_do_not_apply

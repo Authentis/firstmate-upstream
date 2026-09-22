@@ -43,6 +43,10 @@
 # conflicting role is superseded rather than duplicated.
 # fm_ship_rule_one owns the mode-specific first ship safety rule shared by an
 # ordinary ship brief and the durable contract written during scout promotion.
+# fm_dod_worker_conduct_lines owns the two mode-independent worker-conduct
+# sentences every Definition of done block renders: a worker never
+# dispositions its own validation gate finding, and a worker never runs a
+# command needing a confirmation it cannot answer without saying so first.
 
 fm_brief_worker_role() {  # <state-dir> <task-id>
   local state=$1 task_id=$2
@@ -261,6 +265,13 @@ Before your final \`done:\` line, fold that ledger yourself - bin/fm-nm-findings
 EOF
 }
 
+fm_dod_worker_conduct_lines() {
+  cat <<'EOF'
+A worker never approves, skips, or otherwise dispositions its own validation gate finding, no matter how confident it is - even when the cause is obvious - and routes every one to firstmate instead.
+A worker never runs a command that requires a confirmation it is not positioned to answer, and where one is unavoidable it says so to firstmate BEFORE running it, not after.
+EOF
+}
+
 fm_dod_block() {  # <mode> <task-id> <data-dir>
   local mode=$1 id=$2 data=$3
   case "$mode" in
@@ -268,6 +279,9 @@ fm_dod_block() {  # <mode> <task-id> <data-dir>
       cat <<EOF
 # Definition of done
 Delivery contract: mode=direct-PR
+EOF
+      fm_dod_worker_conduct_lines
+      cat <<EOF
 This task ships **direct-PR**: you raise the PR yourself, without the no-mistakes pipeline.
 The task is complete only when committed on your branch.
 When it is implemented and committed, push your branch and open a PR with \`gh-axi\` that is ready for review, not a draft.
@@ -282,6 +296,9 @@ EOF
       cat <<EOF
 # Definition of done
 Delivery contract: mode=local-only
+EOF
+      fm_dod_worker_conduct_lines
+      cat <<EOF
 This task ships **local-only**: no remote, no PR, no pipeline.
 The task is complete only when committed on your branch \`fm/$id\`. Do NOT push, do NOT open a PR, do NOT merge.
 Keep your branch a clean fast-forward onto the current default branch - if \`main\` has advanced, rebase onto it so the eventual merge stays a fast-forward.
@@ -293,6 +310,9 @@ EOF
       cat <<EOF
 # Definition of done
 Delivery contract: mode=no-mistakes
+EOF
+      fm_dod_worker_conduct_lines
+      cat <<EOF
 The task is complete only when committed on your branch.
 When you believe it is complete, append \`done [at=<epoch>]: {summary}\` to the status file and stop.
 Firstmate will then instruct you to run /no-mistakes to validate and ship a PR.
