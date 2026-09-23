@@ -1333,6 +1333,116 @@ SH
   pass "jobs=1 and jobs=2 stop complete worker trees with and without telemetry"
 }
 
+# fm_lint_stub_bounded_shellcheck <fakebin>: a ShellCheck stub whose behavior
+# per root is chosen by the root's basename, so one run can mix outcomes:
+#   fail-*  exits 1 with a finding;  hog-*  grows its resident set to 256 MiB;
+#   slow-*  sleeps past any short deadline;  crash-*  dies from SIGKILL;
+#   anything else passes. Every invocation logs its roots to FM_TEST_ROOT_LOG
+# and the number of stubs active at its start to FM_TEST_ACTIVE_LOG.
+fm_lint_stub_bounded_shellcheck() {
+  local fakebin=$1
+  cat > "$fakebin/shellcheck" <<'SH'
+#!/usr/bin/env bash
+if [ "${1:-}" = --version ]; then
+  printf 'ShellCheck - shell script analysis tool\nversion: 0.11.0\n'
+  exit 0
+fi
+while [ "$#" -gt 0 ] && [ "$1" != -- ]; do shift; done
+[ "$#" -eq 0 ] || shift
+printf '%s\n' "$@" >> "$FM_TEST_ROOT_LOG"
+mkdir "$FM_TEST_ACTIVE_DIR/$$"
+find "$FM_TEST_ACTIVE_DIR" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ' >> "$FM_TEST_ACTIVE_LOG"
+sleep 0.3
+rmdir "$FM_TEST_ACTIVE_DIR/$$"
+rc=0
+for root in "$@"; do
+  case "${root##*/}" in
+    fail-*) printf '%s:1:1: warning: seeded finding [SC9999]\n' "$root"; rc=1 ;;
+    hog-*) exec perl -e '$x = "a" x (256 * 1024 * 1024); sleep 30' ;;
+    slow-*) exec sleep 30 ;;
+    crash-*) kill -KILL "$$" ;;
+  esac
+done
+exit "$rc"
+SH
+  chmod +x "$fakebin/shellcheck"
+}
+
+# fm_lint_bounded_run <tmp> <jobs> <root>...: run the lint owner over explicit
+# roots with the bounded stub; stores output in $tmp/out and exit in $tmp/rc.
+fm_lint_bounded_run() {
+  local tmp=$1 jobs=$2 rc=0
+  shift 2
+  : > "$tmp/roots.log"
+  : > "$tmp/active.log"
+  rm -rf "$tmp/active"
+  mkdir -p "$tmp/active"
+  PATH="$tmp/bin:$PATH" FM_LINT_JOBS="$jobs" FM_TEST_ROOT_LOG="$tmp/roots.log" \
+    FM_TEST_ACTIVE_LOG="$tmp/active.log" FM_TEST_ACTIVE_DIR="$tmp/active" \
+    "$LINT" "$@" > "$tmp/out" 2>&1 || rc=$?
+  printf '%s\n' "$rc" > "$tmp/rc"
+}
+
+test_bounded_roots_run_one_process_each_within_the_jobs_cap() {
+  local tmp jobs roots root peak expected
+  tmp=$(fm_test_tmproot fm-lint-bounded-coverage)
+  mkdir -p "$tmp/bin" "$tmp/src"
+  fm_lint_stub_bounded_shellcheck "$tmp/bin"
+  roots=()
+  for root in a b c d e f; do
+    printf '#!/usr/bin/env bash\n: %s\n' "$root" > "$tmp/src/$root.sh"
+    roots+=("$tmp/src/$root.sh")
+  done
+  expected=$(printf '%s\n' "${roots[@]}" | LC_ALL=C sort)
+  for jobs in 1 2; do
+    fm_lint_bounded_run "$tmp" "$jobs" "${roots[@]}"
+    [ "$(cat "$tmp/rc")" -eq 0 ] || fail "jobs=$jobs bounded lint failed: $(cat "$tmp/out")"
+    [ "$(LC_ALL=C sort "$tmp/roots.log")" = "$expected" ] \
+      || fail "jobs=$jobs did not lint every root exactly once, one root per ShellCheck process"
+    peak=$(LC_ALL=C sort -n "$tmp/active.log" | tail -1)
+    [ "$peak" -le "$jobs" ] || fail "jobs=$jobs ran $peak ShellCheck processes at once"
+  done
+  [ "$peak" -eq 2 ] || fail "jobs=2 never overlapped its two workers, so the cap was not exercised"
+  pass "bounded lint checks every root in its own process with at most jobs concurrent ShellChecks"
+}
+
+test_bounded_roots_propagate_findings_and_resource_failures() {
+  local tmp out case_root expected_rc message
+  tmp=$(fm_test_tmproot fm-lint-bounded-failures)
+  mkdir -p "$tmp/bin" "$tmp/src"
+  fm_lint_stub_bounded_shellcheck "$tmp/bin"
+  for case_root in good fail-one hog-one slow-one crash-one; do
+    printf '#!/usr/bin/env bash\n: ok\n' > "$tmp/src/$case_root.sh"
+  done
+
+  fm_lint_bounded_run "$tmp" 1 "$tmp/src/good.sh" "$tmp/src/fail-one.sh"
+  [ "$(cat "$tmp/rc")" -eq 1 ] || fail "a lint finding did not fail the run (exit $(cat "$tmp/rc"))"
+  assert_contains "$(cat "$tmp/out")" "SC9999" "the failing root's diagnostic was lost"
+
+  for case_root in hog-one:125:"memory ceiling" slow-one:124:"second deadline" crash-one:137:"died from signal 9"; do
+    message=${case_root#*:*:}
+    expected_rc=${case_root#*:}
+    expected_rc=${expected_rc%%:*}
+    case_root=${case_root%%:*}
+    FM_LINT_MAX_RSS_MIB=64 FM_LINT_ROOT_TIMEOUT=2 \
+      fm_lint_bounded_run "$tmp" 2 "$tmp/src/$case_root.sh" "$tmp/src/good.sh"
+    out=$(cat "$tmp/rc")
+    [ "$out" -eq "$expected_rc" ] \
+      || fail "$case_root exited $out, expected explicit failure $expected_rc: $(cat "$tmp/out")"
+    assert_contains "$(cat "$tmp/out")" "$message while linting $tmp/src/$case_root.sh; lint failed." \
+      "$case_root did not report which root breached its bound"
+    assert_contains "$(cat "$tmp/roots.log")" "$tmp/src/good.sh" "$case_root's breach skipped the other root"
+  done
+
+  for message in 0 -1 abc 012; do
+    FM_LINT_MAX_RSS_MIB=$message fm_lint_bounded_run "$tmp" 1 "$tmp/src/good.sh"
+    [ "$(cat "$tmp/rc")" -eq 2 ] || fail "memory ceiling '$message' was accepted"
+    FM_LINT_ROOT_TIMEOUT=$message fm_lint_bounded_run "$tmp" 1 "$tmp/src/good.sh"
+    [ "$(cat "$tmp/rc")" -eq 2 ] || fail "deadline '$message' was accepted"
+  done
+  pass "bounded lint fails explicitly on findings, memory ceiling, deadline, and signal death"
+}
+
 test_seeded_module_boundary_parity() {
   if ! pinned_ready; then
     pass "SKIP (ShellCheck $REQUIRED not resolved): seeded source-boundary parity check"
@@ -1427,6 +1537,8 @@ test_ignores_ambient_shellcheck_opts
 test_clean_fixture_passes
 test_jobs_are_deterministic_and_complete
 test_worker_trees_stop_on_signal
+test_bounded_roots_run_one_process_each_within_the_jobs_cap
+test_bounded_roots_propagate_findings_and_resource_failures
 test_seeded_module_boundary_parity
 test_changed_mode_lints_only_the_changed_file
 test_ci_forces_full_lint_even_with_empty_diff

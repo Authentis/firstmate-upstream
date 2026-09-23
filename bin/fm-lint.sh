@@ -44,6 +44,13 @@
 # Lint defaults to two bounded workers over two stable logical shards.
 # Diagnostics replay in stable shard/root order. FM_LINT_JOBS=1 changes
 # concurrency, not diagnostics or exit selection.
+# Each worker runs one ShellCheck process per root, in turn, so at most jobs
+# ShellCheck processes run at once. Each process is held to a resident-memory
+# ceiling (FM_LINT_MAX_RSS_MIB, default 2048) and a deadline
+# (FM_LINT_ROOT_TIMEOUT seconds, default 300). A breach kills that process,
+# names the root, and fails the run with 125 (memory) or 124 (deadline), and
+# a ShellCheck killed by any signal fails with 128 plus the signal; the
+# remaining roots still run.
 # --partition 1of2/2of2 splits the entire canonical inventory across
 # two CI runners, each with those same bounded workers. Partitions are complete,
 # disjoint, and byte-weight balanced; --list-files exposes their actual roots.
@@ -64,6 +71,9 @@
 #   fm-lint.sh --required-version      print the ShellCheck pin
 #   fm-lint.sh --list-files            print the file set that would be linted
 #   fm-lint.sh --help                  print this usage
+#
+# Environment: FM_LINT_JOBS, FM_LINT_TELEMETRY, FM_LINT_MAX_RSS_MIB, and
+# FM_LINT_ROOT_TIMEOUT; the bounds must be positive integers.
 set -u
 
 REQUIRED_SHELLCHECK=0.11.0
@@ -74,6 +84,64 @@ SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 SELF="$SELF_DIR/fm-lint.sh"
 ROOT="$(cd "$SELF_DIR/.." && pwd -P)"
 cd "$ROOT" || exit 1
+
+DEFAULT_MAX_RSS_MIB=2048
+DEFAULT_ROOT_TIMEOUT=300
+
+# Every ShellCheck process runs under this guard. It stays in the worker's
+# process group, so the parent's group cleanup still reaches ShellCheck, and it
+# polls the child's resident set because macOS ignores `ulimit -v` and the
+# pinned ShellCheck builds disable GHC's own heap limit. The deadline follows
+# fm-timeout-lib.sh's exit 124 convention; that owner has no memory bound.
+# shellcheck disable=SC2016 # Perl, not the shell, expands these variables.
+FM_LINT_BOUND_PROGRAM='
+use strict;
+use warnings;
+use POSIX qw(WNOHANG _exit);
+use Time::HiRes qw(sleep time);
+my ($limit_mib, $deadline, $root, @command) = @ARGV;
+my $pid = fork;
+defined $pid or die "fm-lint.sh: fork failed: $!\n";
+if (!$pid) {
+  { no warnings "exec"; exec { $command[0] } @command; }
+  print STDERR "fm-lint.sh: cannot run $command[0]: $!\n";
+  _exit(127);
+}
+sub stop { kill "KILL", $pid; waitpid $pid, 0; exit $_[0] }
+$SIG{HUP} = sub { stop(129) };
+$SIG{INT} = sub { stop(130) };
+$SIG{TERM} = sub { stop(143) };
+sub rss_kib {
+  if (open my $fh, "<", "/proc/$pid/status") {
+    while (<$fh>) { return $1 if /^VmRSS:\s+(\d+)/ }
+    return 0;
+  }
+  my $out = `ps -o rss= -p $pid 2>/dev/null`;
+  return defined $out && $out =~ /(\d+)/ ? $1 : 0;
+}
+my $start = time;
+while (1) {
+  if (waitpid($pid, WNOHANG) == $pid) {
+    my $signal = $? & 127;
+    exit($? >> 8) unless $signal;
+    print STDERR "fm-lint.sh: ShellCheck died from signal $signal while linting $root; lint failed.\n";
+    exit 128 + $signal;
+  }
+  if (rss_kib() > $limit_mib * 1024) {
+    kill "KILL", $pid;
+    waitpid $pid, 0;
+    print STDERR "fm-lint.sh: ShellCheck exceeded the $limit_mib MiB memory ceiling while linting $root; lint failed.\n";
+    exit 125;
+  }
+  if (time - $start >= $deadline) {
+    kill "KILL", $pid;
+    waitpid $pid, 0;
+    print STDERR "fm-lint.sh: ShellCheck exceeded the $deadline second deadline while linting $root; lint failed.\n";
+    exit 124;
+  }
+  sleep 0.2;
+}
+'
 
 FM_LINT_WORKER_SHELLCHECK_PID=
 # shellcheck disable=SC2329 # Registered by the private worker's signal traps.
@@ -109,23 +177,18 @@ fm_lint_worker() {  # <manifest> <output-dir> <shard-index>
       shellcheck_args+=(--extended-analysis=false)
     fi
     : > "$output.out"
-    if [ "${FM_LINT_INTERNAL_FOLLOW_SOURCES:-1}" -eq 1 ]; then
-      "$FM_LINT_SHELLCHECK" "${shellcheck_args[@]}" -- "${roots[@]}" >> "$output.out" 2>&1 &
-      FM_LINT_WORKER_SHELLCHECK_PID=$!
-      wait "$FM_LINT_WORKER_SHELLCHECK_PID" || rc=$?
-      FM_LINT_WORKER_SHELLCHECK_PID=
-    else
-      for path in "${roots[@]}"; do
-        invocation_rc=0
+    for path in "${roots[@]}"; do
+      invocation_rc=0
+      "$FM_LINT_PERL" -e "$FM_LINT_BOUND_PROGRAM" "$FM_LINT_INTERNAL_MAX_RSS_MIB" \
+        "$FM_LINT_INTERNAL_ROOT_TIMEOUT" "$path" \
         "$FM_LINT_SHELLCHECK" "${shellcheck_args[@]}" -- "$path" >> "$output.out" 2>&1 &
-        FM_LINT_WORKER_SHELLCHECK_PID=$!
-        wait "$FM_LINT_WORKER_SHELLCHECK_PID" || invocation_rc=$?
-        FM_LINT_WORKER_SHELLCHECK_PID=
-        if [ "$rc" -eq 0 ] && [ "$invocation_rc" -ne 0 ]; then
-          rc=$invocation_rc
-        fi
-      done
-    fi
+      FM_LINT_WORKER_SHELLCHECK_PID=$!
+      wait "$FM_LINT_WORKER_SHELLCHECK_PID" || invocation_rc=$?
+      FM_LINT_WORKER_SHELLCHECK_PID=
+      if [ "$rc" -eq 0 ] && [ "$invocation_rc" -ne 0 ]; then
+        rc=$invocation_rc
+      fi
+    done
     trap - HUP INT TERM
   else
     : > "$output.out"
@@ -140,7 +203,7 @@ if [ "${1:-}" = "--internal-worker" ]; then
     printf 'fm-lint.sh: --internal-worker is private to the lint owner.\n' >&2
     exit 2
   }
-  [ "$#" -eq 4 ] && [ -n "${FM_LINT_SHELLCHECK:-}" ] || exit 2
+  [ "$#" -eq 4 ] && [ -n "${FM_LINT_SHELLCHECK:-}" ] && [ -n "${FM_LINT_PERL:-}" ] || exit 2
   fm_lint_worker "$2" "$3" "$4"
   exit $?
 fi
@@ -462,6 +525,17 @@ case "$JOBS" in
   *) printf 'fm-lint.sh: jobs must be 1 or 2, got %s.\n' "$JOBS" >&2; exit 2 ;;
 esac
 
+MAX_RSS_MIB=${FM_LINT_MAX_RSS_MIB:-$DEFAULT_MAX_RSS_MIB}
+ROOT_TIMEOUT=${FM_LINT_ROOT_TIMEOUT:-$DEFAULT_ROOT_TIMEOUT}
+for bound in "$MAX_RSS_MIB" "$ROOT_TIMEOUT"; do
+  case "$bound" in
+    ""|0*|*[!0-9]*)
+      printf 'fm-lint.sh: FM_LINT_MAX_RSS_MIB and FM_LINT_ROOT_TIMEOUT must be positive integers.\n' >&2
+      exit 2
+      ;;
+  esac
+done
+
 case "$PARTITION" in
   '')
     if [ "$PARTITION_REQUESTED" -eq 1 ]; then
@@ -739,14 +813,16 @@ fm_lint_run_worker() {  # <worker-index>
         /usr/bin/time -lp -o "$timing" \
         env FM_LINT_INTERNAL=1 FM_LINT_INTERNAL_FAST="$FAST" \
         FM_LINT_INTERNAL_FOLLOW_SOURCES="$FOLLOW_SOURCES" FM_LINT_INTERNAL_EXCLUDE="$EXCLUDE_CODES" \
-        FM_LINT_SHELLCHECK="$SHELLCHECK_BIN" \
+        FM_LINT_SHELLCHECK="$SHELLCHECK_BIN" FM_LINT_PERL="$PERL_BIN" \
+        FM_LINT_INTERNAL_MAX_RSS_MIB="$MAX_RSS_MIB" FM_LINT_INTERNAL_ROOT_TIMEOUT="$ROOT_TIMEOUT" \
         "${BASH:-bash}" "$SELF" --internal-worker "$manifest" "$OUTPUT_DIR" "$worker_index"
     else
       exec "$PERL_BIN" -e 'setpgrp(0, 0) or die "setpgrp: $!"; exec @ARGV or die "exec: $!"' \
         /usr/bin/time -f 'wall_seconds=%e\nuser_seconds=%U\nsystem_seconds=%S\nmax_rss_kib=%M' -o "$timing" \
         env FM_LINT_INTERNAL=1 FM_LINT_INTERNAL_FAST="$FAST" \
         FM_LINT_INTERNAL_FOLLOW_SOURCES="$FOLLOW_SOURCES" FM_LINT_INTERNAL_EXCLUDE="$EXCLUDE_CODES" \
-        FM_LINT_SHELLCHECK="$SHELLCHECK_BIN" \
+        FM_LINT_SHELLCHECK="$SHELLCHECK_BIN" FM_LINT_PERL="$PERL_BIN" \
+        FM_LINT_INTERNAL_MAX_RSS_MIB="$MAX_RSS_MIB" FM_LINT_INTERNAL_ROOT_TIMEOUT="$ROOT_TIMEOUT" \
         "${BASH:-bash}" "$SELF" --internal-worker "$manifest" "$OUTPUT_DIR" "$worker_index"
     fi
   else
@@ -754,7 +830,8 @@ fm_lint_run_worker() {  # <worker-index>
     exec "$PERL_BIN" -e 'setpgrp(0, 0) or die "setpgrp: $!"; exec @ARGV or die "exec: $!"' \
       env FM_LINT_INTERNAL=1 FM_LINT_INTERNAL_FAST="$FAST" \
       FM_LINT_INTERNAL_FOLLOW_SOURCES="$FOLLOW_SOURCES" FM_LINT_INTERNAL_EXCLUDE="$EXCLUDE_CODES" \
-      FM_LINT_SHELLCHECK="$SHELLCHECK_BIN" \
+      FM_LINT_SHELLCHECK="$SHELLCHECK_BIN" FM_LINT_PERL="$PERL_BIN" \
+      FM_LINT_INTERNAL_MAX_RSS_MIB="$MAX_RSS_MIB" FM_LINT_INTERNAL_ROOT_TIMEOUT="$ROOT_TIMEOUT" \
       "${BASH:-bash}" "$SELF" --internal-worker "$manifest" "$OUTPUT_DIR" "$worker_index"
   fi
 }
