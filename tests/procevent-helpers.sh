@@ -48,6 +48,20 @@ printf '%s\n' "$@"
 SH
 chmod +x "$BLOCKER"
 
+# Records that the wrapped command actually started, then becomes it. A claim
+# only proves its runner got as far as claiming; a test that needs the runner
+# already inside its source command waits for this marker instead of a settle
+# window, because a runner still short of that command retires itself when its
+# registration goes away.
+STARTED_BLOCKER="$TMP_ROOT/started-blocker.sh"
+cat > "$STARTED_BLOCKER" <<'SH'
+#!/usr/bin/env bash
+printf 'started\n' > "$1"
+shift
+exec "$@"
+SH
+chmod +x "$STARTED_BLOCKER"
+
 pe() { FM_HOME="$1" "$ROOT/bin/fm-procevent.sh" "${@:2}"; }
 
 # Every home this suite registers a source in is tracked so teardown can stop

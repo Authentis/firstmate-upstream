@@ -693,11 +693,12 @@ fi
 # command; the decision then stays open and re-surfaces, never silently lost.
 # All of one answer's closes are this home's own bookkeeping, written by the
 # very turn that answered the decisions, so they go through ONE guarded
-# self-announced append (bin/fm-wake-lib.sh) and do not wake this same session
-# again, including when this home already folded those bytes through OPEN
-# DECISIONS without a matching watcher seen marker; any concurrent foreign
-# status bytes, or a worker line the fold read but never listed, leave the
-# watcher's wake path untouched.
+# self-announced append (bin/fm-wake-lib.sh). That records the appended byte
+# range so separate --resolve-key answers do not each wake this same session,
+# including when this home already folded those bytes through OPEN DECISIONS
+# without a matching watcher seen marker; any concurrent foreign status bytes,
+# or a worker line the fold read but never listed, leave the watcher's wake
+# path untouched.
 #
 # A gate finding's disposition also gets a full, untruncated durable copy
 # beside the task's own deliverable in data/<task>/decisions.md, because

@@ -33,12 +33,18 @@ kill -0 "$runner_pid" 2>/dev/null && fail "retire left the blocked runner alive"
 assert_absent "$FM_PROCEVENT_CLAIM_ROOT/shared-src.claim" "retire releases the claim"
 pass "retiring a never-completing source stops its runner and its blocked child"
 
-# reconcile must also stop a runner whose registration was removed out from under it.
+# reconcile must also stop a runner whose registration was removed out from under
+# it. The input is a runner already blocked inside its source command, so wait for
+# the start marker rather than a settle window: a runner still short of that
+# command retires itself when the registration disappears, which on a loaded host
+# turns this into a test of the other outcome and reports uncertain=1.
 TRIG4="$TMP_ROOT/trigger-four"
+ORPHAN_STARTED="$TMP_ROOT/orphan-src.started"
 HZ="$TMP_ROOT/hz"; new_home "$HZ"
-pe_register "$HZ" lavish orphan-src -- "$BLOCKER" "$TRIG4" "orphan" >/dev/null
+pe_register "$HZ" lavish orphan-src \
+  -- "$STARTED_BLOCKER" "$ORPHAN_STARTED" "$BLOCKER" "$TRIG4" "orphan" >/dev/null
 pe "$HZ" reconcile >/dev/null
-sleep 0.5
+wait_for "$ORPHAN_STARTED" || fail "the orphan fixture runner never entered its source command"
 orphan_pid=$(sed -n '2p' "$FM_PROCEVENT_CLAIM_ROOT/orphan-src.claim" 2>/dev/null)
 if [ -z "$orphan_pid" ] || ! kill -0 "$orphan_pid" 2>/dev/null; then
   fail "orphan fixture runner did not start"
@@ -99,7 +105,7 @@ for _ in $(seq 1 24); do
   pe "$HR" start race-src >/dev/null &
   race_pids+=("$!")
 done
-wait_for "$RACE_LOG" || fail "no contender acquired the stale claim"
+wait_for "$RACE_LOG" 300 || fail "no contender acquired the stale claim"
 sleep 0.5
 [ "$(wc -l < "$RACE_LOG" | tr -d ' ')" = 1 ] || fail "stale-claim race started more than one runner"
 : > "$RACE_TRIGGER"

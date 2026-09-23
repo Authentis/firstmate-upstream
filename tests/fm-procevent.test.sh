@@ -396,16 +396,8 @@ HREPLACE="$TMP_ROOT/hreplace"; new_home "$HREPLACE"
 fm_test_track_procevent_home "$HREPLACE"
 OLD_TRIGGER="$TMP_ROOT/replace-old-trigger"
 OLD_STARTED="$TMP_ROOT/replace-old-started"
-REPLACE_BLOCKER="$TMP_ROOT/replace-blocker.sh"
-cat > "$REPLACE_BLOCKER" <<'SH'
-#!/usr/bin/env bash
-printf 'started\n' > "$1"
-shift
-exec "$@"
-SH
-chmod +x "$REPLACE_BLOCKER"
 pe_adapter "$HREPLACE" register endnow replace-src -- \
-  "$REPLACE_BLOCKER" "$OLD_STARTED" "$BLOCKER" "$OLD_TRIGGER" "old terminal payload" >/dev/null
+  "$STARTED_BLOCKER" "$OLD_STARTED" "$BLOCKER" "$OLD_TRIGGER" "old terminal payload" >/dev/null
 pe_adapter "$HREPLACE" start replace-src > "$TMP_ROOT/replace-old.out" 2>&1 &
 replace_old_pid=$!
 wait_for "$OLD_STARTED" || fail "the old registration never started"
