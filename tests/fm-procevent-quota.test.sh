@@ -65,6 +65,38 @@ case "${QUOTA_AXI_MALFORMED:-}" in
     exit 0
     ;;
 esac
+# Real quota-axi snapshots carry a per-provider state; it exits 1 while still
+# printing the full snapshot when every provider it read failed.
+codex_row() { # <state-json> <percent>
+  printf '{"provider":"codex","state":%s,"quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":%s,"runway":{"status":"through_reset"}}]}}' "$1" "$2"
+}
+claude_down='{"provider":"claude","state":{"status":"auth_required","stale":false,"error":"keychain_prompt_required"},"quotaSemantics":{"status":"unknown","effectiveAvailability":[]}}'
+case "${QUOTA_AXI_STATE:-}" in
+  unrelated-down)
+    printf '{"schemaVersion":5,"providers":[%s,%s]}\n' "$(codex_row '{"status":"fresh","stale":false}' 5)" "$claude_down"
+    exit "${QUOTA_AXI_RC:-0}"
+    ;;
+  selected-down)
+    printf '{"schemaVersion":5,"providers":[{"provider":"codex","state":{"status":"auth_required","stale":false,"error":"codex_credential_unavailable"},"quotaSemantics":{"status":"unknown","effectiveAvailability":[]}},{"provider":"grok","state":{"status":"fresh","stale":false},"quotaSemantics":{"status":"unknown","effectiveAvailability":[]}}]}\n'
+    exit 0
+    ;;
+  all-down)
+    printf '{"schemaVersion":5,"providers":[{"provider":"codex","state":{"status":"error","stale":false,"error":"codex_rpc_failed"},"quotaSemantics":{"status":"unknown","effectiveAvailability":[]}},%s]}\n' "$claude_down"
+    exit 1
+    ;;
+  selected-stale)
+    printf '{"schemaVersion":5,"providers":[%s,%s]}\n' "$(codex_row '{"status":"fresh","stale":true}' 50)" "$claude_down"
+    exit 0
+    ;;
+  truncated)
+    printf '{"schemaVersion":5,"providers":[%s' "$(codex_row '{"status":"fresh","stale":false}' 5)"
+    exit 1
+    ;;
+  hang)
+    sleep 5
+    exit 0
+    ;;
+esac
 # Schema 6: an expanded provider (codex, two Pi lanes) puts one provider id on
 # two rows keyed by accountKey; the schema 5 pair is the same state from an
 # older quota-axi that only knows one codex account.
@@ -283,5 +315,50 @@ out=$(QUOTA_AXI_KNOWN_UNKNOWN_FIRST=1 QUOTA_AXI_COUNT="$COUNT" PATH="$FAKEBIN:$P
 printf '%s\n' "$out" | grep -qx 'status: exhausted' || fail "known semantics with unknown headroom did not continue polling"
 printf '%s\n' "$out" | grep -qx 'condition_polls: 2' || fail "known semantics with unknown headroom stopped early"
 ok "poll preserves unknown headroom under known semantics"
+
+quota_poll() { # <provider> [env assignments...]
+  local provider=$1
+  shift
+  env "$@" QUOTA_AXI_COUNT="$COUNT" PATH="$FAKEBIN:$PATH" \
+    "$BIN/fm-procevent-quota.sh" poll --interval 1 --threshold 10 --provider "$provider" --timeout 2
+}
+
+for rc in 0 1; do
+  out=$(quota_poll codex QUOTA_AXI_STATE=unrelated-down QUOTA_AXI_RC="$rc")
+  printf '%s\n' "$out" | grep -qx 'status: low' \
+    || fail "valid codex snapshot with an unrelated failed provider and exit $rc was not consumed: $out"
+  detail=$(printf '%s\n' "$out" | sed -n 's/^detail: //p')
+  printf '%s\n' "$detail" | jq -e '.provider == "codex" and .best.effectivePercentRemaining == 5' >/dev/null \
+    || fail "unrelated-failure snapshot recorded the wrong detail: $detail"
+done
+out=$(quota_poll '' QUOTA_AXI_STATE=unrelated-down QUOTA_AXI_RC=1)
+printf '%s\n' "$out" | grep -qx 'status: error' || fail "aggregate watch consumed a nonzero-exit snapshot: $out"
+printf '%s\n' "$out" | grep -qx 'detail: quota-axi --json exited 1' || fail "aggregate nonzero exit detail changed: $out"
+ok "provider watch consumes a valid selected-provider snapshot despite unrelated provider failure"
+
+out=$(quota_poll codex QUOTA_AXI_STATE=truncated)
+printf '%s\n' "$out" | grep -qx 'status: error' || fail "truncated nonzero-exit output did not report an error"
+printf '%s\n' "$out" | grep -qx 'detail: quota-axi --json exited 1 without a valid snapshot' \
+  || fail "truncated output detail did not name the invalid snapshot: $out"
+printf '%s\n' "$out" | grep -qx 'condition_polls: 1' || fail "truncated output did not stop immediately"
+out=$(quota_poll codex QUOTA_AXI_STATE=hang)
+printf '%s\n' "$out" | grep -qx 'detail: quota-axi --json timed out after 2s' \
+  || fail "hung quota-axi did not report its timeout: $out"
+ok "poll still reports invalid JSON, nonzero exit, and timeout as errors"
+
+out=$(quota_poll codex QUOTA_AXI_STATE=selected-down)
+printf '%s\n' "$out" | grep -qx 'status: error' || fail "unavailable selected provider was not an error: $out"
+printf '%s\n' "$out" | grep -qx 'detail: selected provider codex state is auth_required (codex_credential_unavailable)' \
+  || fail "unavailable selected provider detail changed: $out"
+out=$(quota_poll codex QUOTA_AXI_STATE=all-down)
+printf '%s\n' "$out" | grep -qx 'detail: quota-axi --json exited 1; selected provider codex state is error (codex_rpc_failed)' \
+  || fail "failed selected provider under nonzero exit was not an error: $out"
+out=$(quota_poll codex QUOTA_AXI_STATE=selected-stale)
+printf '%s\n' "$out" | grep -qx 'detail: selected provider codex state is stale' \
+  || fail "stale selected provider was not an error: $out"
+out=$(quota_poll grok QUOTA_AXI_STATE=unrelated-down)
+printf '%s\n' "$out" | grep -qx 'detail: selected provider grok is absent from the snapshot' \
+  || fail "absent selected provider was not an error: $out"
+ok "poll reports an unavailable, failed, stale, or absent selected provider as an error"
 
 printf '# all fm-procevent-quota tests passed\n'

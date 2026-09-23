@@ -32,6 +32,15 @@
 # validator). Both watches read every matching account row independently,
 # without combining quotas. A --provider watch restricts those rows to the
 # requested provider; details preserve each row's accountKey when present.
+#
+# quota-axi exits nonzero while still printing a complete snapshot when every
+# provider it read failed, so the exit status alone says nothing about one
+# provider. A --provider watch therefore consumes a nonzero-exit snapshot when
+# it validates and every selected row reports a fresh, non-stale state; the
+# aggregate watch keeps treating any nonzero exit as an error. A timeout,
+# missing or incompatible quota-axi, invalid or truncated JSON, an absent
+# selected provider, or a selected row whose state is stale or not fresh is an
+# error, and its detail line names which of those stopped the watch.
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -98,18 +107,46 @@ valid_percent() {
 }
 
 # quota_json [timeout]
-# Run `quota-axi --json` bounded by the given timeout. A missing or incompatible
-# quota-axi is an error condition, not a signal to fire.
+# Run `quota-axi --json` bounded by the given timeout, leaving its stdout in
+# QUOTA_JSON and its exit status in QUOTA_RC. A missing or incompatible
+# quota-axi returns 2 and is an error condition, not a signal to fire.
 quota_json() {
-  local timeout=${1:-} output
+  local timeout=${1:-}
+  QUOTA_JSON=
+  QUOTA_RC=0
   if [ -n "$timeout" ]; then
     fm_quota_axi_compatible "$timeout" >/dev/null 2>&1 || return 2
-    output=$(fm_run_timed "$timeout" quota-axi --json 2>/dev/null </dev/null) || return 2
+    QUOTA_JSON=$(fm_run_timed "$timeout" quota-axi --json 2>/dev/null </dev/null) || QUOTA_RC=$?
   else
     fm_quota_axi_compatible >/dev/null 2>&1 || return 2
-    output=$(quota-axi --json 2>/dev/null </dev/null) || return 2
+    QUOTA_JSON=$(quota-axi --json 2>/dev/null </dev/null) || QUOTA_RC=$?
   fi
-  printf '%s\n' "$output"
+  return 0
+}
+
+# selected_provider_problem <json> <provider>
+# Print why the selected provider's rows are unusable, or nothing when every
+# matching row is present and its reported state is fresh and not stale. A row
+# without a state object carries no failure evidence and is accepted.
+selected_provider_problem() {
+  local json=$1 provider=$2
+  printf '%s\n' "$json" | jq -r --arg provider "$provider" '
+    [.providers[]? | select(.provider == $provider)] as $rows |
+    if ($rows | length) == 0 then "selected provider \($provider) is absent from the snapshot"
+    else
+      [$rows[] | select(has("state")) | .state as $state |
+        select(($state | type) != "object" or $state.status != "fresh" or $state.stale == true) |
+        "selected provider \($provider)"
+        + (if has("accountKey") then " account \(.accountKey)" else "" end)
+        + " state is "
+        + (if ($state | type) != "object" then "malformed"
+           elif $state.stale == true and $state.status == "fresh" then "stale"
+           else ($state.status // "missing" | tostring)
+           end)
+        + (if ($state | type) == "object" and ($state.error | type) == "string" then " (\($state.error))" else "" end)
+      ] | first // empty
+    end
+  ' 2>/dev/null || printf 'selected provider %s could not be read from the snapshot\n' "$provider"
 }
 
 # condition_status <json> [provider] [threshold]
@@ -209,16 +246,30 @@ cmd_poll() {
   valid_percent "$threshold" || die "--threshold needs a percent 0-100"
   [ -z "$timeout" ] || positive_int "$timeout" || die "--timeout needs a positive integer"
   resolve_provider "$PROVIDER"
-  local json detail status polls=0
+  local json detail status problem polls=0
   while :; do
     polls=$((polls + 1))
-    if ! json=$(quota_json "${timeout:-}"); then
+    problem=
+    if ! quota_json "${timeout:-}"; then
+      problem='quota-axi is missing or below the compatibility floor'
+    elif [ -n "$timeout" ] && [ "$QUOTA_RC" -eq 124 ]; then
+      problem="quota-axi --json timed out after ${timeout}s"
+    elif ! printf '%s\n' "$QUOTA_JSON" | fm_quota_json_valid; then
+      problem="quota-axi --json exited $QUOTA_RC without a valid snapshot"
+    elif [ -z "$PROVIDER" ] && [ "$QUOTA_RC" -ne 0 ]; then
+      problem="quota-axi --json exited $QUOTA_RC"
+    elif [ -n "$PROVIDER" ]; then
+      problem=$(selected_provider_problem "$QUOTA_JSON" "$PROVIDER")
+      [ -z "$problem" ] || [ "$QUOTA_RC" -eq 0 ] || problem="quota-axi --json exited $QUOTA_RC; $problem"
+    fi
+    if [ -n "$problem" ]; then
       printf 'quota: %s\n' "$CANONICAL_SOURCE_ID"
       printf 'status: error\n'
-      printf 'detail: quota-axi --json failed or quota-axi is missing/incompatible\n'
+      printf 'detail: %s\n' "$problem"
       printf 'condition_polls: %s\n' "$polls"
       exit 0
     fi
+    json=$QUOTA_JSON
     status=$(condition_status "$json" "$PROVIDER" "$threshold")
     case "$status" in
       healthy) sleep "$interval"; continue ;;
