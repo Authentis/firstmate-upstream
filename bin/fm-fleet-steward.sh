@@ -24,7 +24,12 @@
 #
 # `exempt` records one guarded-teardown refusal in the existing
 # state/steward-exemptions.json schema so finish-then-refill can preserve the
-# occupied task as held-external without hiding or overwriting sibling rows.
+# task without hiding or overwriting sibling rows.
+# It re-reads the task through fm-crew-state.sh, refuses unless that reconciled
+# state still equals --state, and records the exact observed state and detail
+# with a child-state hold identity, because fm-fleet-snapshot.sh matches an
+# exemption only against that exact observation; the refusal text is kept in
+# the reason and refusal fields.
 #
 # `arm` installs and registers state/fleet-steward.check.sh in this exact home,
 # writes the user units next-up-refresh.service and next-up-refresh.timer, and
@@ -367,6 +372,7 @@ action_check() {
 
 action_exempt() {
   local id=${1:-} state detail_file detail today expires reason steward tmp jq_input
+  local observed observed_state observed_detail sep=' · '
   shift || true
   while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -391,6 +397,19 @@ action_exempt() {
     || { fail "detail file exceeds 8192 bytes"; return 1; }
   detail=$(tr '\t\r\n' '   ' < "$detail_file" | sed 's/  */ /g; s/^ //; s/ $//')
   [ -n "$detail" ] || { fail "detail file is empty"; return 1; }
+  observed=$(env -u FM_CREW_STATE_META_OVERRIDE -u FM_CREW_STATE_STATUS_OVERRIDE \
+    FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" "$SCRIPT_DIR/fm-crew-state.sh" "$id" 2>/dev/null | head -n 1)
+  case "$observed" in
+    "state: "*"${sep}source: "*"$sep"*) : ;;
+    *) fail "could not read the reconciled task state"; return 1 ;;
+  esac
+  observed_state=${observed#state: }
+  observed_state=${observed_state%%"$sep"*}
+  observed_detail=${observed#*"${sep}source: "}
+  observed_detail=${observed_detail#*"$sep"}
+  [ "$observed_state" = "$state" ] \
+    || { fail "reconciled state is now $observed_state, not $state"; return 1; }
+  [ -n "$observed_detail" ] || { fail "reconciled state has no detail to bind"; return 1; }
   today=${FM_FLEET_STEWARD_TODAY:-$(date -u +%Y-%m-%d)}
   case "$today" in ????-??-??) : ;; *) fail "invalid steward date"; return 1 ;; esac
   expires=$(date_plus_thirty_days "$today") \
@@ -412,16 +431,18 @@ action_exempt() {
     trap 'rm -f -- "$tmp" "$jq_input"' RETURN
   fi
   if ! jq --arg id "$id" --arg reason "$reason" --arg today "$today" \
-      --arg expires "$expires" --arg detail "$detail" '
+      --arg expires "$expires" --arg detail "$detail" \
+      --arg state "$observed_state" --arg observed "$observed_detail" '
         .exemptions |= (map(select(.task_id != $id)) + [{
           task_id:$id,
           reason:$reason,
           set_by:("fm-fleet-steward.sh " + $today),
           reviewed_date:$today,
           expires_on:$expires,
-          state:"blocked",
-          detail:$detail,
-          hold_identity:{source:"backlog",kind:"external",reason:$reason}
+          state:$state,
+          detail:$observed,
+          refusal:$detail,
+          hold_identity:{source:"child-state",kind:null,reason:$observed}
         }])
       ' "$jq_input" > "$tmp"; then
     rm -f -- "$tmp" "${jq_input:-}"
@@ -432,7 +453,7 @@ action_exempt() {
   mv -f -- "$tmp" "$steward" || { rm -f -- "$tmp"; return 1; }
   [ "$jq_input" = "$steward" ] || rm -f -- "$jq_input"
   trap - RETURN
-  printf 'exempted: %s held-external after guarded teardown refusal\n' "$id"
+  printf 'exempted: %s bound to reconciled state %s after guarded teardown refusal\n' "$id" "$observed_state"
 }
 
 shim_content() {

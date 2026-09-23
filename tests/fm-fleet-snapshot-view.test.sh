@@ -1493,7 +1493,7 @@ MD
       and $r["plain-gone"] == {state:"stopped",class:"exited_undeclared",occupied:true,worker:"exited",declared_hold:false}
       and $r["held-gone"] == {state:"stopped",class:"parked_preserved",occupied:false,worker:"exited",declared_hold:true}
       and $r["held-ambiguous"] == {state:"paused",class:"uncertain",occupied:true,worker:"unknown",declared_hold:true}
-      and $r["held-unreadable"] == {state:"unknown",class:"uncertain",occupied:true,worker:"not_checked",declared_hold:true}
+      and $r["held-unreadable"] == {state:"unknown",class:"uncertain",occupied:true,worker:"unknown",declared_hold:true}
       and .capacity.occupied == 6
       and .capacity.classes == {productive:1,live_worker:1,parked_preserved:2,exited_undeclared:2,uncertain:2}
       and ([.tasks[] | select(.capacity.class == "parked_preserved") | .id] | sort) == ["held-exited","held-gone"]
@@ -1502,8 +1502,74 @@ MD
   pass "capacity frees declared exited holds and keeps live, undeclared, and uncertain records occupied"
 }
 
+# A completed scout whose copy is gone and whose worker exited is settled by an
+# exemption the steward bound to its exact reconciled state; ambiguous, live,
+# or unexempted unowned children still invalidate the home summary.
+test_home_summary_settles_exempted_exited_unowned_child() {
+  local home fb out detail case_name pane
+  for case_name in exited live ambiguous unexempted; do
+    home=$(make_home "settled-$case_name")
+    fb=$(fm_fakebin "$home/fakebin")
+    case "$case_name" in
+      exited|unexempted) pane=zsh ;;
+      live) pane=claude ;;
+      *) pane=node ;;
+    esac
+    printf '#!/usr/bin/env bash\nexit 0\n' > "$fb/no-mistakes"
+    cat > "$fb/tmux" <<SH
+#!/usr/bin/env bash
+case "\${1:-}" in
+  list-windows) printf 'fm-done-scout\n' ;;
+  display-message)
+    case "\$*" in
+      *pane_current_command*) printf '$pane\n' ;;
+      *) printf '%%1\n' ;;
+    esac
+    ;;
+esac
+exit 0
+SH
+    chmod +x "$fb/no-mistakes" "$fb/tmux"
+    cat > "$home/data/backlog.md" <<'MD'
+## In flight
+
+## Queued
+
+## Done
+- [x] done-scout - Completed scout data/done-scout/report.md (repo: alpha) (kind: scout) (done 2026-09-22)
+MD
+    fm_write_meta "$home/state/done-scout.meta" \
+      "window=firstmate:fm-done-scout" "worktree=$home/projects/gone-copy" \
+      "project=alpha" "harness=claude" "kind=scout" "mode=scout"
+    printf 'done: report ready\n' > "$home/state/done-scout.status"
+    if [ "$case_name" != unexempted ]; then
+      detail="$home/refusal.txt"
+      printf 'teardown refused: report copy retained\n' > "$detail"
+      PATH="$fb:$PATH" FM_HOME="$home" FM_FLEET_STEWARD_TODAY=2026-09-17 \
+        "$ROOT/bin/fm-fleet-steward.sh" exempt done-scout --state unknown --detail-file "$detail" >/dev/null \
+        || fail "steward exempt must bind the reconciled state ($case_name)"
+    fi
+    out=$(PATH="$fb:$PATH" FM_HOME="$home" FM_SNAPSHOT_NOW=2026-09-17T00:00:00Z "$SNAPSHOT" --secondmate-home-summary)
+    if [ "$case_name" = exited ]; then
+      printf '%s' "$out" | jq -e '
+        .valid == true
+          and .invalidity == {kind:null,ids:[]}
+          and (.endpoints | map(select(.id == "done-scout" and .state == "unknown")) | length) == 1
+          and (.steward_exemptions | map(select(.task_id == "done-scout" and .state == "unknown")) | length) == 1
+      ' >/dev/null || fail "an exempted exited scout with its copy gone must not invalidate the home: $out"
+    else
+      printf '%s' "$out" | jq -e '
+        .valid == false
+          and (.invalidity.ids | index("done-scout")) != null
+      ' >/dev/null || fail "a $case_name unowned child must still invalidate the home: $out"
+    fi
+  done
+  pass "an exempted exited unowned child is settled while live, ambiguous, and unexempted ones still invalidate"
+}
+
 test_empty_fleet_json
 test_capacity_frees_only_declared_exited_holds
+test_home_summary_settles_exempted_exited_unowned_child
 test_fixture_snapshot_json
 test_home_summary_excludes_secondmate_from_child_inventory
 test_home_summary_declares_active_steward_exemption_without_hiding_state_change

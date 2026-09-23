@@ -372,8 +372,15 @@ JSON
   detail="$home/refusal.txt"
   printf 'teardown refused: unlanded work remains\n' > "$detail"
 
+  if FM_HOME="$home" FM_FLEET_STEWARD_TODAY=2026-09-20 \
+    "$STEWARD" exempt refused-task --state 'done' --detail-file "$detail" >/dev/null 2>&1; then
+    fail "exempt must refuse a state that no longer matches the reconciled state"
+  fi
+  [ "$(jq '.exemptions | length' "$home/state/steward-exemptions.json")" = 1 ] \
+    || fail "a refused exempt must not write a row"
+
   FM_HOME="$home" FM_FLEET_STEWARD_TODAY=2026-09-20 \
-    "$STEWARD" exempt refused-task --state 'done' --detail-file "$detail" >/dev/null \
+    "$STEWARD" exempt refused-task --state 'unknown' --detail-file "$detail" >/dev/null \
     || fail "exempt command failed"
   json=$(cat "$home/state/steward-exemptions.json")
   printf '%s\n' "$json" | jq -e '
@@ -382,12 +389,14 @@ JSON
     and any(.exemptions[]; .task_id == "existing-task" and .detail == "still external")
     and any(.exemptions[];
       .task_id == "refused-task"
-      and .state == "blocked"
-      and .detail == "teardown refused: unlanded work remains"
+      and .state == "unknown"
+      and .detail == "no metadata for refused-task"
+      and .refusal == "teardown refused: unlanded work remains"
+      and (.reason | contains("teardown refused: unlanded work remains"))
       and .reviewed_date == "2026-09-20"
-      and .hold_identity.kind == "external")
-  ' >/dev/null || fail "exempt did not preserve the sibling and record the exact refusal: $json"
-  pass "exempt records a teardown refusal as held-external without losing siblings"
+      and .hold_identity == {source:"child-state",kind:null,reason:"no metadata for refused-task"})
+  ' >/dev/null || fail "exempt did not preserve the sibling and bind the reconciled state: $json"
+  pass "exempt binds a teardown refusal to the exact reconciled state without losing siblings"
 }
 
 test_refresh_filters_verified_nonwork_and_ranks_survivors

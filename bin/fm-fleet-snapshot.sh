@@ -44,12 +44,18 @@
 #     re-holding with --until.
 #   steward_exemptions[]: validated local state/steward-exemptions.json entries,
 #     each projected with an active boolean. An entry is active only while its
-#     review dates include today, its parked, paused, blocked, stopped, or unknown
-#     state and detail match, and one bound hold identity or decision key matches
-#     the exact durable steward row. Only that matching row is removed from
-#     steward flags; a state or detail change, expiry, identity change, distinct
-#     decision key, missing binding for the row's identity class, or malformed
-#     entry never suppresses it. The state-side file's schema is
+#     review dates include today, its parked, paused, blocked, stopped, unknown,
+#     done, or failed state and detail match, and one bound hold identity or
+#     decision key matches the exact durable steward row. Only that matching row
+#     is removed from steward flags; a state or detail change, expiry, identity
+#     change, distinct decision key, missing binding for the row's identity
+#     class, or malformed entry never suppresses it.
+#     A child with no In flight backlog row is settled, and leaves both the
+#     unowned-current and unavailable-child invalidities, only while an entry's
+#     dates, state, and detail match it exactly and its evidence is not live:
+#     done, failed, or stopped, or unknown with its copy gone and its worker
+#     probed as exited. Ambiguous, unreadable, or live unowned children still
+#     invalidate the summary. The state-side file's schema is
 #     fm-steward-exemptions.v1 and each entry names task_id, reason, set_by,
 #     reviewed_date, expires_on, state, detail, and optionally hold_identity and
 #     decision_keys.
@@ -82,7 +88,7 @@
 #     capacity: {class,occupied,worker,declared_hold} is this task's worker-slot
 #     accounting, the single owner of what counts as occupied capacity.
 #     worker is "alive", "exited", "unknown", or "not_checked": a parked,
-#     paused, blocked, or idle local ship or scout gets one recovery-grade agent
+#     paused, blocked, idle, or unknown local ship or scout gets one recovery-grade agent
 #     probe (fm_backend_agent_state), a stopped one is already exited, and every
 #     other row is not probed. declared_hold is true only when the task's
 #     structured In flight backlog row carries a hold kind and reason.
@@ -300,7 +306,8 @@ steward_exemptions_json() {  # <file> -> validated exemption entries or []
                     and (.hold_identity.reason | type) == "string"
                     and (.hold_identity.reason | length) > 0))
        | select(.state == "parked" or .state == "paused" or .state == "blocked"
-                or .state == "stopped" or .state == "unknown")]
+                or .state == "stopped" or .state == "unknown"
+                or .state == "done" or .state == "failed")]
     else [] end' 2>/dev/null || printf '[]\n'
 }
 
@@ -758,7 +765,7 @@ prefetch_task_observations() {  # <meta> <id>
     observed_state=$(jq -r '.state // "unknown"' "$current_file" 2>/dev/null || printf unknown)
     case "$observed_state" in
       stopped) capacity_worker=exited ;;
-      parked|paused|blocked|idle)
+      parked|paused|blocked|idle|unknown)
         case "$(fm_backend_agent_state "$backend" "$target" 2>/dev/null || true)" in
           alive) capacity_worker=alive ;;
           dead|missing) capacity_worker=exited ;;
@@ -1142,6 +1149,16 @@ secondmate_home_summary_json() {  # <backlog-json-file> <tasks-json-file>
                                       and $today <= $exemption.expires_on)}) as $candidate
          | $candidate + {active:any($durable_steward_rows[];
                                     steward_exemption_matches(.; $candidate))} ]) as $declared_exemptions
+    | ([ $tasks[]
+         | select(.kind != "secondmate")
+         | select(.id as $id | [$owned_in_flight[].id] | index($id) | not)
+         | select(.current_state.state == "done" or .current_state.state == "failed"
+                  or .current_state.state == "stopped"
+                  or (.current_state.state == "unknown"
+                      and .paths.worktree.present == false
+                      and .capacity.worker == "exited"))
+         | select(.id as $id | any($declared_exemptions[]; .task_id == $id and ._eligible))
+         | .id ]) as $settled_unowned_ids
     | ([ $backlog.records[]? | select(landed_record)
          | {id:(.id | trunc(120)),title:(.title | trunc(120)),
             kind:((.kind // null) | if . == null then null else trunc(40) end),
@@ -1157,6 +1174,7 @@ secondmate_home_summary_json() {  # <backlog-json-file> <tasks-json-file>
                   or .hints.blocked_event == true)
          | .id ]) as $held_stopped_ids
     | ([ $tasks[]
+         | select(.id as $id | $settled_unowned_ids | index($id) | not)
          | select(.current_state.state == "unknown"
                   or (.current_state.state == "stopped" and (.id as $id | $held_stopped_ids | index($id) | not)))
          | select(. as $task
@@ -1173,6 +1191,7 @@ secondmate_home_summary_json() {  # <backlog-json-file> <tasks-json-file>
     | ([ $tasks[]
          | select(.kind != "secondmate")
          | select(.id as $id | [$owned_in_flight[].id] | index($id) | not)
+         | select(.id as $id | $settled_unowned_ids | index($id) | not)
          | {id,state:(if .current_state.state == "stopped" then "unknown" else .current_state.state end)} ]) as $unowned_children
     | ([ $owned_in_flight[] as $work
          | $tasks[]
