@@ -793,6 +793,86 @@ jq -e '
   || fail "an unreachable remote task was not reported as unknown"
 pass "producer skips remote per-task state probes"
 
+# A long-lived remote secondmate is the heaviest real input: its whole mirrored
+# status stream is folded locally, and that stream holds thousands of keyed
+# transitions and terminal reports with long notes while dozens of decisions
+# stay open. A live home of this shape made every refresh outlast its 60-second
+# deadline, so the ledger went stale while spawn, teardown, and session start
+# each waited out the full deadline. The home must publish its complete open
+# set inside a quarter of the default deadline, without probing the stalled
+# remote transport.
+MIRROR_HOME="$TMP_ROOT/mirror-home"
+mkdir -p "$MIRROR_HOME/state" "$MIRROR_HOME/data" "$MIRROR_HOME/config" \
+  "$MIRROR_HOME/projects"
+printf '# Seeded Firstmate home\n' > "$MIRROR_HOME/AGENTS.md"
+printf 'mirror\n' > "$MIRROR_HOME/.fm-secondmate-home"
+cat > "$MIRROR_HOME/data/backlog.md" <<'EOF'
+## In flight
+
+## Queued
+
+## Done
+EOF
+cat > "$MIRROR_HOME/data/secondmates.md" <<'EOF'
+- msm - mirrored test domain (host: remote-mac; root: /remote/root; home: /remote/home; scope: mirrored testing; projects: alpha; added 2026-08-02)
+EOF
+fm_write_meta "$MIRROR_HOME/state/msm.meta" \
+  "window=remote:msm" \
+  "endpoint_task_id=msm" \
+  "worktree=/remote/home/never-locally-present" \
+  "harness=claude" \
+  "kind=secondmate" \
+  "mode=secondmate" \
+  "home=/remote/home" \
+  "remote_host=remote-mac" \
+  "remote_root=/remote/root" \
+  "remote_backend=herdr" \
+  "remote_herdr_session=fm-remote" \
+  "remote_target=fm-remote:w1:p1"
+python3 - "$MIRROR_HOME/state/msm.status" "$TMP_ROOT/mirror-open-keys" <<'PY'
+import sys
+note = ("the secondmate re-read its charter, reconciled the routed request, "
+        "and reported the outcome with its evidence and next step ") * 6
+still_open = set()
+with open(sys.argv[1], "w") as handle:
+    for i in range(1800):
+        handle.write(f"done: corr={i:016x} {note}({i})\n")
+        if i % 3 == 0:
+            key = f"gate-{i // 3}"
+            verb = "needs-decision" if i % 2 else "blocked"
+            handle.write(f"{verb} [key={key}]: {note}({i})\n")
+            still_open.add(key)
+            if (i // 3) % 13:
+                handle.write(f"resolved [key={key}]: answered at {i}\n")
+                still_open.discard(key)
+with open(sys.argv[2], "w") as handle:
+    handle.write("\n".join(sorted(still_open)) + "\n")
+PY
+started=$(date +%s)
+PATH="$FAKEBIN:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$MIRROR_HOME" \
+  FM_SSH_BIN="$TMP_ROOT/sshbin/stalled-ssh" FM_TEST_SSH_CALLED="$TMP_ROOT/mirror-ssh.called" \
+  FM_SNAPSHOT_NOW="$NOW_ONE" FM_SNAPSHOT_NOW_EPOCH="$EPOCH_ONE" \
+  FM_HOME_SUMMARY_TIMEOUT=15 "$WRITER" --best-effort \
+  || fail "mirrored-secondmate publication changed the best-effort caller result"
+elapsed=$(( $(date +%s) - started ))
+[ -f "$MIRROR_HOME/state/home-summary.json" ] \
+  || fail "a home with a long mirrored secondmate stream did not publish within a 15-second deadline ($elapsed s): $(cat "$MIRROR_HOME/state/.home-summary-refresh.log" 2>/dev/null)"
+[ ! -e "$TMP_ROOT/mirror-ssh.called" ] \
+  || fail "publication probed the stalled remote transport"
+jq -e --arg home "$MIRROR_HOME" --rawfile keys "$TMP_ROOT/mirror-open-keys" '
+  ($keys | split("\n") | map(select(length > 0)) | sort) as $want
+  | .schema == "fm-secondmate-home-summary.v1"
+  and .home == $home
+  and .counts.decisions_open == ($want | length)
+  and (.decisions_open | length) > 0
+  and all(.decisions_open[]; .id == "msm" and (.key as $k | $want | index($k) != null))
+  and ((.decisions_open | length)
+       + ([.omitted[] | select(.surface == "decisions_open") | .count] | add // 0)) == ($want | length)
+  and any(.endpoints[]; .id == "msm" and .state == "unknown")
+' "$MIRROR_HOME/state/home-summary.json" >/dev/null \
+  || fail "the mirrored-secondmate ledger does not carry exactly its still-open decisions: $(jq -c '{counts, omitted, keys: [.decisions_open[] | .key]}' "$MIRROR_HOME/state/home-summary.json")"
+pass "publication stays bounded on a long mirrored secondmate stream (${elapsed}s)"
+
 # The watcher's beacon is what the rest of supervision reads as proof it is
 # alive. Publication is side-band, so no matter how long it takes, the beacon
 # must keep advancing. Hold the publication lock for the whole observation
