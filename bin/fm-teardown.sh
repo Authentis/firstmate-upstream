@@ -19,6 +19,9 @@
 # record being removed, the intended transition is recorded in
 # state/<id>.backlog-close first, so a process killed between the halves leaves
 # the next session start enough to finish it; a landed close removes that record.
+# A run that stops while the task record still exists - a refused endpoint
+# close included - leaves both records for a rerun: session start never removes
+# a present record, because it alone names the endpoint that may survive.
 # A close that fails is fatal and loud, preserves its pending-close record, and
 # is retried by the next session start. The transition is skipped on a
 # config/backlog-backend=manual home and in a markdown home that keeps no
@@ -3084,10 +3087,10 @@ preflight_firstmate_home_herdr_children() {  # <home>
 # than override it, and would contradict the adjacent Herdr child gate that
 # stops forced cleanup for this same hazard.
 #
-# What is retained is this run's records, not a durable guarantee: a task
-# carrying a backlog transition already wrote its pending-close marker, and the
-# next session start replays that marker and removes the retained record. The
-# message says so rather than promising a retention teardown does not own.
+# The retention is durable: a task carrying a backlog transition already wrote
+# its pending-close marker, and the next session start keeps a record it finds
+# still present rather than replaying the close past it
+# (fm_backlog_close_marker_replay), so a rerun finishes this cleanup.
 endpoint_close_refusal() {  # <subject> <backend> <target> <honors-force>
   local subject=$1 backend=$2 target=$3 honors_force=$4
   echo "error: the $backend endpoint $target for $subject could not be closed, so it may still be live." >&2
@@ -3096,7 +3099,7 @@ endpoint_close_refusal() {  # <subject> <backend> <target> <honors-force>
     return 0
   fi
   echo "error: stopping this cleanup without removing the task's records, so the record naming $target is still here to reconcile from." >&2
-  echo "error: that retention is not durable across a session start: if this task carries a backlog transition, the next session replays its pending close and removes the retained record, so reconcile the surviving endpoint yourself rather than trusting the retention." >&2
+  echo "error: the retained record survives a session start, which keeps it and any pending close for this rerun instead of replaying the close past it." >&2
   if [ "$honors_force" = 1 ]; then
     echo "error: rerun teardown once the close can succeed, or rerun with --force to discard this task's records deliberately." >&2
   fi
@@ -3676,10 +3679,14 @@ if [ "$BACKLOG_CLOSED" = 1 ]; then
       "$DATA" "$ID" "$STATE" "${BACKLOG_DONE_ARGS[@]+"${BACKLOG_DONE_ARGS[@]}"}"; then
     fm_lock_release "$META_LOCK"
     META_LOCK_HELD=0
+    retry_by="the next session start retries it"
+    if [ -e "$STATE/$ID.meta" ] || [ -L "$STATE/$ID.meta" ]; then
+      retry_by="rerun bin/fm-teardown.sh $ID to finish it, because session start keeps a task record that is still present"
+    fi
     if [ "$BACKLOG_TRANSITION" = retain ]; then
-      echo "error: $ID's endpoint and local copy are cleaned up, but its captain-held backlog item could not be returned to Queued atomically ($FM_BACKLOG_TRANSITION_ERROR); the pending retention is recorded and the next session start retries it" >&2
+      echo "error: $ID's endpoint and local copy are cleaned up, but its captain-held backlog item could not be returned to Queued atomically ($FM_BACKLOG_TRANSITION_ERROR); the pending retention is recorded, so $retry_by" >&2
     else
-      echo "error: $ID's endpoint and local copy are cleaned up, but its backlog item could not be closed atomically ($FM_BACKLOG_TRANSITION_ERROR); the pending close is recorded and the next session start retries it" >&2
+      echo "error: $ID's endpoint and local copy are cleaned up, but its backlog item could not be closed atomically ($FM_BACKLOG_TRANSITION_ERROR); the pending close is recorded, so $retry_by" >&2
     fi
     exit 1
   fi

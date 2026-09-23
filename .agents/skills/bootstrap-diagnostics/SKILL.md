@@ -48,10 +48,12 @@ When any diagnostic needs captain attention, report the plain consequence and re
   Read the named record for the recorded reasons, then reproduce with a direct `bin/fm-home-summary-refresh.sh` (no `--best-effort`, which is what keeps the failure quiet) so the refresh error reaches you.
   A recorded deadline means the complete refresh did not finish inside `FM_HOME_SUMMARY_TIMEOUT`, so inspect lock acquisition and producer completion before validation or publication, and fix the blocked phase rather than raising this load-bearing bound.
 
-- `BOOTSTRAP_INFO: closed the backlog item for <id> after interrupted cleanup; its endpoint or local copy may remain and should be reconciled` - replay closed the item, but the durable transition says physical cleanup was interrupted.
+- `BOOTSTRAP_INFO: closed the backlog item for <id> after interrupted cleanup; its endpoint or local copy may remain and should be reconciled` - replay closed the item from a pending-close record whose task record an earlier release had already removed, so physical cleanup may be partial.
   Verify process reaping, the local-copy return, and endpoint closure, then reconcile any surviving resource.
-- `BOOTSTRAP_INFO: kept the captain call for <id> open with its deliverable recorded after interrupted cleanup; its endpoint or local copy may remain and should be reconciled` - replay retained the captain-held item, but physical cleanup was interrupted.
+- `BOOTSTRAP_INFO: kept the captain call for <id> open with its deliverable recorded after interrupted cleanup; its endpoint or local copy may remain and should be reconciled` - replay retained the captain-held item from such a record, so physical cleanup may be partial.
   Verify process reaping, the local-copy return, and endpoint closure without closing or lifting the captain's call, then reconcile any surviving resource.
+- `BACKLOG_RECONCILE: <id>: an interrupted cleanup left its task record, so the record and its pending close are kept; rerun bin/fm-teardown.sh <id> ...` - a cleanup stopped before removing its own record, possibly before closing the worker's endpoint, and that record is the only thing naming it.
+  Run ordinary `bin/fm-teardown.sh <id>` without `--force`; it closes the endpoint, re-proves landing, and lands the recorded close, and a refusal is handled as any teardown refusal.
 - `BACKLOG_RECONCILE: <id>: recorded backlog close could not be replayed: <reason>` - this session start found a pending-close record carrying a close or retention transition but could not land it.
   A valid teardown record proves the transition was authorized and recorded, but physical cleanup may be partial: verify process reaping, the local-copy return, and endpoint closure before assuming those resources are gone.
   A validation error means the record cannot be trusted, so do not assume cleanup completed or follow any path or argument stored in it.

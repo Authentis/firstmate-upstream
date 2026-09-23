@@ -1307,6 +1307,9 @@ backlog_record_reconcile() {
         answered)
           echo "BOOTSTRAP_INFO: finished the interrupted cleanup for $label; the captain had already answered its call"
           ;;
+        interrupted)
+          echo "BACKLOG_RECONCILE: $label: an interrupted cleanup left its task record, so the record and its pending close are kept; rerun bin/fm-teardown.sh $label to close its endpoint and finish the close"
+          ;;
       esac
     else
       echo "BACKLOG_RECONCILE: $label: recorded backlog close could not be replayed: $FM_BACKLOG_TRANSITION_ERROR"

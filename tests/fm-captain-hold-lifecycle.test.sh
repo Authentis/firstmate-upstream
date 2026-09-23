@@ -3075,6 +3075,17 @@ test_retained_row_artifacts_survive_captain_answers() {
 # an ordinary close stages first. A cleanup that fails part-way therefore leaves
 # the row exactly as it was, and the next session start finishes the retention
 # instead of closing the captain's question.
+# Session start keeps a record an interrupted cleanup never removed, so the
+# ordinary rerun of that same cleanup is what finishes it.
+rerun_interrupted_cleanup() {  # <home> <id> <data-dir> [expected-output]
+  local home=$1 id=$2 data=$3 out
+  out=$(PATH="$home/fakebin:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$home" \
+    FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$data" \
+    FM_CONFIG_OVERRIDE="$home/config" "$TEARDOWN" "$id" --force 2>&1) \
+    || fail "the rerun of the interrupted cleanup failed: $out"
+  [ -z "${4:-}" ] || assert_contains "$out" "$4" "the rerun did not report the expected outcome"
+}
+
 test_interrupted_cleanup_keeps_the_captain_call_recoverable() {
   local home id wt show rc bootstrap
   home=$(make_home teardown-held-interrupted)
@@ -3121,11 +3132,14 @@ SH
     FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
     FM_CONFIG_OVERRIDE="$home/config" FM_BOOTSTRAP_NETWORK=skip \
     "$ROOT/bin/fm-bootstrap.sh" 2>&1) \
-    || fail "session start could not replay the interrupted retention: $bootstrap"
-  assert_contains "$bootstrap" "kept the captain call for $id open" \
-    "session start did not report the retained captain call"
-  assert_absent "$home/state/$id.meta" "session start left the interrupted task record behind"
-  assert_absent "$home/state/$id.backlog-close" "session start left the pending record behind"
+    || fail "session start could not reconcile the interrupted retention: $bootstrap"
+  assert_present "$home/state/$id.meta" \
+    "session start removed the record its interrupted cleanup never finished with"
+  assert_contains "$bootstrap" "rerun bin/fm-teardown.sh $id" \
+    "session start did not name the rerun that finishes the retention"
+  rerun_interrupted_cleanup "$home" "$id" "$home/data" "stays open"
+  assert_absent "$home/state/$id.meta" "the rerun left the interrupted task record behind"
+  assert_absent "$home/state/$id.backlog-close" "the rerun left the pending record behind"
   show=$(tasks_in "$home" show "$id" --full) || fail "session start erased the captain call"
   assert_not_contains "$show" "state: done" "session start closed the captain call with no recorded answer"
   assert_contains "$show" "state: queued" "session start did not return the captain call to the queue"
@@ -3177,9 +3191,12 @@ SH
     FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
     FM_CONFIG_OVERRIDE="$home/config" FM_BOOTSTRAP_NETWORK=skip \
     "$ROOT/bin/fm-bootstrap.sh" 2>&1) \
-    || fail "session start could not replay cleanup after the answer: $bootstrap"
-  assert_absent "$home/state/$id.meta" "session start left the interrupted task record behind"
-  assert_absent "$home/state/$id.backlog-close" "session start left the pending record behind"
+    || fail "session start could not reconcile cleanup after the answer: $bootstrap"
+  assert_contains "$bootstrap" "rerun bin/fm-teardown.sh $id" \
+    "session start did not name the rerun that finishes the cleanup"
+  rerun_interrupted_cleanup "$home" "$id" "$home/data"
+  assert_absent "$home/state/$id.meta" "the rerun left the interrupted task record behind"
+  assert_absent "$home/state/$id.backlog-close" "the rerun left the pending record behind"
   json=$(run_bearings "$home") || fail "Bearings failed after the answer-before-replay lifecycle"
   printf '%s' "$json" | jq -e \
     --arg id "$id" --arg report "data/$id/report.md" \
@@ -3302,9 +3319,12 @@ SH
     FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$data" \
     FM_CONFIG_OVERRIDE="$home/config" FM_BOOTSTRAP_NETWORK=skip \
     "$ROOT/bin/fm-bootstrap.sh" 2>&1) \
-    || fail "session start could not replay relocated cleanup after the answer: $bootstrap"
-  assert_absent "$home/state/$id.meta" "session start left the relocated task record behind"
-  assert_absent "$home/state/$id.backlog-close" "session start left the relocated pending record behind"
+    || fail "session start could not reconcile relocated cleanup after the answer: $bootstrap"
+  assert_contains "$bootstrap" "rerun bin/fm-teardown.sh $id" \
+    "session start did not name the rerun that finishes the relocated cleanup"
+  rerun_interrupted_cleanup "$home" "$id" "$data"
+  assert_absent "$home/state/$id.meta" "the rerun left the relocated task record behind"
+  assert_absent "$home/state/$id.backlog-close" "the rerun left the relocated pending record behind"
   json=$(PATH="$home/fakebin:$PATH" FM_HOME="$home" FM_DATA_OVERRIDE="$data" \
     FM_BEARINGS_NOW=2026-07-14T12:00:00Z "$BEARINGS" --json) \
     || fail "Bearings failed after the relocated answer-before-replay lifecycle"

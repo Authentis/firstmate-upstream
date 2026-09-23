@@ -380,10 +380,12 @@ The Orca close refuses under `--force` too.
 The step immediately after it removes the Orca worktree through the same CLI whose absence is the only thing that arm ever reports, so a forced continue would die there having removed nothing while claiming the records were already gone.
 The two child close sites inside forced secondmate cleanup also keep refusing: that path is only ever reached under `--force`, so honoring force there would delete the refusal rather than override it, and would contradict the adjacent Herdr child gate that stops forced cleanup for the same hazard.
 
-The retained record is this run's, not a durable guarantee.
-A task carrying a backlog transition writes its pending-close marker before the endpoint close, and the marker survives the refusal; the next `bin/fm-bootstrap.sh` replays it and removes the retained record.
-The pre-existing Herdr confirmed-gone gate has the identical property.
-The refusal message says so rather than promising a retention teardown does not own, so an operator reconciles the surviving endpoint instead of trusting the record to still be there later.
+The retained record is durable across a session start.
+A task carrying a backlog transition writes its pending-close marker before the endpoint close, and the marker survives the refusal; the next `bin/fm-bootstrap.sh` finds the record still present, keeps both, and names the teardown rerun instead of replaying the close past the record.
+The Herdr confirmed-gone gate relies on the same retention.
+Before 2026-09-23 that replay removed the retained record, which left a surviving endpoint that no record named and no lifecycle owner could close.
+`tests/fm-teardown-endpoint-safety.test.sh` proves it with a real tmux window, and `tests/fm-teardown-herdr-restart-e2e.test.sh` with a real Herdr pane in an isolated lab.
+Verified 2026-09-23 on Herdr 0.9.0 with `bash tests/fm-teardown-herdr-restart-e2e.test.sh`: all three cases passed, and with the previous replay restored the session-start case failed with `BOOTSTRAP_INFO: closed the backlog item for herdr-restart-task after interrupted cleanup` while the lab pane stayed open.
 
 Both directions are proven non-vacuous.
 Restoring the swallowed status makes the refusal case report `teardown <id> complete`, delete the endpoint record, and leave the window live.
@@ -391,7 +393,7 @@ Keeping the refusal but dropping the exact re-read makes an already-exited endpo
 Letting an unreadable inventory pass for absence makes the unreadable case complete and remove the record while the window is still there.
 Removing the `--force` arm makes the forced generic case refuse; honoring `--force` at the child sites makes forced secondmate cleanup continue past a child endpoint it could not close, and honoring it at the Orca site makes that forced cleanup abort on the missing CLI after announcing that it was continuing.
 Restoring `fm_backend_orca_kill`'s swallowed tool check makes the CLI-absent adapter case report success.
-Dropping the retention-is-not-durable line makes the refusal claim a retention teardown does not own.
+Restoring the replay's record removal makes the refused-close case lose its record at session start while the window stays live.
 
 ## Claude workspace trust
 

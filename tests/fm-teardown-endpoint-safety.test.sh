@@ -1078,12 +1078,10 @@ test_failed_endpoint_close_refuses_before_removing_the_record() {
   # thing naming what survived, so it has to outlive the refusal.
   assert_present "$dir/home/state/$id.meta" \
     "teardown deleted the only durable record naming an endpoint it could not close"
-  # That retention is this run's, not a durable one - a task carrying a backlog
-  # transition has the next session's pending-close replay remove the retained
-  # record - so the refusal has to say so instead of sending the operator away
-  # trusting it.
-  assert_grep "not durable across a session start" "$dir/failed.err" \
-    "the refusal promised a retention teardown does not own"
+  # The retention lasts until the rerun: session start keeps a record that is
+  # still present (see the restart case below), and the refusal says so.
+  assert_grep "survives a session start" "$dir/failed.err" \
+    "the refusal did not say the retained record lasts until the rerun"
   isolated_tmux_window_exists "$dir" "$socket" "$session" "fm-$id" \
     || fail "the surviving endpoint disappeared, so this case no longer proves the hazard"
   isolated_tmux_window_exists "$dir" "$socket" "$session" control \
@@ -1104,6 +1102,72 @@ test_failed_endpoint_close_refuses_before_removing_the_record() {
 
   ( cd "$dir" && env -u TMUX -u TMUX_PANE "$REAL_TMUX" -S "$socket" kill-server 2>/dev/null ) || true
   pass "fm-teardown: a close that genuinely failed refuses and keeps the record naming the surviving endpoint, and the same teardown finishes once the close works"
+}
+
+# The stale-pane shape the fleet accumulated: a cleanup whose endpoint close
+# was refused kept its task record, and the next session start replayed the
+# recorded backlog close past that record, leaving a live idle task endpoint
+# that no record named and no lifecycle owner could close again. Session start
+# must keep the record while it still exists, so the ordinary rerun closes it.
+test_refused_close_survives_session_start_until_the_rerun_closes_it() {
+  local dir socket session='refused close restart' id=restart-task backlog rc out
+  [ -n "$REAL_TMUX" ] || { echo "skip - tmux not installed"; return 0; }
+  command -v tasks-axi >/dev/null 2>&1 || { echo "skip - tasks-axi not installed"; return 0; }
+  dir=$(make_case refused-close-restart)
+  socket=dedicated.sock
+  ( cd "$dir" && env -u TMUX -u TMUX_PANE "$REAL_TMUX" -S "$socket" new-session -d -s "$session" -n control )
+  ( cd "$dir" && env -u TMUX -u TMUX_PANE "$REAL_TMUX" -S "$socket" new-window -d -t "=$session:" -n "fm-$id" )
+  write_close_failing_tmux_shim "$dir" "$socket" "$REAL_TMUX"
+  backlog="$dir/home/data/backlog.md"
+  printf '%s\n' '# Backlog' '' '## In flight' '' '## Queued' '' '## Done' > "$backlog"
+  printf '%s\n' 'backend = "markdown"' '' '[markdown]' 'path = "data/backlog.md"' \
+    > "$dir/home/.tasks.toml"
+  tasks-axi add "$id" "item for $id" --kind ship --file "$backlog" >/dev/null
+  tasks-axi start "$id" --file "$backlog" >/dev/null
+  write_endpoint_close_meta "$dir" "$id" "$session:fm-$id"
+  printf 'spawn_gen=spawn-%s\n' "$id" >> "$dir/home/state/$id.meta"
+
+  set +e
+  env -u TMUX -u TMUX_PANE FM_TEST_BLOCK_KILL=1 \
+    FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$ROOT" FM_RUNTIME_LOG="$dir/runtime.log" \
+    PATH="$dir/fakebin:$PATH" "$TEARDOWN" "$id" \
+    > "$dir/failed.out" 2> "$dir/failed.err"
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "teardown reported success after a close that failed: $(cat "$dir/failed.err")"
+  assert_present "$dir/home/state/$id.backlog-close" \
+    "the case never reached the recorded close, so it cannot prove the restart hazard"
+
+  out=$(env -u TMUX -u TMUX_PANE FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$ROOT" \
+    FM_RUNTIME_LOG="$dir/runtime.log" FM_BOOTSTRAP_NETWORK=skip \
+    PATH="$dir/fakebin:$PATH" "$ROOT/bin/fm-bootstrap.sh" 2>&1) || true
+  isolated_tmux_window_exists "$dir" "$socket" "$session" "fm-$id" \
+    || fail "the task window disappeared at session start, so this case no longer proves the hazard"
+  assert_present "$dir/home/state/$id.meta" \
+    "session start removed the only record naming the task window that is still open: $out"
+  [ "$(tasks-axi show "$id" --file "$backlog" | sed -n 's/^  state: *//p' | head -1)" = in_flight ] \
+    || fail "session start closed the item while its window was still open: $out"
+  case "$out" in
+    *"rerun bin/fm-teardown.sh $id"*) ;;
+    *) fail "session start did not name the rerun that closes the surviving window: $out" ;;
+  esac
+
+  env -u TMUX -u TMUX_PANE \
+    FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$ROOT" FM_RUNTIME_LOG="$dir/runtime.log" \
+    PATH="$dir/fakebin:$PATH" "$TEARDOWN" "$id" \
+    > "$dir/rerun.out" 2> "$dir/rerun.err" \
+    || fail "the rerun after session start still failed: $(cat "$dir/rerun.err")"
+  isolated_tmux_window_exists "$dir" "$socket" "$session" "fm-$id" \
+    && fail "the rerun did not close the task window session start kept a record for"
+  isolated_tmux_window_exists "$dir" "$socket" "$session" control \
+    || fail "the rerun removed an independent window"
+  assert_absent "$dir/home/state/$id.meta" "the rerun left the task record behind"
+  assert_absent "$dir/home/state/$id.backlog-close" "the rerun left the recorded close behind"
+  [ "$(tasks-axi show "$id" --file "$backlog" | sed -n 's/^  state: *//p' | head -1)" = "done" ] \
+    || fail "the rerun did not land the recorded close"
+
+  ( cd "$dir" && env -u TMUX -u TMUX_PANE "$REAL_TMUX" -S "$socket" kill-server 2>/dev/null ) || true
+  pass "fm-teardown: a refused close keeps its record across session start, and the rerun closes the surviving window and lands the close"
 }
 
 test_forced_teardown_continues_past_a_close_it_could_not_make() {
@@ -1376,6 +1440,7 @@ test_tmux_empty_target_refuses_without_invocation
 test_recorded_process_identity_cleanup_is_exact
 test_isolated_tmux_invalid_and_valid_cleanup
 test_failed_endpoint_close_refuses_before_removing_the_record
+test_refused_close_survives_session_start_until_the_rerun_closes_it
 test_forced_teardown_continues_past_a_close_it_could_not_make
 test_unreadable_close_read_refuses_while_a_definitive_absence_completes
 test_forced_secondmate_child_close_failure_still_refuses
