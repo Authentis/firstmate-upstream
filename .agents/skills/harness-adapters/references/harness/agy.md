@@ -47,6 +47,7 @@ agy is deliberately absent from the session-lock name vocabulary in `../../../..
 `../../../../../bin/fm-spawn.sh` arms no busy generation for agy and writes no sidecar, exactly because no writer could ever clear a seeded record.
 `fm_busy_agy_tail_busy` matches the pinned `esc to cancel` status row alone, hardcoded with no environment override, and `fm_busy_classify` reports `unknown agy-regex` rather than idle when it is absent, because a long turn can scroll the marker out of the captured tail.
 Teardown removes nothing agy-specific because the spawn leaves nothing behind.
+After launch, agy's endpoint is governed by the post-launch custody boundary in bin/fm-spawn.sh: a successful endpoint close permits task rollback, while a failed close leaves the published task record as the endpoint's authoritative custody.
 
 ## Primary integration
 

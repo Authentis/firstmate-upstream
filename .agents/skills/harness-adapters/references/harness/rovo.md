@@ -38,6 +38,7 @@ rovo launches BARE (`rovo run --yolo`, plus any `--model`/`--config-override` fl
 
 A positional brief is dead-on-arrival: `rovo run --yolo "<brief>"` loads, never enters a working state, and drops back to an idle shell within about 10-15 seconds - confirmed independently four times over a raw PTY and once under real tmux 3.6a with the exact `fm-spawn.sh` send-keys shape. `--startup-receipt` cannot rescue that shape either: it requires "prompt-free interactive mode" (`Invalid value: --startup-receipt requires prompt-free interactive mode in a terminal`), so it cannot gate a launch that will have a message typed into it. The launch-then-send shape, by contrast, is confirmed live end to end (bare launch -> `Welcome to Rovo!` -> typed pointer -> `Rovo is thinking` for a real bash tool call -> clean `/exit`); see `../../../../docs/verification/rovo.md`.
 rovo leaves no worktree-resident artifact and no firstmate-owned sidecar at all, and has no readiness receipt or session-id to record.
+After launch, Rovo leaves an unconfirmed pointer-delivery endpoint available for inspection, so it follows the common post-launch custody boundary in bin/fm-spawn.sh: a successful endpoint close permits task rollback, while a failed close leaves the published task record as the endpoint's authoritative custody.
 
 ## Composer ghost text: a known, unfixed gap
 
