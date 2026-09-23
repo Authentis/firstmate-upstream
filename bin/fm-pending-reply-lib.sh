@@ -123,7 +123,7 @@ _FM_PENDING_REPLY_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd 2>/dev/n
 . "$_FM_PENDING_REPLY_LIB_DIR/fm-marker-lib.sh"
 # shellcheck source=bin/fm-backend.sh
 . "$_FM_PENDING_REPLY_LIB_DIR/fm-backend.sh"
-# shellcheck source=bin/fm-tmux-lib.sh
+# shellcheck source=/dev/null # Canonical lint root; following it here breaks the lint memory ceiling.
 . "$_FM_PENDING_REPLY_LIB_DIR/fm-tmux-lib.sh"
 # shellcheck source=bin/fm-classify-lib.sh
 . "$_FM_PENDING_REPLY_LIB_DIR/fm-classify-lib.sh"
@@ -654,7 +654,7 @@ fm_pending_reply_try_resolve() {  # <state-dir> <corr_id> [status-file-override]
   local STATE FM_WAKE_QUEUE FM_WAKE_QUEUE_LOCK
   STATE=$state
   lock="$state/.pending-reply-$corr.lock"
-  # shellcheck source=bin/fm-wake-lib.sh
+  # shellcheck source=/dev/null # Canonical lint root; following it here breaks the lint memory ceiling.
   . "$_FM_PENDING_REPLY_LIB_DIR/fm-wake-lib.sh"
   fm_lock_acquire_wait "$lock" || return 1
   _fm_pending_reply_try_resolve_locked "$@" || rc=$?
@@ -1149,7 +1149,7 @@ fm_pending_reply_close_escalation() {  # <state-dir> <corr_id>
   local STATE FM_WAKE_QUEUE FM_WAKE_QUEUE_LOCK
   STATE=$state
   lock="$state/.pending-reply-$corr.lock"
-  # shellcheck source=bin/fm-wake-lib.sh
+  # shellcheck source=/dev/null # Canonical lint root; following it here breaks the lint memory ceiling.
   . "$_FM_PENDING_REPLY_LIB_DIR/fm-wake-lib.sh"
   fm_lock_acquire_wait "$lock" || return 1
   _fm_pending_reply_close_escalation_locked "$@" || rc=$?
@@ -1216,7 +1216,7 @@ fm_pending_reply_maybe_escalate() {  # <state-dir> <corr_id>
   local STATE FM_WAKE_QUEUE FM_WAKE_QUEUE_LOCK
   STATE=$state
   lock="$state/.pending-reply-$corr.lock"
-  # shellcheck source=bin/fm-wake-lib.sh
+  # shellcheck source=/dev/null # Canonical lint root; following it here breaks the lint memory ceiling.
   . "$_FM_PENDING_REPLY_LIB_DIR/fm-wake-lib.sh"
   fm_lock_acquire_wait "$lock" || return 1
   _fm_pending_reply_maybe_escalate_locked "$@" || rc=$?
@@ -1371,7 +1371,7 @@ fm_pending_reply_restatement_copy_same_basename() {  # <state-dir> <corr_id> <se
   [ "$stranded" != "$parent_status" ] || return 1
   line=$(fm_pending_reply_find_resolve_line "$stranded" "$corr")
   [ -n "$line" ] || return 1
-  # shellcheck source=bin/fm-parent-channel-lib.sh
+  # shellcheck source=/dev/null # Followed once above; ShellCheck re-expands every directed site.
   . "$_FM_PENDING_REPLY_LIB_DIR/fm-parent-channel-lib.sh"
   fm_parent_channel_append_once "$parent_status" "$line"
 }
@@ -1503,7 +1503,7 @@ fm_pending_reply_archive() {  # <state-dir> <corr_id>
   local STATE FM_WAKE_QUEUE FM_WAKE_QUEUE_LOCK
   STATE=$state
   lock="$state/.pending-reply-$corr.lock"
-  # shellcheck source=bin/fm-wake-lib.sh
+  # shellcheck source=/dev/null # Canonical lint root; following it here breaks the lint memory ceiling.
   . "$_FM_PENDING_REPLY_LIB_DIR/fm-wake-lib.sh"
   fm_lock_acquire_wait "$lock" || return 1
   rec=$(fm_pending_reply_path "$state" "$corr")
@@ -1531,10 +1531,11 @@ fm_pending_reply_archive() {  # <state-dir> <corr_id>
 # and 1 when refused (recovery repost in flight) or on error.
 fm_pending_reply_retire() {  # <state-dir> <corr_id> <reason>
   local state=$1 corr=$2 reason=$3 lock rc=0
+  # shellcheck disable=SC2034 # Contains the globals the wake library assigns when sourced.
   local STATE FM_WAKE_QUEUE FM_WAKE_QUEUE_LOCK
   STATE=$state
   lock="$state/.pending-reply-$corr.lock"
-  # shellcheck source=bin/fm-wake-lib.sh
+  # shellcheck source=/dev/null # Canonical lint root; following it here breaks the lint memory ceiling.
   . "$_FM_PENDING_REPLY_LIB_DIR/fm-wake-lib.sh"
   fm_lock_acquire_wait "$lock" || return 1
   _fm_pending_reply_retire_locked "$@" || rc=$?

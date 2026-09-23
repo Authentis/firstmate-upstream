@@ -120,9 +120,9 @@ DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 . "$SCRIPT_DIR/fm-pr-lib.sh"
 # shellcheck source=bin/fm-backlog-transition-lib.sh
 . "$SCRIPT_DIR/fm-backlog-transition-lib.sh"
-# shellcheck source=bin/fm-merge-outcome-lib.sh
+# shellcheck source=/dev/null # Canonical lint root; following it here breaks the lint memory ceiling.
 . "$SCRIPT_DIR/fm-merge-outcome-lib.sh"
-# shellcheck source=bin/fm-merge-authority-lib.sh
+# shellcheck source=/dev/null # Canonical lint root; following it here breaks the lint memory ceiling.
 . "$SCRIPT_DIR/fm-merge-authority-lib.sh"
 # shellcheck source=bin/fm-afk-contract.sh
 . "$SCRIPT_DIR/fm-afk-contract.sh"
@@ -311,7 +311,7 @@ fm_backlog_directory_present "$STATE" "state directory" || {
 }
 META="$STATE/$ID.meta"
 
-# shellcheck source=bin/fm-wake-lib.sh
+# shellcheck source=/dev/null # Canonical lint root; following it here breaks the lint memory ceiling.
 . "$SCRIPT_DIR/fm-wake-lib.sh"
 # Role partition: merging is MAIN-owned while attended; the Pi supervision
 # branch reports the green PR and never merges (contract: bin/fm-lease-lib.sh;

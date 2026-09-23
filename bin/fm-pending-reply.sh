@@ -39,7 +39,7 @@ fi
 STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 [ -d "$STATE" ] || { echo "error: state dir '$STATE' is missing" >&2; exit 2; }
 
-# shellcheck source=bin/fm-pending-reply-lib.sh
+# shellcheck source=/dev/null # Canonical lint root; following it here breaks the lint memory ceiling.
 . "$SCRIPT_DIR/fm-pending-reply-lib.sh"
 
 # Live records of <task-id>, one path per line.

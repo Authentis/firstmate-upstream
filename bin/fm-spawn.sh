@@ -433,9 +433,12 @@ esac
 FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 
-# shellcheck source=bin/fm-tasks-axi-lib.sh
+# This script's own dataflow nearly fills fm-lint.sh's per-process memory
+# ceiling, so every library it sources is analyzed only as its own canonical
+# lint root.
+# shellcheck source=/dev/null
 . "$SCRIPT_DIR/fm-tasks-axi-lib.sh"
-# shellcheck source=bin/fm-backlog-transition-lib.sh
+# shellcheck source=/dev/null
 . "$SCRIPT_DIR/fm-backlog-transition-lib.sh"
 
 resolve_directory_input() {
@@ -469,7 +472,7 @@ STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 PROJECTS="${FM_PROJECTS_OVERRIDE:-$FM_HOME/projects}"
 CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
-# shellcheck source=bin/fm-config-inherit-lib.sh
+# shellcheck source=/dev/null
 . "$SCRIPT_DIR/fm-config-inherit-lib.sh"
 if ! LAUNCH_ENV_ENABLED=$(fm_config_source_present "$CONFIG/launch-env-allowlist"); then
   exit 1
@@ -540,37 +543,37 @@ if [ -e "$STATE" ] || [ -L "$STATE" ]; then
     exit 1
   }
 fi
-# shellcheck source=bin/fm-ff-lib.sh
+# shellcheck source=/dev/null
 . "$SCRIPT_DIR/fm-ff-lib.sh"
-# shellcheck source=bin/fm-wake-lib.sh
+# shellcheck source=/dev/null
 . "$SCRIPT_DIR/fm-wake-lib.sh"
-# shellcheck source=bin/fm-classify-lib.sh
+# shellcheck source=/dev/null
 . "$SCRIPT_DIR/fm-classify-lib.sh"
 fm_backlog_directory_present "$STATE" "state directory" || {
   echo "error: spawn refused: $FM_BACKLOG_TRANSITION_ERROR" >&2
   exit 1
 }
-# shellcheck source=bin/fm-secondmate-nudge-lib.sh
+# shellcheck source=/dev/null
 . "$SCRIPT_DIR/fm-secondmate-nudge-lib.sh"
-# shellcheck source=bin/fm-backend.sh
+# shellcheck source=/dev/null
 . "$SCRIPT_DIR/fm-backend.sh"
-# shellcheck source=bin/fm-control-lib.sh
+# shellcheck source=/dev/null
 . "$SCRIPT_DIR/fm-control-lib.sh"
-# shellcheck source=bin/fm-gate-refuse-lib.sh
+# shellcheck source=/dev/null
 . "$SCRIPT_DIR/fm-gate-refuse-lib.sh"
-# shellcheck source=bin/fm-busy-lib.sh
+# shellcheck source=/dev/null
 . "$SCRIPT_DIR/fm-busy-lib.sh"
-# shellcheck source=bin/fm-cursor-lib.sh
+# shellcheck source=/dev/null
 . "$SCRIPT_DIR/fm-cursor-lib.sh"
-# shellcheck source=bin/fm-pr-lib.sh
+# shellcheck source=/dev/null
 . "$SCRIPT_DIR/fm-pr-lib.sh"
-# shellcheck source=bin/fm-dod-lib.sh
+# shellcheck source=/dev/null
 . "$SCRIPT_DIR/fm-dod-lib.sh"
-# shellcheck source=bin/fm-trace-context-lib.sh
+# shellcheck source=/dev/null
 . "$SCRIPT_DIR/fm-trace-context-lib.sh"
-# shellcheck source=bin/fm-remote-readiness-lib.sh
+# shellcheck source=/dev/null
 . "$SCRIPT_DIR/fm-remote-readiness-lib.sh"
-# shellcheck source=bin/fm-timeout-lib.sh
+# shellcheck source=/dev/null
 . "$SCRIPT_DIR/fm-timeout-lib.sh"
 # Fail closed before any fleet mutation: a no-mistakes gate agent must never spawn
 # a direct report (see bin/fm-gate-refuse-lib.sh).
@@ -1511,7 +1514,7 @@ fi
 # one already queued at entry, or one the branch filed itself because the
 # captain's away words explicitly call for that work (its backlog note cites
 # the words); filing the item the captain asked for is not inventing work.
-# shellcheck source=bin/fm-lease-lib.sh
+# shellcheck source=/dev/null
 . "$SCRIPT_DIR/fm-lease-lib.sh"
 if [ "$RELAUNCH" -ne 1 ]; then
   fm_lease_forbid_branch "new-task spawn (fm-spawn)" --away-relocated

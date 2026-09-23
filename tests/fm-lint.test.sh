@@ -1394,13 +1394,14 @@ test_bounded_roots_run_one_process_each_within_the_jobs_cap() {
     roots+=("$tmp/src/$root.sh")
   done
   expected=$(printf '%s\n' "${roots[@]}" | LC_ALL=C sort)
-  for jobs in 1 2; do
+  # An empty FM_LINT_JOBS is the default, which must run ShellCheck serially.
+  for jobs in "" 1 2; do
     fm_lint_bounded_run "$tmp" "$jobs" "${roots[@]}"
     [ "$(cat "$tmp/rc")" -eq 0 ] || fail "jobs=$jobs bounded lint failed: $(cat "$tmp/out")"
     [ "$(LC_ALL=C sort "$tmp/roots.log")" = "$expected" ] \
       || fail "jobs=$jobs did not lint every root exactly once, one root per ShellCheck process"
     peak=$(LC_ALL=C sort -n "$tmp/active.log" | tail -1)
-    [ "$peak" -le "$jobs" ] || fail "jobs=$jobs ran $peak ShellCheck processes at once"
+    [ "$peak" -le "${jobs:-1}" ] || fail "jobs=${jobs:-default} ran $peak ShellCheck processes at once"
   done
   [ "$peak" -eq 2 ] || fail "jobs=2 never overlapped its two workers, so the cap was not exercised"
   pass "bounded lint checks every root in its own process with at most jobs concurrent ShellChecks"
@@ -1441,6 +1442,47 @@ test_bounded_roots_propagate_findings_and_resource_failures() {
     [ "$(cat "$tmp/rc")" -eq 2 ] || fail "deadline '$message' was accepted"
   done
   pass "bounded lint fails explicitly on findings, memory ceiling, deadline, and signal death"
+}
+
+test_real_shellcheck_bounds_and_cross_file_control() {
+  if ! pinned_ready; then
+    pass "SKIP (ShellCheck $REQUIRED not resolved): real bounded ShellCheck control"
+    return
+  fi
+  local tmp rel root dep out rc
+  tmp=$(mktemp -d "$ROOT/.fm-lint-bounds.XXXXXX")
+  if [ "${#FM_TEST_CLEANUP_DIRS[@]}" -eq 0 ]; then
+    trap fm_test_cleanup EXIT
+  fi
+  FM_TEST_CLEANUP_DIRS+=("$tmp")
+  rel=${tmp#"$ROOT/"}
+  root="$tmp/root.sh"
+  dep="$tmp/dep.sh"
+  cat > "$dep" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$read_by_dependency"
+SH
+  cat > "$root" <<SH
+#!/usr/bin/env bash
+read_by_dependency=1
+never_read=1
+# shellcheck source=$rel/dep.sh
+. "$dep"
+SH
+
+  rc=0
+  out=$("$LINT" "$root" 2>&1) || rc=$?
+  [ "$rc" -eq 1 ] || fail "the cross-file control exited $rc, expected one finding: $out"
+  assert_contains "$out" "never_read appears unused" "bounded lint lost an ordinary dataflow finding"
+  assert_not_contains "$out" "read_by_dependency appears unused" \
+    "bounded lint lost the sourced dependency's cross-file read"
+
+  rc=0
+  out=$(FM_LINT_MAX_RSS_MIB=16 "$LINT" "$ROOT/bin/fm-wake-lib.sh" 2>&1) || rc=$?
+  [ "$rc" -eq 125 ] || fail "a real ShellCheck past its memory ceiling exited $rc, expected 125: $out"
+  assert_contains "$out" "16 MiB memory ceiling while linting $ROOT/bin/fm-wake-lib.sh; lint failed." \
+    "the real runaway control did not name its root"
+  pass "real ShellCheck keeps cross-file findings and is terminated past its memory ceiling"
 }
 
 test_seeded_module_boundary_parity() {
@@ -1539,6 +1581,7 @@ test_jobs_are_deterministic_and_complete
 test_worker_trees_stop_on_signal
 test_bounded_roots_run_one_process_each_within_the_jobs_cap
 test_bounded_roots_propagate_findings_and_resource_failures
+test_real_shellcheck_bounds_and_cross_file_control
 test_seeded_module_boundary_parity
 test_changed_mode_lints_only_the_changed_file
 test_ci_forces_full_lint_even_with_empty_diff

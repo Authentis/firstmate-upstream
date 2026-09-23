@@ -89,7 +89,7 @@ Never at-least-once, no-loss, or lossless.
 
 ## What the runner does prove
 
-Exercised by `tests/fm-procevent.test.sh` against a fake blocking source whose completion is a process event, not a timer; for the supervision-delivery and headline rows below, by `tests/fm-watch-triage.test.sh` driving a real `bin/fm-watch.sh` over a real capture and over queued strand and launch-failure keys, with `tests/fm-watch-arm.test.sh` covering the arm-time refusal; and for adapter-owned application, by `tests/fm-remote-reply.test.sh` driving the real remote-reply relay end to end in an isolated home:
+Exercised by `tests/fm-procevent.test.sh`, `tests/fm-procevent-ownership.test.sh`, and `tests/fm-procevent-lifecycle.test.sh` against a fake blocking source whose completion is a process event, not a timer; for the supervision-delivery and headline rows below, by `tests/fm-watch-triage.test.sh` driving a real `bin/fm-watch.sh` over a real capture and over queued strand and launch-failure keys, with `tests/fm-watch-arm.test.sh` covering the arm-time refusal; and for adapter-owned application, by `tests/fm-remote-reply.test.sh` driving the real remote-reply relay end to end in an isolated home:
 
 | Guarantee | How it is proven |
 | --- | --- |
@@ -170,7 +170,7 @@ Run the focused external-binding evidence and the live Bearings session guard wi
 node --version
 bin/fm-test-run.sh tests/fm-extension-binding.test.sh
 FM_EXTENSION_BINDING_SEGMENT=lifecycle-invocation-cleanup bin/fm-test-run.sh tests/fm-extension-binding.test.sh
-bin/fm-test-run.sh tests/fm-procevent.test.sh
+bin/fm-test-run.sh tests/fm-procevent.test.sh tests/fm-procevent-ownership.test.sh tests/fm-procevent-lifecycle.test.sh
 FM_BEARINGS_LAVISH_LIVE=1 bin/fm-test-run.sh tests/fm-bearings-board-lavish-live-e2e.test.sh
 bin/fm-doc-audience-check.sh
 ```
@@ -209,12 +209,12 @@ The regression pins that phase rather than sampling it, because a sampled phase 
 A guard that acted on a single failed read instead reached the same reaping in 9.9 seconds, so the UNSAFE variant is the faster one.
 That is why the bound and the debounce are pinned by separate cases: a change trading one away for the other would otherwise register only as an improvement.
 
-[`tests/fm-procevent.test.sh`](../../tests/fm-procevent.test.sh) exercises these reproductions through the executable interface: a TERM-surviving child under both `retire` and the guard, escalation with an absent or zombie leader or probes configured to become unreadable after TERM, and refusal of mismatched live identities or nonleaders before the first signal.
+[`tests/fm-procevent-ownership.test.sh`](../../tests/fm-procevent-ownership.test.sh) and [`tests/fm-procevent-lifecycle.test.sh`](../../tests/fm-procevent-lifecycle.test.sh) exercise these reproductions through the executable interface: a TERM-surviving child under both `retire` and the guard, escalation with an absent or zombie leader or probes configured to become unreadable after TERM, and refusal of mismatched live identities or nonleaders before the first signal.
 The healthy-runner case requires the attached `start` to return status 143 (TERM); the printed retirement duration and sampled stop windows are supplementary evidence, not a timing-based pass condition.
 Two cases pin the guard's own numbers rather than only its outcome: one reaps an orphaned listener within the lease term plus a single check interval, with the lease expiry deliberately placed late in that interval, and one fails exactly one lease read against a home that is still alive and requires the runner to survive it.
 They fail for opposite reasons, which is the point of keeping them apart.
 The crashed-leader cases separately pin refusal and claim preservation when a leader dies outside the stop's own signal, so successful escalation cannot be mistaken for closing that limit.
-Refresh the regressions with `bash tests/fm-procevent.test.sh`; the dated measurements above are recorded observations, not fixed timing thresholds.
+Refresh the regressions with `bash tests/fm-procevent-ownership.test.sh` and `bash tests/fm-procevent-lifecycle.test.sh`; the dated measurements above are recorded observations, not fixed timing thresholds.
 
 ## Portability finding
 

@@ -3572,6 +3572,7 @@ test_list_live_scoped_to_this_homes_workspace_only() {
 # --- target parsing, key normalization ---------------------------------------
 
 test_parse_target() {
+  # shellcheck source=/dev/null
   ( . "$ROOT/bin/backends/herdr.sh"
     fm_backend_herdr_parse_target "default:w1:p2" || exit 1
     [ "$FM_BACKEND_HERDR_SESSION" = default ] || { echo "session mismatch: $FM_BACKEND_HERDR_SESSION" >&2; exit 1; }
@@ -3581,6 +3582,7 @@ test_parse_target() {
 }
 
 test_normalize_key() {
+  # shellcheck source=/dev/null
   ( . "$ROOT/bin/backends/herdr.sh"
     [ "$(fm_backend_herdr_normalize_key Enter)" = enter ] || exit 1
     [ "$(fm_backend_herdr_normalize_key Escape)" = escape ] || exit 1

@@ -41,18 +41,21 @@
 # invocations in the core bin/ and bin/backends/ scripts so every configured
 # backlog backend follows the same tasks-axi lifecycle path.
 #
-# Lint defaults to two bounded workers over two stable logical shards.
-# Diagnostics replay in stable shard/root order. FM_LINT_JOBS=1 changes
-# concurrency, not diagnostics or exit selection.
+# Lint splits its roots into two stable logical shards. By default one worker
+# runs them serially; FM_LINT_JOBS=2 (or --jobs 2, as CI passes on its dedicated
+# runners) runs one worker per shard. Diagnostics replay in stable shard/root
+# order, so jobs changes concurrency, not diagnostics or exit selection.
 # Each worker runs one ShellCheck process per root, in turn, so at most jobs
 # ShellCheck processes run at once. Each process is held to a resident-memory
 # ceiling (FM_LINT_MAX_RSS_MIB, default 2048) and a deadline
-# (FM_LINT_ROOT_TIMEOUT seconds, default 300). A breach kills that process,
+# (FM_LINT_ROOT_TIMEOUT seconds, default 120). A breach kills that process,
 # names the root, and fails the run with 125 (memory) or 124 (deadline), and
 # a ShellCheck killed by any signal fails with 128 plus the signal; the
-# remaining roots still run.
+# remaining roots still run. Fix a breaching root by stopping its source
+# following at another canonical root (`# shellcheck source=/dev/null`) or by
+# splitting the file, never by raising the ceiling.
 # --partition 1of2/2of2 splits the entire canonical inventory across
-# two CI runners, each with those same bounded workers. Partitions are complete,
+# two CI runners, each with the same bounded ShellCheck processes. Partitions are complete,
 # disjoint, and byte-weight balanced; --list-files exposes their actual roots.
 # Partition mode is always full source-aware analysis, never changed-only or
 # --fast, and does not accept explicit paths. Each partition also runs workflow
@@ -86,7 +89,7 @@ ROOT="$(cd "$SELF_DIR/.." && pwd -P)"
 cd "$ROOT" || exit 1
 
 DEFAULT_MAX_RSS_MIB=2048
-DEFAULT_ROOT_TIMEOUT=300
+DEFAULT_ROOT_TIMEOUT=120
 
 # Every ShellCheck process runs under this guard. It stays in the worker's
 # process group, so the parent's group cleanup still reaches ShellCheck, and it
@@ -461,7 +464,7 @@ fm_lint_run_backend_purity() {
   }
 }
 
-JOBS=${FM_LINT_JOBS:-2}
+JOBS=${FM_LINT_JOBS:-1}
 TELEMETRY=${FM_LINT_TELEMETRY:-}
 FAST=0
 ANALYSIS_MODE=full
@@ -750,7 +753,7 @@ done
 
 fm_lint_root_weights > "$WEIGHTS" || exit $?
 
-# Largest-first deterministic greedy assignment keeps the two bounded workers
+# Largest-first deterministic greedy assignment keeps the two shards
 # balanced without affecting replay order. Direct bytes are a stable portable
 # proxy after the expensive dynamic adapter source fan-out is cut.
 WORKER_LOADS=(0 0)

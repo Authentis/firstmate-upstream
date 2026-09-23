@@ -161,7 +161,7 @@ FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 # + verify-retry submit). Sourced at top level so BOTH the executed daemon and
 # the unit tests (which source this file for its pure functions) get the
 # corrected composer detection. Stale task rechecks use fm-backend.sh below.
-# shellcheck source=bin/fm-tmux-lib.sh
+# shellcheck source=/dev/null # Canonical lint root; following it here breaks the lint memory ceiling.
 . "$FM_DAEMON_DIR/fm-tmux-lib.sh"
 
 # shellcheck source=bin/fm-backend.sh
@@ -1540,7 +1540,7 @@ fm_super_main() {
 
   # Source the portable lock helpers (works on macOS where flock is absent).
   # Export FM_STATE_OVERRIDE so the lib resolves the same state dir.
-  # shellcheck source=bin/fm-wake-lib.sh
+  # shellcheck source=/dev/null # Canonical lint root; following it here breaks the lint memory ceiling.
   FM_STATE_OVERRIDE="$STATE" . "$FM_DAEMON_DIR/fm-wake-lib.sh"
 
   local WATCH="$FM_DAEMON_DIR/fm-watch.sh"
