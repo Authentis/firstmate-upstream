@@ -55,7 +55,14 @@
 #     dates, state, and detail match it exactly and its evidence is not live:
 #     done, failed, or stopped, or unknown with its copy gone and its worker
 #     probed as exited. Ambiguous, unreadable, or live unowned children still
-#     invalidate the summary. The state-side file's schema is
+#     invalidate the summary.
+#     A held unavailable child (HELD_UNAVAILABLE_JQ_DEFS: a declared In flight
+#     hold whose state is unknown with its copy gone and its worker probed as
+#     exited, plus an in-date entry bound to that exact child-state
+#     observation) leaves child_current_unavailable and marks its entry active,
+#     while its backlog hold row and open decisions stay visible, because the
+#     backlog hold's identity takes precedence over the child-state identity
+#     the steward writer binds. The state-side file's schema is
 #     fm-steward-exemptions.v1 and each entry names task_id, reason, set_by,
 #     reviewed_date, expires_on, state, detail, and optionally hold_identity and
 #     decision_keys.
@@ -98,8 +105,9 @@
 #     (occupied), "parked_preserved" when it exited and the hold is declared
 #     (not occupied, record and copy still preserved and visible),
 #     "exited_undeclared" when it exited without a declared hold (occupied until
-#     recovered or declared), and "uncertain" otherwise; every unknown or
-#     unreadable state is "uncertain" and stays occupied.
+#     recovered or declared), and "uncertain" otherwise; a held unavailable
+#     child (see steward_exemptions[]) is "parked_preserved", and every other
+#     unknown or unreadable state is "uncertain" and stays occupied.
 #   capacity: {occupied,classes,rows[]} - fleet worker-slot totals over
 #     tasks[].capacity: occupied is the count of occupied rows, classes maps
 #     each present class to its row count, and rows[] lists every task's id,
@@ -265,6 +273,30 @@ esac
 . "$SCRIPT_DIR/fm-landed-lib.sh"  # FM_LANDED_JQ_DEFS: the shared landed selector
 # shellcheck source=bin/fm-merge-authority-lib.sh
 . "$SCRIPT_DIR/fm-merge-authority-lib.sh"
+
+# The one owner of a held unavailable child: a task whose structured In flight
+# row declares a hold kind and reason, whose current state is unknown with its
+# copy gone and its worker probed as exited, and which carries an in-date
+# exemption bound to that exact child-state observation. The steward writer
+# binds child-state identity while the backlog hold takes identity precedence,
+# so this exact evidence, not an identity match, settles the accounting.
+# shellcheck disable=SC2016
+HELD_UNAVAILABLE_JQ_DEFS='
+def held_unavailable_exempt($task; $work; $exemptions; $today):
+  ($task.current_state // {}) as $current
+  | $task.kind != "secondmate"
+    and $work != null and $work.structured == true and $work.state == "in_flight"
+    and $work.hold_reason != null and $work.hold_kind != null
+    and $current.state == "unknown"
+    and ($current.detail | type) == "string"
+    and $task.paths.worktree.present == false
+    and $task.capacity.worker == "exited"
+    and any($exemptions[];
+            .task_id == $task.id
+            and .state == $current.state and .detail == $current.detail
+            and .reviewed_date <= $today and $today <= .expires_on
+            and .hold_identity == {source:"child-state",kind:null,reason:$current.detail});
+'
 
 steward_exemptions_json() {  # <file> -> validated exemption entries or []
   local file=$1 captured
@@ -1083,7 +1115,7 @@ secondmate_home_summary_json() {  # <backlog-json-file> <tasks-json-file>
     --argjson landed_n "$FM_SNAPSHOT_SECONDMATE_LANDED_PER_HOME" \
     --slurpfile backlog "$1" \
     --slurpfile tasks "$2" --slurpfile contributions "$CONTRIBUTIONS_JSON_FILE" \
-    --slurpfile steward_exemptions "$STEWARD_EXEMPTIONS_JSON_FILE" "$FM_LANDED_JQ_DEFS"'
+    --slurpfile steward_exemptions "$STEWARD_EXEMPTIONS_JSON_FILE" "$FM_LANDED_JQ_DEFS$HELD_UNAVAILABLE_JQ_DEFS"'
     ($backlog[0]) as $backlog
     | ($tasks[0]) as $tasks
     | ($steward_exemptions[0]) as $steward_exemptions
@@ -1147,8 +1179,12 @@ secondmate_home_summary_json() {  # <backlog-json-file> <tasks-json-file>
                                       and $current_state.detail == $exemption.detail
                                       and $exemption.reviewed_date <= $today
                                       and $today <= $exemption.expires_on)}) as $candidate
-         | $candidate + {active:any($durable_steward_rows[];
-                                    steward_exemption_matches(.; $candidate))} ]) as $declared_exemptions
+         | ([ $tasks[] | select(.id == $exemption.task_id) ] | first) as $task
+         | ([ $owned_in_flight[] | select(.id == $exemption.task_id) ] | first) as $work
+         | $candidate + {active:(any($durable_steward_rows[];
+                                     steward_exemption_matches(.; $candidate))
+                                 or ($task != null
+                                     and held_unavailable_exempt($task; $work; [$candidate]; $today)))} ]) as $declared_exemptions
     | ([ $tasks[]
          | select(.kind != "secondmate")
          | select(.id as $id | [$owned_in_flight[].id] | index($id) | not)
@@ -1184,6 +1220,11 @@ secondmate_home_summary_json() {  # <backlog-json-file> <tasks-json-file>
                           and $entry._identity_class == "hold"
                           and any($declared_exemptions[];
                                   steward_exemption_matches($entry; .)))
+                    | not)
+         | select(. as $task
+                  | held_unavailable_exempt($task;
+                                            ([ $owned_in_flight[] | select(.id == $task.id) ] | first);
+                                            $steward_exemptions; $today)
                     | not) ]) as $unknown_children
     | ([ $owned_in_flight[]
          | select(.requires_child_metadata)
@@ -2251,7 +2292,9 @@ jq -n \
   --slurpfile scout_reports "$SCOUT_REPORTS_JSON_FILE" \
   --slurpfile secondmate_current "$SECONDMATE_CURRENT_JSON_FILE" \
   --slurpfile secondmate_landed "$SECONDMATE_LANDED_JSON_FILE" \
-  '($backlog[0]) as $backlog
+  --slurpfile steward_exemptions "$STEWARD_EXEMPTIONS_JSON_FILE" \
+  --arg today "$SNAPSHOT_TODAY" \
+  "$HELD_UNAVAILABLE_JQ_DEFS"'($backlog[0]) as $backlog
    | ($tasks[0]) as $tasks
    | ($main_inventory[0]) as $main_inventory
    | ($scout_reports[0]) as $scout_reports
@@ -2274,6 +2317,8 @@ jq -n \
            elif $worker == "exited" and $declared then {class:"parked_preserved",occupied:false}
            elif $worker == "exited" then {class:"exited_undeclared",occupied:true}
            else {class:"uncertain",occupied:true} end)
+        elif held_unavailable_exempt($task; $work; $steward_exemptions[0]; $today) then
+          {class:"parked_preserved",occupied:false}
         else {class:"uncertain",occupied:true} end)
      + {worker:$worker,declared_hold:$declared};
    ($tasks | map(. + {backlog:backlog_by_id(.id)}) | map(.capacity = capacity_of(.; .backlog))) as $tasks

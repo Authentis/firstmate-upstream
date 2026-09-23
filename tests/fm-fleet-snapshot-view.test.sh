@@ -1567,9 +1567,192 @@ MD
   pass "an exempted exited unowned child is settled while live, ambiguous, and unexempted ones still invalidate"
 }
 
+# A held external wait whose child state is unavailable (the EODHD shape: a
+# declared In flight backlog hold, copy gone, worker exited, and an open
+# preservation blocker) is settled by the exemption the steward writer binds to
+# its exact child-state observation, even though the backlog hold owns the row
+# identity. The hold and blocker stay visible, the slot is freed, and frozen
+# stopped slices and a working child keep their existing classification.
+held_wait_home() {  # <name> -> home with the held-wait fakebin
+  local home fb
+  home=$(make_home "$1")
+  fb=$(fm_fakebin "$home")
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$fb/no-mistakes"
+  cat > "$fb/tmux" <<'SH'
+#!/usr/bin/env bash
+set -u
+target=""
+prev=""
+for arg in "$@"; do
+  if [ "$prev" = "-t" ]; then target=$arg; fi
+  prev=$arg
+done
+case "$target" in *frozen*) printf "can't find window: %s\n" "$target" >&2; exit 1 ;; esac
+case "${1:-}" in
+  list-windows)
+    sed -n 's/^window=[^:]*://p' "${FM_HOME:?}"/state/*.meta | grep -v frozen
+    ;;
+  display-message)
+    case "$*" in
+      *pane_current_command*)
+        if [ -f "${FM_HOME:?}/live-worker" ]; then printf 'claude\n'; else printf 'zsh\n'; fi
+        ;;
+      *) printf '%%1\n' ;;
+    esac
+    ;;
+  capture-pane) printf 'all quiet\n> \n' ;;
+esac
+exit 0
+SH
+  chmod +x "$fb/no-mistakes" "$fb/tmux"
+  cat > "$home/data/backlog.md" <<'MD'
+## In flight
+- [ ] ext-wait - Dated ingest ship (custody preserved; retirement pending) (repo: alpha) (kind: ship) (since 2026-09-19) (hold: preserved custody, teardown refuses on missing worktree identity) (hold-kind: external)
+- [ ] frozen-s0 - Frozen slice S0 (repo: alpha) (kind: ship) (since 2026-09-23)
+- [ ] frozen-s3 - Frozen slice S3 (repo: alpha) (kind: ship) (since 2026-09-23)
+- [ ] frozen-s4 - Frozen slice S4 (repo: alpha) (kind: ship) (since 2026-09-23)
+- [ ] work-live - Working lane (repo: alpha) (kind: ship) (since 2026-09-23)
+
+## Queued
+
+## Done
+MD
+  fm_write_meta "$home/state/ext-wait.meta" \
+    "window=firstmate:fm-ext-wait" "worktree=$home/projects/ext-wait-gone" \
+    "project=alpha" "harness=claude" "kind=ship" "mode=no-mistakes"
+  printf 'blocked [key=tip-preservation]: deleted tip preservation proof is unresolved\n' > "$home/state/ext-wait.status"
+  local id
+  for id in frozen-s0 frozen-s3 frozen-s4 work-live; do
+    mkdir -p "$home/projects/$id"
+    fm_write_meta "$home/state/$id.meta" \
+      "window=firstmate:fm-$id" "worktree=$home/projects/$id" \
+      "project=alpha" "harness=claude" "kind=ship" "mode=no-mistakes"
+    printf 'paused: parked on the parent freeze\n' > "$home/state/$id.status"
+    record_claude_idle "$home/state" "$id"
+  done
+  "$ROOT/bin/fm-busy-event.sh" apply "$home/state" work-live busy \
+    --gen "$("$ROOT/bin/fm-busy-event.sh" arm "$home/state" work-live)" \
+    --source claude-hook --event user-prompt-submit
+  printf '%s\n' "$home"
+}
+
+held_wait_exempt() {  # <home> <id> <state>
+  local home=$1 detail="$1/refusal-$2.txt"
+  printf 'guarded teardown refused; preserving task state\n' > "$detail"
+  PATH="$home/fakebin:$PATH" FM_HOME="$home" FM_FLEET_STEWARD_TODAY=2026-09-23 \
+    "$ROOT/bin/fm-fleet-steward.sh" exempt "$2" --state "$3" --detail-file "$detail" >/dev/null \
+    || fail "steward exempt must bind $2 to its reconciled $3 state"
+}
+
+test_home_summary_settles_held_unavailable_external_wait() {
+  local home out snap
+  home=$(held_wait_home held-wait)
+  held_wait_exempt "$home" ext-wait unknown
+  held_wait_exempt "$home" frozen-s0 stopped
+  held_wait_exempt "$home" frozen-s3 stopped
+  held_wait_exempt "$home" frozen-s4 stopped
+  out=$(PATH="$home/fakebin:$PATH" FM_HOME="$home" FM_SNAPSHOT_NOW=2026-09-23T00:00:00Z "$SNAPSHOT" --secondmate-home-summary) \
+    || fail "held-wait home summary must succeed"
+  printf '%s' "$out" | jq -e '
+    .valid == true
+      and .invalidity == {kind:null,ids:[]}
+      and ([.steward_exemptions[] | {key:.task_id,value:{state,active}}] | from_entries)
+          == {"ext-wait":{state:"unknown",active:true},
+              "frozen-s0":{state:"stopped",active:true},
+              "frozen-s3":{state:"stopped",active:true},
+              "frozen-s4":{state:"stopped",active:true}}
+      and ([.steward_exemptions[] | select(.task_id == "ext-wait") | .hold_identity.source] == ["child-state"])
+      and ([.holds[] | select(.id == "ext-wait" and .source == "backlog")] | length) == 1
+      and ([.decisions_open[] | select(.id == "ext-wait" and .key == "tip-preservation")] | length) == 1
+      and ([.active_children[].id] == ["work-live"])
+  ' >/dev/null || fail "an exempted held external wait must stay visible without invalidating the home: $out"
+  snap=$(PATH="$home/fakebin:$PATH" FM_HOME="$home" FM_SNAPSHOT_NOW=2026-09-23T00:00:00Z "$SNAPSHOT" --json) \
+    || fail "held-wait snapshot must succeed"
+  printf '%s' "$snap" | jq -e '
+    ([.capacity.rows[] | {key:.id,value:{state,class,occupied}}] | from_entries) as $r
+    | $r["ext-wait"] == {state:"unknown",class:"parked_preserved",occupied:false}
+      and $r["frozen-s0"].state == "stopped" and $r["frozen-s0"].class == "exited_undeclared"
+      and $r["frozen-s3"] == $r["frozen-s0"] and $r["frozen-s4"] == $r["frozen-s0"]
+      and $r["work-live"] == {state:"working",class:"productive",occupied:true}
+      and .capacity.occupied == 4
+  ' >/dev/null || fail "a held external wait must be preserved without occupying a slot: $(printf '%s' "$snap" | jq -c '.capacity')"
+  pass "an exempted held external wait stays visible and settles accounting beside frozen slices and a working child"
+}
+
+# False exemption attempts: a live worker, a copy still present, an identity
+# that is not the exact child-state observation, an expired entry, or no
+# declared backlog hold must keep the unavailable child invalidating the home
+# and occupying a slot.
+test_home_summary_refuses_false_held_wait_exemptions() {
+  local home out snap case_name
+  for case_name in live copy identity expired undeclared; do
+    home=$(held_wait_home "false-$case_name")
+    rm -f "$home/state/frozen-"*.meta
+    sed -i.bak '/frozen-/d' "$home/data/backlog.md"
+    case "$case_name" in
+      live) : > "$home/live-worker" ;;
+      copy) mkdir -p "$home/projects/ext-wait-gone" ;;
+      undeclared)
+        sed -i.bak 's/ (hold: preserved custody, teardown refuses on missing worktree identity) (hold-kind: external)//' "$home/data/backlog.md"
+        ;;
+    esac
+    rm -f "$home/data/backlog.md.bak"
+    cat > "$home/state/steward-exemptions.json" <<'JSON'
+{"schema":"fm-steward-exemptions.v1","exemptions":[{"task_id":"ext-wait","reason":"guarded teardown refused","set_by":"test","reviewed_date":"2026-09-23","expires_on":"2026-10-23","state":"unknown","detail":"worktree gone (torn down?)","hold_identity":{"source":"child-state","kind":null,"reason":"worktree gone (torn down?)"}}]}
+JSON
+    case "$case_name" in
+      identity)
+        jq '.exemptions[0].hold_identity = {source:"backlog",kind:"external",reason:"a different hold"}' \
+          "$home/state/steward-exemptions.json" > "$home/state/ex.tmp" && mv "$home/state/ex.tmp" "$home/state/steward-exemptions.json"
+        ;;
+      expired)
+        jq '.exemptions[0] += {reviewed_date:"2026-08-01",expires_on:"2026-08-31"}' \
+          "$home/state/steward-exemptions.json" > "$home/state/ex.tmp" && mv "$home/state/ex.tmp" "$home/state/steward-exemptions.json"
+        ;;
+      copy)
+        # Bind the exact observation so only the present copy differs.
+        snap=$(PATH="$home/fakebin:$PATH" FM_HOME="$home" FM_SNAPSHOT_NOW=2026-09-23T00:00:00Z "$SNAPSHOT" --json) \
+          || fail "false-copy observation snapshot must succeed"
+        jq --arg detail "$(printf '%s' "$snap" | jq -r '.tasks[] | select(.id == "ext-wait") | .current_state.detail')" \
+          '.exemptions[0] += {detail:$detail,hold_identity:{source:"child-state",kind:null,reason:$detail}}' \
+          "$home/state/steward-exemptions.json" > "$home/state/ex.tmp" && mv "$home/state/ex.tmp" "$home/state/steward-exemptions.json"
+        ;;
+    esac
+    out=$(PATH="$home/fakebin:$PATH" FM_HOME="$home" FM_SNAPSHOT_NOW=2026-09-23T00:00:00Z "$SNAPSHOT" --secondmate-home-summary) \
+      || fail "false-$case_name home summary must succeed"
+    snap=$(PATH="$home/fakebin:$PATH" FM_HOME="$home" FM_SNAPSHOT_NOW=2026-09-23T00:00:00Z "$SNAPSHOT" --json) \
+      || fail "false-$case_name snapshot must succeed"
+    if [ "$case_name" = undeclared ]; then
+      # Without a backlog hold the child-state row is the durable identity, so
+      # the existing exact-identity path settles it; only the slot stays taken.
+      printf '%s' "$snap" | jq -e '
+        [.capacity.rows[] | select(.id == "ext-wait") | .occupied] == [true]
+      ' >/dev/null || fail "an undeclared unavailable child must keep its slot: $(printf '%s' "$snap" | jq -c '.capacity')"
+      continue
+    fi
+    printf '%s' "$out" | jq -e '
+      .valid == false
+        and (.invalidity.ids | index("ext-wait")) != null
+        and ([.steward_exemptions[] | select(.task_id == "ext-wait") | .active] == [false])
+    ' >/dev/null || fail "a $case_name held-wait exemption must not settle the home: $out"
+    printf '%s' "$snap" | jq -e '
+      [.capacity.rows[] | select(.id == "ext-wait") | .occupied] == [true]
+    ' >/dev/null || fail "a $case_name held-wait exemption must not free the slot: $(printf '%s' "$snap" | jq -c '.capacity')"
+    printf '%s' "$snap" | jq -e --arg case_name "$case_name" '
+      [.tasks[] | select(.id == "ext-wait") | .current_state.state] == ["unknown"]
+        and ($case_name != "copy" or [.tasks[] | select(.id == "ext-wait") | .paths.worktree.present] == [true])
+        and ($case_name == "copy"
+             or [.tasks[] | select(.id == "ext-wait") | .current_state.detail] == ["worktree gone (torn down?)"])
+    ' >/dev/null || fail "the $case_name case must keep the unavailable child shape: $(printf '%s' "$snap" | jq -c '.tasks')"
+  done
+  pass "live, present-copy, mismatched-identity, expired, and undeclared held-wait exemptions do not settle accounting"
+}
+
 test_empty_fleet_json
 test_capacity_frees_only_declared_exited_holds
 test_home_summary_settles_exempted_exited_unowned_child
+test_home_summary_settles_held_unavailable_external_wait
+test_home_summary_refuses_false_held_wait_exemptions
 test_fixture_snapshot_json
 test_home_summary_excludes_secondmate_from_child_inventory
 test_home_summary_declares_active_steward_exemption_without_hiding_state_change
