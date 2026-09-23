@@ -66,6 +66,7 @@ herdr_forget_inherited_pane
 # canonicalized project and backend cwd comparisons in the worktree-discovery
 # poll.
 TMP_ROOT=$(mktemp -d "$(cd "${TMPDIR:-/tmp}" && pwd -P)/fm-herdr-e2e.XXXXXX")
+herdr_private_treehouse_root "$TMP_ROOT"
 SESSION="fm-lab-herdr-e2e-$$"
 export HERDR_SESSION="$SESSION"
 WT1=; WT2=
@@ -140,6 +141,8 @@ CM1_META="$PRIMARY_HOME/state/cm1.meta"
 [ -f "$CM1_META" ] || fail "no meta written for cm1"
 assert_contains_local "$(cat "$CM1_META")" "backend=herdr" "cm1 meta missing backend=herdr"
 WT1=$(grep '^worktree=' "$CM1_META" | cut -d= -f2-)
+herdr_worktree_in_private_treehouse_root "$WT1" \
+  || fail "cm1 acquired its worktree outside the private Treehouse root: $WT1"
 CM1_PANE=$(grep '^herdr_pane_id=' "$CM1_META" | cut -d= -f2-)
 [ -n "$CM1_PANE" ] || fail "cm1 meta missing herdr_pane_id"
 pass "real herdr E2E: a primary-shaped home spawns a crewmate on the herdr backend"
@@ -195,6 +198,8 @@ CM2_META="$SM_HOME/state/cm2.meta"
 [ -f "$CM2_META" ] || fail "no meta written for cm2 (recorded in the SECONDMATE's own state dir - it did its own spawning)"
 assert_contains_local "$(cat "$CM2_META")" "backend=herdr" "cm2 meta missing backend=herdr"
 WT2=$(grep '^worktree=' "$CM2_META" | cut -d= -f2-)
+herdr_worktree_in_private_treehouse_root "$WT2" \
+  || fail "cm2 acquired its worktree outside the private Treehouse root: $WT2"
 CM2_PANE=$(grep '^herdr_pane_id=' "$CM2_META" | cut -d= -f2-)
 [ -n "$CM2_PANE" ] || fail "cm2 meta missing herdr_pane_id"
 pass "real herdr E2E: a crewmate spawns successfully FROM a secondmate-shaped home's own fm-spawn.sh process"

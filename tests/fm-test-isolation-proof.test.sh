@@ -33,10 +33,14 @@ test_family_pool_json_identifies_admission() {
   admitted_json="$tmp/admitted-proof.json"
   capped_json="$tmp/capped-proof.json"
   skipped_json="$tmp/skipped-proof.json"
-  mkdir -p "$repo/bin" "$repo/tests"
+  mkdir -p "$repo/bin" "$repo/tests" "$tmp/user/.treehouse"
   cp "$PROOF" "$proof"
+  export PROOF_REAL_RUNNER="$RUNNER"
   cat >"$repo/bin/fm-test-run.sh" <<'SH'
 #!/usr/bin/env bash
+case "$1" in
+  --treehouse-stand-in-check) exec "$PROOF_REAL_RUNNER" "$@" ;;
+esac
 if { [ "$1" = --list ] || [ "$1" = --list-scheduled ]; } && [ "$2" = --family ]; then
   case "$3" in
     fixture-family)
@@ -49,6 +53,10 @@ if { [ "$1" = --list ] || [ "$1" = --list-scheduled ]; } && [ "$2" = --family ];
       ;;
     skipped-family)
       printf '%s\n' tests/fm-proof-skipped.test.sh
+      exit 0
+      ;;
+    leaky-family)
+      printf '%s\n' tests/fm-proof-fixture-a.test.sh tests/fm-proof-treehouse-leak.test.sh
       exit 0
       ;;
   esac
@@ -97,6 +105,11 @@ fi
 touch "$PROOF_SCHED_EVIDENCE/replacement-started"
 echo "ok - replacement proof fixture"
 SH
+  cat >"$repo/tests/fm-proof-treehouse-leak.test.sh" <<'SH'
+#!/usr/bin/env bash
+mkdir -p "${TREEHOUSE_ROOT:-$HOME}/.treehouse/fixture-repo-abc123/1"
+echo "ok - leaking proof fixture passes on its own"
+SH
   cat >"$repo/tests/fm-proof-skipped.test.sh" <<'SH'
 #!/usr/bin/env bash
 echo
@@ -104,7 +117,7 @@ echo "skip: herdr not found"
 SH
   chmod +x "$proof" "$repo/bin/fm-test-run.sh" "$repo/tests/fm-proof-"*.test.sh
   set +e
-  "$proof" --pool fixture-family --jobs 1 --json "$json" >"$tmp/out" 2>"$tmp/err"
+  TREEHOUSE_ROOT="$tmp/user" "$proof" --pool fixture-family --jobs 1 --json "$json" >"$tmp/out" 2>"$tmp/err"
   rc=$?
   set -e
   [ "$rc" -eq 0 ] || fail "family pool proof fixture failed: $(cat "$tmp/out") $(cat "$tmp/err")"
@@ -119,7 +132,7 @@ assert artifact["summary"]["total"] == 2
 assert artifact["summary"]["failed"] == 0
 ' "$json" || fail "serial family pool artifact metadata is incorrect"
   set +e
-  PROOF_SCHED_EVIDENCE="$tmp" "$proof" --pool admitted-family --jobs 2 --json "$admitted_json" >"$tmp/admitted.out" 2>"$tmp/admitted.err"
+  TREEHOUSE_ROOT="$tmp/user" PROOF_SCHED_EVIDENCE="$tmp" "$proof" --pool admitted-family --jobs 2 --json "$admitted_json" >"$tmp/admitted.out" 2>"$tmp/admitted.err"
   rc=$?
   set -e
   [ "$rc" -eq 0 ] || fail "admitted family proof fixture failed: $(cat "$tmp/admitted.out") $(cat "$tmp/admitted.err")"
@@ -134,7 +147,7 @@ assert artifact["summary"]["failed"] == 0
 ' "$admitted_json" || fail "admitted family pool artifact metadata is incorrect"
   mkdir "$tmp/capped-evidence"
   set +e
-  PROOF_SCHED_EVIDENCE="$tmp/capped-evidence" "$proof" --pool admitted-family --jobs 3 --json "$capped_json" >"$tmp/capped.out" 2>"$tmp/capped.err"
+  TREEHOUSE_ROOT="$tmp/user" PROOF_SCHED_EVIDENCE="$tmp/capped-evidence" "$proof" --pool admitted-family --jobs 3 --json "$capped_json" >"$tmp/capped.out" 2>"$tmp/capped.err"
   rc=$?
   set -e
   [ "$rc" -eq 0 ] || fail "over-cap family proof fixture failed: $(cat "$tmp/capped.out") $(cat "$tmp/capped.err")"
@@ -147,7 +160,7 @@ assert artifact["fm_test_run_jobs_enabled"] is False
 assert artifact["summary"]["failed"] == 0
 ' "$capped_json" || fail "over-cap family pool artifact metadata is incorrect"
   set +e
-  "$proof" --pool skipped-family --jobs 2 --json "$skipped_json" >"$tmp/skipped.out" 2>"$tmp/skipped.err"
+  TREEHOUSE_ROOT="$tmp/user" "$proof" --pool skipped-family --jobs 2 --json "$skipped_json" >"$tmp/skipped.out" 2>"$tmp/skipped.err"
   rc=$?
   set -e
   [ "$rc" -eq 1 ] || fail "gate-skipped family proof must fail, got $rc"
@@ -164,6 +177,21 @@ assert artifact["summary"]["total"] == 1
 assert artifact["summary"]["failed"] == 1
 assert artifact["scripts"][0]["exit"] == 1
 ' "$skipped_json" || fail "gate-skipped family artifact was admitted"
+  # A candidate that passes on its own but creates a pool under its inherited
+  # Treehouse root fails the proof, is named, and never reaches the real root.
+  set +e
+  TREEHOUSE_ROOT="$tmp/user" "$proof" --pool leaky-family --jobs 2 >"$tmp/leaky.out" 2>"$tmp/leaky.err"
+  rc=$?
+  set -e
+  [ "$rc" -eq 1 ] || fail "a proof whose candidate created a Treehouse pool in its inherited root must fail, got $rc"
+  grep -Fq 'tests/fm-proof-treehouse-leak.test.sh created Treehouse pools under its inherited root' "$tmp/leaky.err" \
+    || fail "the leaking candidate was not named: $(cat "$tmp/leaky.err")"
+  grep -Fq '/.treehouse/fixture-repo-abc123' "$tmp/leaky.err" \
+    || fail "the leaked pool was not named: $(cat "$tmp/leaky.err")"
+  grep -Eq 'FM_ISOLATION_CANDIDATE_END .* tests/fm-proof-treehouse-leak\.test\.sh exit=1 ' "$tmp/leaky.out" \
+    || fail "the leaking candidate was not recorded as failed: $(cat "$tmp/leaky.out")"
+  [ ! -e "$tmp/user/.treehouse/fixture-repo-abc123" ] \
+    || fail "the leaking candidate reached the user's real Treehouse root"
   rm -rf "$tmp"
   pass "family pool JSON scopes jobs admission to proven concurrency"
 }

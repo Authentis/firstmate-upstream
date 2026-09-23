@@ -1466,6 +1466,84 @@ SH
 # green but whose wall clock outgrew its caller's invocation budget. The caller
 # gets killed mid-run and retries invisibly, so an over-budget run has to be a
 # failure, not a note in the log.
+test_treehouse_pools_in_the_inherited_root_fail_the_script() {
+  local tmp repo runner leak clean rc stand_in
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/fm-test-run-treehouse.XXXXXX")
+  repo="$tmp/repo"
+  runner="$repo/bin/fm-test-run.sh"
+  leak=tests/fm-treehouse-leak-fixture.test.sh
+  clean=tests/fm-treehouse-private-fixture.test.sh
+  mkdir -p "$repo/bin" "$repo/tests" "$tmp/user/.treehouse/existing-pool"
+  cp "$RUNNER" "$runner"
+  cp "$ROOT/tests/git-config-helpers.sh" "$repo/tests/"
+  # Each fixture passes on its own and creates a pool where real Treehouse
+  # would: under ${TREEHOUSE_ROOT:-$HOME}/.treehouse.
+  cat >"$repo/$leak" <<'SH'
+#!/usr/bin/env bash
+mkdir -p "${TREEHOUSE_ROOT:-$HOME}/.treehouse/fixture-abc123/1/fixture"
+: >"${TREEHOUSE_ROOT:-$HOME}/.treehouse/.gitignore"
+echo "ok - fixture passed while leaving a pool behind"
+SH
+  cat >"$repo/$clean" <<'SH'
+#!/usr/bin/env bash
+TREEHOUSE_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/fm-private-treehouse.XXXXXX")"
+trap 'rm -r "$TREEHOUSE_ROOT"' EXIT
+mkdir -p "${TREEHOUSE_ROOT:-$HOME}/.treehouse/fixture-abc123/1/fixture"
+echo "ok - fixture used a private Treehouse root"
+SH
+  chmod +x "$runner" "$repo/$leak" "$repo/$clean"
+
+  set +e
+  TREEHOUSE_ROOT="$tmp/user" "$runner" "$leak" >"$tmp/leak.out" 2>"$tmp/leak.err"
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "a script that created a Treehouse pool in its inherited root must fail the run: $(cat "$tmp/leak.out")"
+  grep -Fq "$leak created Treehouse pools under its inherited root" "$tmp/leak.out" \
+    || fail "the leaking script was not named: $(cat "$tmp/leak.out")"
+  grep -Eq "/\.treehouse/fixture-abc123( |$)" "$tmp/leak.out" \
+    || fail "the leaked pool was not named: $(cat "$tmp/leak.out")"
+  if grep -Eq '/\.treehouse/(\.gitignore|existing-pool)' "$tmp/leak.out"; then
+    fail "the Treehouse .gitignore or a pre-existing pool was reported as a leak: $(cat "$tmp/leak.out")"
+  fi
+  grep -Eq "FM_TEST_END .* $leak exit=1 " "$tmp/leak.out" \
+    || fail "the leaking script must be recorded as failed: $(cat "$tmp/leak.out")"
+  [ ! -e "$tmp/user/.treehouse/fixture-abc123" ] \
+    || fail "the leaking script reached the user's real Treehouse root"
+  [ -d "$tmp/user/.treehouse/existing-pool" ] \
+    || fail "the user's real Treehouse root was disturbed"
+
+  set +e
+  env -u TREEHOUSE_ROOT HOME="$tmp/home" "$runner" "$leak" >"$tmp/home.out" 2>"$tmp/home.err"
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "a script leaking with no inherited TREEHOUSE_ROOT must fail the run: $(cat "$tmp/home.out")"
+  [ ! -e "$tmp/home/.treehouse" ] || fail "the leaking script reached \$HOME/.treehouse"
+
+  set +e
+  TREEHOUSE_ROOT="$tmp/user" "$runner" "$clean" >"$tmp/clean.out" 2>"$tmp/clean.err"
+  rc=$?
+  set -e
+  [ "$rc" -eq 0 ] || fail "a script using a private Treehouse root must pass: $(cat "$tmp/clean.out") $(cat "$tmp/clean.err")"
+
+  # The inspection mode the isolation proof checks each worker's stand-in with.
+  stand_in="$tmp/stand-in"
+  mkdir -p "$stand_in/.treehouse"
+  : >"$stand_in/.treehouse/.gitignore"
+  "$runner" --treehouse-stand-in-check "$stand_in" 2>"$tmp/check.err" \
+    || fail "--treehouse-stand-in-check reported a pool with none created: $(cat "$tmp/check.err")"
+  mkdir "$stand_in/.treehouse/fixture-ghi789"
+  set +e
+  "$runner" --treehouse-stand-in-check "$stand_in" 2>"$tmp/check.err"
+  rc=$?
+  set -e
+  [ "$rc" -eq 1 ] || fail "--treehouse-stand-in-check must exit 1 after a pool is created, got $rc"
+  grep -Fq "$stand_in/.treehouse/fixture-ghi789" "$tmp/check.err" \
+    || fail "--treehouse-stand-in-check did not name the created pool: $(cat "$tmp/check.err")"
+
+  rm -rf "$tmp"
+  pass "a script that creates Treehouse pools in its inherited root fails without reaching the real root"
+}
+
 test_max_wall_ms_is_a_result_not_advice() {
   local tmp repo runner fast rc summary_duration budget_duration
   tmp=$(mktemp -d "${TMPDIR:-/tmp}/fm-test-run-budget.XXXXXX")
@@ -1771,6 +1849,7 @@ test_unmapped_new_test_never_inherits_family_concurrency
 test_changed_shared_fixture_selects_its_readers
 test_concurrent_runs_are_ordered_longest_first
 test_per_script_timeout_bounds_a_hang
+test_treehouse_pools_in_the_inherited_root_fail_the_script
 test_max_wall_ms_is_a_result_not_advice
 test_jobs_parallel_scheduler_and_failure_propagation
 test_herdr_ci_family_run_has_a_step_timeout

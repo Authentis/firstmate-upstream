@@ -271,6 +271,7 @@ export FM_BACKEND_HERDR_WORKSPACE_MOVER="$FAKEBIN/herdr-workspace-mover"
 # as a cross-session parent identity. Every projection below is anchored on the
 # parent this suite sets up, not on the developer's own workspace.
 herdr_forget_inherited_pane
+herdr_private_treehouse_root "$TMP_ROOT"
 
 HERDR_LAB_SESSION=$(PATH="$HERDR_ORIGINAL_PATH" \
   "$HERDR_LAB_HELPER" name fm-herdr-presentation-projection)
@@ -379,6 +380,8 @@ remember_meta_worktree() {  # <meta>
   wt=$(grep '^worktree=' "$1" | cut -d= -f2-)
   [ -n "$wt" ] || fail "metadata did not record a worktree"
   RECORDED_WORKTREES="${RECORDED_WORKTREES}${wt}"$'\n'
+  herdr_worktree_in_private_treehouse_root "$wt" \
+    || fail "spawn acquired its worktree outside the private Treehouse root: $wt"
   printf '%s' "$wt"
 }
 

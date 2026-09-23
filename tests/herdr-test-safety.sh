@@ -43,3 +43,30 @@ herdr_refuse_if_default() { # <session>
 herdr_safe_stop_and_delete() { # <session>
   fm_herdr_lab_teardown "$1"
 }
+
+# herdr_private_treehouse_root <tmp-root>: give every real treehouse call this
+# suite makes - spawn's `treehouse get` inside a lab pane, secondmate home
+# leases, and cleanup's `treehouse return` - a private pool root inside
+# <tmp-root>, so removing the fixture also removes its pools.
+#
+# Without it Treehouse creates each fixture repo's pool under the user's real
+# root, cleanup's `treehouse return` keeps that pool, and removing <tmp-root>
+# then orphans it with slots whose gitdir points at a deleted repository.
+# bin/fm-test-run.sh fails any suite that creates a pool in the root it inherits.
+#
+# Call it before provisioning the lab session: lab panes inherit the export
+# through the Herdr server started from this environment.
+herdr_private_treehouse_root() { # <tmp-root>
+  export TREEHOUSE_ROOT="$1/treehouse"
+  mkdir -p "$TREEHOUSE_ROOT"
+}
+
+# herdr_worktree_in_private_treehouse_root <worktree>: succeed only when the
+# worktree a spawn recorded lives in the pool root herdr_private_treehouse_root
+# set, proving the export reached the pane that ran `treehouse get`.
+herdr_worktree_in_private_treehouse_root() { # <worktree>
+  case "$1" in
+    "${TREEHOUSE_ROOT:?herdr_private_treehouse_root was not called}"/.treehouse/*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
