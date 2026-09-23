@@ -43,6 +43,11 @@
 #   (q4) no-mistakes + squash-merged rebased local plus extra commit -> REFUSE
 #   (q5) gh down + squash-merged stale local, content not in default -> REFUSE
 #
+# Task-branch retirement (recorded fm/<task-id> name, not the copy's HEAD):
+#   landed branch checked out, or copy detached at its landed tip -> branch removed
+#   branch beyond or unrelated to the landed copy, or forced     -> branch kept, reported
+#   refused teardown, or git refusing the delete                 -> branch kept, reported
+#
 # Also covers backlog teardown-lock-race: a git index.lock left in the worktree by a
 # killed crew process (bin/fm-teardown.sh's teardown_treehouse_return).
 #   (r) provably-stale index.lock (old mtime, no live holder) -> lock removed, ALLOW
@@ -1980,6 +1985,194 @@ test_local_only_force_overrides_unpushed() {
   pass "local-only worktree with unpushed work is torn down under --force (escape hatch)"
 }
 
+# Task-branch retirement is keyed on the task's recorded name (fm/<task-id>),
+# never on whatever the copy has checked out at cleanup time. These cases pin
+# both halves: a landed branch is removed even when the copy was left detached
+# at its tip, and a branch holding anything not proven landed survives.
+task_branch_tip() {  # <case-dir>
+  git -C "$1/project" rev-parse --quiet --verify refs/heads/fm/task-x1 2>/dev/null
+}
+
+test_landed_task_branch_is_removed_when_checked_out() {
+  local case_dir rc
+  case_dir=$(make_case branch-retire-checked-out)
+  write_meta "$case_dir" local-only ship
+  wt_commit "$case_dir" "landed work"
+  git -C "$case_dir/project" update-ref refs/heads/main "$(git -C "$case_dir/wt" rev-parse HEAD)"
+
+  set +e
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 0 "$rc" "branch-retire-checked-out: landed teardown should succeed"
+  [ -z "$(task_branch_tip "$case_dir")" ] \
+    || fail "branch-retire-checked-out: landed task branch survived a successful teardown"
+  pass "a landed task branch checked out in the copy is removed by a successful teardown"
+}
+
+test_landed_task_branch_is_removed_when_copy_is_detached_at_its_tip() {
+  local case_dir rc
+  case_dir=$(make_case branch-retire-detached)
+  write_meta "$case_dir" local-only ship
+  wt_commit "$case_dir" "landed work"
+  git -C "$case_dir/project" update-ref refs/heads/main "$(git -C "$case_dir/wt" rev-parse HEAD)"
+  # The recurring field shape: the copy is left detached at the landed tip, so
+  # nothing names the task branch through HEAD any more.
+  git -C "$case_dir/wt" checkout -q --detach
+
+  set +e
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 0 "$rc" "branch-retire-detached: landed teardown should succeed"
+  [ -z "$(task_branch_tip "$case_dir")" ] \
+    || fail "branch-retire-detached: landed task branch survived because the copy was detached"
+  ! grep -q 'task branch' "$case_dir/stderr" \
+    || fail "branch-retire-detached: a clean removal printed a branch warning"
+  pass "a landed task branch is removed even when the copy is detached at its tip"
+}
+
+test_landed_squash_merged_task_branch_is_removed_when_copy_is_detached() {
+  local case_dir rc pr_head
+  case_dir=$(make_case branch-retire-squash-detached)
+  write_meta "$case_dir" no-mistakes ship
+  wt_commit_file "$case_dir" feature.txt hello "feature work"
+  pr_head=$(git -C "$case_dir/wt" rev-parse HEAD)
+  land_on_origin_main "$case_dir" feature.txt hello
+  add_gh_pr_merged_for_head "$case_dir" "$pr_head"
+  append_pr_meta_for_current_head "$case_dir"
+  git -C "$case_dir/wt" checkout -q --detach
+
+  set +e
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 0 "$rc" "branch-retire-squash-detached: merged PR teardown should succeed"
+  [ -z "$(task_branch_tip "$case_dir")" ] \
+    || fail "branch-retire-squash-detached: squash-merged task branch survived teardown"
+  pass "a squash-merged task branch is removed when the copy is detached at the merged head"
+}
+
+test_detached_teardown_keeps_task_branch_with_unlanded_commits() {
+  local case_dir rc landed extra
+  case_dir=$(make_case branch-keep-unlanded)
+  write_meta "$case_dir" local-only ship
+  wt_commit "$case_dir" "landed work"
+  landed=$(git -C "$case_dir/wt" rev-parse HEAD)
+  git -C "$case_dir/project" update-ref refs/heads/main "$landed"
+  git -C "$case_dir/wt" checkout -q --detach
+  # The task branch moved past the landed commit the copy is detached at; that
+  # extra commit exists only on the branch and must never be discarded.
+  extra=$(commit_tree_from_wt_head "$case_dir" "$landed" "unlanded follow-up")
+  git -C "$case_dir/project" update-ref refs/heads/fm/task-x1 "$extra"
+
+  set +e
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 0 "$rc" "branch-keep-unlanded: teardown of the landed copy should succeed"
+  [ "$(task_branch_tip "$case_dir")" = "$extra" ] \
+    || fail "branch-keep-unlanded: task branch holding an unlanded commit was removed or moved"
+  grep -q "kept task branch fm/task-x1" "$case_dir/stderr" \
+    || fail "branch-keep-unlanded: the kept branch was not reported"
+  pass "a task branch holding commits beyond the landed copy is kept and reported"
+}
+
+test_detached_teardown_keeps_mismatched_task_branch() {
+  local case_dir rc landed base sibling
+  case_dir=$(make_case branch-keep-mismatched)
+  write_meta "$case_dir" local-only ship
+  base=$(git -C "$case_dir/wt" rev-parse HEAD)
+  wt_commit "$case_dir" "landed work"
+  landed=$(git -C "$case_dir/wt" rev-parse HEAD)
+  git -C "$case_dir/project" update-ref refs/heads/main "$landed"
+  git -C "$case_dir/wt" checkout -q --detach
+  # The recorded branch names unrelated history that is neither the landed
+  # copy's work nor on any remote or the default branch.
+  sibling=$(commit_tree_from_wt_head "$case_dir" "$base" "unrelated unlanded work")
+  git -C "$case_dir/project" update-ref refs/heads/fm/task-x1 "$sibling"
+
+  set +e
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 0 "$rc" "branch-keep-mismatched: teardown of the landed copy should succeed"
+  [ "$(task_branch_tip "$case_dir")" = "$sibling" ] \
+    || fail "branch-keep-mismatched: a task branch not matching the landed copy was removed"
+  grep -q "kept task branch fm/task-x1" "$case_dir/stderr" \
+    || fail "branch-keep-mismatched: the kept branch was not reported"
+  pass "a task branch that does not match the landed copy is kept and reported"
+}
+
+test_forced_detached_teardown_keeps_unproven_task_branch() {
+  local case_dir rc tip
+  case_dir=$(make_case branch-keep-forced-detached)
+  write_meta "$case_dir" local-only ship
+  wt_commit "$case_dir" "unlanded work"
+  tip=$(git -C "$case_dir/wt" rev-parse HEAD)
+  git -C "$case_dir/wt" checkout -q --detach
+
+  set +e
+  run_teardown "$case_dir" --force > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 0 "$rc" "branch-keep-forced-detached: forced teardown should succeed"
+  [ "$(task_branch_tip "$case_dir")" = "$tip" ] \
+    || fail "branch-keep-forced-detached: --force discarded a task branch the copy did not hold"
+  pass "--force never discards an unlanded task branch the copy no longer has checked out"
+}
+
+test_detached_refusal_keeps_task_branch() {
+  local case_dir rc tip
+  case_dir=$(make_case branch-keep-refusal)
+  write_meta "$case_dir" local-only ship
+  wt_commit "$case_dir" "unlanded work"
+  tip=$(git -C "$case_dir/wt" rev-parse HEAD)
+  git -C "$case_dir/wt" checkout -q --detach
+
+  set +e
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 1 "$rc" "branch-keep-refusal: unlanded detached copy should refuse"
+  grep -q REFUSED "$case_dir/stderr" || fail "branch-keep-refusal: no REFUSED line in stderr"
+  [ "$(task_branch_tip "$case_dir")" = "$tip" ] \
+    || fail "branch-keep-refusal: a refused teardown touched the task branch"
+  [ -e "$case_dir/state/task-x1.meta" ] || fail "branch-keep-refusal: refusal erased the task record"
+  pass "a refused teardown of a detached copy keeps the task branch"
+}
+
+test_task_branch_removal_failure_is_reported() {
+  local case_dir rc tip
+  case_dir=$(make_case branch-remove-fails)
+  write_meta "$case_dir" local-only ship
+  wt_commit "$case_dir" "landed work"
+  tip=$(git -C "$case_dir/wt" rev-parse HEAD)
+  git -C "$case_dir/project" update-ref refs/heads/main "$tip"
+  git -C "$case_dir/wt" checkout -q --detach
+  # Another copy holds the branch checked out, so git itself refuses the delete.
+  git -C "$case_dir/project" worktree add -q "$case_dir/other" fm/task-x1
+
+  set +e
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 0 "$rc" "branch-remove-fails: landed teardown should still complete"
+  [ "$(task_branch_tip "$case_dir")" = "$tip" ] \
+    || fail "branch-remove-fails: branch unexpectedly gone"
+  grep -q "could not delete task branch fm/task-x1" "$case_dir/stderr" \
+    || fail "branch-remove-fails: the failed branch removal was swallowed"
+  pass "a failed task branch removal is reported rather than swallowed"
+}
+
 # Mark the case's home as a secondmate home bound to a parent: teardown and
 # fm-pr-check run with FM_HOME="$case_dir/home" so the parent-channel
 # publishers resolve that binding while the task state stays in $case_dir/state.
@@ -3867,6 +4060,14 @@ test_local_only_merged_to_local_main_allows
 test_no_mistakes_origin_remote_allows
 test_no_mistakes_truly_unpushed_refuses
 test_local_only_force_overrides_unpushed
+test_landed_task_branch_is_removed_when_checked_out
+test_landed_task_branch_is_removed_when_copy_is_detached_at_its_tip
+test_landed_squash_merged_task_branch_is_removed_when_copy_is_detached
+test_detached_teardown_keeps_task_branch_with_unlanded_commits
+test_detached_teardown_keeps_mismatched_task_branch
+test_forced_detached_teardown_keeps_unproven_task_branch
+test_detached_refusal_keeps_task_branch
+test_task_branch_removal_failure_is_reported
 test_secondmate_pr_registration_publishes_ready_line
 test_secondmate_home_teardown_delivers_final_line_or_refuses
 test_teardown_missing_busy_sidecar_completes

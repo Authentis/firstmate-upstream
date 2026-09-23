@@ -1844,6 +1844,60 @@ validate_worktree_teardown_safety() {
       return 1
     fi
   fi
+  TEARDOWN_HEAD_WORK_PROVEN=1
+}
+
+# The task's own branch is named by its durable record - every ship brief and
+# promotion creates fm/<task-id>, and bin/fm-merge-local.sh lands exactly that
+# name - never by whatever the copy has checked out at cleanup time. A copy left
+# detached at its landed tip therefore still retires its branch, while a branch
+# the copy merely has checked out under another name is detached and kept.
+TASK_BRANCH="fm/$ID"
+TEARDOWN_HEAD_WORK_PROVEN=0
+
+# Delete TASK_BRANCH from worktree $1 only when nothing it holds can be lost:
+# it is checked out in this copy (the landed-work gate above inspected exactly
+# that tip, or --force or a scout's declared scratch authorized discarding it),
+# or its tip is contained in this copy's gate-proven HEAD, in a remote-tracking
+# branch, or in the local default branch. A branch that proves none of these is
+# unlanded or mismatched work and is kept, even under --force, because the
+# copy no longer holds it. Every kept branch and every git failure is reported.
+retire_task_branch() {  # <worktree>
+  local wt=$1 ref="refs/heads/$TASK_BRANCH" tip current head unreached default out
+  tip=$(git -C "$wt" rev-parse --quiet --verify "$ref^{commit}" 2>/dev/null) || tip=
+  current=$(git -C "$wt" symbolic-ref --quiet HEAD 2>/dev/null) || current=
+  if [ -n "$current" ] && [ "$current" != "$ref" ]; then
+    if out=$(git -C "$wt" checkout --detach -q 2>&1); then
+      echo "warning: kept branch ${current#refs/heads/} checked out in $wt; it is not this task's recorded branch $TASK_BRANCH" >&2
+    else
+      echo "warning: could not detach $wt from branch ${current#refs/heads/}: $out" >&2
+    fi
+  fi
+  [ -n "$tip" ] || return 0
+  if [ "$current" = "$ref" ]; then
+    if ! out=$(git -C "$wt" checkout --detach -q 2>&1); then
+      echo "warning: could not delete task branch $TASK_BRANCH: detaching $wt failed: $out" >&2
+      return 0
+    fi
+  else
+    head=$(git -C "$wt" rev-parse --quiet --verify 'HEAD^{commit}' 2>/dev/null) || head=
+    if [ "$TEARDOWN_HEAD_WORK_PROVEN" = 1 ] && [ -n "$head" ] \
+       && git -C "$wt" merge-base --is-ancestor "$tip" "$head" 2>/dev/null; then
+      :
+    elif unreached=$(git -C "$wt" rev-list -n 1 "$tip" --not --remotes -- 2>/dev/null) \
+       && [ -z "$unreached" ]; then
+      :
+    elif default=$(default_branch) \
+       && git -C "$wt" merge-base --is-ancestor "$tip" "refs/heads/$default" 2>/dev/null; then
+      :
+    else
+      echo "warning: kept task branch $TASK_BRANCH at $tip: its commits are not proven landed (not in this copy's landed work, any remote, or the default branch); inspect it before deleting it by hand" >&2
+      return 0
+    fi
+  fi
+  if ! out=$(git -C "$wt" branch -D -- "$TASK_BRANCH" 2>&1); then
+    echo "warning: could not delete task branch $TASK_BRANCH: $out" >&2
+  fi
 }
 
 # Fix 1 (see script header): does the active-or-most-recent no-mistakes run in
@@ -3469,19 +3523,15 @@ fi
 # pruned code root. Best effort - a sweep failure never blocks this teardown.
 "$SCRIPT_DIR/fm-remote-job-reap-orphans.sh" >&2 || true
 
-# Best-effort: drop the local task branch so the shared repo does not accumulate refs.
+# Drop the task's recorded branch so the shared repo does not accumulate refs;
+# retire_task_branch owns what may be deleted and reports whatever it keeps.
 if [ "$BACKEND" = orca ] && [ "$KIND" != secondmate ]; then
   if [ "$ORCA_PATH_MATCH_VERIFIED" != 1 ]; then
     require_orca_worktree_path_match_if_present "$ORCA_WORKTREE_ID" "$WT" || exit 1
     ORCA_PATH_MATCH_VERIFIED=1
   fi
   if [ -d "$WT" ]; then
-    branch=$(git -C "$WT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo HEAD)
-    if [ "$branch" != "HEAD" ]; then
-      if git -C "$WT" checkout --detach -q 2>/dev/null; then
-        git -C "$WT" branch -D "$branch" >/dev/null 2>&1 || true
-      fi
-    fi
+    retire_task_branch "$WT"
     rm -f "$WT/.claude/settings.local.json" "$WT/.opencode/plugins/fm-turn-end.js" \
       "$WT/.opencode/plugins/fm-busy-state.js" \
       "$WT/.fm-grok-turnend" "$WT/.fm-kimi-turnend"
@@ -3494,12 +3544,7 @@ if [ "$BACKEND" = orca ] && [ "$KIND" != secondmate ]; then
 elif [ "$KIND" != secondmate ] && ! teardown_owns_worktree; then
   :
 elif [ -d "$WT" ] && [ "$KIND" != secondmate ]; then
-  branch=$(git -C "$WT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo HEAD)
-  if [ "$branch" != "HEAD" ]; then
-    if git -C "$WT" checkout --detach -q 2>/dev/null; then
-      git -C "$WT" branch -D "$branch" >/dev/null 2>&1 || true
-    fi
-  fi
+  retire_task_branch "$WT"
   # Remove our hook file so a reused pool worktree cannot fire signals for a dead task.
   rm -f "$WT/.claude/settings.local.json" "$WT/.opencode/plugins/fm-turn-end.js" \
     "$WT/.fm-grok-turnend" "$WT/.fm-kimi-turnend"
