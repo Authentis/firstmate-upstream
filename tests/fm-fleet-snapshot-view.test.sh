@@ -1411,7 +1411,99 @@ EOF
   pass "named steward exemption deployment is exact-identity bound"
 }
 
+# Worker-slot capacity: a held record whose worker exited stays visible but
+# frees its slot, while working, live, undeclared-exited, ambiguous, and
+# unreadable records stay occupied.
+test_capacity_frees_only_declared_exited_holds() {
+  local home fb out id
+  home=$(make_home capacity)
+  fb=$(fm_fakebin "$home/fakebin")
+  cat > "$fb/no-mistakes" <<'SH'
+#!/usr/bin/env bash
+exit 0
+SH
+  cat > "$fb/tmux" <<'SH'
+#!/usr/bin/env bash
+set -u
+target=""
+prev=""
+for arg in "$@"; do
+  if [ "$prev" = "-t" ]; then target=$arg; fi
+  prev=$arg
+done
+case "$target" in *gone*) printf "can't find window: %s\n" "$target" >&2; exit 1 ;; esac
+case "${1:-}" in
+  list-windows)
+    sed -n 's/^window=[^:]*://p' "${FM_HOME:?}"/state/*.meta | grep -v gone
+    ;;
+  display-message)
+    case "$*" in
+      *pane_current_command*)
+        case "$target" in
+          *live*) printf 'claude\n' ;;
+          *exited*) printf 'zsh\n' ;;
+          *) printf 'node\n' ;;
+        esac
+        ;;
+      *) printf '%%1\n' ;;
+    esac
+    ;;
+  capture-pane) printf 'all quiet\n> \n' ;;
+esac
+exit 0
+SH
+  chmod +x "$fb/no-mistakes" "$fb/tmux"
+  cat > "$home/data/backlog.md" <<'MD'
+## In flight
+- [ ] work-live - Working lane (repo: alpha) (kind: ship) (since 2026-09-20)
+- [ ] held-live - Held live lane (repo: alpha) (kind: ship) (since 2026-09-20) (hold: frozen for release) (hold-kind: external)
+- [ ] held-exited - Held exited lane (repo: alpha) (kind: ship) (since 2026-09-20) (hold: frozen for release) (hold-kind: external)
+- [ ] plain-exited - Undeclared exited lane (repo: alpha) (kind: ship) (since 2026-09-20)
+- [ ] plain-gone - Undeclared stopped lane (repo: alpha) (kind: ship) (since 2026-09-20)
+- [ ] held-gone - Held stopped lane (repo: alpha) (kind: ship) (since 2026-09-20) (hold: frozen for release) (hold-kind: external)
+- [ ] held-ambiguous - Held ambiguous lane (repo: alpha) (kind: ship) (since 2026-09-20) (hold: frozen for release) (hold-kind: external)
+- [ ] held-unreadable - Held unreadable lane (repo: alpha) (kind: ship) (since 2026-09-20) (hold: frozen for release) (hold-kind: external)
+
+## Queued
+
+## Done
+MD
+  for id in work-live held-live held-exited plain-exited plain-gone held-gone held-ambiguous held-unreadable; do
+    mkdir -p "$home/projects/$id"
+    fm_write_meta "$home/state/$id.meta" \
+      "window=firstmate:fm-$id" "worktree=$home/projects/$id" \
+      "project=alpha" "harness=claude" "kind=ship" "mode=no-mistakes"
+    printf 'paused: frozen for release\n' > "$home/state/$id.status"
+    record_claude_idle "$home/state" "$id"
+  done
+  printf 'needs-decision [key=gate]: frozen at the validation gate\n' > "$home/state/held-exited.status"
+  rmdir "$home/projects/held-unreadable"
+  "$ROOT/bin/fm-busy-event.sh" apply "$home/state" work-live busy \
+    --gen "$("$ROOT/bin/fm-busy-event.sh" arm "$home/state" work-live)" \
+    --source claude-hook --event user-prompt-submit
+
+  out=$(PATH="$fb:$PATH" FM_HOME="$home" "$SNAPSHOT" --json) \
+    || fail "capacity snapshot must succeed"
+  printf '%s' "$out" | jq -e '
+    ([.capacity.rows[] | {key:.id,value:{state,class,occupied,worker,declared_hold}}] | from_entries) as $r
+    | $r["work-live"] == {state:"working",class:"productive",occupied:true,worker:"not_checked",declared_hold:false}
+      and $r["held-live"] == {state:"paused",class:"live_worker",occupied:true,worker:"alive",declared_hold:true}
+      and $r["held-exited"] == {state:"parked",class:"parked_preserved",occupied:false,worker:"exited",declared_hold:true}
+      and $r["plain-exited"] == {state:"paused",class:"exited_undeclared",occupied:true,worker:"exited",declared_hold:false}
+      and $r["plain-gone"] == {state:"stopped",class:"exited_undeclared",occupied:true,worker:"exited",declared_hold:false}
+      and $r["held-gone"] == {state:"stopped",class:"parked_preserved",occupied:false,worker:"exited",declared_hold:true}
+      and $r["held-ambiguous"] == {state:"paused",class:"uncertain",occupied:true,worker:"unknown",declared_hold:true}
+      and $r["held-unreadable"] == {state:"unknown",class:"uncertain",occupied:true,worker:"not_checked",declared_hold:true}
+      and .capacity.occupied == 6
+      and .capacity.classes == {productive:1,live_worker:1,parked_preserved:2,exited_undeclared:2,uncertain:2}
+      and ([.tasks[] | select(.capacity.class == "parked_preserved") | .id] | sort) == ["held-exited","held-gone"]
+      and (.tasks | length) == 8
+  ' >/dev/null || fail "capacity must free only declared exited holds: $(printf '%s' "$out" | jq -c '.capacity')"
+  pass "capacity frees declared exited holds and keeps live, undeclared, and uncertain records occupied"
+}
+
 test_empty_fleet_json
+test_capacity_frees_only_declared_exited_holds
 test_fixture_snapshot_json
 test_home_summary_excludes_secondmate_from_child_inventory
 test_home_summary_declares_active_steward_exemption_without_hiding_state_change

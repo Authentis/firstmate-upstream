@@ -29,7 +29,7 @@ It never broadens merge authority, bypasses guarded teardown, invents a brief fr
 5. Refresh the queue with `bin/fm-fleet-steward.sh refresh` before selecting work.
    A failed refresh leaves the last known-good queue in place but does not authorize dispatch from it; report the refresh failure and stop the refill portion of this pass.
 6. Recompute current productive capacity from a fresh `bin/fm-fleet-snapshot.sh --json` result.
-   Count local tasks whose `.current_state.state` is `working` or `parked`, and conservatively count a recorded task with an unresolved or unknown endpoint as occupied.
+   Productive capacity is that result's `.capacity.occupied`, whose per-task classification `bin/fm-fleet-snapshot.sh` owns; a held record whose worker exited stays preserved but frees its slot, while live, undeclared-exited, and uncertain records stay occupied.
 7. If productive capacity is below six and `data/next-up.md` still has a `READY` row, validate that row's acceptance and preconditions, prepare the ordinary brief, and dispatch it through the normal guarded spawn path.
    Load `harness-adapters` before spawning.
 8. Repeat the fresh capacity and ready-row check only until productive capacity reaches six or no verified eligible row remains.

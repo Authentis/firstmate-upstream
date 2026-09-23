@@ -79,6 +79,25 @@
 #     endpoint.agent_alive is populated for local secondmates only, where it is
 #     useful return-channel supervision data; remote secondmates use "unknown"
 #     without a probe, and other tasks use "not_checked".
+#     capacity: {class,occupied,worker,declared_hold} is this task's worker-slot
+#     accounting, the single owner of what counts as occupied capacity.
+#     worker is "alive", "exited", "unknown", or "not_checked": a parked,
+#     paused, blocked, or idle local ship or scout gets one recovery-grade agent
+#     probe (fm_backend_agent_state), a stopped one is already exited, and every
+#     other row is not probed. declared_hold is true only when the task's
+#     structured In flight backlog row carries a hold kind and reason.
+#     class is "productive" for working (occupied); "terminal" for done or
+#     failed and "secondmate" for secondmate homes (not occupied); for parked,
+#     paused, blocked, idle, or stopped, "live_worker" when the worker is alive
+#     (occupied), "parked_preserved" when it exited and the hold is declared
+#     (not occupied, record and copy still preserved and visible),
+#     "exited_undeclared" when it exited without a declared hold (occupied until
+#     recovered or declared), and "uncertain" otherwise; every unknown or
+#     unreadable state is "uncertain" and stays occupied.
+#   capacity: {occupied,classes,rows[]} - fleet worker-slot totals over
+#     tasks[].capacity: occupied is the count of occupied rows, classes maps
+#     each present class to its row count, and rows[] lists every task's id,
+#     state, and capacity fields.
 #   scout_reports[]: present data/<id>/report.md pointers.
 #   main_inventory: {valid,reason,orphan_in_flight[],unstructured_current_count} -
 #     main-home current-inventory checks shared with secondmate_home_summary_json
@@ -689,6 +708,7 @@ prefetch_task_observations() {  # <meta> <id>
   local meta=$1 id=$2 remote_host current_file endpoint_file current_pid='' current_rc=0
   local status_log status_capture report_path report_capture
   local kind backend target endpoint_exists=null agent_alive=not_checked generation_current=1
+  local capacity_worker=not_checked observed_state
   remote_host=$(meta_value "$meta" remote_host)
   current_file="$SNAPSHOT_TASK_DIR/$id.json"
   endpoint_file="$SNAPSHOT_TASK_DIR/$id.endpoint"
@@ -730,6 +750,23 @@ prefetch_task_observations() {  # <meta> <id>
   fi
 
   [ -z "$current_pid" ] || wait "$current_pid" || current_rc=1
+  # Capacity evidence: whether a non-working ship or scout still has a live
+  # worker. crew-state reports a gate-parked run as parked whether or not its
+  # agent survives, so only this recovery-grade probe separates a live parked
+  # worker from a preserved record whose worker exited.
+  if [ -n "$current_pid" ] && [ "$kind" != secondmate ] && [ -n "$target" ]; then
+    observed_state=$(jq -r '.state // "unknown"' "$current_file" 2>/dev/null || printf unknown)
+    case "$observed_state" in
+      stopped) capacity_worker=exited ;;
+      parked|paused|blocked|idle)
+        case "$(fm_backend_agent_state "$backend" "$target" 2>/dev/null || true)" in
+          alive) capacity_worker=alive ;;
+          dead|missing) capacity_worker=exited ;;
+          *) capacity_worker=unknown ;;
+        esac
+        ;;
+    esac
+  fi
   # All mutable observations must belong to the metadata generation captured in
   # the manifest. If teardown/relaunch raced any read, discard the whole sample.
   if ! snapshot_task_generation_is_current "$meta" "$id"; then
@@ -738,8 +775,10 @@ prefetch_task_observations() {  # <meta> <id>
       > "$current_file" || current_rc=1
     endpoint_exists=null
     agent_alive=unknown
+    capacity_worker=not_checked
   fi
-  printf 'endpoint_exists=%s\nagent_alive=%s\n' "$endpoint_exists" "$agent_alive" > "$endpoint_file" || current_rc=1
+  printf 'endpoint_exists=%s\nagent_alive=%s\ncapacity_worker=%s\n' \
+    "$endpoint_exists" "$agent_alive" "$capacity_worker" > "$endpoint_file" || current_rc=1
   return "$current_rc"
 }
 
@@ -800,7 +839,7 @@ prefetch_task_current_states() {
 task_json_lines() {
   local meta original_meta id kind harness mode yolo project worktree home projects spawn_gen backend target status_log report_path
   local remote_host remote_root current_file endpoint_file observation_line index=0
-  local pr pr_source event_json current_json endpoint_exists agent_alive meta_json status_json report_json worktree_json home_json
+  local pr pr_source event_json current_json endpoint_exists agent_alive capacity_worker meta_json status_json report_json worktree_json home_json
   local last_event_raw current_state current_source pending_decision blocked_event report_present=0 pr_from_status
   local open_decisions_tsv open_decisions_json
 
@@ -886,11 +925,13 @@ task_json_lines() {
 
     endpoint_exists=null
     agent_alive=not_checked
+    capacity_worker=not_checked
     endpoint_file="$SNAPSHOT_TASK_DIR/$id.endpoint"
     while IFS= read -r observation_line || [ -n "$observation_line" ]; do
       case "$observation_line" in
         endpoint_exists=*) endpoint_exists=${observation_line#*=} ;;
         agent_alive=*) agent_alive=${observation_line#*=} ;;
+        capacity_worker=*) capacity_worker=${observation_line#*=} ;;
       esac
     done < "$endpoint_file" || {
       snapshot_task_cleanup
@@ -928,6 +969,7 @@ task_json_lines() {
       --arg pr_source "$pr_source" \
       --arg pr_head "$(meta_value "$meta" pr_head)" \
       --arg agent_alive "$agent_alive" \
+      --arg capacity_worker "$capacity_worker" \
       --arg observed_at "$SNAPSHOT_NOW" \
       --arg last_event_raw "$last_event_raw" \
       --argjson current_state "$current_json" \
@@ -965,6 +1007,7 @@ task_json_lines() {
                   elif $agent_alive == "alive" or $agent_alive == "dead" then $agent_alive
                   else "unknown" end),
           observed_at:$observed_at,freshness:"fresh"},
+        capacity:{worker:$capacity_worker},
         pr:{url:($pr | if . == "" then null else . end),source:$pr_source,head:($pr_head | if . == "" then null else . end)},
         hints:{
           pending_decision:$pending_decision,
@@ -2198,13 +2241,35 @@ jq -n \
    | def backlog_by_id($id): ($backlog.records[]? | select(.structured == true and .id == $id) | .) // null;
    def task_by_id($id): ($tasks[]? | select(.id == $id) | .) // null;
    def report_kind($id): (task_by_id($id).kind // backlog_by_id($id).kind // "scout");
-   {
+   def capacity_of($task; $work):
+     ($task.current_state.state // "unknown") as $state
+     | ($task.capacity.worker // "not_checked") as $worker
+     | ($work != null and $work.state == "in_flight"
+        and $work.hold_reason != null and $work.hold_kind != null) as $declared
+     | (if $task.kind == "secondmate" then {class:"secondmate",occupied:false}
+        elif $state == "working" then {class:"productive",occupied:true}
+        elif $state == "done" or $state == "failed" then {class:"terminal",occupied:false}
+        elif ($state == "parked" or $state == "paused" or $state == "blocked"
+              or $state == "idle" or $state == "stopped") then
+          (if $worker == "alive" then {class:"live_worker",occupied:true}
+           elif $worker == "exited" and $declared then {class:"parked_preserved",occupied:false}
+           elif $worker == "exited" then {class:"exited_undeclared",occupied:true}
+           else {class:"uncertain",occupied:true} end)
+        else {class:"uncertain",occupied:true} end)
+     + {worker:$worker,declared_hold:$declared};
+   ($tasks | map(. + {backlog:backlog_by_id(.id)}) | map(.capacity = capacity_of(.; .backlog))) as $tasks
+   | {
      schema:"fm-fleet-snapshot.v1",
      generated:$generated,
      fm_home:$fm_home,
      roots:{fm_root:$fm_root,state:$state,data:$data,config:$config,projects:$projects},
      backlog:$backlog,
-     tasks:($tasks | map(. + {backlog:backlog_by_id(.id)})),
+     tasks:$tasks,
+     capacity:{
+       occupied:([$tasks[] | select(.capacity.occupied)] | length),
+       classes:(reduce $tasks[] as $task ({}; .[$task.capacity.class] += 1)),
+       rows:[$tasks[] | {id,state:.current_state.state} + .capacity]
+     },
      main_inventory:$main_inventory,
      contributions:$contributions[0],
      scout_reports:($scout_reports | map(. + {kind:report_kind(.id)})),
