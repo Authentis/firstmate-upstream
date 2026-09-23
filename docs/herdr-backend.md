@@ -140,6 +140,7 @@ Task cleanup acquires that session lock before the task's isolated copy is retur
 Forced secondmate cleanup recursively preflights every Herdr child endpoint and acquires every affected named-session lock before mutating any child, then retains each child's durable identity unless that exact pane returns structured not-found after its close.
 Durable task records are erased only once the exact pane is confirmed gone through its structured presence: after every close path, only a structured not-found response counts as gone, while a present or unknown result retains every record with a visible, retryable error.
 That retention survives session start, which keeps a still-present task record and its pending backlog close for the teardown rerun instead of replaying the close past it, so a pane whose close failed is never left without the record that names it.
+A finished task whose record must stay after cleanup refuses - committed work not yet landed, or a record that names no isolated copy - can have only its idle pane closed through `bin/fm-teardown.sh <id> --endpoint-only`, which uses the same locked close and gone-confirmation, keeps every record, the copy, the branch, and the backlog item, and refuses while the agent is live or the task has an open decision, uncommitted changes, or an unfinished validation run (script header).
 Missing or malformed endpoint identity and missing confirmation machinery are ambiguity, never proof of a gone pane, and refuse record removal the same way.
 If lock, snapshot, pane identity, or restoration is ambiguous, cleanup warns and preserves the journal for manual inspection.
 
@@ -370,6 +371,7 @@ tests/fm-backend-herdr-launcher-workspace-e2e.test.sh
 tests/fm-backend-herdr-presentation-e2e.test.sh
 tests/fm-backend-herdr-agent-exit-shell-e2e.test.sh
 tests/fm-teardown-herdr-restart-e2e.test.sh
+tests/fm-teardown-herdr-endpoint-only-e2e.test.sh
 tests/fm-herdr-pi-stale-registration-live-e2e.test.sh
 tests/fm-backend-herdr-eventwait-smoke.test.sh
 tests/fm-control-herdr-smoke.test.sh

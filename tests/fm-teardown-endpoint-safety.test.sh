@@ -112,6 +112,65 @@ test_invalid_endpoint_records_refuse_before_mutation() {
   pass "fm-teardown: missing, empty, malformed, ambiguous, and task-mismatched endpoints refuse before every mutation or runtime call"
 }
 
+# A record that names no isolated copy may be cleaned up only where nothing a
+# copy held is at stake, and --endpoint-only only closes a Herdr pane whose
+# agent has exited; every other shape keeps refusing before any runtime call.
+test_copyless_and_endpoint_only_records_refuse_outside_their_scope() {
+  local dir id rc
+  run_teardown_args() {  # <case> <id> [args...]
+    local case_dir=$1 task=$2
+    shift 2
+    FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$ROOT" FM_TEARDOWN_GUARD_DONE=1 \
+    FM_RUNTIME_LOG="$case_dir/runtime.log" PATH="$case_dir/fakebin:$PATH" \
+      "$TEARDOWN" "$task" "$@" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  }
+  assert_untouched() {  # <case> <id> <description> <expected stderr>
+    assert_present "$1/home/state/$2.meta" "$3: the task record was removed"
+    [ ! -s "$1/runtime.log" ] || fail "$3: a runtime command ran: $(cat "$1/runtime.log")"
+    grep -Fq -- "$4" "$1/stderr" || fail "$3: refused for another reason: $(cat "$1/stderr")"
+  }
+
+  id=ship-copyless
+  dir=$(make_case ship-copyless)
+  fm_write_meta "$dir/home/state/$id.meta" \
+    "window=isolated:fm-$id" "project=$dir/project" "kind=ship"
+  rc=0; run_teardown_args "$dir" "$id" --force || rc=$?
+  [ "$rc" -ne 0 ] || fail "a ship record that names no copy was cleaned up even though its work cannot be inspected"
+  assert_untouched "$dir" "$id" "copyless ship" "worktree identity"
+
+  id=scout-copyless-unreported
+  dir=$(make_case scout-copyless-unreported)
+  fm_write_meta "$dir/home/state/$id.meta" \
+    "window=isolated:fm-$id" "project=$dir/project" "kind=scout"
+  rc=0; run_teardown_args "$dir" "$id" || rc=$?
+  [ "$rc" -ne 0 ] || fail "a copyless scout without its report was cleaned up"
+  assert_untouched "$dir" "$id" "copyless scout without a report" "has no report"
+
+  id=tmux-endpoint-only
+  dir=$(make_case tmux-endpoint-only)
+  fm_write_meta "$dir/home/state/$id.meta" \
+    "window=isolated:fm-$id" "worktree=$dir/worktree" "project=$dir/project" "kind=ship"
+  rc=0; run_teardown_args "$dir" "$id" --endpoint-only || rc=$?
+  [ "$rc" -ne 0 ] || fail "--endpoint-only closed a tmux endpoint whose absence it cannot prove"
+  assert_untouched "$dir" "$id" "tmux --endpoint-only" "closes only Herdr panes"
+  assert_present "$dir/worktree/sentinel" "tmux --endpoint-only touched the copy"
+
+  rc=0; run_teardown_args "$dir" "$id" --endpoint-only --force || rc=$?
+  [ "$rc" -eq 2 ] || fail "--endpoint-only combined with --force was not rejected as an invalid request (rc=$rc)"
+  assert_untouched "$dir" "$id" "--endpoint-only --force" "cannot be combined"
+
+  id='mate-endpoint-only'
+  dir=$(make_case mate-endpoint-only)
+  fm_write_meta "$dir/home/state/$id.meta" \
+    "window=isolated:fm-$id" "home=$dir/worktree" "worktree=$dir/worktree" \
+    "project=$dir/project" "kind=secondmate"
+  rc=0; run_teardown_args "$dir" "$id" --endpoint-only || rc=$?
+  [ "$rc" -ne 0 ] || fail "--endpoint-only closed a secondmate's endpoint"
+  assert_untouched "$dir" "$id" "secondmate --endpoint-only" "does not apply to secondmate"
+
+  pass "fm-teardown: copyless ship and unreported scout records, tmux, forced, and secondmate --endpoint-only requests all refuse before any runtime call"
+}
+
 test_control_lock_contention_refuses_before_mutation() {
   local dir id=locked-task lock holder i=0 rc
   dir=$(make_case control-lock)
@@ -1431,6 +1490,7 @@ test_already_gone_endpoint_still_completes_without_a_refusal() {
 }
 
 test_invalid_endpoint_records_refuse_before_mutation
+test_copyless_and_endpoint_only_records_refuse_outside_their_scope
 test_control_lock_contention_refuses_before_mutation
 test_non_pool_teardown_ignores_task_set_lock
 test_metadata_lock_serializes_destructive_cleanup

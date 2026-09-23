@@ -25,6 +25,7 @@ It never broadens merge authority, bypasses guarded teardown, invents a brief fr
 4. Treat a teardown refusal as occupied capacity.
    Preserve the task and worktree, capture the refusal in a private detail file, and run `bin/fm-fleet-steward.sh exempt <id> --state <reconciled-state> --detail-file <path>`.
    This records the exact held-external steward exemption without discarding work or hiding sibling exemptions.
+   When that task's work is finished and only its idle Herdr pane is left, close the pane with `bin/fm-teardown.sh <id> --endpoint-only`, which keeps the record, copy, branch, and backlog item; its script header owns the retention checks.
 5. Refresh the queue with `bin/fm-fleet-steward.sh refresh` before selecting work.
    A failed refresh leaves the last known-good queue in place but does not authorize dispatch from it; report the refresh failure and stop the refill portion of this pass.
 6. Recompute current productive capacity from a fresh `bin/fm-fleet-snapshot.sh --json` result.

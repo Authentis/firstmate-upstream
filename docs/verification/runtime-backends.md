@@ -395,6 +395,10 @@ Removing the `--force` arm makes the forced generic case refuse; honoring `--for
 Restoring `fm_backend_orca_kill`'s swallowed tool check makes the CLI-absent adapter case report success.
 Restoring the replay's record removal makes the refused-close case lose its record at session start while the window stays live.
 
+A finished task whose record must stay has only its pane closed by `bin/fm-teardown.sh <id> --endpoint-only`, and a completed scout whose record no longer names an isolated copy now finishes through ordinary cleanup.
+`tests/fm-teardown-herdr-endpoint-only-e2e.test.sh` proves both against real lab panes, and proves that a live agent, an open decision, uncommitted changes, and an unfinished validation run each keep the pane and every record.
+Verified 2026-09-23 on Herdr 0.9.1 with `bash tests/fm-teardown-herdr-endpoint-only-e2e.test.sh`: all eight cases passed, and against the previous teardown the scout case failed with `REFUSED: task scout-copy-gone has a missing, empty, or ambiguous worktree identity; preserving task state.` while its pane stayed open.
+
 ## Claude workspace trust
 
 Verified 2026-09-03 on Claude Code 2.1.259.
