@@ -1024,6 +1024,33 @@ test_scout_and_secondmate_load_decision_hold_policy() {
   pass "fm-brief.sh: investigation and visual-review completions load the shared decision policy"
 }
 
+# Removing a scout's worktree discards its files and detached commits, but refs
+# it creates live in the shared repository and survive, so the scout scaffold
+# must scope its discard promise and warn about refs; ship briefs make neither claim.
+test_scout_scaffold_warns_that_refs_survive_teardown() {
+  local home scout ship
+  home="$TMP_ROOT/ref-persistence-home"
+  mkdir -p "$home/data"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" ref-scout some-proj --scout >/dev/null 2>&1
+  scout="$home/data/ref-scout/brief.md"
+  assert_grep "Branches, tags, stashes, and fetched refs are not: they live in the project's shared repository and survive teardown" "$scout" \
+    "scout brief did not warn that refs survive teardown"
+  assert_grep "separate scratch clone" "$scout" \
+    "scout brief did not name a safe scratch location for comparisons"
+  assert_grep "and that scratch clone." "$scout" \
+    "scout brief outside-worktree rule did not allow the scratch clone"
+  if grep -F "discarded at teardown" "$scout" | grep -vF "on the detached HEAD" | grep -q .; then
+    fail "scout brief promises an unconditional discard at teardown"
+  fi
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" ref-ship some-proj --mode local-only >/dev/null 2>&1
+  ship="$home/data/ref-ship/brief.md"
+  assert_no_grep "survive teardown" "$ship" \
+    "ship brief unexpectedly received the scout ref warning"
+  assert_no_grep "discarded at teardown" "$ship" \
+    "ship brief unexpectedly received the scout discard promise"
+  pass "fm-brief.sh: scout scaffold scopes its discard promise and warns that refs survive teardown"
+}
+
 # A scout brief offers the Lavish review loop only when bootstrap confirms the
 # supported lavish-axi floor at scaffold time; a missing or older build gets a
 # text-report instruction instead, so a scout never drives a below-floor Lavish.
@@ -1195,5 +1222,6 @@ test_pause_verb_override_renders_all_brief_scaffolds
 test_ship_and_scout_teach_validation_round_pause
 test_scout_and_secondmate_load_decision_hold_policy
 test_scout_and_secondmate_scaffold
+test_scout_scaffold_warns_that_refs_survive_teardown
 test_scout_lavish_line_follows_presentation_floor
 test_home_brief_include_is_appended_last

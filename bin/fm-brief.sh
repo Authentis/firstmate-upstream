@@ -423,12 +423,13 @@ $HERDR_SECTION
 # Setup
 You are in a disposable git worktree of $REPO, at a detached HEAD on a clean default branch.
 This is a SCOUT task: the deliverable is a written report, not a PR.
-The worktree is your laboratory - install, run, edit, and make scratch commits freely; all of it is discarded at teardown.
+The worktree is your laboratory - install, run, edit, and make scratch commits on the detached HEAD freely; all of it is discarded at teardown.
+Branches, tags, stashes, and fetched refs are not: they live in the project's shared repository and survive teardown, so never create them here - fetch or clone anything you need to compare into a separate scratch clone under your temporary scratch directory instead.
 The report is the only thing that survives, so anything worth keeping must be in it.
 
 # Rules
 1. Never push to any remote and never open a PR.
-2. Stay inside this worktree; the only files you may write outside it are the report and the status file below.
+2. Stay inside this worktree; the only files you may write outside it are the report, the status file below, and that scratch clone.
 3. Use gh-axi for GitHub operations and chrome-devtools-axi for browser operations.
 4. Report status by appending one line:
    \`echo "{state} [at=<epoch>]: {one short line}" >> $STATUS_FILE\`
