@@ -42,7 +42,7 @@ FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 
-# shellcheck source=bin/fm-dod-lib.sh
+# shellcheck source=/dev/null # Canonical lint root; following it here breaks the lint memory ceiling.
 . "$SCRIPT_DIR/fm-dod-lib.sh"
 # shellcheck source=bin/fm-pr-lib.sh
 . "$SCRIPT_DIR/fm-pr-lib.sh"

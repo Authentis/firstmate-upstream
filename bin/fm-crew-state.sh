@@ -177,7 +177,7 @@ STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 . "$SCRIPT_DIR/fm-pr-lib.sh"
 # shellcheck source=bin/fm-timeout-lib.sh
 . "$SCRIPT_DIR/fm-timeout-lib.sh"
-# shellcheck source=bin/fm-dod-lib.sh
+# shellcheck source=/dev/null # Canonical lint root; following it here breaks the lint memory ceiling.
 . "$SCRIPT_DIR/fm-dod-lib.sh"
 
 ID=${1:-}

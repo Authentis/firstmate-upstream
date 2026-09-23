@@ -31,7 +31,7 @@ STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 . "$SCRIPT_DIR/fm-wake-lib.sh"
 # shellcheck source=bin/fm-parent-channel-lib.sh
 . "$SCRIPT_DIR/fm-parent-channel-lib.sh"
-# shellcheck source=bin/fm-dod-lib.sh
+# shellcheck source=/dev/null # Canonical lint root; following it here breaks the lint memory ceiling.
 . "$SCRIPT_DIR/fm-dod-lib.sh"
 
 if [ "$#" -ne 2 ]; then

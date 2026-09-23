@@ -102,7 +102,7 @@ CREW_STATE_BIN="${FM_INACTIVE_CREW_STATE_BIN:-$SCRIPT_DIR/fm-crew-state.sh}"
 . "$SCRIPT_DIR/fm-parent-channel-lib.sh"
 # shellcheck source=bin/fm-timeout-lib.sh
 . "$SCRIPT_DIR/fm-timeout-lib.sh"
-# shellcheck source=bin/fm-dod-lib.sh
+# shellcheck source=/dev/null # Canonical lint root; following it here breaks the lint memory ceiling.
 . "$SCRIPT_DIR/fm-dod-lib.sh"
 
 FM_INACTIVE_RECONCILE_SECS=${FM_INACTIVE_RECONCILE_SECS:-900}
