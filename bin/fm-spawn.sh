@@ -138,7 +138,13 @@
 #   could later be released out from under its successor. A spawn that aborts
 #   while it still holds the allocation lock drops its own claim; an abort after
 #   metadata publication has released that lock leaves the claim in place, and
-#   the next spawn's claim replaces it.
+#   the next spawn's claim replaces it once no record names that task.
+#   Treehouse availability is not custody: before claiming, a spawn refuses a
+#   slot whose claim names another task that still has a record (or whose record
+#   cannot be located), whose claim is unreadable, or whose checkout holds a
+#   branch, and leaves that copy and claim untouched. The base refresh that
+#   follows refuses a dirty copy, and a clean one whose commits no branch, tag,
+#   or remote-tracking ref would still preserve after resetting it.
 #   The local root is whatever bin/fm-wake-lib.sh's
 #   fm_firstmate_root_home resolves, so a home seeded from another machine anchors
 #   that lock itself rather than failing to resolve one;
@@ -3068,8 +3074,69 @@ spawn_worktree_has_origin_config() { # <worktree>
   return 1
 }
 
+# Treehouse availability only says no process or lease holds a slot, and the
+# pane's `treehouse get` records nothing durable, so a slot whose worker exited
+# reads available while it still belongs to a recorded task. Before this spawn
+# claims or refreshes a pool slot, refuse one that is still somebody's custody:
+# a claim naming another task whose record survives (or whose record cannot be
+# located), an unreadable claim, or a checkout holding a branch name, which a
+# returned slot never does. A claim whose task no longer has a record is stale
+# and is replaced as before; the Git checks in freshen_spawn_worktree_base still
+# apply to it. Runs under the Treehouse project lock, so no other spawn can
+# claim the slot between this read and the claim.
+spawn_pool_slot_custody_refusal() { # <worktree> <task-id>
+  local worktree=$1 id=$2 owner owner_home owner_state branch
+  fm_treehouse_slot_owner_state "$worktree" "$id"
+  owner=$FM_TREEHOUSE_SLOT_OWNER_ID
+  owner_home=$FM_TREEHOUSE_SLOT_OWNER_HOME
+  case "$FM_TREEHOUSE_SLOT_OWNER" in
+    mine|absent) ;;
+    other)
+      if [ "$owner_home" = "$FM_HOME" ]; then
+        owner_state=$STATE
+      elif [ -n "$owner_home" ] && [ -d "$owner_home/state" ]; then
+        owner_state="$owner_home/state"
+      else
+        owner_state=
+      fi
+      case "$owner" in
+        ''|*[!A-Za-z0-9._-]*|.|..) owner_state= ;;
+      esac
+      if [ -z "$owner_state" ]; then
+        echo "error: Treehouse pool slot $worktree is claimed by task $owner${owner_home:+ (home $owner_home)}, whose record cannot be located; refusing to take over a copy that may still hold its work" >&2
+        return 0
+      fi
+      if [ -e "$owner_state/$owner.meta" ] || [ -L "$owner_state/$owner.meta" ]; then
+        echo "error: Treehouse pool slot $worktree still belongs to recorded task $owner${owner_home:+ (home $owner_home)}; refusing to take over or refresh its copy" >&2
+        return 0
+      fi
+      ;;
+    *)
+      echo "error: Treehouse pool slot $worktree has an unreadable owner claim; refusing to take over a copy whose owner cannot be read" >&2
+      return 0
+      ;;
+  esac
+  if branch=$(git -C "$worktree" symbolic-ref --quiet --short HEAD 2>/dev/null); then
+    echo "error: Treehouse pool slot $worktree holds branch '$branch', so it was never returned to the pool; refusing to take over or refresh its copy" >&2
+    return 0
+  fi
+  return 1
+}
+
+# The commits a reset of <worktree> to <commit> would leave on no branch, tag,
+# or remote-tracking ref. The checked-out branch itself is excluded because the
+# reset moves it. Prints the first such commit; fails if Git cannot answer.
+spawn_worktree_reset_would_orphan() { # <worktree> <commit>
+  local worktree=$1 commit=$2 branch
+  local -a exclude=()
+  if branch=$(git -C "$worktree" symbolic-ref --quiet --short HEAD 2>/dev/null); then
+    exclude=("--exclude=$branch")
+  fi
+  git -C "$worktree" rev-list --max-count=1 HEAD --not "$commit" ${exclude[@]+"${exclude[@]}"} --branches --tags --remotes
+}
+
 freshen_spawn_worktree_base() { # <worktree>
-  local worktree=$1 default target expected actual status
+  local worktree=$1 default target expected actual status orphan
   status=$(git -C "$worktree" -c core.quotePath=false status --porcelain) || {
     echo "error: could not inspect pooled worktree '$worktree' before refreshing its base" >&2
     return 1
@@ -3106,6 +3173,16 @@ freshen_spawn_worktree_base() { # <worktree>
     echo "error: '$target' is not a commit for pooled worktree '$worktree'; refusing to launch from a potentially stale base" >&2
     return 1
   }
+  # A clean tree is not an empty one: committed work that no ref preserves
+  # would survive a reset only in the reflog, so the copy is refused instead.
+  if ! orphan=$(spawn_worktree_reset_would_orphan "$worktree" "$expected"); then
+    echo "error: could not prove that refreshing pooled worktree '$worktree' to '$target' keeps its committed work; refusing to reset it" >&2
+    return 1
+  fi
+  if [ -n "$orphan" ]; then
+    echo "error: pooled worktree '$worktree' holds commit $orphan, which no branch, tag, or remote-tracking ref preserves and '$target' does not contain; refusing to discard committed work while refreshing its base" >&2
+    return 1
+  fi
   if ! git -C "$worktree" reset --hard "$target" >/dev/null; then
     echo "error: could not reset pooled worktree '$worktree' to '$target'; refusing to launch from a potentially stale base" >&2
     return 1
@@ -4034,6 +4111,10 @@ elif [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
   # Written under the Treehouse project lock held from before slot allocation
   # through metadata publication, so no other spawn or return sees a half-claim.
   if fm_treehouse_pool_slot "$PROJ_ABS" "$WT"; then
+    if spawn_pool_slot_custody_refusal "$WT" "$ID"; then
+      echo "error: leaving that copy and its claim untouched; inspect window $T" >&2
+      exit 1
+    fi
     if ! fm_treehouse_slot_owner_claim "$WT" "$ID" "$FM_HOME"; then
       echo "error: could not claim Treehouse pool slot $WT for task $ID; refusing to launch a worker whose slot cannot later be proved to be its own; inspect window $T" >&2
       exit 1

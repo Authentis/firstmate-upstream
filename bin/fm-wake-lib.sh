@@ -1296,6 +1296,8 @@ fm_treehouse_slot_owner_marker() {  # <worktree>
 }
 
 # Claim a pool slot for a task, replacing whatever the previous holder left.
+# bin/fm-spawn.sh refuses a slot whose claim still names a recorded task before
+# calling this, so only a stale claim is ever replaced.
 # The rename is atomic, so a reader either sees the old claim or the new one.
 fm_treehouse_slot_owner_claim() {  # <worktree> <task-id> <home>
   local worktree=$1 id=$2 home=$3 marker tmp
