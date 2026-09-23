@@ -720,7 +720,7 @@ test_pool_slot_claim_follows_the_spawn_outcome() {
   out=$(run_spawn "$id" --scout)
   status=$?
   [ "$status" -ne 0 ] || fail "spawn launched a worker on a slot it could not claim"
-  assert_contains "$out" "could not claim Treehouse pool slot" \
+  assert_contains "$out" "unreadable owner claim" \
     "spawn did not name the unclaimable slot as the reason"
   [ -d "$SLOT_CLAIM" ] || fail "spawn replaced the directory blocking its slot claim"
   [ ! -e "$HOME_DIR/state/$id.meta" ] || fail "spawn published a record for an unclaimable slot"
@@ -743,8 +743,194 @@ test_pool_slot_claim_follows_the_spawn_outcome() {
   pass "a Treehouse slot claim names the launched task, refuses when unclaimable, and is dropped by a locked abort"
 }
 
+# Everything a refused acquisition must leave byte-identical in a slot: its
+# HEAD, the branch it holds, every local branch and tag, its status, and the
+# bytes of every file in the checkout.
+slot_custody_snapshot() {  # <worktree>
+  local wt=$1
+  printf 'head=%s\n' "$(git -C "$wt" rev-parse HEAD)"
+  printf 'holds=%s\n' "$(git -C "$wt" symbolic-ref -q HEAD || echo detached)"
+  git -C "$wt" for-each-ref --format='%(refname) %(objectname)' refs/heads refs/tags
+  git -C "$wt" status --porcelain --untracked-files=all
+  (cd "$wt" && find . -path ./.git -prune -o -type f -print | LC_ALL=C sort | while IFS= read -r f; do
+    printf '%s %s\n' "$(git hash-object -- "$f")" "$f"
+  done)
+}
+
+# Commit work that exists nowhere else: no remote, branch, or tag other than
+# the one the slot may hold carries it.
+commit_unique_slot_work() {
+  printf 'unique work only this copy holds\n' > "$POOL_DIR/unique-work.txt"
+  git -C "$POOL_DIR" add unique-work.txt
+  git -C "$POOL_DIR" -c user.name='Firstmate Tests' -c user.email='tests@example.invalid' \
+    commit -qm 'unique work'
+}
+
+# A clean Treehouse slot that Treehouse would label available because no
+# process or lease holds it, while Firstmate's own evidence binds it to a task
+# and it carries unique committed work: the pool-slot shape a recorded task
+# leaves behind when its worker exits before cleanup. Each variant keeps one or
+# more of those custody signals; every one must refuse before any refresh and
+# leave the copy, its branch, its bytes, and its claim exactly as they were.
+test_protected_pool_slot_refuses_without_touching_it() {
+  local variant rec id owner out status before after claim_before expect
+  for variant in owned-branch-unique owned-detached-clean branch-unique detached-unique unlocatable-owner; do
+    id="pool-protected-$variant-r1"
+    owner="owner-$variant"
+    rec=$(make_case "protected-$variant" "$id")
+    read_case_record "$rec"
+    lay_out_as_pool_slot
+    case "$variant" in
+      owned-branch-unique|branch-unique)
+        git -C "$POOL_DIR" checkout --quiet -b "fm/$owner"
+        commit_unique_slot_work
+        ;;
+      detached-unique) commit_unique_slot_work ;;
+    esac
+    case "$variant" in
+      owned-*)
+        printf 'task=%s\nhome=%s\n' "$owner" "$HOME_DIR" > "$SLOT_CLAIM"
+        printf 'worktree=%s\n' "$POOL_DIR" > "$HOME_DIR/state/$owner.meta"
+        expect="still belongs to recorded task $owner"
+        ;;
+      unlocatable-owner)
+        printf 'task=%s\nhome=%s\n' "$owner" "$CASE_DIR/missing-home" > "$SLOT_CLAIM"
+        expect="whose record cannot be located"
+        ;;
+      branch-unique) expect="holds branch 'fm/$owner'" ;;
+      detached-unique) expect="which no branch, tag, or remote-tracking ref preserves" ;;
+    esac
+    [ -z "$(git -C "$POOL_DIR" status --porcelain)" ] || fail "$variant: fixture slot is not clean"
+    before=$(slot_custody_snapshot "$POOL_DIR")
+    claim_before=$(cat "$SLOT_CLAIM" 2>/dev/null || echo absent)
+
+    out=$(run_spawn "$id" --mode local-only --yolo off)
+    status=$?
+    [ "$status" -ne 0 ] || fail "$variant: spawn acquired a protected slot"$'\n'"$out"
+    assert_contains "$out" "$expect" "$variant: spawn did not name why the slot is protected"
+    assert_not_contains "$out" "spawned $id" "$variant: spawn reported a launch"
+    after=$(slot_custody_snapshot "$POOL_DIR")
+    [ "$after" = "$before" ] \
+      || fail "$variant: refusing the slot changed it"$'\n'"before:"$'\n'"$before"$'\n'"after:"$'\n'"$after"
+    case "$variant" in
+      detached-unique)
+        # No claim existed; the refused spawn must not leave one naming itself.
+        [ ! -e "$SLOT_CLAIM" ] || fail "$variant: refused spawn left a claim: $(cat "$SLOT_CLAIM")"
+        ;;
+      *)
+        [ "$(cat "$SLOT_CLAIM" 2>/dev/null || echo absent)" = "$claim_before" ] \
+          || fail "$variant: refused spawn rewrote the slot's claim: $(cat "$SLOT_CLAIM" 2>/dev/null)"
+        ;;
+    esac
+    [ ! -e "$HOME_DIR/state/$id.meta" ] || fail "$variant: refused spawn published task metadata"
+    if [ "${FM_TEST_EVIDENCE:-0}" = 1 ]; then
+      printf '# evidence: %s\n%s\nexit=%s\n' "$variant" "$out" "$status"
+    fi
+    pass "protected pool slot ($variant) refuses acquisition and stays byte-identical"
+  done
+}
+
+# Controls for the guard above: a clean slot that nothing owns still acquires
+# and refreshes normally, a claim whose task has no record left is stale and is
+# replaced, and a commit the target lacks but a remote-tracking ref preserves is
+# not unique work.
+test_free_pool_slot_still_acquires() {
+  local variant rec id out status current preserved
+  for variant in stale-claim preserved-elsewhere; do
+    id="pool-free-$variant-r1"
+    rec=$(make_case "free-$variant" "$id")
+    read_case_record "$rec"
+    lay_out_as_pool_slot
+    case "$variant" in
+      stale-claim)
+        printf 'task=%s\nhome=%s\n' "long-gone-task" "$HOME_DIR" > "$SLOT_CLAIM"
+        ;;
+      preserved-elsewhere)
+        commit_unique_slot_work
+        preserved=$(git -C "$POOL_DIR" rev-parse HEAD)
+        git -C "$POOL_DIR" push --quiet origin HEAD:refs/heads/kept-feature
+        git -C "$POOL_DIR" fetch --quiet origin
+        ;;
+    esac
+
+    out=$(run_spawn "$id" --mode local-only --yolo off)
+    status=$?
+    expect_code 0 "$status" "$variant: spawn should acquire a genuinely free slot"$'\n'"$out"
+    current=$(git -C "$POOL_DIR" rev-parse origin/main)
+    [ "$(git -C "$POOL_DIR" rev-parse HEAD)" = "$current" ] \
+      || fail "$variant: spawn did not refresh the free slot to origin/main"
+    grep -Fxq -- "task=$id" "$SLOT_CLAIM" \
+      || fail "$variant: the free slot's claim does not name the spawned task: $(cat "$SLOT_CLAIM")"
+    if [ "$variant" = preserved-elsewhere ]; then
+      [ "$(git -C "$POOL_DIR" rev-parse origin/kept-feature)" = "$preserved" ] \
+        || fail "$variant: the preserved commit lost its remote-tracking ref"
+    fi
+    pass "free pool slot ($variant) still acquires and refreshes normally"
+  done
+}
+
+# Two spawns racing for the same available slot: the allocation locks let at
+# most one launch, and whichever loses leaves the winner's claim, record, and
+# refreshed copy alone. The winner's copy then stays protected against a later
+# acquisition while its record survives, even with no worker running in it.
+test_concurrent_pool_slot_claims_keep_one_owner() {
+  local rec id_a id_b out_a out_b status_a status_b winner loser before out status
+  id_a='pool-race-a-r1'
+  id_b='pool-race-b-r1'
+  rec=$(make_case race "$id_a")
+  read_case_record "$rec"
+  fm_test_spawn_brief "$HOME_DIR" "$id_b"
+  lay_out_as_pool_slot
+
+  run_spawn "$id_a" --mode local-only --yolo off > "$CASE_DIR/a.out" 2>&1 &
+  local pid_a=$!
+  run_spawn "$id_b" --mode local-only --yolo off > "$CASE_DIR/b.out" 2>&1 &
+  local pid_b=$!
+  wait "$pid_a"; status_a=$?
+  wait "$pid_b"; status_b=$?
+  out_a=$(cat "$CASE_DIR/a.out")
+  out_b=$(cat "$CASE_DIR/b.out")
+  if [ "$status_a" -eq 0 ] && [ "$status_b" -ne 0 ]; then
+    winner=$id_a; loser=$id_b
+  elif [ "$status_b" -eq 0 ] && [ "$status_a" -ne 0 ]; then
+    winner=$id_b; loser=$id_a
+  elif [ "$status_a" -ne 0 ] && [ "$status_b" -ne 0 ]; then
+    # Both lost a lock race; neither may have touched the slot.
+    [ ! -e "$SLOT_CLAIM" ] || fail "two refused spawns left a claim: $(cat "$SLOT_CLAIM")"
+    [ "$(git -C "$POOL_DIR" rev-parse HEAD)" = "$INITIAL_SHA" ] || fail "two refused spawns moved the slot"
+    pass "concurrent slot acquisitions both refused without touching the slot"
+    return
+  else
+    fail "both racing spawns launched into one slot"$'\n'"A: $out_a"$'\n'"B: $out_b"
+  fi
+  grep -Fxq -- "task=$winner" "$SLOT_CLAIM" \
+    || fail "the slot claim does not name the launched task $winner: $(cat "$SLOT_CLAIM")"
+  [ -e "$HOME_DIR/state/$winner.meta" ] || fail "the launched task $winner has no record"
+  [ ! -e "$HOME_DIR/state/$loser.meta" ] || fail "the refused task $loser published a record"
+
+  # The winner's worker exits and Treehouse would label the slot available
+  # again; its record and claim still bind it, so a later acquisition refuses.
+  git -C "$POOL_DIR" checkout --quiet -b "fm/$winner"
+  commit_unique_slot_work
+  before=$(slot_custody_snapshot "$POOL_DIR")
+  fm_test_spawn_brief "$HOME_DIR" pool-race-late-r1
+  out=$(run_spawn pool-race-late-r1 --mode local-only --yolo off)
+  status=$?
+  [ "$status" -ne 0 ] || fail "a later spawn took over the launched task's slot"$'\n'"$out"
+  assert_contains "$out" "still belongs to recorded task $winner" \
+    "the later spawn did not name the slot's recorded owner"
+  [ "$(slot_custody_snapshot "$POOL_DIR")" = "$before" ] \
+    || fail "the later spawn changed the owned slot"
+  grep -Fxq -- "task=$winner" "$SLOT_CLAIM" \
+    || fail "the later spawn replaced the owner's claim: $(cat "$SLOT_CLAIM")"
+  pass "concurrent slot acquisitions keep exactly one owner, and its slot stays protected"
+}
+
 test_remote_seeded_home_spawns_from_treehouse_pool
 test_pool_slot_claim_follows_the_spawn_outcome
+test_protected_pool_slot_refuses_without_touching_it
+test_free_pool_slot_still_acquires
+test_concurrent_pool_slot_claims_keep_one_owner
 test_linked_spawning_home_rejects_primary_before_refresh
 test_stale_pool_base_refreshes_before_branching
 test_non_main_default_branch_refreshes_before_branching
