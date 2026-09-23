@@ -399,6 +399,10 @@ A finished task whose record must stay has only its pane closed by `bin/fm-teard
 `tests/fm-teardown-herdr-endpoint-only-e2e.test.sh` proves both against real lab panes, and proves that a live agent, an open decision, uncommitted changes, and an unfinished validation run each keep the pane and every record.
 Verified 2026-09-23 on Herdr 0.9.1 with `bash tests/fm-teardown-herdr-endpoint-only-e2e.test.sh`: all eight cases passed, and against the previous teardown the scout case failed with `REFUSED: task scout-copy-gone has a missing, empty, or ambiguous worktree identity; preserving task state.` while its pane stayed open.
 
+`bin/fm-control.sh <id> exit` hands a stopped Herdr ship or scout's pane to that same `--endpoint-only` owner, so a closed agent's unused pane is gone after the supported exit.
+`tests/fm-control-herdr-exit-retire-e2e.test.sh` proves it against real lab panes, and proves that a live agent exit cannot prove stopped, uncommitted work, an unfinished validation run, and an open decision each keep the pane and every record.
+Verified 2026-09-23 on Herdr 0.9.1 with `bash tests/fm-control-herdr-exit-retire-e2e.test.sh`: all six cases passed, and against the previous `fm-control.sh` the first case failed with `not ok - a closed agent's pane is still open after exit: already-stopped ship-agent-closed harness=claude backend=herdr ...`.
+
 ## Claude workspace trust
 
 Verified 2026-09-03 on Claude Code 2.1.259.

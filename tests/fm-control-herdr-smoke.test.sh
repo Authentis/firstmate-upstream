@@ -67,6 +67,10 @@ git -C "$PROJ" -c user.name='Firstmate Tests' -c user.email='tests@example.inval
 git -C "$PROJ" worktree add --quiet -b hsmoke "$WT"
 PROJ_REAL=$(cd "$PROJ" && pwd -P)
 WT_REAL=$(cd "$WT" && pwd -P)
+# Uncommitted work keeps the pane through every exit below, so this smoke can
+# keep driving the same endpoint; exit retiring an unused pane is pinned in
+# tests/fm-control-herdr-exit-retire-e2e.test.sh.
+printf 'draft\n' > "$WT/draft.txt"
 
 # shellcheck source=/dev/null
 . "$ROOT/bin/fm-backend.sh"

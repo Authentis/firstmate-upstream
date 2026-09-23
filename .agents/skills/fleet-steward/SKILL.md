@@ -24,7 +24,7 @@ It never broadens merge authority, bypasses guarded teardown, invents a brief fr
    Successful teardown owns metadata removal and the fused backlog close or retain transition, so never close the row separately.
 4. On a teardown refusal, preserve the task and worktree, capture the refusal in a private detail file, and run `bin/fm-fleet-steward.sh exempt <id> --state <reconciled-state> --detail-file <path>`.
    This binds the steward exemption to the exact reconciled state without discarding work or hiding sibling exemptions; the script refuses if that state has since changed.
-   When that task's work is finished and only its idle Herdr pane is left, close the pane with `bin/fm-teardown.sh <id> --endpoint-only`, which keeps the record, copy, branch, and backlog item; its script header owns the retention checks.
+   When that task's work is finished and only its idle Herdr pane is left, close it with `bin/fm-control.sh <id> exit`, which stops any agent still there and hands the pane to `bin/fm-teardown.sh <id> --endpoint-only`, keeping the record, copy, branch, and backlog item; that script header owns the retention checks.
 5. Refresh the queue with `bin/fm-fleet-steward.sh refresh` before selecting work.
    A failed refresh leaves the last known-good queue in place but does not authorize dispatch from it; report the refresh failure and stop the refill portion of this pass.
 6. Recompute current productive capacity from a fresh `bin/fm-fleet-snapshot.sh --json` result.

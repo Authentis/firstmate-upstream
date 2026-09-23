@@ -26,8 +26,9 @@
 #              classify that. Cancellation is confirmed only from an adapter-
 #              owned acknowledgement and otherwise reported unconfirmed. Busy
 #              state is never rewritten as proof of the action.
-#   exit       Stop the agent, preserving its terminal endpoint, worktree, and
-#              every uncommitted change. Interrupts first when the task reads
+#   exit       Stop the agent, preserving its worktree, every uncommitted
+#              change, and (apart from the Herdr hand-off below) its terminal
+#              endpoint. Interrupts first when the task reads
 #              busy, then submits the harness's exit command. Postcondition:
 #              the backend's recovery-grade classifier reports the agent gone.
 #              Already-stopped is success (idempotent). An endpoint that reads
@@ -45,6 +46,11 @@
 #              endpoint, so this verb cannot tell a destroyed window from one on
 #              a tmux server it cannot address, and it will not claim a stop it
 #              cannot see.
+#              Once a Herdr ship or scout reads stopped, exit hands its unused
+#              pane to bin/fm-teardown.sh --endpoint-only and prints
+#              `pane=retired` or `pane=kept` with that owner's reason, so a
+#              closed agent does not leave an idle shell behind; relaunch's own
+#              stop never does, because it reuses the endpoint.
 #   relaunch   Transactionally replace the running agent with a new one, in the
 #              SAME worktree - and the same endpoint whenever that endpoint
 #              still exists - on the same or a newly chosen
@@ -78,9 +84,9 @@
 #              running.
 #
 # Teardown and discard are NOT verbs here and never will be. `exit` stops an
-# agent and preserves everything else; removing a worktree, killing an
-# endpoint, or discarding work stays with bin/fm-teardown.sh, which owns the
-# landed-work test.
+# agent and preserves everything else; removing a worktree, closing an
+# endpoint (including exit's Herdr pane hand-off), or discarding work stays
+# with bin/fm-teardown.sh, which owns the landed-work test.
 #
 # `resume` is not a verb: it is not deterministic across the verified adapters
 # (bin/fm-control-lib.sh's header owns that reasoning). `relaunch` covers the
@@ -566,6 +572,30 @@ do_exit() {
   printf 'stopped'
 }
 
+# retire_stopped_pane <exit-result>: after the exit verb (never relaunch's
+# internal stop, which reuses the endpoint) proved a Herdr ship or scout's
+# agent gone, hand its now-unused pane to the one owner allowed to close it,
+# bin/fm-teardown.sh --endpoint-only. That owner re-proves the agent gone and
+# keeps the pane for an open decision, uncommitted work, or an unfinished
+# validation run, and keeps every record, copy, branch, and backlog item either
+# way. The stop already holds, so a kept pane is reported, never an exit
+# failure. The control lock is released first because teardown takes it.
+retire_stopped_pane() {
+  local out rc=0
+  case "$1" in stopped|already-stopped) ;; *) return 0 ;; esac
+  [ "$BACKEND" = herdr ] || return 0
+  case "$KIND" in ship|scout) ;; *) return 0 ;; esac
+  CONTROL_LOCK_HELD=0
+  fm_lock_release "$CONTROL_LOCK" || true
+  fm_lease_guard_release || true
+  out=$("$SCRIPT_DIR/fm-teardown.sh" "$ID" --endpoint-only 2>&1) || rc=$?
+  if [ "$rc" -eq 0 ]; then
+    echo "pane=retired $ID endpoint=$T"
+  else
+    echo "pane=kept $ID endpoint=$T: $(printf '%s' "$out" | tr '\n' ' ')"
+  fi
+}
+
 # --- transactional relaunch -------------------------------------------------
 #
 # The transaction's durable record is state/<id>.control-relaunch, with the
@@ -972,6 +1002,7 @@ case "$VERB" in
   exit)
     result=$(do_exit)
     echo "$result $ID harness=$HARNESS backend=$BACKEND endpoint=$T worktree=$WT"
+    retire_stopped_pane "$result"
     ;;
   relaunch)
     do_relaunch
