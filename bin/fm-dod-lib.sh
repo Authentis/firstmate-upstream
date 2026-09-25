@@ -154,13 +154,13 @@ fm_ship_rule_one() {  # <no-mistakes|direct-PR|local-only> <task-id> [branch] [<
   fi
   case "$mode" in
     direct-PR)
-      printf '%s\n' "1. Never push to the default branch (push only your \`$branch\` branch). Never merge a PR."
+      printf '%s\n' "1. Never push to the default branch (push only your \`$branch\` branch). Never merge a PR. Never push a \`preserve/\`, \`archive/\`, or \`work/*-baseline\` safety ref to any remote unless the task needs it there; keep it local."
       ;;
     local-only)
       printf '%s\n' "1. Never push to any remote and never open a PR. Work only on your \`$branch\` branch; firstmate handles the merge into local \`main\`."
       ;;
     no-mistakes)
-      printf '%s\n' '1. Never push to the default branch. Never merge a PR.'
+      printf '%s\n' "1. Never push to the default branch. Never merge a PR. Never push a \`preserve/\`, \`archive/\`, or \`work/*-baseline\` safety ref to any remote unless the task needs it there; keep it local."
       ;;
     *)
       echo "error: fm_ship_rule_one: unknown delivery mode '$mode'" >&2

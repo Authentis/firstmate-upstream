@@ -2056,6 +2056,53 @@ test_landed_squash_merged_task_branch_is_removed_when_copy_is_detached() {
   pass "a squash-merged task branch is removed when the copy is detached at the merged head"
 }
 
+# preserve/, archive/, and work/*-baseline refs retire, locally and on origin,
+# once their content is proven on the default branch; anything unproven, and
+# any ref outside those names, is kept.
+test_landed_retirement_refs_are_retired_locally_and_on_origin() {
+  local case_dir rc proj main blob tree unlanded
+  case_dir=$(make_case retirement-refs)
+  write_meta "$case_dir" local-only ship
+  wt_commit "$case_dir" "landed work"
+  proj="$case_dir/project"
+  git -C "$proj" update-ref refs/heads/main "$(git -C "$case_dir/wt" rev-parse HEAD)"
+  main=$(git -C "$proj" rev-parse refs/remotes/origin/main)
+  blob=$(printf 'unlanded\n' | git -C "$proj" hash-object -w --stdin)
+  tree=$(printf '100644 blob %s\tunlanded.txt\n' "$blob" | git -C "$proj" mktree)
+  unlanded=$(git -C "$proj" -c user.email=t@t -c user.name=t commit-tree "$tree" -p "$main" -m unlanded)
+  git -C "$proj" update-ref refs/heads/preserve/landed "$main"
+  git -C "$proj" update-ref refs/heads/work/old-baseline "$main"
+  git -C "$proj" update-ref refs/heads/work/in-progress "$main"
+  git -C "$proj" update-ref refs/heads/archive/unlanded "$unlanded"
+  git -C "$proj" push -q origin "$main:refs/heads/archive/remote-landed" \
+    "$unlanded:refs/heads/preserve/remote-unlanded"
+  git -C "$proj" fetch -q origin
+
+  set +e
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 0 "$rc" "retirement-refs: landed teardown should succeed"
+  for ref in refs/heads/preserve/landed refs/heads/work/old-baseline; do
+    ! git -C "$proj" rev-parse --quiet --verify "$ref" >/dev/null \
+      || fail "retirement-refs: landed $ref survived teardown"
+  done
+  for ref in refs/heads/work/in-progress refs/heads/archive/unlanded; do
+    git -C "$proj" rev-parse --quiet --verify "$ref" >/dev/null \
+      || fail "retirement-refs: $ref was deleted though it is not a proven-landed retirement ref"
+  done
+  ! git -C "$case_dir/origin.git" rev-parse --quiet --verify refs/heads/archive/remote-landed >/dev/null \
+    || fail "retirement-refs: origin's landed archive/remote-landed survived teardown"
+  git -C "$case_dir/origin.git" rev-parse --quiet --verify refs/heads/preserve/remote-unlanded >/dev/null \
+    || fail "retirement-refs: origin's unlanded preserve/remote-unlanded was deleted"
+  assert_grep 'retired landed remote branch origin/archive/remote-landed' "$case_dir/stdout" \
+    "retirement-refs: the remote retirement was not reported"
+  assert_grep 'kept 2 preserve/, archive/, or work/*-baseline ref' "$case_dir/stderr" \
+    "retirement-refs: the kept unproven refs were not reported"
+  pass "teardown retires proven-landed preserve/, archive/, and work/*-baseline refs locally and on origin and keeps the rest"
+}
+
 test_detached_teardown_keeps_task_branch_with_unlanded_commits() {
   local case_dir rc landed extra
   case_dir=$(make_case branch-keep-unlanded)
@@ -4088,6 +4135,7 @@ test_local_only_force_overrides_unpushed
 test_landed_task_branch_is_removed_when_checked_out
 test_landed_task_branch_is_removed_when_copy_is_detached_at_its_tip
 test_landed_squash_merged_task_branch_is_removed_when_copy_is_detached
+test_landed_retirement_refs_are_retired_locally_and_on_origin
 test_detached_teardown_keeps_task_branch_with_unlanded_commits
 test_detached_teardown_keeps_mismatched_task_branch
 test_forced_detached_teardown_keeps_unproven_task_branch

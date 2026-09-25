@@ -69,6 +69,9 @@
 # A gh lookup error falls back to the content check; if that is also inconclusive,
 # teardown refuses rather than risk discarding unlanded work.
 # Uncommitted changes are never landed.
+# Those same proofs also retire preserve/*, archive/*, and work/*-baseline refs,
+# locally and on origin, after the task branch; retire_proven_retirement_refs
+# owns that rule and keeps and counts every ref it cannot prove landed.
 # local-only projects additionally accept work merged into the local default
 # branch (firstmate performs that merge after configured approval) as a fallback
 # for the common case where there is no remote at all.
@@ -1518,6 +1521,7 @@ EOF
 # for both the PR state and head. Returns non-zero when the PR is not merged, the
 # current work is not contained in the PR head, no PR is found, or any gh error
 # occurs - the caller then falls back to the content check.
+TEARDOWN_MERGED_PR_HEAD=
 pr_is_merged() {
   local branch=$1 target view state remainder head resolved_url current landed=0
   if [ -n "$PR_URL" ]; then
@@ -1546,6 +1550,7 @@ pr_is_merged() {
     landed=1
   fi
   [ "$landed" = 1 ] || return 1
+  TEARDOWN_MERGED_PR_HEAD=$head
   if [ -z "$PR_URL" ]; then
     [ -n "$resolved_url" ] || return 1
     PR_URL=$resolved_url
@@ -1561,19 +1566,32 @@ pr_is_merged() {
 # "added". Returns non-zero when inconclusive (no default ref, or a merge conflict),
 # so the caller refuses rather than guesses.
 content_in_default() {
-  local name ref default_tree merged_tree
+  local ref
+  ref=$(fresh_default_ref) || return 1
+  commit_content_in "$ref" HEAD
+}
+
+# Echo the up-to-date default branch ref: origin's, fetched first, or the local
+# default branch when there is no origin. Non-zero when neither can be read.
+fresh_default_ref() {
+  local name
   name=$(default_branch) || return 1
   if git -C "$WT" remote get-url origin >/dev/null 2>&1; then
     git -C "$WT" fetch --quiet origin "+refs/heads/$name:refs/remotes/origin/$name" >/dev/null 2>&1 || return 1
-    ref="refs/remotes/origin/$name"
+    echo "refs/remotes/origin/$name"
   elif git -C "$WT" rev-parse --quiet --verify "refs/heads/$name" >/dev/null 2>&1; then
-    ref="refs/heads/$name"
+    echo "refs/heads/$name"
   else
     return 1
   fi
+}
+
+# Does <ref> already contain everything <commit> introduces? See content_in_default.
+commit_content_in() {  # <ref> <commit>
+  local ref=$1 commit=$2 default_tree merged_tree
   default_tree=$(git -C "$WT" rev-parse --quiet --verify "$ref^{tree}" 2>/dev/null) || return 1
   [ -n "$default_tree" ] || return 1
-  merged_tree=$(git -C "$WT" merge-tree --write-tree "$ref" HEAD 2>/dev/null) || return 1
+  merged_tree=$(git -C "$WT" merge-tree --write-tree "$ref" "$commit" 2>/dev/null) || return 1
   merged_tree=$(printf '%s\n' "$merged_tree" | head -1)
   [ "$merged_tree" = "$default_tree" ]
 }
@@ -1970,6 +1988,70 @@ retire_task_branch() {  # <worktree>
   if ! out=$(git -C "$wt" branch -D -- "$TASK_BRANCH" 2>&1); then
     echo "warning: could not delete task branch $TASK_BRANCH: $out" >&2
   fi
+}
+
+# Retirement refs: preserve/*, archive/*, and work/*-baseline branches are
+# safety copies a worker or operator makes around risky history work, and they
+# must not outlive their purpose locally or on origin. Each one, local or
+# origin's (as last fetched), is deleted once the landed-work test's own proofs
+# show its content is on the default branch: its tip is contained in the
+# up-to-date default branch, its content already is there (commit_content_in),
+# or its tip is contained in the merged PR head this teardown proved. An
+# unproven ref is kept and counted. A local branch checked out anywhere is kept
+# by git itself; origin's copy is deleted only while it still points at the
+# proven tip (--force-with-lease). Failures are reported, never fatal.
+retire_proven_retirement_refs() {  # <worktree>
+  local wt=$1 refs default_ref refname tip name kept=0 proven out
+  refs=$(git -C "$wt" for-each-ref --format='%(refname) %(objectname)' \
+    refs/heads/preserve refs/heads/archive refs/heads/work \
+    refs/remotes/origin/preserve refs/remotes/origin/archive refs/remotes/origin/work 2>/dev/null) || return 0
+  [ -n "$refs" ] || return 0
+  if ! default_ref=$(fresh_default_ref); then
+    echo "warning: kept preserve/, archive/, and work/*-baseline refs: the default branch could not be read to prove them landed" >&2
+    return 0
+  fi
+  while read -r refname tip; do
+    [ -n "$refname" ] || continue
+    case "$refname" in
+      refs/heads/work/*|refs/remotes/origin/work/*)
+        case "$refname" in *-baseline) ;; *) continue ;; esac
+        ;;
+    esac
+    proven=0
+    if git -C "$wt" merge-base --is-ancestor "$tip" "$default_ref" 2>/dev/null \
+       || commit_content_in "$default_ref" "$tip"; then
+      proven=1
+    elif [ -n "$TEARDOWN_MERGED_PR_HEAD" ] \
+       && git -C "$wt" merge-base --is-ancestor "$tip" "$TEARDOWN_MERGED_PR_HEAD" 2>/dev/null; then
+      proven=1
+    fi
+    if [ "$proven" != 1 ]; then
+      kept=$((kept + 1))
+      continue
+    fi
+    case "$refname" in
+      refs/heads/*)
+        name=${refname#refs/heads/}
+        if out=$(git -C "$wt" branch -D -- "$name" 2>&1); then
+          echo "retired landed branch $name"
+        else
+          echo "warning: could not retire landed branch $name: $out" >&2
+        fi
+        ;;
+      refs/remotes/origin/*)
+        name=${refname#refs/remotes/origin/}
+        if out=$(git -C "$wt" push --quiet "--force-with-lease=refs/heads/$name:$tip" origin ":refs/heads/$name" 2>&1); then
+          echo "retired landed remote branch origin/$name"
+        else
+          echo "warning: could not retire landed remote branch origin/$name: $out" >&2
+        fi
+        ;;
+    esac
+  done <<EOF
+$refs
+EOF
+  [ "$kept" -eq 0 ] \
+    || echo "note: kept $kept preserve/, archive/, or work/*-baseline ref(s) whose content is not proven on the default branch" >&2
 }
 
 # Fix 1 (see script header): does the active-or-most-recent no-mistakes run in
@@ -3739,6 +3821,7 @@ if [ "$BACKEND" = orca ] && [ "$KIND" != secondmate ]; then
   fi
   if [ -d "$WT" ]; then
     retire_task_branch "$WT"
+    retire_proven_retirement_refs "$WT"
     rm -f "$WT/.claude/settings.local.json" "$WT/.opencode/plugins/fm-turn-end.js" \
       "$WT/.opencode/plugins/fm-busy-state.js" \
       "$WT/.fm-grok-turnend" "$WT/.fm-kimi-turnend"
@@ -3752,6 +3835,7 @@ elif [ "$KIND" != secondmate ] && ! teardown_owns_worktree; then
   :
 elif [ -d "$WT" ] && [ "$KIND" != secondmate ]; then
   retire_task_branch "$WT"
+  retire_proven_retirement_refs "$WT"
   # Remove our hook file so a reused pool worktree cannot fire signals for a dead task.
   rm -f "$WT/.claude/settings.local.json" "$WT/.opencode/plugins/fm-turn-end.js" \
     "$WT/.fm-grok-turnend" "$WT/.fm-kimi-turnend"
