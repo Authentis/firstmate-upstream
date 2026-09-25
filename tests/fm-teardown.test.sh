@@ -2196,6 +2196,30 @@ test_detached_refusal_keeps_task_branch() {
   pass "a refused teardown of a detached copy keeps the task branch"
 }
 
+# The recorded branch= names the task branch, so a project's registered
+# prefix is retired too, even with the copy detached at the landed tip.
+test_landed_task_branch_is_removed_by_its_recorded_name() {
+  local case_dir rc tip
+  case_dir=$(make_case branch-retire-recorded-name)
+  write_meta "$case_dir" local-only ship
+  printf 'branch=feat/task-x1\n' >> "$case_dir/state/task-x1.meta"
+  git -C "$case_dir/wt" checkout -q -b feat/task-x1
+  wt_commit "$case_dir" "landed work"
+  tip=$(git -C "$case_dir/wt" rev-parse HEAD)
+  git -C "$case_dir/project" update-ref refs/heads/main "$tip"
+  git -C "$case_dir/wt" checkout -q --detach
+
+  set +e
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 0 "$rc" "branch-retire-recorded-name: landed teardown should succeed"
+  ! git -C "$case_dir/project" rev-parse --quiet --verify refs/heads/feat/task-x1 >/dev/null \
+    || fail "branch-retire-recorded-name: the recorded task branch survived a successful teardown"
+  pass "a landed task branch is removed by its recorded branch= name, not only fm/<id>"
+}
+
 test_task_branch_removal_failure_is_reported() {
   local case_dir rc tip
   case_dir=$(make_case branch-remove-fails)
@@ -4140,6 +4164,7 @@ test_detached_teardown_keeps_task_branch_with_unlanded_commits
 test_detached_teardown_keeps_mismatched_task_branch
 test_forced_detached_teardown_keeps_unproven_task_branch
 test_detached_refusal_keeps_task_branch
+test_landed_task_branch_is_removed_by_its_recorded_name
 test_task_branch_removal_failure_is_reported
 test_secondmate_pr_registration_publishes_ready_line
 test_secondmate_home_teardown_delivers_final_line_or_refuses

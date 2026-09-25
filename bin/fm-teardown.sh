@@ -1937,12 +1937,16 @@ validate_worktree_teardown_safety() {
   TEARDOWN_HEAD_WORK_PROVEN=1
 }
 
-# The task's own branch is named by its durable record - every ship brief and
-# promotion creates fm/<task-id>, and bin/fm-merge-local.sh lands exactly that
-# name - never by whatever the copy has checked out at cleanup time. A copy left
-# detached at its landed tip therefore still retires its branch, while a branch
-# the copy merely has checked out under another name is detached and kept.
-TASK_BRANCH="fm/$ID"
+# The task's own branch is named by its durable record - the branch= that spawn
+# and promotion record (a project's registered prefix plus the task id), else
+# fm/<task-id> for a record that predates it, exactly as bin/fm-merge-local.sh
+# lands it - never by whatever the copy has checked out at cleanup time. A copy
+# left detached at its landed tip therefore still retires its branch, while a
+# branch the copy merely has checked out under another name is detached and kept.
+TASK_BRANCH=$(meta_value "$META" branch 2>/dev/null || true)
+if [ -z "$TASK_BRANCH" ] || ! git check-ref-format --branch "$TASK_BRANCH" >/dev/null 2>&1; then
+  TASK_BRANCH="fm/$ID"
+fi
 TEARDOWN_HEAD_WORK_PROVEN=0
 
 # Delete TASK_BRANCH from worktree $1 only when nothing it holds can be lost:
