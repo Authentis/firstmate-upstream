@@ -144,6 +144,13 @@
 #                                   not misread as pending input.
 #          FM_INJECT_CONFIRM_SLEEP  seconds between daemon submit checks
 #                                   (default 0.5)
+#          FM_ESCALATE_ITEM_MAX_CHARS / FM_ESCALATE_DIGEST_MAX_CHARS
+#                                   per-item and per-digest size bounds
+#                                   (defaults 1000 and 6000); overflow items
+#                                   stay buffered for the next digest
+#          FM_STATUS_FIRST_SCAN_MAX_BYTES  how much of a status log with no
+#                                   usable read position is classified, from
+#                                   its end (default 65536)
 #          FM_LOG_MAX_BYTES / FM_LOG_KEEP_LINES / FM_CRASH_*  log + crash guards
 #          FM_STATE_OVERRIDE        alternate state dir (testing)
 #          Logs each wake to state/.supervise-daemon.log (size-capped). Single
@@ -194,6 +201,10 @@ FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 # shellcheck source=bin/fm-busy-lib.sh
 . "$FM_DAEMON_DIR/fm-busy-lib.sh"
 
+# The shared per-line cut (fm_cap_line_var) that bounds each escalation item.
+# shellcheck source=bin/fm-line-cap-lib.sh
+. "$FM_DAEMON_DIR/fm-line-cap-lib.sh"
+
 # --- tunables ---------------------------------------------------------------
 # Supervisor backends this daemon knows how to inject into today. zellij, orca,
 # and cmux are real backends elsewhere in firstmate (bin/fm-backend.sh) but this
@@ -230,6 +241,19 @@ CRASH_BACKOFF_DEFAULT=60
 CRASH_NORMAL_SLEEP_DEFAULT=5
 LOG_MAX_BYTES_DEFAULT=1048576
 LOG_KEEP_LINES_DEFAULT=2000
+# Size bounds on what the daemon injects. The digest is typed as one
+# command-line argument, so an unbounded one can exceed the exec limit (macOS
+# ARG_MAX is 1 MiB in total; Linux caps one argument at 128 KiB) and fail every
+# retry before reaching the pane. Each buffered item is cut to
+# ESCALATE_ITEM_MAX_CHARS, and one digest carries only the oldest items that fit
+# ESCALATE_DIGEST_MAX_CHARS; the rest stay buffered for the next digest. The
+# digest budget also stays inside the rows the herdr pre-Enter payload proof
+# captures (fm_backend_herdr_proof_lines). A status log with no usable read
+# position is classified from at most its last STATUS_FIRST_SCAN_MAX_BYTES.
+ESCALATE_ITEM_MAX_CHARS_DEFAULT=1000
+ESCALATE_DIGEST_MAX_CHARS_DEFAULT=6000
+ESCALATE_ITEM_CUT_SUFFIX=' [truncated; full text in its state/<task>.status log]'
+STATUS_FIRST_SCAN_MAX_BYTES_DEFAULT=65536
 
 # --- presence-gating --------------------------------------------------------
 # bin/fm-operational-input.sh owns the U+2063 FIRSTMATE_OP bytes and typed
@@ -575,13 +599,33 @@ _seen_status_path() {  # <state> <task>
 }
 
 # The byte offset in <task>'s status log through which this daemon has
-# successfully classified content, or 0 when it has no usable position.
+# successfully classified content.
 # A position rather than an event line prevents both a later routine append from
 # hiding earlier events and repeated event text from suppressing a new occurrence.
-# An absent, malformed, identity-mismatched, or legacy marker reads 0, so the
-# whole log is classified and uncertainty prefers a duplicate over event loss.
+# An absent, malformed, identity-mismatched, or legacy marker has no usable
+# position, so uncertainty prefers a duplicate over event loss: a log up to
+# STATUS_FIRST_SCAN_MAX_BYTES reads 0 and is classified whole, while a longer one
+# is classified from the first line start inside its last
+# STATUS_FIRST_SCAN_MAX_BYTES, so a new or long-unseen chatty log never replays
+# its whole history into one digest. The older history stays in the durable log.
 status_seen_offset() {  # <state> <task>
-  status_presentation_marker_offset "$(_seen_status_path "$1" "$2")" "$1/$2.status"
+  local f="$1/$2.status" offset size bound start skip
+  offset=$(status_presentation_marker_offset "$(_seen_status_path "$1" "$2")" "$f")
+  [ "$offset" = 0 ] || { printf '%s' "$offset"; return 0; }
+  bound=${FM_STATUS_FIRST_SCAN_MAX_BYTES:-$STATUS_FIRST_SCAN_MAX_BYTES_DEFAULT}
+  case "$bound" in ''|*[!0-9]*) bound=$STATUS_FIRST_SCAN_MAX_BYTES_DEFAULT ;; esac
+  size=$(_fm_status_file_size "$f" 2>/dev/null) || { printf '0'; return 0; }
+  size=${size//[[:space:]]/}
+  case "$size" in ''|*[!0-9]*) printf '0'; return 0 ;; esac
+  [ "$size" -gt "$bound" ] || { printf '0'; return 0; }
+  # Start one byte before the window so a window that already begins on a line
+  # start skips only that preceding newline, never a whole line.
+  start=$((size - bound - 1))
+  skip=$(_fm_status_read_span "$f" "$start" "$((bound + 1))" 2>/dev/null | head -n 1 | LC_ALL=C wc -c) \
+    || { printf '0'; return 0; }
+  skip=${skip//[[:space:]]/}
+  case "$skip" in ''|*[!0-9]*) printf '0'; return 0 ;; esac
+  printf '%s' "$((start + skip))"
 }
 
 # Commit <task>'s successfully classified endpoint, so the heartbeat catch-all
@@ -692,28 +736,72 @@ stale_window_is_busy() {  # <window> <state>
   [ "${verdict%% *}" = busy ]
 }
 
+# Cut one escalation item to ESCALATE_ITEM_MAX_CHARS into FM_LINE_CAP_LINE.
+# Every item names its source, and a status-derived item starts with its
+# <task>.status log, so the cut text stays recoverable there.
+_escalate_item_cap() {  # <item>
+  local FM_LINE_CAP_SUFFIX=$ESCALATE_ITEM_CUT_SUFFIX
+  fm_cap_line_var "$1" "${FM_ESCALATE_ITEM_MAX_CHARS:-$ESCALATE_ITEM_MAX_CHARS_DEFAULT}"
+}
+
 escalate_add() {  # <state> <distilled-item>
   local state=$1 item=$2 buf
   buf="$state/.subsuper-escalations"
+  _escalate_item_cap "$item"
+  [ "${#FM_LINE_CAP_LINE}" = "${#item}" ] \
+    || log "escalate: item cut from ${#item} to ${#FM_LINE_CAP_LINE} chars (full text stays in its status log)"
   [ -s "$buf" ] || _now > "${buf}.since"
-  printf '%s\n' "$item" >> "$buf"
+  printf '%s\n' "$FM_LINE_CAP_LINE" >> "$buf"
 }
 
-# Flush the escalation buffer as ONE batched, single-line digest to the
-# supervisor pane. Returns 0 on successful inject (or empty buffer), non-zero on
-# inject failure (buffer preserved for retry / catch-up).
+# Flush the oldest buffered escalations as ONE batched, single-line digest to
+# the supervisor pane, bounded to ESCALATE_DIGEST_MAX_CHARS. Items that do not
+# fit stay buffered, and the digest says how many, so a large buffer drains over
+# several digests instead of growing past what the pane can be sent.
+# Returns 0 on successful inject (or empty buffer), non-zero on inject failure
+# (buffer preserved for retry / catch-up).
 escalate_flush() {  # <state>
-  local state=$1 buf item n msg
+  local state=$1 buf item='' n=0 total more joined='' msg budget tmp
   buf="$state/.subsuper-escalations"
   [ -s "$buf" ] || return 0
-  n=$(wc -l < "$buf" 2>/dev/null || echo 0)
-  # Join buffered items with the literal " | " separator into one digest line.
-  msg=$(awk 'NR>1{printf " | "} {printf "%s",$0} END{print ""}' "$buf" 2>/dev/null)
+  [ -f "$buf" ] && [ -r "$buf" ] || return 1
+  budget=${FM_ESCALATE_DIGEST_MAX_CHARS:-$ESCALATE_DIGEST_MAX_CHARS_DEFAULT}
+  total=$(awk 'END{print NR}' "$buf" 2>/dev/null) || total=0
+  # Join the oldest items that fit with the literal " | " separator. Each is cut
+  # again here so an item buffered before the cap existed is bounded too; the
+  # first item always fits because the item cap is far below the budget.
+  while IFS= read -r item || [ -n "$item" ]; do
+    _escalate_item_cap "$item"
+    item=$FM_LINE_CAP_LINE
+    if [ "$n" -gt 0 ] && [ $(( ${#joined} + 3 + ${#item} )) -gt "$budget" ]; then
+      break
+    fi
+    [ "$n" -eq 0 ] || joined="$joined | "
+    joined="$joined$item"
+    n=$((n + 1))
+  done < "$buf"
+  more=$((total - n))
+  [ "$more" -gt 0 ] || more=0
+  [ "$more" -eq 0 ] || joined="$joined | ($more more buffered; next digest follows)"
   # Single-line wrapper: no embedded newlines (inject_msg also collapses as a
   # safety net, but keeping the source single-line makes the intent explicit).
-  msg=$(printf 'Supervisor escalate (%s event(s)): %s (pre-read; re-arm not needed — watcher daemon-managed)' "$n" "$msg")
-  if inject_msg "$msg" "$state"; then : > "$buf"; rm -f "${buf}.since" "$state/.subsuper-inject-wedged"; return 0; fi
-  return 1
+  msg=$(printf 'Supervisor escalate (%s event(s)): %s (pre-read; re-arm not needed — watcher daemon-managed)' "$n" "$joined")
+  inject_msg "$msg" "$state" || return 1
+  rm -f "$state/.subsuper-inject-wedged"
+  if [ "$more" -eq 0 ]; then
+    : > "$buf"; rm -f "${buf}.since"
+    return 0
+  fi
+  # Drop only the delivered lines. The .since epoch stays, so the next
+  # housekeeping pass sends the remainder without another batch window.
+  tmp="${buf}.tmp.$$"
+  if tail -n "+$((n + 1))" "$buf" > "$tmp" 2>/dev/null && mv -f "$tmp" "$buf"; then
+    log "escalate: delivered $n of $total buffered item(s); $more remain for the next digest"
+    return 0
+  fi
+  rm -f "$tmp"
+  log "ERROR: escalate: delivered $n item(s) but could not drop them from the buffer; they may repeat"
+  return 0
 }
 
 # --- backend-independent active wedge alert ---------------------------------
@@ -967,7 +1055,7 @@ inject_wedge_alarm() {  # <state> <age-seconds>
     notify=0
   else
     WEDGE_ALARM_LAST_EPOCH=$now
-    log "ERROR: away-mode escalation undelivered ${age}s; inject could not confirm a submit (supervisor pane busy or wedged). Buffer + wake-queue preserved; alarm marker written."
+    log "ERROR: away-mode escalation undelivered ${age}s; inject could not confirm a submit (the preceding inject lines name why: pane busy, composer not empty, or the send itself failed). Buffer + wake-queue preserved; alarm marker written."
   fi
   {
     printf 'fm away-mode inject WEDGED: %ss undelivered as of %s\n' "$age" "$(date '+%Y-%m-%dT%H:%M:%S%z')"
@@ -1296,7 +1384,11 @@ inject_msg() {  # <message> [state]
   if [ "$verdict" = empty ]; then
     return 0  # Backend confirmed the submit.
   fi
-  log "inject failed: submit unconfirmed after $retries retries (verdict=$verdict, text may be in composer)"
+  if [ "$verdict" = send-failed ]; then
+    log "inject failed: the backend send command failed (verdict=send-failed, digest $(printf '%s' "$msg" | LC_ALL=C wc -c | tr -d '[:space:]') bytes); not a busy pane"
+  else
+    log "inject failed: submit unconfirmed after $retries retries (verdict=$verdict, text may be in composer)"
+  fi
   return 1
 }
 

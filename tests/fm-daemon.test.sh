@@ -1406,6 +1406,132 @@ test_housekeeping_orca_persistent_stale_resolves_terminal() {
   pass "persistent Orca stale resolves the terminal from metadata"
 }
 
+# The 2026-09-25 overnight wedge: a status log with no usable read position
+# became one megabyte-sized escalation item, the digest exceeded the exec
+# argument limit, and every send failed before reaching the pane. Items and
+# digests are bounded, and overflow drains over several digests.
+test_escalate_add_caps_oversized_item() {
+  local dir state big line
+  dir=$(make_supercase escalate-item-cap); state="$dir/state"
+  big=$(head -c 300000 /dev/zero | tr '\0' 'x')
+  escalate_add "$state" "netcup.status: done: $big (catch-all scan)"
+  line=$(head -n 1 "$state/.subsuper-escalations")
+  [ "${#line}" -le 1000 ] || fail "escalation item not capped: ${#line} chars"
+  case "$line" in netcup.status:\ done:*) ;; *) fail "capped item lost its status-log source: ${line:0:40}" ;; esac
+  assert_contains "$line" "full text in its state/<task>.status log" "capped item lacks the status-log pointer"
+  escalate_add "$state" "small.status: done: short"
+  [ "$(sed -n 2p "$state/.subsuper-escalations")" = "small.status: done: short" ] \
+    || fail "a short item was altered"
+  pass "escalate_add caps an oversized item and points at its status log"
+}
+
+test_escalate_flush_bounds_digest_and_drains_overflow() {
+  local dir state buf i item sent_log
+  dir=$(make_supercase escalate-digest-budget); state="$dir/state"
+  buf="$state/.subsuper-escalations"
+  sent_log="$dir/sent-lengths"; : > "$sent_log"
+  # A legacy buffer written before any cap: one item above macOS ARG_MAX.
+  { printf 'netcup.status: done: '; head -c 1100000 /dev/zero | tr '\0' 'y'; printf '\n'; } > "$buf"
+  for i in $(seq 1 20); do
+    item=$(printf "task$i.status: failed: %0900d" 0)
+    printf '%s\n' "$item" >> "$buf"
+  done
+  echo $(( $(date +%s) - 600 )) > "$buf.since"
+  afk_enter "$state"
+  (
+    fm_backend_target_exists() { return 0; }
+    pane_is_busy() { return 1; }
+    fm_backend_composer_state() { printf 'empty'; }
+    # Stands in for the exec limit: an oversized argument is a send failure.
+    fm_backend_send_text_submit() {
+      printf '%s\n' "${#3}" >> "$sent_log"
+      [ "${#3}" -le 100000 ] || { printf 'send-failed'; return 0; }
+      printf 'empty'
+    }
+    FM_SUPERVISOR_BACKEND=herdr FM_SUPERVISOR_TARGET="default:w1:p1" escalate_flush "$state" \
+      || fail "first bounded flush failed"
+    [ "$(awk 'END{print NR}' "$buf")" -gt 0 ] || fail "overflow items were dropped instead of staying buffered"
+    [ -s "$buf.since" ] || fail "partial delivery lost the buffer age"
+    [ "$(awk 'END{print NR}' "$buf")" -lt 21 ] || fail "first flush removed nothing from the buffer"
+    i=0
+    while [ -s "$buf" ] && [ "$i" -lt 20 ]; do
+      FM_SUPERVISOR_BACKEND=herdr FM_SUPERVISOR_TARGET="default:w1:p1" escalate_flush "$state" \
+        || fail "follow-up flush failed"
+      i=$((i + 1))
+    done
+    [ ! -s "$buf" ] || fail "buffer never drained"
+    [ ! -e "$buf.since" ] || fail "buffer age sidecar left after the final flush"
+  ) || fail "digest budget subshell failed"
+  while read -r i; do
+    [ "$i" -le 6400 ] || fail "digest exceeded its budget: $i chars"
+  done < "$sent_log"
+  [ "$(awk 'END{print NR}' "$sent_log")" -ge 2 ] || fail "overflow did not spread over several digests"
+  pass "escalate_flush sends a bounded digest, keeps overflow buffered, and drains it"
+}
+
+test_escalate_flush_digest_announces_remaining_items() {
+  local dir state buf i sent
+  dir=$(make_supercase escalate-digest-remaining); state="$dir/state"
+  buf="$state/.subsuper-escalations"; sent="$dir/sent"
+  for i in $(seq 1 12); do printf "t$i.status: done: %0900d\n" 0 >> "$buf"; done
+  afk_enter "$state"
+  (
+    fm_backend_target_exists() { return 0; }
+    pane_is_busy() { return 1; }
+    fm_backend_composer_state() { printf 'empty'; }
+    fm_backend_send_text_submit() { printf '%s' "$3" > "$sent"; printf 'empty'; }
+    FM_SUPERVISOR_BACKEND=herdr FM_SUPERVISOR_TARGET="default:w1:p1" escalate_flush "$state" \
+      || fail "flush failed"
+  ) || fail "remaining-items subshell failed"
+  assert_contains "$(cat "$sent")" "more buffered; next digest follows" "digest did not announce the buffered remainder"
+  head -n 1 "$buf" | grep -q '^t[0-9]*\.status' || fail "remaining buffer is malformed"
+  pass "a partial digest announces how many items remain buffered"
+}
+
+test_inject_send_failed_logs_real_failure() {
+  local dir state log_file
+  dir=$(make_supercase inject-send-failed-log); state="$dir/state"
+  log_file="$dir/daemon.log"
+  afk_enter "$state"
+  (
+    LOG=$log_file
+    fm_backend_target_exists() { return 0; }
+    pane_is_busy() { return 1; }
+    fm_backend_composer_state() { printf 'empty'; }
+    fm_backend_send_text_submit() { printf 'send-failed'; }
+    if FM_SUPERVISOR_BACKEND=herdr FM_SUPERVISOR_TARGET="default:w1:p1" inject_msg "hello" "$state"; then
+      fail "inject_msg succeeded on a send failure"
+    fi
+  ) || fail "send-failed subshell failed"
+  assert_contains "$(cat "$log_file")" "backend send command failed (verdict=send-failed, digest" \
+    "send failure log does not name the real failure"
+  assert_not_contains "$(cat "$log_file")" "text may be in composer" "send failure log still blames the composer"
+  pass "a send failure is logged as a send failure with the digest size"
+}
+
+test_status_seen_offset_bounds_missing_marker() {
+  local dir state f offset size i out
+  dir=$(make_supercase seen-offset-first-scan); state="$dir/state"
+  f="$state/chatty.status"
+  for i in $(seq 1 4000); do printf 'failed [at=1]: build broke number %s\n' "$i"; done > "$f"
+  size=$(log_size "$f")
+  offset=$(status_seen_offset "$state" chatty)
+  [ "$offset" -gt 0 ] || fail "a large log with no marker is replayed from byte 0"
+  [ $((size - offset)) -le 65536 ] || fail "first scan exceeds its bound: $((size - offset)) bytes"
+  [ "$(head -c "$offset" "$f" | tail -c 1 | od -An -c | tr -d ' ')" = '\n' ] \
+    || fail "first scan does not start at a line start"
+  out=$(classify_signal "$f" "$state")
+  case "$out" in escalate\|*) ;; *) fail "bounded first scan did not escalate the tail: ${out:0:80}" ;; esac
+  [ "${#out}" -le 70000 ] || fail "bounded first scan still produced a ${#out}-char item"
+  assert_contains "$out" "build broke number 4000" "bounded first scan missed the newest event"
+  printf 'failed [at=1]: small\n' > "$state/small.status"
+  [ "$(status_seen_offset "$state" small)" = 0 ] || fail "a small log with no marker is not classified whole"
+  printf 'garbage-legacy-marker' > "$state/.subsuper-seen-status-chatty"
+  offset=$(status_seen_offset "$state" chatty)
+  [ "$offset" -gt 0 ] || fail "a legacy marker on a large log replays it from byte 0"
+  pass "a missing or legacy read position classifies only a bounded tail of a large log"
+}
+
 test_escalate_batches_into_one_digest() {
   local dir state fakebin sent capture n
   dir=$(make_supercase batch)
@@ -2817,6 +2943,11 @@ test_housekeeping_herdr_persistent_stale_resolves_meta
 test_housekeeping_herdr_idle_busy_record_clears_stale
 test_housekeeping_herdr_resumed_stale_cleared
 test_housekeeping_orca_persistent_stale_resolves_terminal
+test_escalate_add_caps_oversized_item
+test_escalate_flush_bounds_digest_and_drains_overflow
+test_escalate_flush_digest_announces_remaining_items
+test_inject_send_failed_logs_real_failure
+test_status_seen_offset_bounds_missing_marker
 test_escalate_batches_into_one_digest
 test_escalate_batch_age_uses_first_append
 test_heartbeat_scan_dedup
