@@ -32,6 +32,15 @@
 # HARD RULE: destructive, irreversible, and security-sensitive actions are never
 # pre-authorizable whatever the words say.
 #
+# STANDING LANDING (config/afk-land-green; docs/configuration.md "Away green
+# landing"). The optional local presence flag is the captain's standing setting
+# that away mode does not hold green, in-scope landings for the return: while a
+# live record exists, the away session lands them through bin/fm-pr-merge.sh and
+# bin/fm-merge-local.sh even when the words do not name them, and
+# bin/fm-merge-local.sh then relocates to the branch actor under this record's
+# lock. It is read live, never stored in the record, and the read-back carries
+# one line naming it while it is present. Without it nothing changes.
+#
 # RECORD (state/.afk-contract; written only by this script; YAML-shaped so a
 # human can read it, but parsed only here - consumers use the read subcommands):
 #   version: 2
@@ -77,7 +86,8 @@
 #     replaced. `propose` and `confirm` were retired with the wait-for-go gate.
 #   fm-afk-contract.sh readback
 #     The record's content for the captain and for the away session: the words
-#     verbatim plus the entry time, expected return, spend cap, and reach line.
+#     verbatim plus the entry time, expected return, spend cap, and reach line,
+#     and the standing-landing line while config/afk-land-green is present.
 #   fm-afk-contract.sh field <name> [--path <record>]
 #   fm-afk-contract.sh words [--path <record>]
 #   fm-afk-contract.sh validate [--path <record>]  exit 0 when the record is readable and complete
@@ -103,7 +113,7 @@
 #
 # Sourceable: with the BASH_SOURCE guard, other scripts get the path, presence,
 # and lock helpers (fm_afk_contract_path, fm_afk_contract_present,
-# fm_afk_contract_archive_dir,
+# fm_afk_contract_archive_dir, fm_afk_land_green_enabled,
 # fm_afk_contract_lock_hold, fm_afk_contract_lock_release) without running main.
 set -u
 
@@ -141,6 +151,12 @@ fm_afk_contract_archive_dir() {  # [state-dir]
 
 fm_afk_contract_present() {  # [state-dir]
   [ -f "$(fm_afk_contract_path "${1:-$FM_AFK_CONTRACT_STATE}")" ]
+}
+
+# fm_afk_land_green_enabled: true while the home carries the standing
+# away-landing flag described in the header. Presence is the whole setting.
+fm_afk_land_green_enabled() {
+  [ -e "${FM_CONFIG_OVERRIDE:-$FM_HOME/config}/afk-land-green" ]
 }
 
 fm_afk_contract_lock_path() {  # [state-dir]
@@ -328,7 +344,8 @@ fm_afk_contract_validate() {  # <path>
 # --- rendering --------------------------------------------------------------
 
 # The read-back is the record's content and nothing else: the words verbatim
-# beside the entry time, expected return, spend cap, and reach line. Firstmate's
+# beside the entry time, expected return, spend cap, and reach line, plus the
+# live standing-landing line while config/afk-land-green is present. Firstmate's
 # plain-sentence restatement is spoken in chat after entry, and the execution
 # rules live in bin/fm-branch-prompt.sh, so this render stays a faithful mirror
 # of the record for the captain at entry and for the away session on every wake.
@@ -342,6 +359,9 @@ fm_afk_contract_render_readback() {  # <path> <title>
   printf '  expected return: %s\n' "$( [ "$expected" = - ] && printf 'not given' || printf '%s' "$expected")"
   printf '  spend cap: %s concurrent workers\n' "$spend"
   printf '  reach: hold-for-return only. %s\n' "$(fm_afk_contract_read_field "$path" reach_announced)"
+  if fm_afk_land_green_enabled; then
+    printf '  standing landing: on (config/afk-land-green) - green, in-scope work lands through the guarded merge scripts while you are away, local-only work included; destructive, irreversible, and security-sensitive changes still wait for you\n'
+  fi
   words=$(fm_afk_contract_read_words "$path"; rc=$?; printf x; exit "$rc") || return 1
   words=${words%x}
   if [ -n "$words" ]; then

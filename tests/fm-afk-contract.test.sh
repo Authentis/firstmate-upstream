@@ -560,7 +560,26 @@ test_record_changes_refuse_while_a_reader_holds_the_lock() {
   pass "enter and archive refuse while the record is locked, and proceed once it clears"
 }
 
+# The standing away-landing flag is read live and never stored in the record:
+# the read-back names it only while config/afk-land-green is present.
+test_readback_names_the_standing_landing_flag_only_while_present() {
+  local home out
+  home=$(make_home land-green)
+  contract "$home" enter --words 'keep going' >/dev/null || fail "land-green: entry failed"
+  out=$(contract "$home" readback) || fail "land-green: readback failed"
+  assert_not_contains "$out" "standing landing" "land-green: the read-back named the flag while it was absent"
+  mkdir -p "$home/config"
+  : > "$home/config/afk-land-green"
+  out=$(contract "$home" readback) || fail "land-green: readback with the flag failed"
+  assert_contains "$out" "standing landing: on (config/afk-land-green)" "land-green: the read-back did not name the flag"
+  assert_contains "$out" "security-sensitive changes still wait for you" "land-green: the read-back dropped the never-set boundary"
+  assert_not_contains "$(cat "$home/state/.afk-contract")" "land-green" "land-green: the flag leaked into the record"
+  contract "$home" validate || fail "land-green: the record stopped validating with the flag present"
+  pass "the read-back names the standing landing flag only while it is present, without storing it"
+}
+
 test_readback_renders_words_verbatim_with_the_record_scalars
+test_readback_names_the_standing_landing_flag_only_while_present
 test_words_preserve_final_newline_shape
 test_enter_writes_a_v2_record_in_one_step_and_announces_hold_for_return
 test_retired_two_step_entry_is_refused_by_name

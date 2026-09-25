@@ -42,14 +42,26 @@ META="$STATE/$ID.meta"
 "$FM_ROOT/bin/fm-guard.sh" || true
 # Role partition: landing local-only work is MAIN-owned; the Pi supervision
 # branch reports readiness and never lands (contract: bin/fm-lease-lib.sh;
-# no-op in homes without a branch actor). This action is deliberately NOT
-# relocated under the away-posture record: unlike the PR merge it has no
-# record-side grant gate of its own, so a parked main keeps it held for the
-# captain's return. This precedes reading the task record, because the wrong
-# actor is refused for its role whatever it says.
+# no-op in homes without a branch actor). By default this action is NOT
+# relocated under the away-posture record, so a parked main keeps it held for
+# the captain's return. The optional config/afk-land-green flag is the
+# captain's standing opt-in (bin/fm-afk-contract.sh "STANDING LANDING"): with
+# it present the branch passes under a live record, and the away-record lock is
+# then held from a fresh validation through the fast-forward, so a return's
+# archive cannot land between the authority read and the landing. Every other
+# gate below is unchanged. This precedes reading the task record, because the
+# wrong actor is refused for its role whatever it says.
 # shellcheck source=bin/fm-lease-lib.sh
 . "$SCRIPT_DIR/fm-lease-lib.sh"
-fm_lease_forbid_branch "local-only landing (fm-merge-local)"
+# shellcheck source=bin/fm-afk-contract.sh
+. "$SCRIPT_DIR/fm-afk-contract.sh"
+AWAY_LANDING=false
+if fm_afk_land_green_enabled; then
+  fm_lease_forbid_branch "local-only landing (fm-merge-local)" --away-relocated
+  [ "$(fm_lease_actor)" = branch ] && AWAY_LANDING=true
+else
+  fm_lease_forbid_branch "local-only landing (fm-merge-local)"
+fi
 
 [ -f "$META" ] || { echo "error: no meta for task $ID at $META" >&2; exit 1; }
 if ! fm_backlog_meta_spawn_gen_optional "$META" "$STATE"; then
@@ -60,6 +72,7 @@ MERGE_EXPECTED_SPAWN_GEN=$FM_BACKLOG_META_SPAWN_GEN
 
 MERGE_CONTROL_LOCK=
 merge_control_cleanup() {
+  fm_afk_contract_lock_release || true
   [ -z "$MERGE_CONTROL_LOCK" ] || fm_lock_release "$MERGE_CONTROL_LOCK" || true
 }
 trap merge_control_cleanup EXIT
@@ -135,8 +148,22 @@ case "$hold_status" in
     exit 1
     ;;
 esac
+# A branch landing under the standing flag re-reads its authority under the
+# away record's lock, taken after the per-task control lock as bin/fm-pr-merge.sh
+# does, and keeps it through the fast-forward.
+if [ "$AWAY_LANDING" = true ]; then
+  if ! fm_afk_contract_lock_hold "$STATE"; then
+    echo "error: local merge refused - the away-posture record could not be locked for the landing; nothing was merged" >&2
+    exit 1
+  fi
+  if ! fm_lease_away_relocated || ! fm_afk_land_green_enabled; then
+    echo "error: local merge refused - the away-posture record or config/afk-land-green lapsed before the landing; nothing was merged" >&2
+    exit "$FM_LEASE_REFUSE_EXIT"
+  fi
+fi
 merge_status=0
 git -C "$PROJ" merge --ff-only "$BRANCH" >/dev/null || merge_status=$?
+fm_afk_contract_lock_release || true
 fm_lock_release "$MERGE_CONTROL_LOCK" || true
 MERGE_CONTROL_LOCK=
 [ "$merge_status" -eq 0 ] || exit "$merge_status"

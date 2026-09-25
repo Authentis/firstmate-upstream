@@ -252,6 +252,16 @@ With the flag absent the wedge timer spends no fold or current-state read for it
 The flag is a home-local supervision-noise preference and is not inherited by secondmate homes, which supervise their own crew and own that trade separately.
 [`architecture.md`](architecture.md) owns the wait-evidence contract and which records may take the ladder away; `bin/fm-watch.sh`'s `wedge_wait_evidence` owns the exact derivation and its fail-closed boundaries.
 
+## Away green landing (config/afk-land-green)
+
+The optional local, gitignored `config/afk-land-green` presence flag is the captain's standing setting that away mode does not hold green, in-scope landings until the captain returns.
+While the away-posture record exists, the away session lands them through the guarded merge scripts even when the away words do not name them: `bin/fm-pr-merge.sh` for a pull request green at its live head, and `bin/fm-merge-local.sh` for a ready local-only branch.
+Every guard of those scripts is unchanged: green at the live head, no `--allow-red`, no asynchronous or queued merge while away, a clean fast-forward only, and no landing while a captain hold stands.
+Destructive, irreversible, and security-sensitive changes still wait for the captain, and the read-back shows a `standing landing: on` line while the flag is present.
+With the flag absent, local-only landing waits for the captain's return exactly as before.
+The flag is a home-local authority choice and is not inherited by secondmate homes.
+`bin/fm-afk-contract.sh` "STANDING LANDING" owns the mechanics and `bin/fm-branch-prompt.sh` "Postures" owns what in scope means.
+
 ## Gate defaults (.no-mistakes.yaml)
 
 The tracked `.no-mistakes.yaml` sets `test.evidence.store_in_repo: true` and pins `commands.lint` to `bin/fm-lint.sh`, the same owner CI invokes.

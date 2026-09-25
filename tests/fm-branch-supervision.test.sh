@@ -1283,6 +1283,70 @@ WRAPPER
   pass "the away spend cap is rechecked under the task-set lock so concurrent spawns cannot both publish"
 }
 
+# The captain's standing config/afk-land-green flag relocates local-only
+# landing to the branch only under a live away record, keeps the script's own
+# fast-forward gate, and lapses with the record's archive.
+test_away_land_green_flag_relocates_local_landing() {
+  local home proj main fix out status id=task-lg
+  home="$TMP_ROOT/land-green-home"
+  proj="$TMP_ROOT/land-green-proj"
+  mkdir -p "$home/state" "$home/data" "$home/config" "$proj"
+  git -C "$proj" init -q -b main || fail "could not initialize the land-green project"
+  git -C "$proj" config user.email test@example.com
+  git -C "$proj" config user.name test
+  git -C "$proj" commit -q --allow-empty -m base || fail "could not commit the land-green base"
+  main=$(git -C "$proj" rev-parse HEAD)
+  git -C "$proj" branch "fm/$id" || fail "could not create the land-green ship branch"
+  fix=$(git -C "$proj" commit-tree -p "$main" -m change "$(git -C "$proj" rev-parse 'HEAD^{tree}')") \
+    || fail "could not create the land-green change"
+  git -C "$proj" update-ref "refs/heads/fm/$id" "$fix" || fail "could not advance the land-green ship branch"
+  printf 'project=%s\nmode=local-only\nbranch=fm/%s\n' "$proj" "$id" > "$home/state/$id.meta"
+
+  # The flag alone, attended: the branch is still refused.
+  : > "$home/config/afk-land-green"
+  out=$(FM_HOME="$home" FM_SUPERVISION_ACTOR=branch "$ROOT/bin/fm-merge-local.sh" "$id" 2>&1)
+  status=$?
+  [ "$status" -eq 6 ] || fail "attended branch landing with the flag exited $status, not 6: $out"
+  assert_contains "$out" "local-only landing (fm-merge-local) refused" "attended flag refusal lost its wording"
+
+  # A live record without the flag: still refused, exactly as before.
+  FM_HOME="$home" "$ROOT/bin/fm-afk-contract.sh" enter >/dev/null || fail "land-green away entry failed"
+  rm -f "$home/config/afk-land-green"
+  out=$(FM_HOME="$home" FM_SUPERVISION_ACTOR=branch "$ROOT/bin/fm-merge-local.sh" "$id" 2>&1)
+  status=$?
+  [ "$status" -eq 6 ] || fail "away branch landing without the flag exited $status, not 6: $out"
+  [ "$(git -C "$proj" rev-parse HEAD)" = "$main" ] || fail "a refused landing moved the default branch"
+
+  # Record and flag: the branch lands a clean fast-forward and releases the lock.
+  : > "$home/config/afk-land-green"
+  out=$(FM_HOME="$home" FM_SUPERVISION_ACTOR=branch "$ROOT/bin/fm-merge-local.sh" "$id" 2>&1)
+  status=$?
+  [ "$status" -eq 0 ] || fail "away branch landing with the flag exited $status: $out"
+  assert_contains "$out" "main is parked" "the landing relocation did not announce itself"
+  assert_contains "$out" "merged fm/$id into local main" "the relocated landing did not report its merge"
+  [ "$(git -C "$proj" rev-parse HEAD)" = "$fix" ] || fail "the relocated landing did not fast-forward main"
+  [ ! -e "$home/state/.afk-contract.lock" ] || fail "the relocated landing left the away-record lock behind"
+
+  # The fast-forward gate is unchanged: a diverged branch is refused.
+  local diverged
+  diverged=$(git -C "$proj" commit-tree -p "$main" -m diverged "$(git -C "$proj" rev-parse 'HEAD^{tree}')") \
+    || fail "could not create the diverged change"
+  git -C "$proj" update-ref "refs/heads/fm/$id-2" "$diverged" || fail "could not create the diverged branch"
+  printf 'project=%s\nmode=local-only\nbranch=fm/%s-2\n' "$proj" "$id" > "$home/state/$id-2.meta"
+  out=$(FM_HOME="$home" FM_SUPERVISION_ACTOR=branch "$ROOT/bin/fm-merge-local.sh" "$id-2" 2>&1)
+  status=$?
+  [ "$status" -ne 0 ] || fail "a diverged branch landed under the flag: $out"
+  assert_contains "$out" "not a fast-forward" "the relocated landing skipped its fast-forward gate"
+  [ "$(git -C "$proj" rev-parse HEAD)" = "$fix" ] || fail "a refused diverged landing moved main"
+
+  # Archive ends the relocation even with the flag still present.
+  FM_HOME="$home" "$ROOT/bin/fm-afk-contract.sh" archive >/dev/null || fail "land-green archive failed"
+  out=$(FM_HOME="$home" FM_SUPERVISION_ACTOR=branch "$ROOT/bin/fm-merge-local.sh" "$id-2" 2>&1)
+  status=$?
+  [ "$status" -eq 6 ] || fail "archived-record branch landing exited $status, not 6: $out"
+  pass "config/afk-land-green relocates local-only landing to the branch only under a live away record, with its gates intact"
+}
+
 test_branch_prompt_is_byte_stable_and_above_cache_floor
 test_outcome_store_is_append_only_with_cursor_reads
 test_outcome_startup_replay_preserves_silence
@@ -1309,3 +1373,4 @@ test_branch_cannot_force_teardown_or_directly_relaunch
 test_away_record_relocates_main_owned_actions_to_the_branch
 test_away_branch_spawn_requires_queued_dispatchable_work
 test_away_spend_cap_is_rechecked_under_the_task_set_lock
+test_away_land_green_flag_relocates_local_landing
