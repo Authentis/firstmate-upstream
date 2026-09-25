@@ -245,6 +245,33 @@ test_non_cursor_launch_clears_inherited_cursor_markers() {
   pass "non-cursor launches clear inherited Cursor identity markers"
 }
 
+# A Claude worker is a top-level session: an inherited child-session marker
+# would turn its transcript saving off. Execute the recorded launch line against
+# a stand-in claude that reports what it inherited.
+test_claude_launch_clears_inherited_child_session_marker() {
+  local rec id out status launch
+  id=profile-claude-child-marker-z1c
+  rec=$(make_spawn_case profile-claude-child-marker claude "$id")
+  read_case_record "$rec"
+
+  out=$(CLAUDE_CODE_CHILD_SESSION=1 \
+    run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
+  status=$?
+  expect_code 0 "$status" "claude spawn under a child-session marker should succeed"$'\n'"$out"
+  launch=$(cat "$LAUNCH_LOG")
+  mkdir -p "$CASE_DIR/claudebin"
+  cat > "$CASE_DIR/claudebin/claude" <<SH
+#!/usr/bin/env bash
+printf 'child=%s\\n' "\${CLAUDE_CODE_CHILD_SESSION-unset}" > '$CASE_DIR/claude-env'
+SH
+  chmod +x "$CASE_DIR/claudebin/claude"
+  (cd "$WT_DIR" && CLAUDE_CODE_CHILD_SESSION=1 PATH="$CASE_DIR/claudebin:$PATH" bash -c "$launch") \
+    || fail "the recorded launch line should run"$'\n'"$launch"
+  [ "$(cat "$CASE_DIR/claude-env" 2>/dev/null)" = "child=unset" ] \
+    || fail "the spawned claude must not inherit CLAUDE_CODE_CHILD_SESSION, got: $(cat "$CASE_DIR/claude-env" 2>/dev/null)"
+  pass "claude launches clear an inherited child-session marker so transcripts persist"
+}
+
 test_relative_home_overrides_launch_with_absolute_cross_process_paths() {
   local rec id out status launch home_real
   id=profile-relative-paths-z1b
@@ -1073,7 +1100,7 @@ test_claude_forwards_firstmate_config_dir_when_set() {
   status=$?
   expect_code 0 "$status" "claude spawn with CLAUDE_CONFIG_DIR set should succeed"
   launch=$(cat "$LAUNCH_LOG")
-  assert_contains "$launch" "CLAUDE_CONFIG_DIR='$CASE_DIR/claude-work' env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_SEND_FEEDBACK=0 claude --dangerously-skip-permissions $(claude_worker_add_dirs "$HOME_DIR" "$id")--settings '{\"feedbackDrafts\":\"off\",\"attribution\":{\"commit\":\"\",\"pr\":\"\",\"sessionUrl\":false}}'" \
+  assert_contains "$launch" "CLAUDE_CONFIG_DIR='$CASE_DIR/claude-work' env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI env -u CLAUDE_CODE_CHILD_SESSION CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_SEND_FEEDBACK=0 claude --dangerously-skip-permissions $(claude_worker_add_dirs "$HOME_DIR" "$id")--settings '{\"feedbackDrafts\":\"off\",\"attribution\":{\"commit\":\"\",\"pr\":\"\",\"sessionUrl\":false}}'" \
     "claude launch did not forward firstmate's CLAUDE_CONFIG_DIR to the crewmate pane"
   pass "claude forwards firstmate's CLAUDE_CONFIG_DIR so the crewmate uses the same credential store"
 }
@@ -1682,7 +1709,7 @@ claude_expected_launch() {  # <launch> <home> <id> <permission-flag>
   [ "$(printf '%s' "$doorbell" | "$ROOT/bin/fm-operational-input.sh" doorbell-kind)" = launch-brief ] \
     || doorbell="not a launch-brief doorbell"
   quoted="'$(printf '%s' "$doorbell" | sed "s/'/'\\\\''/g")'"
-  printf '%s' "export COMPACT_ADVISER_DISABLE=1; $(ai_trailer_hooks_prefix "$2" "$3")env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_SEND_FEEDBACK=0 claude $4 $(claude_worker_add_dirs "$2" "$3")--settings '{\"feedbackDrafts\":\"off\",\"attribution\":{\"commit\":\"\",\"pr\":\"\",\"sessionUrl\":false}}' $CLAUDE_CONTROL_CHANNEL_FLAG $quoted"
+  printf '%s' "export COMPACT_ADVISER_DISABLE=1; $(ai_trailer_hooks_prefix "$2" "$3")env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI env -u CLAUDE_CODE_CHILD_SESSION CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_SEND_FEEDBACK=0 claude $4 $(claude_worker_add_dirs "$2" "$3")--settings '{\"feedbackDrafts\":\"off\",\"attribution\":{\"commit\":\"\",\"pr\":\"\",\"sessionUrl\":false}}' $CLAUDE_CONTROL_CHANNEL_FLAG $quoted"
 }
 
 test_claude_permission_mode_bypass_matches_absent_launch() {
@@ -1815,6 +1842,7 @@ test_claude_launch_brief_publishes_record_doorbell
 test_claude_secondmate_launch_brief_publishes_into_its_own_home
 test_claude_spawn_refuses_when_the_brief_record_cannot_publish
 test_non_cursor_launch_clears_inherited_cursor_markers
+test_claude_launch_clears_inherited_child_session_marker
 test_relative_home_overrides_launch_with_absolute_cross_process_paths
 test_home_defaults_preserve_absolute_or_resolve_relative_paths
 test_absolute_override_spelling_is_preserved_in_launch_paths
