@@ -147,6 +147,23 @@ wait_for() {  # <file> [tries]
   return 1
 }
 
+# Arm now starts the listener, so a later start would poll again. Wait for the
+# capture that listener is already producing, and for its runner to release the
+# claim: the result lands before the runner publishes and exits, and a retire or
+# re-arm in that gap meets a live claim the synchronous start never left behind.
+wait_capture() {  # <home> <source-id> [tries]
+  local home=$1 id=$2 n=${3:-100}
+  local _
+  for _ in $(seq 1 "$n"); do
+    if first_result "$home" "$id" >/dev/null 2>&1 \
+      && [ ! -e "$FM_PROCEVENT_CLAIM_ROOT/$id.claim" ]; then
+      return 0
+    fi
+    sleep 0.1
+  done
+  return 1
+}
+
 # <file> <count> [tries]: wait until <file> holds at least <count> lines. A
 # detached runner appends its execution marker after the command that started it
 # has already returned, so a caller that needs that append must wait for it
@@ -154,7 +171,11 @@ wait_for() {  # <file> [tries]
 wait_for_lines() {
   local f=$1 want=$2 n=${3:-100} have
   for _ in $(seq 1 "$n"); do
-    have=$(wc -l < "$f" 2>/dev/null | tr -d ' ')
+    if [ -f "$f" ]; then
+      have=$(wc -l < "$f" | tr -d ' ')
+    else
+      have=0
+    fi
     case "$have" in ''|*[!0-9]*) have=0 ;; esac
     [ "$have" -ge "$want" ] && return 0
     sleep 0.1
