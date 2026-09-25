@@ -1413,6 +1413,53 @@ test_crewmate_scaffolds_forbid_pool_administration() {
   pass "fm-brief.sh: every crewmate scaffold forbids administering the shared worktree pool"
 }
 
+# A --resume brief checks out the parked branch (or fetches it from the saved
+# bundle) and asserts the saved head instead of creating a fresh branch, and
+# refuses before writing anything when the park receipt cannot back it.
+test_resume_brief_checks_out_the_parked_branch() {
+  local home id brief park head out rc
+  home="$TMP_ROOT/resume-home"
+  id="brief-resume-p1"
+  park="$home/data/$id/park"
+  mkdir -p "$park"
+  head=0123456789abcdef0123456789abcdef01234567
+  printf '%s\n' "branch=fm/$id" "head=$head" bundle=branch.bundle \
+    uncommitted_patch=uncommitted.patch untracked_tar=none > "$park/receipt"
+  : > "$park/branch.bundle"
+  : > "$park/uncommitted.patch"
+
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --mode local-only --resume >/dev/null 2>&1 \
+    || fail "resume: scaffolding a resume brief failed"
+  brief="$home/data/$id/brief.md"
+  # shellcheck disable=SC2016  # literal backticks around commands must stay unexpanded
+  assert_no_grep "\`git checkout -b fm/$id --\`" "$brief" "resume: the brief still creates a fresh branch"
+  # shellcheck disable=SC2016
+  assert_grep "\`git checkout fm/$id --\`" "$brief" "resume: the brief does not check out the kept branch"
+  assert_grep "refs/heads/fm/$id:refs/heads/fm/$id" "$brief" "resume: the brief does not fetch a missing branch from the bundle"
+  assert_grep "$park/branch.bundle" "$brief" "resume: the brief does not name the saved bundle"
+  assert_grep "prints anything but \`$head\`" "$brief" "resume: the brief does not assert the saved head"
+  assert_grep "git apply --binary '$park/uncommitted.patch'" "$brief" "resume: the brief does not restore the saved patch"
+  assert_no_grep "tar -xf" "$brief" "resume: the brief restores an untracked archive the park never saved"
+
+  out=$(FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "brief-resume-p2" some-proj --mode local-only --resume 2>&1); rc=$?
+  [ "$rc" -ne 0 ] || fail "resume: a brief with no park receipt was scaffolded"
+  assert_absent "$home/data/brief-resume-p2/brief.md" "resume: a refused resume still wrote a brief"
+  printf '%s\n' "$out" | grep -Fq "park receipt" || fail "resume: the refusal does not name the receipt: $out"
+
+  mkdir -p "$home/data/$id-b/park"
+  printf '%s\n' "branch=fm/$id-b" "head=$head" bundle=none uncommitted_patch=none untracked_tar=none \
+    > "$home/data/$id-b/park/receipt"
+  out=$(FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id-b" some-proj --mode local-only --resume --branch-prefix fix/ 2>&1); rc=$?
+  [ "$rc" -ne 0 ] || fail "resume: a receipt for another branch name was accepted"
+  printf '%s\n' "$out" | grep -Fq "names branch 'fm/$id-b'" || fail "resume: the branch mismatch refusal is unclear: $out"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id-b" some-proj --mode local-only --resume >/dev/null 2>&1 \
+    || fail "resume: a bundle-less park did not scaffold"
+  # shellcheck disable=SC2016
+  assert_grep "\`git checkout -b fm/$id-b $head --\`" "$home/data/$id-b/brief.md" \
+    "resume: a park with no bundle does not recreate the branch at the saved head"
+  pass "fm-brief.sh --resume checks out the parked branch at its saved head and refuses without a matching receipt"
+}
+
 test_script_parses
 test_no_heredoc_in_command_substitution
 test_help_includes_entire_header
@@ -1450,3 +1497,4 @@ test_branch_prefix_is_refused_where_it_does_not_apply
 test_branch_prefix_value_is_validated
 test_branch_prefix_command_is_shell_safe
 test_crewmate_scaffolds_forbid_pool_administration
+test_resume_brief_checks_out_the_parked_branch

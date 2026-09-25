@@ -14,7 +14,7 @@
 # charters still use a single `{TASK}` charter fill. Firstmate may adjust other
 # sections when the task genuinely deviates (e.g. working an existing external
 # PR instead of shipping a new one).
-# Usage: fm-brief.sh <task-id> <repo-name> --mode <no-mistakes|direct-PR|local-only> [--branch-prefix <prefix>] [--forge <none|gerrit> [--shape squash]] [--herdr-lab]
+# Usage: fm-brief.sh <task-id> <repo-name> --mode <no-mistakes|direct-PR|local-only> [--branch-prefix <prefix>] [--forge <none|gerrit> [--shape squash]] [--herdr-lab] [--resume]
 #        fm-brief.sh <task-id> <repo-name> --scout [--herdr-lab]
 #        fm-brief.sh <task-id> --secondmate {<project>...|--no-projects}
 #   --scout writes the scout contract instead: the deliverable is a report at
@@ -59,6 +59,13 @@
 # standing per-project preference, and firstmate resolves it per task at intake
 # and passes the explicit flag. Refused on --scout and --secondmate: a scout
 # makes no branch and a charter is not a delivery contract.
+# --resume scaffolds the next worker for a task that bin/fm-teardown.sh --park
+# released: instead of creating the branch, Setup checks out the kept branch (or
+# fetches it from the saved bundle when the ref is gone), asserts HEAD is the
+# exact saved commit, then restores the saved uncommitted patch and untracked
+# files. It reads data/<task-id>/park/receipt, which park writes, and refuses
+# before writing anything when that receipt is missing or unreadable, or names a
+# branch other than the one --branch-prefix and the task id form. Ship only.
 # --forge names the project's forge, defaults to none, and is orthogonal to --mode
 # exactly as the registry's `forge=` token is. It is the captain's confirmed
 # registry binding, read from data/projects.md at intake and passed here; this
@@ -170,6 +177,7 @@ fi
 CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 case "$CONFIG" in /*) ;; *) CONFIG="$PWD/$CONFIG" ;; esac
 KIND=ship
+RESUME=0
 HERDR_LAB=0
 NO_PROJECTS=0
 MODE=
@@ -201,6 +209,7 @@ for a in "$@"; do
     --scout) KIND=scout ;;
     --secondmate) KIND=secondmate ;;
     --herdr-lab) HERDR_LAB=1 ;;
+    --resume) RESUME=1 ;;
     --no-projects) NO_PROJECTS=1 ;;
     --mode) want_value=mode ;;
     --mode=*) MODE=${a#--mode=}; MODE_SET=1 ;;
@@ -276,6 +285,53 @@ if ! git check-ref-format --branch "$BRANCH" >/dev/null 2>&1; then
   exit 1
 fi
 printf -v BRANCH_Q '%q' "$BRANCH"
+
+# A resumed ship starts from its park receipt (see --resume above), read before
+# anything is written so an unusable park never leaves a partial scaffold.
+PARK_DIR="$DATA/$ID/park"
+RESUME_HEAD=
+RESUME_BUNDLE=none
+RESUME_PATCH=none
+RESUME_TAR=none
+if [ "$RESUME" -eq 1 ]; then
+  [ "$KIND" = ship ] || {
+    echo "error: --resume applies only to ship briefs; only a ship task is parked" >&2
+    exit 1
+  }
+  [ -f "$PARK_DIR/receipt" ] && [ ! -L "$PARK_DIR/receipt" ] || {
+    echo "error: --resume needs the park receipt $PARK_DIR/receipt, which bin/fm-teardown.sh $ID --park writes" >&2
+    exit 1
+  }
+  park_receipt_value() { sed -n "s/^$1=//p" "$PARK_DIR/receipt" | head -1; }
+  RESUME_BRANCH=$(park_receipt_value branch)
+  RESUME_HEAD=$(park_receipt_value head)
+  RESUME_BUNDLE=$(park_receipt_value bundle)
+  RESUME_PATCH=$(park_receipt_value uncommitted_patch)
+  RESUME_TAR=$(park_receipt_value untracked_tar)
+  [ "$RESUME_BRANCH" = "$BRANCH" ] || {
+    echo "error: the park receipt names branch '$RESUME_BRANCH', not '$BRANCH'; pass the --branch-prefix the task was parked with" >&2
+    exit 1
+  }
+  [[ "$RESUME_HEAD" =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ ]] || {
+    echo "error: the park receipt $PARK_DIR/receipt names no valid head commit" >&2
+    exit 1
+  }
+  for resume_file in "$RESUME_BUNDLE" "$RESUME_PATCH" "$RESUME_TAR"; do
+    case "$resume_file" in
+      none) ;;
+      branch.bundle|uncommitted.patch|untracked.tar)
+        [ -f "$PARK_DIR/$resume_file" ] || {
+          echo "error: the park receipt names $resume_file, which is missing from $PARK_DIR" >&2
+          exit 1
+        }
+        ;;
+      *)
+        echo "error: the park receipt $PARK_DIR/receipt names an unexpected file '$resume_file'" >&2
+        exit 1
+        ;;
+    esac
+  done
+fi
 
 if [ "$KIND" = secondmate ] && [ "$HERDR_LAB" -eq 1 ]; then
   echo "error: --herdr-lab applies only to crewmate ship or scout briefs" >&2
@@ -607,6 +663,25 @@ case "$MODE" in
 2. Run \`no-mistakes doctor\`; if it reports the repo is not initialized here, run \`no-mistakes init\`."
     ;;
 esac
+SETUP1="1. First action: create your branch: \`git checkout -b $BRANCH_Q --\`"
+if [ "$RESUME" -eq 1 ]; then
+  PARK_Q=$(shell_quote "$PARK_DIR")
+  if [ "$RESUME_BUNDLE" = none ]; then
+    RESUME_ABSENT="run \`git checkout -b $BRANCH_Q $RESUME_HEAD --\`"
+  else
+    RESUME_ABSENT="run \`git fetch --no-tags $(shell_quote "$PARK_DIR/$RESUME_BUNDLE") $(shell_quote "refs/heads/$BRANCH:refs/heads/$BRANCH")\` and then \`git checkout $BRANCH_Q --\`"
+  fi
+  SETUP1="1. First action: resume the parked branch instead of creating one. This task was parked with its unfinished work saved in $PARK_Q (receipt: \`receipt\` there).
+   - If \`git rev-parse --verify --quiet refs/heads/$BRANCH_Q\` prints \`$RESUME_HEAD\`, run \`git checkout $BRANCH_Q --\`.
+   - If the branch does not exist, $RESUME_ABSENT.
+   - If the branch exists at any other commit, or \`git rev-parse HEAD\` then prints anything but \`$RESUME_HEAD\`, STOP: append \`blocked [at=<epoch>]: parked branch $BRANCH is not at its saved commit $RESUME_HEAD\` to the status file and stop."
+  [ "$RESUME_PATCH" = none ] || SETUP1="$SETUP1
+   - Restore the saved uncommitted changes: \`git apply --binary $(shell_quote "$PARK_DIR/$RESUME_PATCH")\`."
+  [ "$RESUME_TAR" = none ] || SETUP1="$SETUP1
+   - Restore the saved untracked files: \`tar -xf $(shell_quote "$PARK_DIR/$RESUME_TAR")\`."
+  SETUP1="$SETUP1
+   - Then carry on from where the work stopped; \`status.log\` and \`brief.md\` in that directory show where that was."
+fi
 RULE1=$(fm_ship_rule_one "$MODE" "$ID" "$BRANCH" "$FORGE") || exit 1
 DOD=$(fm_dod_block "$MODE" "$ID" "$BRANCH" "$DATA" "$FORGE") || exit 1
 
@@ -624,7 +699,7 @@ You are in a disposable git worktree of $REPO, at a detached HEAD on a clean def
 The path check is authoritative: \`git rev-parse --git-dir\` and \`git rev-parse --git-common-dir\` can help inspect the repo, but they do not prove you are outside the primary checkout.
 If the top-level path is the primary checkout or not the worktree you were launched in, STOP - do not branch or commit here - append \`blocked [at=<epoch>]: launched in primary checkout, not an isolated worktree\` to the status file and stop.
 
-1. First action: create your branch: \`git checkout -b $BRANCH_Q --\`$SETUP2
+$SETUP1$SETUP2
 
 # Rules
 $RULE1
@@ -667,7 +742,9 @@ Keep it proportionate: skip \`AGENTS.md\` edits for trivial tasks that produced 
 $DOD
 EOF
 append_brief_include
-if [ "$FORGE" = none ]; then
+if [ "$RESUME" -eq 1 ]; then
+  echo "scaffolded: $BRIEF (ship, mode=$MODE, resuming $BRANCH at $RESUME_HEAD; replace {TASK} and {FIRSTMATE_SPEC})"
+elif [ "$FORGE" = none ]; then
   echo "scaffolded: $BRIEF (ship, mode=$MODE; replace {TASK} and {FIRSTMATE_SPEC})"
 else
   echo "scaffolded: $BRIEF (ship, mode=$MODE forge=$FORGE shape=$SHAPE; replace {TASK} and {FIRSTMATE_SPEC})"

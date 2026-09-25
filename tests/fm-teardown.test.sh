@@ -51,6 +51,11 @@
 #   branch whose work only the no-mistakes mirror holds          -> branch kept, reported
 #   refused teardown, or git refusing the delete                 -> branch kept, reported
 #
+# Park (--park): unfinished work of a gone worker is saved restorably under
+# data/<id>/park/ before its copy is returned, the branch is kept, and the row
+# returns to Queued; a possibly live worker or a head no branch holds refuses,
+# landed work takes the ordinary cleanup, and a vanished copy parks from its ref.
+#
 # Also covers backlog teardown-lock-race: a git index.lock left in the worktree by a
 # killed crew process (bin/fm-teardown.sh's teardown_treehouse_return).
 #   (r) provably-stale index.lock (old mtime, no live holder) -> lock removed, ALLOW
@@ -4268,6 +4273,187 @@ EOF
   pass "the run abort and the leaked-process reap both complete before the destructive worktree return"
 }
 
+# --- park: release the copy of unfinished work without losing it ------------
+
+# Record the fake Treehouse return so a park can prove its copy went back.
+log_treehouse_returns() {
+  local case_dir=$1
+  cat > "$case_dir/fakebin/treehouse" <<SH
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "$case_dir/treehouse.log"
+exit 0
+SH
+  chmod +x "$case_dir/fakebin/treehouse"
+}
+
+park_receipt_value() {  # <case-dir> <key>
+  sed -n "s/^$2=//p" "$1/data/task-x1/park/receipt" | head -1
+}
+
+backlog_row_body() {
+  tasks-axi show task-x1 --full --file "$1/data/backlog.md" 2>/dev/null
+}
+
+test_park_refuses_a_worker_that_may_still_be_running() {
+  local case_dir rc before
+  case_dir=$(make_case park-live-worker)
+  write_meta "$case_dir" no-mistakes ship
+  seed_backlog_in_flight "$case_dir"
+  wt_commit_file "$case_dir" feature.txt unfinished "unfinished work"
+  add_unreadable_tmux "$case_dir"
+  log_treehouse_returns "$case_dir"
+  before=$(cksum "$case_dir/state/task-x1.meta" | awk '{print $1, $2}')
+
+  rc=0
+  run_teardown "$case_dir" --park > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+  expect_code 1 "$rc" "park-live-worker: park must refuse an endpoint it cannot prove gone"
+  assert_grep "cannot park task task-x1" "$case_dir/stderr" \
+    "park-live-worker: the refusal did not name the park"
+  [ "$(cksum "$case_dir/state/task-x1.meta" | awk '{print $1, $2}')" = "$before" ] \
+    || fail "park-live-worker: the refusal changed the task record"
+  assert_absent "$case_dir/data/task-x1/park" "park-live-worker: the refusal saved a park anyway"
+  assert_absent "$case_dir/treehouse.log" "park-live-worker: the refusal returned the copy"
+  [ "$(backlog_row_state "$case_dir")" = in_flight ] \
+    || fail "park-live-worker: the refusal moved the backlog item"
+  pass "park refuses, changing nothing, while the worker may still be running"
+}
+
+test_park_saves_dirty_work_restorably_and_keeps_the_branch() {
+  local case_dir rc head restore sha note
+  case_dir=$(make_case park-dirty)
+  write_meta "$case_dir" no-mistakes ship
+  seed_backlog_in_flight "$case_dir"
+  log_treehouse_returns "$case_dir"
+  printf '%s\n' 'cache/' > "$case_dir/wt/.gitignore"
+  git -C "$case_dir/wt" add .gitignore
+  wt_commit_file "$case_dir" feature.txt committed-line "committed but unlanded"
+  head=$(git -C "$case_dir/wt" rev-parse HEAD)
+  printf '%s\n' committed-line uncommitted-line > "$case_dir/wt/feature.txt"
+  mkdir -p "$case_dir/wt/notes" "$case_dir/wt/cache"
+  printf '%s\n' untracked-draft > "$case_dir/wt/notes/draft.md"
+  printf '%s\n' rebuildable > "$case_dir/wt/cache/blob"
+  mkdir -p "$case_dir/data/task-x1"
+  printf '%s\n' 'original instructions' > "$case_dir/data/task-x1/brief.md"
+  printf '%s\n' "paused [key=freeze] [at=1]: waiting on the freeze" > "$case_dir/state/task-x1.status"
+
+  rc=0
+  run_teardown "$case_dir" --park > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+  expect_code 0 "$rc" "park-dirty: park failed: $(cat "$case_dir/stderr")"
+  assert_grep "park task-x1 complete" "$case_dir/stdout" "park-dirty: no park completion line"
+  assert_absent "$case_dir/state/task-x1.meta" "park-dirty: park kept the task record"
+  assert_grep "return --force $case_dir/wt" "$case_dir/treehouse.log" \
+    "park-dirty: park did not return the copy to its pool"
+  [ "$(git -C "$case_dir/project" rev-parse --verify --quiet refs/heads/fm/task-x1)" = "$head" ] \
+    || fail "park-dirty: park did not keep the task branch at its saved commit"
+  [ "$(backlog_row_state "$case_dir")" = queued ] \
+    || fail "park-dirty: park left the backlog item $(backlog_row_state "$case_dir"), not Queued"
+  note="parked: branch fm/task-x1 @ $head; saved in "
+  backlog_row_body "$case_dir" | grep -F "$note" | grep -Fq "task-x1/park/" \
+    || fail "park-dirty: the retained row has no resume pointer: $(backlog_row_body "$case_dir")"
+  for f in branch.bundle uncommitted.patch untracked.tar receipt SHA256SUMS status.log brief.md ignored.list; do
+    assert_present "$case_dir/data/task-x1/park/$f" "park-dirty: park did not save $f"
+  done
+  assert_absent "$case_dir/data/task-x1/brief.md" "park-dirty: the brief was not moved into the park"
+  [ "$(park_receipt_value "$case_dir" head)" = "$head" ] || fail "park-dirty: the receipt names the wrong head"
+  [ "$(park_receipt_value "$case_dir" ignored_saved)" = no ] || fail "park-dirty: the receipt claims ignored files were saved"
+  assert_grep "cache/" "$case_dir/data/task-x1/park/ignored.list" "park-dirty: ignored cache not listed"
+  (cd "$case_dir/data/task-x1/park" && shasum -a 256 -c SHA256SUMS >/dev/null 2>&1) \
+    || fail "park-dirty: the recorded checksums do not match the saved files"
+
+  # A fresh clone restores the exact head, diff, and untracked files.
+  restore="$case_dir/restore"
+  git clone -q "$case_dir/origin.git" "$restore"
+  git -C "$restore" fetch -q "$case_dir/data/task-x1/park/branch.bundle" \
+    "refs/heads/fm/task-x1:refs/heads/fm/task-x1" || fail "park-dirty: the bundle does not fetch"
+  git -C "$restore" checkout -q fm/task-x1
+  sha=$(git -C "$restore" rev-parse HEAD)
+  [ "$sha" = "$head" ] || fail "park-dirty: the bundle restored $sha, not $head"
+  git -C "$restore" apply --binary "$case_dir/data/task-x1/park/uncommitted.patch" \
+    || fail "park-dirty: the saved patch does not apply to the restored head"
+  (cd "$restore" && tar -xf "$case_dir/data/task-x1/park/untracked.tar") \
+    || fail "park-dirty: the untracked archive does not extract"
+  cmp -s "$restore/feature.txt" "$case_dir/wt/feature.txt" || fail "park-dirty: restored diff differs"
+  cmp -s "$restore/notes/draft.md" "$case_dir/wt/notes/draft.md" || fail "park-dirty: restored untracked file differs"
+  assert_absent "$restore/cache/blob" "park-dirty: a git-ignored cache file was saved as work"
+  pass "park saves a dirty copy's branch, diff, and untracked files restorably, keeps the branch, and returns the row to Queued"
+}
+
+test_park_of_landed_work_runs_the_ordinary_cleanup() {
+  local case_dir rc
+  case_dir=$(make_case park-landed)
+  write_meta "$case_dir" no-mistakes ship
+  seed_backlog_in_flight "$case_dir"
+  wt_commit_file "$case_dir" feature.txt shipped "already shipped elsewhere"
+  land_on_origin_main "$case_dir" feature.txt shipped
+
+  rc=0
+  run_teardown "$case_dir" --park > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+  expect_code 0 "$rc" "park-landed: teardown failed: $(cat "$case_dir/stderr")"
+  assert_grep "nothing to park" "$case_dir/stderr" "park-landed: did not report the landed hand-off"
+  assert_absent "$case_dir/data/task-x1/park" "park-landed: landed work was parked"
+  [ "$(backlog_row_state "$case_dir")" = "done" ] \
+    || fail "park-landed: landed work was not closed as done: $(backlog_row_state "$case_dir")"
+  pass "park of work already content-present in the default branch closes it as landed"
+}
+
+test_park_of_a_vanished_copy_saves_from_the_branch_and_drops_its_claim() {
+  local case_dir rc head wt pool
+  case_dir=$(make_case park-vanished)
+  pool="$case_dir/pool"
+  wt="$pool/slot1/repo"
+  mkdir -p "$pool/slot1"
+  printf '{}\n' > "$pool/treehouse-state.json"
+  git -C "$case_dir/wt" checkout -q --detach
+  git -C "$case_dir/project" branch -q -D fm/task-x1
+  git -C "$case_dir/project" worktree add -q -b fm/task-x1 "$wt" main
+  git -C "$wt" -c user.email=t@t -c user.name=t commit -q --allow-empty -m "unlanded"
+  printf '%s\n' unfinished > "$wt/f.txt"
+  git -C "$wt" add f.txt
+  git -C "$wt" -c user.email=t@t -c user.name=t commit -q -m "unfinished file"
+  head=$(git -C "$wt" rev-parse HEAD)
+  git -C "$wt" checkout -q --detach
+  mv "$wt" "$case_dir/vanished-away"
+  printf 'task=task-x1\nhome=%s\n' "$case_dir" > "$pool/slot1/.fm-slot-owner"
+  fm_write_meta "$case_dir/state/task-x1.meta" \
+    "window=firstmate:fm-task-x1" "endpoint_task_id=task-x1" "worktree=$wt" \
+    "project=$case_dir/project" "kind=ship" "mode=no-mistakes" \
+    "spawn_gen=teardown-test-task-x1"
+  seed_backlog_in_flight "$case_dir"
+  log_treehouse_returns "$case_dir"
+
+  rc=0
+  FM_HOME="$case_dir" run_teardown "$case_dir" --park > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+  expect_code 0 "$rc" "park-vanished: park failed: $(cat "$case_dir/stderr")"
+  [ "$(park_receipt_value "$case_dir" copy)" = gone ] || fail "park-vanished: receipt does not record the vanished copy"
+  [ "$(park_receipt_value "$case_dir" head)" = "$head" ] || fail "park-vanished: receipt names the wrong head"
+  assert_present "$case_dir/data/task-x1/park/branch.bundle" "park-vanished: no bundle from the branch ref"
+  assert_absent "$pool/slot1/.fm-slot-owner" "park-vanished: the orphaned slot claim was kept"
+  assert_absent "$case_dir/treehouse.log" "park-vanished: park tried to return a copy that is gone"
+  [ "$(git -C "$case_dir/project" rev-parse --verify --quiet refs/heads/fm/task-x1)" = "$head" ] \
+    || fail "park-vanished: park did not keep the branch"
+  [ "$(backlog_row_state "$case_dir")" = queued ] \
+    || fail "park-vanished: the row is $(backlog_row_state "$case_dir"), not Queued"
+  pass "park of a vanished copy saves from the branch ref and drops only its own orphaned claim"
+}
+
+test_park_refuses_a_copy_whose_head_left_its_branch() {
+  local case_dir rc
+  case_dir=$(make_case park-diverged)
+  write_meta "$case_dir" no-mistakes ship
+  seed_backlog_in_flight "$case_dir"
+  wt_commit_file "$case_dir" feature.txt on-branch "on the branch"
+  git -C "$case_dir/wt" checkout -q --detach
+  wt_commit_file "$case_dir" other.txt off-branch "only on the detached head"
+
+  rc=0
+  run_teardown "$case_dir" --park > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+  expect_code 1 "$rc" "park-diverged: park must refuse commits no branch holds"
+  assert_grep "holds commits its recorded branch" "$case_dir/stderr" "park-diverged: wrong refusal"
+  assert_present "$case_dir/state/task-x1.meta" "park-diverged: the refusal removed the record"
+  assert_absent "$case_dir/data/task-x1/park" "park-diverged: the refusal left a park behind"
+  pass "park refuses a copy whose HEAD holds commits its recorded branch does not"
+}
+
 test_local_only_fork_remote_allows
 test_teardown_closes_the_backlog_item_itself
 test_teardown_manual_backend_leaves_the_backlog_to_the_operator
@@ -4373,3 +4559,8 @@ test_process_spawned_during_grace_is_reaped_on_later_pass
 test_persistent_scan_refuses_after_bounded_retries
 test_process_exit_during_identity_lookup_does_not_refuse
 test_run_abort_precedes_process_reap_precedes_worktree_removal
+test_park_refuses_a_worker_that_may_still_be_running
+test_park_saves_dirty_work_restorably_and_keeps_the_branch
+test_park_of_landed_work_runs_the_ordinary_cleanup
+test_park_of_a_vanished_copy_saves_from_the_branch_and_drops_its_claim
+test_park_refuses_a_copy_whose_head_left_its_branch

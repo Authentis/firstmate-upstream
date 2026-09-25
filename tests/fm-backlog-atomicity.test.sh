@@ -2040,6 +2040,41 @@ test_recovery_replays_a_close_an_interrupted_cleanup_left_open() {
   pass "session start finishes a close an interrupted cleanup recorded but never landed"
 }
 
+test_recovery_returns_an_interrupted_park_to_queued() {
+  local case_dir id out marker head note
+  id=atomic-heal-park-b9
+  case_dir=$(make_home heal-park)
+  add_item "$case_dir" "$id"
+  start_item "$case_dir" "$id"
+  head=0123456789abcdef0123456789abcdef01234567
+  note="parked: branch fm/$id @ $head; saved in data/$id/park/"
+  marker="$(home_of "$case_dir")/state/$id.backlog-close"
+  printf 'id=%s\ndata=%s\nspawn_gen=spawn-heal-park\nmode=retain\narg=--note\narg=%s\n' \
+    "$id" "$(home_of "$case_dir")/data" "${note// /%20}" > "$marker"
+
+  out=$(run_bootstrap "$case_dir")
+  [ "$(row_state "$case_dir" "$id")" = queued ] \
+    || fail "session start left an interrupted park's item at $(row_state "$case_dir" "$id"): $out"
+  assert_grep "$note" "$(backlog_of "$case_dir")" \
+    "the replayed park dropped its resume pointer"
+  assert_absent "$marker" "a replayed park left its record behind"
+  assert_contains "$out" "returned the parked task $id to Queued" \
+    "session start did not report the replayed park as a park"
+
+  # A park note naming another task's park is not this task's record.
+  id=atomic-heal-park-foreign-b9
+  add_item "$case_dir" "$id"
+  start_item "$case_dir" "$id"
+  marker="$(home_of "$case_dir")/state/$id.backlog-close"
+  printf 'id=%s\ndata=%s\nspawn_gen=spawn-heal-park\nmode=retain\narg=--note\narg=%s\n' \
+    "$id" "$(home_of "$case_dir")/data" "${note// /%20}" > "$marker"
+  out=$(run_bootstrap "$case_dir")
+  [ "$(row_state "$case_dir" "$id")" = in_flight ] \
+    || fail "recovery replayed a park note that names another task: $out"
+  assert_present "$marker" "recovery discarded a rejected park record"
+  pass "session start returns an interrupted park to Queued with its resume pointer and rejects a foreign park note"
+}
+
 test_recovery_backfills_a_recorded_link_on_an_already_done_item() {
   local case_dir id marker out
   id=atomic-heal-done-backfill-b9
@@ -3035,6 +3070,7 @@ test_recovery_marks_an_owned_record_in_flight
 test_recovery_rejects_an_internal_worker_record_symlink
 test_recovery_ignores_a_symlinked_worker_record
 test_recovery_replays_a_close_an_interrupted_cleanup_left_open
+test_recovery_returns_an_interrupted_park_to_queued
 test_recovery_backfills_a_recorded_link_on_an_already_done_item
 test_recovery_preserves_a_close_when_the_backlog_cannot_be_read
 test_recovery_retry_preserves_incomplete_cleanup_warning

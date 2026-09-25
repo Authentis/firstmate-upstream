@@ -55,6 +55,9 @@
 # closes a row that reads as an open captain call. An answer that closes the row
 # first applies any supported retained artifact from the validated record, then
 # replay simply retires the record.
+# A parked ship (bin/fm-teardown.sh --park) uses that same retained record with
+# the park note fm_backlog_park_note writes as its one deliverable, so replay
+# returns the row to Queued with its resume pointer rather than closing it.
 
 # Set by fm_backlog_transition_applies for a return-1 exemption.
 # shellcheck disable=SC2034 # Output global, read by the sourcing caller.
@@ -69,7 +72,8 @@ FM_BACKLOG_ROW_ERROR=
 # shellcheck disable=SC2034 # Output global, read by the sourcing caller.
 FM_BACKLOG_ROW_HOLD_KIND=
 # Set by fm_backlog_close_marker_replay: closed | closed_incomplete | retained |
-# retained_incomplete | answered | interrupted | stale | noop.
+# retained_incomplete | parked | parked_incomplete | answered | interrupted |
+# stale | noop.
 # shellcheck disable=SC2034 # Output global, read by the sourcing caller.
 FM_BACKLOG_CLOSE_REPLAY_RESULT=
 
@@ -529,8 +533,9 @@ fm_backlog_row_artifact_supported() {
   esac
 }
 
-# Keep a captain-held row open across the removal of the work record that
-# discovered it: record the finished work's deliverable as one line at the end
+# Keep a captain-held or parked row open across the removal of the work record
+# that discovered it: record the finished work's deliverable (or the park note,
+# verbatim) as one line at the end
 # of the task body (a line already present is left alone), preserve supported
 # artifacts on the row, and return it to Queued, the conventional post-cleanup
 # shape for an open captain call.
@@ -594,6 +599,7 @@ fm_backlog_retain() {  # <data-dir> <id> [flag...]
       return 1
     }
     line="Deliverable of the finished work: $deliverable"
+    ! fm_backlog_park_note_valid "$id" "$deliverable" || line=$deliverable
     case $'\n'"$body"$'\n' in
       *$'\n'"$line"$'\n'*) ;;
       *)
@@ -620,6 +626,24 @@ fm_backlog_retain() {  # <data-dir> <id> [flag...]
     fm_backlog_mutate "$authorized_data" update "$id" "${row_args[@]}" || return 1
   fi
   fm_backlog_mutate "$authorized_data" reopen "$id"
+}
+
+# The one deliverable line a parked task's retained row carries: the kept branch,
+# the exact commit a resumed worker must start from, and where the verified
+# bundle, patch, and receipt live. bin/fm-brief.sh --resume reads the receipt,
+# not this line; the line is the human- and agent-readable pointer to it.
+fm_backlog_park_note() {  # <branch> <sha> <park-dir>
+  printf 'parked: branch %s @ %s; saved in %s\n' "$1" "$2" "$3"
+}
+
+# 0 when <note> is exactly a park note for task <id>, as fm_backlog_park_note
+# writes it with a park directory ending in <id>/park/.
+fm_backlog_park_note_valid() {  # <id> <note>
+  local id=$1 note=$2 re
+  case "$note" in *%*|*$'\n'*|*$'\r'*|*$'\t'*) return 1 ;; esac
+  re='^parked: branch [A-Za-z0-9._/-]+ @ ([0-9a-f]{40}|[0-9a-f]{64}); saved in (.+/)?([A-Za-z0-9._-]+)/park/$'
+  [[ "$note" =~ $re ]] || return 1
+  [ "${BASH_REMATCH[3]}" = "$id" ]
 }
 
 fm_backlog_canonical_existing() {
@@ -953,7 +977,10 @@ fm_backlog_close_marker_validate() {  # <marker-path> <authorized-data-dir> <exp
     0) ;;
     2)
       case "${args[0]}" in
-        --note) [ "${args[1]}" = "local%20main" ] ;;
+        --note)
+          [ "${args[1]}" = "local%20main" ] \
+            || { [ "$mode" = retain ] && fm_backlog_park_note_valid "$id" "${args[1]//%20/ }"; }
+          ;;
         --pr)
           arg_value=${args[1]}
           [ "${#arg_value}" -le 2048 ] \
@@ -1051,8 +1078,8 @@ fm_backlog_close_marker_stage() {  # <temporary-path> <id> <data-dir> <spawn-gen
     shift
   fi
   for arg in "$@"; do
-    if [ "$previous_arg" = --note ] && [ "$arg" = "local main" ]; then
-      serialized_args+=("local%20main")
+    if [ "$previous_arg" = --note ]; then
+      serialized_args+=("${arg// /%20}")
     else
       serialized_args+=("$arg")
     fi
@@ -1125,7 +1152,7 @@ fm_backlog_close_marker_replay() {  # <state-dir> <marker-path> <authorized-data
   mode=$FM_BACKLOG_CLOSE_VALIDATED_MODE
   args=("${FM_BACKLOG_CLOSE_VALIDATED_ARGS[@]+"${FM_BACKLOG_CLOSE_VALIDATED_ARGS[@]}"}")
   if [ "${args[0]-}" = --note ]; then
-    args[1]="local main"
+    args[1]=${args[1]//%20/ }
   fi
   meta="$state/$id.meta"
   if [ -e "$meta" ] || [ -L "$meta" ]; then
@@ -1183,7 +1210,13 @@ fm_backlog_close_marker_replay() {  # <state-dir> <marker-path> <authorized-data
   esac
   if fm_backlog_atomic_transition "$mode" '' "$marker" "$data" "$id" "$state" \
       "${args[@]+"${args[@]}"}"; then
-    if [ "$mode" = retain ]; then
+    if [ "$mode" = retain ] && [ "${args[0]-}" = --note ]; then
+      if [ "$cleanup_incomplete" = 1 ]; then
+        FM_BACKLOG_CLOSE_REPLAY_RESULT=parked_incomplete
+      else
+        FM_BACKLOG_CLOSE_REPLAY_RESULT=parked
+      fi
+    elif [ "$mode" = retain ]; then
       if [ "$cleanup_incomplete" = 1 ]; then
         FM_BACKLOG_CLOSE_REPLAY_RESULT=retained_incomplete
       else

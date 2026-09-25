@@ -25,6 +25,8 @@ It never broadens merge authority, bypasses guarded teardown, invents a brief fr
 4. On a teardown refusal, preserve the task and worktree, capture the refusal in a private detail file, and run `bin/fm-fleet-steward.sh exempt <id> --state <reconciled-state> --detail-file <path>`.
    This binds the steward exemption to the exact reconciled state without discarding work or hiding sibling exemptions; the script refuses if that state has since changed.
    When that task's work is finished and only its idle Herdr pane is left, close it with `bin/fm-control.sh <id> exit`, which stops any agent still there and hands the pane to `bin/fm-teardown.sh <id> --endpoint-only`, keeping the record, copy, branch, and backlog item; that script header owns the retention checks.
+   When that task's work is unfinished and its worker is gone, `bin/fm-teardown.sh <id> --park` can release its copy after saving the work and return its item to Queued with a resume pointer; that script header owns what park saves and refuses.
+   Park only a task you were explicitly asked to park: this pass never parks on its own, including tasks the snapshot classifies as preserved, until the captain switches automatic parking on.
 5. Refresh the queue with `bin/fm-fleet-steward.sh refresh` before selecting work.
    A failed refresh leaves the last known-good queue in place but does not authorize dispatch from it; report the refresh failure and stop the refill portion of this pass.
 6. Recompute current productive capacity from a fresh `bin/fm-fleet-snapshot.sh --json` result.

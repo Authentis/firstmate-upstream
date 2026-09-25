@@ -189,8 +189,29 @@
 # Herdr-only because only Herdr proves a pane gone and reclaims into a fresh
 # one; an already-gone pane is idempotent success. It never takes --force or
 # --legacy-record, and never applies to a secondmate.
+# --park is the ending for a ship task whose work is unfinished and whose worker
+# is gone: it releases the isolated copy without losing anything. It refuses,
+# changing nothing, unless the recorded endpoint reads dead or missing (the same
+# recovery-grade probe --legacy-record uses). When the task's committed work is
+# already content-present in the up-to-date default branch and its copy is clean,
+# there is nothing to park and the ordinary landed-work teardown runs instead.
+# Otherwise it first saves the work under data/<id>/park/ - a bundle of the
+# recorded branch beyond the default branch, the copy's uncommitted diff, its
+# untracked files, a copy of the status log, a receipt, and SHA256SUMS - and
+# verifies each piece before any destructive step. Git-ignored files are cache,
+# not work: they are listed with their total size, never saved. A prior park
+# directory is kept beside the new one. Cleanup then runs the ordinary steps -
+# parked-run abort, process reap, endpoint close, slot return, claim release -
+# but keeps the branch ref, retires no safety refs, pushes nothing, and returns
+# the backlog item to Queued (never closes it, and keeps any hold) with one park
+# note naming the branch, the saved commit, and the park directory; the brief
+# moves into that directory so bin/fm-brief.sh --resume can scaffold the next
+# worker from the receipt. A record whose copy has vanished parks from the
+# branch ref alone and drops its own orphaned slot claim by path. Park is
+# Treehouse-and-ship only and never combines with --force or --endpoint-only.
 # Usage: fm-teardown.sh <task-id> [--force] [--legacy-record]
 #        fm-teardown.sh <task-id> --endpoint-only
+#        fm-teardown.sh <task-id> --park [--legacy-record]
 #   --force skips ordinary-task dirty and landed-work checks, skips scout report
 #   checks, and discards secondmate child work for kind=secondmate. Only use it
 #   when the captain has explicitly said to discard the work.
@@ -350,12 +371,14 @@ ID=$1
 FORCE=
 LEGACY_RECORD_GIVEN=0
 ENDPOINT_ONLY=0
+PARK=0
 shift
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --force) FORCE=--force ;;
     --legacy-record) LEGACY_RECORD_GIVEN=1 ;;
     --endpoint-only) ENDPOINT_ONLY=1 ;;
+    --park) PARK=1 ;;
     *)
       echo "error: invalid teardown request" >&2
       exit 2
@@ -365,6 +388,10 @@ while [ "$#" -gt 0 ]; do
 done
 if [ "$ENDPOINT_ONLY" = 1 ] && { [ -n "$FORCE" ] || [ "$LEGACY_RECORD_GIVEN" = 1 ]; }; then
   echo "error: --endpoint-only closes only a task's endpoint and cannot be combined with --force or --legacy-record" >&2
+  exit 2
+fi
+if [ "$PARK" = 1 ] && { [ -n "$FORCE" ] || [ "$ENDPOINT_ONLY" = 1 ]; }; then
+  echo "error: --park saves unfinished work before releasing its copy and cannot be combined with --force or --endpoint-only" >&2
   exit 2
 fi
 fm_backlog_directory_present "$STATE" "state directory" || {
@@ -491,6 +518,10 @@ TEARDOWN_META_KIND=$(fm_meta_get "$META" kind)
 [ -n "$TEARDOWN_META_KIND" ] || TEARDOWN_META_KIND=ship
 if [ "$ENDPOINT_ONLY" = 1 ] && [ "$TEARDOWN_META_KIND" = secondmate ]; then
   echo "REFUSED: --endpoint-only does not apply to secondmate $ID, whose endpoint is its persistent home's supervisor; nothing was changed." >&2
+  exit 1
+fi
+if [ "$PARK" = 1 ] && [ "$TEARDOWN_META_KIND" != ship ]; then
+  echo "REFUSED: --park applies only to ship tasks; a scout's copy is declared scratch and a secondmate is retired, not parked. Nothing was changed." >&2
   exit 1
 fi
 # A secondmate's endpoint-liveness episodes (bin/fm-secondmate-liveness-lib.sh)
@@ -1621,6 +1652,10 @@ BACKLOG_DONE_ARGS=()
 backlog_done_args() {
   local data_relative
   BACKLOG_DONE_ARGS=()
+  if [ "$PARK" = 1 ]; then
+    BACKLOG_DONE_ARGS=(--note "$PARK_NOTE")
+    return 0
+  fi
   case "$KIND" in
     scout)
       data_relative=$(fm_backlog_data_relative "$DATA") || return 1
@@ -1654,7 +1689,11 @@ backlog_refresh_reminder() {
   else
     backlog_display="${DATA%/}/backlog.md"
   fi
-  if [ "$BACKLOG_CLOSED" = 1 ] && [ "$BACKLOG_TRANSITION" = retain ]; then
+  if [ "$BACKLOG_CLOSED" = 1 ] && [ "$PARK" = 1 ]; then
+    printf '%s\n' "Backlog: $ID is back in Queued in $backlog_display with its park note ($PARK_NOTE); any hold it had is unchanged. Resume it with bin/fm-brief.sh $ID <repo> --mode <mode> --resume, then the ordinary spawn."
+  elif [ "$PARK" = 1 ]; then
+    printf '%s\n' "Backlog: $ID was parked ($BACKLOG_SKIP_REASON). Update $backlog_display - move $ID back to Queued with the note: $PARK_NOTE"
+  elif [ "$BACKLOG_CLOSED" = 1 ] && [ "$BACKLOG_TRANSITION" = retain ]; then
     printf '%s\n' "Backlog: $ID stays open in $backlog_display, still held for the captain with its deliverable recorded. Relay the question and close it only with bin/fm-captain-hold.sh answer."
   elif [ "$BACKLOG_CLOSED" = 1 ]; then
     printf '%s\n' "Backlog: $ID is closed in $backlog_display. Run bin/fm-tasks-axi.sh ready for dependency-cleared candidates, check date gates, and dispatch only work whose blockers are gone and date is due."
@@ -3591,6 +3630,269 @@ teardown_endpoint_only() {
   echo "teardown: closed task $ID's Herdr pane $T; its record, isolated copy, branch, and backlog item are unchanged"
 }
 
+# --park (see the script header). teardown_park_prepare decides whether there is
+# anything to park and, when there is, saves and verifies it under
+# data/<id>/park/ before any destructive step. No git command here changes the
+# project's work - the only ref it moves is the origin default-branch refresh
+# the landed-work gate performs too - and every file it writes lands under $DATA.
+PARK_NOTE=
+PARK_DIR=
+PARK_LANDED=0
+
+park_refuse() {
+  echo "REFUSED: cannot park task $ID: $*. Nothing was changed." >&2
+  return 1
+}
+
+park_sha256() {  # <file>
+  if command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$1" | awk '{print $1}'
+  elif command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+  else
+    return 1
+  fi
+}
+
+# NUL-separated untracked paths of copy $1 that are work: the same Firstmate
+# hook leftovers the landed-work gate ignores are not saved.
+park_untracked_list() {  # <copy>
+  git -C "$1" ls-files -z --others --exclude-standard -- \
+    | perl -0 -ne 'print unless m{\A(?:\.claude/|\.fm-(?:grok|kimi)-turnend\0\z|\.opencode/plugins/fm-(?:turn-end|busy-state)\.js\0\z)}'
+}
+
+# Choose the commit to save, test whether it already landed, and save into
+# <stage>. Sets PARK_LANDED=1 when there is nothing to park; otherwise fills
+# <stage> and sets PARK_SAVED_HEAD. Returns non-zero after printing a refusal.
+PARK_SAVED_HEAD=
+teardown_park_save() {  # <stage>
+  local stage=$1 copy='' repo base_ref base branch_tip head='' current='' saved='' clean=1
+  local changed=0 untracked=0 listed ahead bundle=none patch=none tarball=none
+  local ignored=0 ignored_kb=0 run_id=none out open_count=0 f sum
+  if teardown_owns_worktree && [ -n "$WT" ] && [ -d "$WT" ]; then
+    inspectable_git_worktree "$WT" || { park_refuse "its copy $WT cannot be inspected"; return 1; }
+    copy=$WT
+  fi
+  if [ -n "$copy" ]; then
+    repo=$copy
+  elif [ -n "$PROJ" ] && git -C "$PROJ" rev-parse --git-dir >/dev/null 2>&1; then
+    repo=$PROJ
+  else
+    park_refuse "neither its copy nor its project clone ${PROJ:-<missing>} can be read"
+    return 1
+  fi
+  # fresh_default_ref and commit_content_in read the repository named by $WT.
+  local WT=$repo
+  base_ref=$(fresh_default_ref) || { park_refuse "the up-to-date default branch of ${PROJ:-its project} cannot be read"; return 1; }
+  base=$(git -C "$repo" rev-parse --verify --quiet "$base_ref^{commit}") \
+    || { park_refuse "the default branch $base_ref cannot be resolved"; return 1; }
+  branch_tip=$(git -C "$repo" rev-parse --quiet --verify "refs/heads/$TASK_BRANCH^{commit}" 2>/dev/null) || branch_tip=
+  if [ -n "$copy" ]; then
+    head=$(git -C "$copy" rev-parse --verify --quiet 'HEAD^{commit}') \
+      || { park_refuse "its copy $copy has no readable HEAD"; return 1; }
+    current=$(git -C "$copy" symbolic-ref --quiet HEAD 2>/dev/null) || current=
+    if [ -n "$current" ] && [ "$current" != "refs/heads/$TASK_BRANCH" ]; then
+      park_refuse "its copy has branch ${current#refs/heads/} checked out, not its recorded branch $TASK_BRANCH"
+      return 1
+    fi
+    out=$(git -C "$copy" diff --name-only HEAD --) \
+      || { park_refuse "its copy $copy cannot be inspected for uncommitted changes"; return 1; }
+    [ -z "$out" ] || changed=$(printf '%s\n' "$out" | wc -l | tr -d ' ')
+    park_untracked_list "$copy" > "$stage/.untracked.list0" \
+      || { park_refuse "its copy $copy cannot be inspected for untracked files"; return 1; }
+    untracked=$(tr -cd '\000' < "$stage/.untracked.list0" | wc -c | tr -d ' ')
+    [ "$changed" = 0 ] && [ "$untracked" = 0 ] || clean=0
+    if [ "$head" = "$branch_tip" ]; then
+      saved=$head
+    elif [ "$clean" = 1 ] && [ -n "$branch_tip" ] \
+       && git -C "$repo" merge-base --is-ancestor "$head" "$branch_tip" 2>/dev/null; then
+      saved=$branch_tip
+    elif git -C "$repo" merge-base --is-ancestor "$head" "$base" 2>/dev/null \
+       && { [ -z "$branch_tip" ] || [ "$clean" = 1 ]; }; then
+      saved=${branch_tip:-$head}
+    elif [ "$clean" = 0 ]; then
+      park_refuse "its copy holds uncommitted changes on $head, which is not the tip of its recorded branch $TASK_BRANCH${branch_tip:+ ($branch_tip)}"
+      return 1
+    else
+      park_refuse "its copy's HEAD $head holds commits its recorded branch $TASK_BRANCH${branch_tip:+ ($branch_tip)} does not"
+      return 1
+    fi
+  else
+    saved=$branch_tip
+    if [ -z "$saved" ]; then
+      park_refuse "its copy is gone and its recorded branch $TASK_BRANCH does not exist, so there is nothing to save or resume from"
+      return 1
+    fi
+  fi
+  if [ "$clean" = 1 ] \
+     && { git -C "$repo" merge-base --is-ancestor "$saved" "$base" 2>/dev/null \
+          || commit_content_in "$base" "$saved"; }; then
+    PARK_LANDED=1
+    return 0
+  fi
+
+  ahead=$(git -C "$repo" rev-list --count "$base..$saved") \
+    || { park_refuse "cannot count $TASK_BRANCH's commits beyond $base_ref"; return 1; }
+  if [ "$ahead" -gt 0 ]; then
+    bundle=branch.bundle
+    if ! { git -C "$repo" bundle create "$stage/$bundle" "refs/heads/$TASK_BRANCH" --not "$base" >/dev/null 2>&1 \
+        && git -C "$repo" bundle verify "$stage/$bundle" >/dev/null 2>&1 \
+        && git -C "$repo" bundle list-heads "$stage/$bundle" 2>/dev/null | grep -qxF "$saved refs/heads/$TASK_BRANCH"; }; then
+      park_refuse "a verified bundle of $TASK_BRANCH at $saved could not be written"
+      return 1
+    fi
+  fi
+  if [ "$changed" != 0 ]; then
+    patch=uncommitted.patch
+    if ! { git -C "$copy" diff --binary HEAD -- > "$stage/$patch" \
+        && [ -s "$stage/$patch" ] \
+        && git -C "$copy" apply --check -R --binary "$stage/$patch" >/dev/null 2>&1; }; then
+      park_refuse "a verified patch of its copy's uncommitted changes could not be written"
+      return 1
+    fi
+  fi
+  if [ "$untracked" != 0 ]; then
+    tarball=untracked.tar
+    tr '\000' '\n' < "$stage/.untracked.list0" > "$stage/untracked.list"
+    if ! { ( cd "$copy" && tar -cf "$stage/$tarball" --null -T "$stage/.untracked.list0" ) >/dev/null 2>&1 \
+        && listed=$(tar -tf "$stage/$tarball" 2>/dev/null | wc -l | tr -d ' ') \
+        && [ "$listed" = "$untracked" ]; }; then
+      park_refuse "a verified archive of its copy's $untracked untracked files could not be written"
+      return 1
+    fi
+  fi
+  rm -f "$stage/.untracked.list0"
+  if [ -n "$copy" ]; then
+    git -C "$copy" ls-files -z --others --ignored --exclude-standard --directory -- > "$stage/.ignored.list0" \
+      || { park_refuse "its copy's ignored files cannot be listed"; return 1; }
+    ignored=$(tr -cd '\000' < "$stage/.ignored.list0" | wc -c | tr -d ' ')
+    if [ "$ignored" != 0 ]; then
+      tr '\000' '\n' < "$stage/.ignored.list0" > "$stage/ignored.list"
+      ignored_kb=$(cd "$copy" && perl -0 -pe 's{\A}{./}' "$stage/.ignored.list0" \
+        | xargs -0 du -sk 2>/dev/null | awk '{ kb += $1 } END { print kb + 0 }') || ignored_kb=unknown
+    fi
+    rm -f "$stage/.ignored.list0"
+    if [ -n "$current" ] && command -v no-mistakes >/dev/null 2>&1; then
+      out=$(fm_nm_run "$copy" "$NM_TEARDOWN_TIMEOUT" axi status 2>/dev/null) || out=
+      if [ "$(fm_nm_strip_quotes "$(fm_nm_field "$out" branch)")" = "$TASK_BRANCH" ]; then
+        run_id=$(fm_nm_strip_quotes "$(fm_nm_field "$out" id)")
+        [ -n "$run_id" ] || run_id=none
+      fi
+    fi
+  fi
+  if [ -f "$STATE/$ID.status" ] && [ ! -L "$STATE/$ID.status" ]; then
+    cp "$STATE/$ID.status" "$stage/status.log" \
+      || { park_refuse "its status log could not be copied"; return 1; }
+    open_count=$(status_open_decisions "$STATE/$ID.status" "$KIND" | grep -c . || true)
+  fi
+  {
+    printf 'task=%s\n' "$ID"
+    printf 'project=%s\n' "$PROJ"
+    printf 'mode=%s\n' "$MODE"
+    printf 'worktree=%s\n' "$COPY_RECORDED"
+    if [ -n "$copy" ]; then printf 'copy=present\n'; else printf 'copy=gone\n'; fi
+    printf 'branch=%s\n' "$TASK_BRANCH"
+    if [ -n "$branch_tip" ]; then printf 'branch_ref=kept\n'; else printf 'branch_ref=absent\n'; fi
+    printf 'head=%s\n' "$saved"
+    printf 'base_ref=%s\n' "$base_ref"
+    printf 'base=%s\n' "$base"
+    printf 'commits_ahead=%s\n' "$ahead"
+    printf 'bundle=%s\n' "$bundle"
+    printf 'uncommitted_patch=%s\n' "$patch"
+    printf 'changed_files=%s\n' "$changed"
+    printf 'untracked_tar=%s\n' "$tarball"
+    printf 'untracked_files=%s\n' "$untracked"
+    printf 'ignored_paths=%s\n' "$ignored"
+    printf 'ignored_kb=%s\n' "$ignored_kb"
+    printf 'ignored_saved=no\n'
+    printf 'validation_run=%s\n' "$run_id"
+    printf 'open_decisions=%s\n' "$open_count"
+    printf 'parked_at=%s\n' "$(date +%s)"
+  } > "$stage/receipt" || { park_refuse "its receipt could not be written"; return 1; }
+  : > "$stage/SHA256SUMS" || { park_refuse "its checksums could not be written"; return 1; }
+  for f in "$stage"/*; do
+    [ "${f##*/}" != SHA256SUMS ] || continue
+    sum=$(park_sha256 "$f") && [ -n "$sum" ] \
+      || { park_refuse "no sha256 tool could checksum ${f##*/}"; return 1; }
+    printf '%s  %s\n' "$sum" "${f##*/}" >> "$stage/SHA256SUMS"
+  done
+  PARK_SAVED_HEAD=$saved
+}
+
+teardown_park_prepare() {
+  local agent stage final prior data_rel
+  if [ "$BACKEND" = orca ]; then
+    park_refuse "park releases Treehouse copies only, and this task's copy is Orca-managed"
+    return 1
+  fi
+  if [ "$TEARDOWN_WINDOWLESS" = 1 ]; then
+    agent=missing
+  else
+    agent=$(fm_backend_agent_state "$BACKEND" "$T")
+  fi
+  case "$agent" in
+    dead|missing) ;;
+    *)
+      park_refuse "its worker endpoint $T reads '$agent', not gone; park never takes a copy from a worker that may still be using it (stop it first with bin/fm-control.sh $ID exit)"
+      return 1
+      ;;
+  esac
+  COPY_RECORDED=$WT
+  # A copy that vanished holds no Treehouse slot lock from the start of this
+  # run, but its orphaned claim is still released below: take the project lock
+  # that serializes slot allocation before touching it.
+  if teardown_owns_worktree && [ -n "$WT" ] && [ ! -e "$WT" ] \
+     && [ -f "$(dirname "$(dirname "$WT")")/treehouse-state.json" ] \
+     && [ "$TREEHOUSE_PROJECT_LOCK_HELD" != 1 ] && [ -d "$PROJ" ]; then
+    TREEHOUSE_PROJECT_LOCK=$(fm_treehouse_project_lock_path "$PROJ") \
+      || { park_refuse "the shared Treehouse project lock for $PROJ cannot be resolved"; return 1; }
+    fm_lock_try_acquire "$TREEHOUSE_PROJECT_LOCK" \
+      || { park_refuse "another Treehouse slot allocation or return is in progress for $PROJ"; return 1; }
+    TREEHOUSE_PROJECT_LOCK_HELD=1
+  fi
+  if ! { mkdir -p "$DATA/$ID" && stage=$(mktemp -d "$DATA/$ID/.park-staging.XXXXXX"); }; then
+    park_refuse "a staging directory under $DATA/$ID could not be created"
+    return 1
+  fi
+  if ! teardown_park_save "$stage"; then
+    rm -rf "$stage"
+    return 1
+  fi
+  if [ "$PARK_LANDED" = 1 ]; then
+    rm -rf "$stage"
+    echo "teardown: task $ID's committed work is already in the default branch and its copy is clean, so there is nothing to park; running the ordinary cleanup instead" >&2
+    PARK=0
+    return 0
+  fi
+  final="$DATA/$ID/park"
+  prior=
+  if [ -e "$final" ] || [ -L "$final" ]; then
+    prior="$DATA/$ID/park.$(date -u +%Y%m%dT%H%M%SZ).$$"
+    mv "$final" "$prior" \
+      || { rm -rf "$stage"; park_refuse "the earlier park directory $final could not be kept aside"; return 1; }
+    echo "teardown: kept the earlier park of $ID at $prior" >&2
+  fi
+  if ! mv "$stage" "$final"; then
+    rm -rf "$stage"
+    [ -z "$prior" ] || mv "$prior" "$final" || echo "warning: the earlier park of $ID stays at $prior" >&2
+    park_refuse "the saved work could not be moved into $final"
+    return 1
+  fi
+  PARK_DIR=$final
+  data_rel=$(fm_backlog_data_relative "$DATA" 2>/dev/null) || data_rel=$DATA
+  PARK_NOTE=$(fm_backlog_park_note "$TASK_BRANCH" "$PARK_SAVED_HEAD" "$data_rel/$ID/park/")
+  TEARDOWN_BACKLOG_TRANSITION=retain
+  echo "teardown: saved task $ID's unfinished work to $PARK_DIR (branch $TASK_BRANCH at $PARK_SAVED_HEAD)" >&2
+}
+
+# Free the task branch from a copy about to be returned, keeping the ref.
+park_release_branch() {  # <worktree>
+  local wt=$1 out
+  [ "$(git -C "$wt" symbolic-ref --quiet HEAD 2>/dev/null)" = "refs/heads/$TASK_BRANCH" ] || return 0
+  out=$(git -C "$wt" checkout --detach -q 2>&1) \
+    || echo "warning: could not detach $wt from $TASK_BRANCH before returning it: $out" >&2
+}
+
 if [ "$ENDPOINT_ONLY" = 1 ]; then
   teardown_endpoint_only
   exit $?
@@ -3707,7 +4009,13 @@ if [ "$BACKEND" = orca ] && [ "$KIND" != scout ] && [ "$KIND" != secondmate ] &&
   ORCA_PATH_MATCH_VERIFIED=1
 fi
 
-if teardown_owns_worktree && [ -d "$WT" ] && [ "$FORCE" != "--force" ]; then
+# Park saves and verifies the unfinished work here, before any destructive step;
+# it replaces the landed-work gate below, or hands a landed task back to it.
+if [ "$PARK" = 1 ]; then
+  teardown_park_prepare || exit 1
+fi
+
+if [ "$PARK" != 1 ] && teardown_owns_worktree && [ -d "$WT" ] && [ "$FORCE" != "--force" ]; then
   if validate_worktree_teardown_safety; then
     :
   else
@@ -3855,8 +4163,12 @@ if [ "$BACKEND" = orca ] && [ "$KIND" != secondmate ]; then
 elif [ "$KIND" != secondmate ] && ! teardown_owns_worktree; then
   :
 elif [ -d "$WT" ] && [ "$KIND" != secondmate ]; then
-  retire_task_branch "$WT"
-  retire_proven_retirement_refs "$WT"
+  if [ "$PARK" = 1 ]; then
+    park_release_branch "$WT"
+  else
+    retire_task_branch "$WT"
+    retire_proven_retirement_refs "$WT"
+  fi
   # Remove our hook file so a reused pool worktree cannot fire signals for a dead task.
   rm -f "$WT/.claude/settings.local.json" "$WT/.opencode/plugins/fm-turn-end.js" \
     "$WT/.fm-grok-turnend" "$WT/.fm-kimi-turnend"
@@ -3865,7 +4177,7 @@ elif [ -d "$WT" ] && [ "$KIND" != secondmate ]; then
   # the project. teardown_treehouse_return tolerates transient and stale git locks
   # left by a killed crew process; see the script header for retry and stale-lock proof.
   post_lock_cleanup_check=
-  if [ "$FORCE" != "--force" ] && [ "$KIND" != scout ] && [ "$KIND" != secondmate ]; then
+  if [ "$FORCE" != "--force" ] && [ "$PARK" != 1 ] && [ "$KIND" != scout ] && [ "$KIND" != secondmate ]; then
     post_lock_cleanup_check=validate_worktree_teardown_safety
   fi
   teardown_treehouse_return "$WT" "$PROJ" "worktree" "$post_lock_cleanup_check" || {
@@ -3877,6 +4189,8 @@ elif [ -d "$WT" ] && [ "$KIND" != secondmate ]; then
   # unclaimed until its next holder claims it, and leaves the claim in place
   # whenever the return did not actually happen.
   fm_treehouse_slot_owner_release "$WT" "$ID"
+elif [ "$PARK" = 1 ] && [ "$KIND" != secondmate ]; then
+  fm_treehouse_vanished_slot_owner_release "$WT" "$ID"
 fi
 
 if [ "$BACKEND" = herdr ]; then
@@ -4006,7 +4320,13 @@ fi
 if [ -d "$STATE" ]; then
   "$SCRIPT_DIR/fm-home-summary-refresh.sh" --best-effort || true
 fi
-if [ "$TEARDOWN_LEGACY_ACCEPTED" = 1 ]; then
+if [ "$PARK" = 1 ] && [ -f "$DATA/$ID/brief.md" ] && [ ! -L "$DATA/$ID/brief.md" ]; then
+  mv "$DATA/$ID/brief.md" "$PARK_DIR/brief.md" \
+    || echo "warning: could not move $DATA/$ID/brief.md into $PARK_DIR; move it there before scaffolding the resume brief" >&2
+fi
+if [ "$PARK" = 1 ]; then
+  echo "park $ID complete (window ${T:-none}, worktree ${WT:-none} released; unfinished work saved in $PARK_DIR, branch $TASK_BRANCH kept at $PARK_SAVED_HEAD)"
+elif [ "$TEARDOWN_LEGACY_ACCEPTED" = 1 ]; then
   echo "teardown $ID complete (window ${T:-none}, worktree $WT, legacy record accepted without spawn_gen: endpoint $TEARDOWN_LEGACY_ENDPOINT, incarnation $TEARDOWN_META_SPAWN_GEN)"
 elif teardown_owns_worktree; then
   echo "teardown $ID complete (window ${T:-none}, worktree $WT)"

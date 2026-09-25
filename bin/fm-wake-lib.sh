@@ -1333,11 +1333,20 @@ fm_treehouse_slot_owner_claim() {  # <worktree> <task-id> <home>
 # claimant as evidence. The home is reported, never matched: a home that moved
 # must not turn a task's own slot into a refusal.
 fm_treehouse_slot_owner_state() {  # <worktree> <task-id>
-  local worktree=$1 id=$2 marker line owner_id='' owner_home=''
+  local marker
   FM_TREEHOUSE_SLOT_OWNER=unsafe
   FM_TREEHOUSE_SLOT_OWNER_ID=
   FM_TREEHOUSE_SLOT_OWNER_HOME=
-  marker=$(fm_treehouse_slot_owner_marker "$worktree") || return 0
+  marker=$(fm_treehouse_slot_owner_marker "$1") || return 0
+  fm_treehouse_slot_owner_state_at "$marker" "$2"
+}
+
+# The same read for a claim file already located, with the same outputs.
+fm_treehouse_slot_owner_state_at() {  # <claim-file> <task-id>
+  local marker=$1 id=$2 line owner_id='' owner_home=''
+  FM_TREEHOUSE_SLOT_OWNER=unsafe
+  FM_TREEHOUSE_SLOT_OWNER_ID=
+  FM_TREEHOUSE_SLOT_OWNER_HOME=
   if [ ! -e "$marker" ] && [ ! -L "$marker" ]; then
     FM_TREEHOUSE_SLOT_OWNER=absent
     return 0
@@ -1370,6 +1379,22 @@ fm_treehouse_slot_owner_release() {  # <worktree> <task-id>
   [ "$FM_TREEHOUSE_SLOT_OWNER" = mine ] || return 0
   marker=$(fm_treehouse_slot_owner_marker "$worktree") || return 0
   rm -f "$marker" 2>/dev/null || true
+}
+
+# A slot whose checkout vanished outside Treehouse still holds its claim beside
+# the missing checkout, where it would refuse every later spawn handed that slot.
+# Drop only this task's own claim, located from the recorded path's parent inside
+# a Treehouse pool, without entering the missing checkout.
+fm_treehouse_vanished_slot_owner_release() {  # <worktree> <task-id>
+  local worktree=$1 id=$2 slot state
+  [ -n "$worktree" ] || return 0
+  [ ! -e "$worktree" ] && [ ! -L "$worktree" ] || return 0
+  slot=$(CDPATH='' cd -- "$(dirname "$worktree")" 2>/dev/null && pwd -P) || return 0
+  state="$(dirname "$slot")/treehouse-state.json"
+  [ -f "$state" ] && [ ! -L "$state" ] || return 0
+  fm_treehouse_slot_owner_state_at "$slot/.fm-slot-owner" "$id"
+  [ "$FM_TREEHOUSE_SLOT_OWNER" = mine ] || return 0
+  rm -f "$slot/.fm-slot-owner" 2>/dev/null || true
 }
 
 fm_failure_episode_reset() {

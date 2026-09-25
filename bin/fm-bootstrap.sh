@@ -1224,6 +1224,12 @@ backlog_record_reconcile() {
         retained_incomplete)
           echo "BOOTSTRAP_INFO: kept the captain call for $label open with its deliverable recorded after interrupted cleanup; its endpoint or local copy may remain and should be reconciled"
           ;;
+        parked)
+          echo "BOOTSTRAP_INFO: returned the parked task $label to Queued with its resume pointer after an interrupted cleanup"
+          ;;
+        parked_incomplete)
+          echo "BOOTSTRAP_INFO: returned the parked task $label to Queued with its resume pointer after interrupted cleanup; its endpoint or local copy may remain and should be reconciled"
+          ;;
         answered)
           echo "BOOTSTRAP_INFO: finished the interrupted cleanup for $label; the captain had already answered its call"
           ;;
