@@ -26,6 +26,7 @@
 #   (c) local-only + merged into local main, no remote         -> ALLOW  (no regression)
 #   (d) no-mistakes + HEAD on origin remote-tracking branch    -> ALLOW  (no regression)
 #   (e) no-mistakes + unpushed, no PR, content not in default  -> REFUSE (safety)
+#   (e2) no-mistakes + work only on the no-mistakes mirror      -> REFUSE (mirror is not a remote)
 #   (f) local-only + truly unpushed + --force                  -> ALLOW  (escape hatch)
 #   (g) no-mistakes + squash-merged PR, exact PR head          -> ALLOW  (squash fix)
 #   (h) no-mistakes + no PR but content already in default     -> ALLOW  (content fallback)
@@ -45,7 +46,9 @@
 #
 # Task-branch retirement (recorded fm/<task-id> name, not the copy's HEAD):
 #   landed branch checked out, or copy detached at its landed tip -> branch removed
+#   branch the detached copy no longer holds, squash-landed      -> branch removed
 #   branch beyond or unrelated to the landed copy, or forced     -> branch kept, reported
+#   branch whose work only the no-mistakes mirror holds          -> branch kept, reported
 #   refused teardown, or git refusing the delete                 -> branch kept, reported
 #
 # Also covers backlog teardown-lock-race: a git index.lock left in the worktree by a
@@ -251,6 +254,18 @@ land_on_origin_main() {
   rm -rf "$tmp"
 }
 
+# Push the task branch to a local bare repo registered as the `no-mistakes`
+# remote, the way the pipeline's gate push does, and fetch it so
+# refs/remotes/no-mistakes/fm/task-x1 is visible from the worktree. That mirror
+# is a local copy, never proof the work is saved or landed. Args: case_dir
+add_no_mistakes_mirror_with_pushed_branch() {
+  local case_dir=$1
+  git init -q --bare "$case_dir/nm-mirror.git"
+  git -C "$case_dir/project" remote add no-mistakes "$case_dir/nm-mirror.git"
+  git -C "$case_dir/wt" push -q no-mistakes fm/task-x1
+  git -C "$case_dir/project" fetch -q no-mistakes
+}
+
 # Override GitHub lookups to report PR 7 as merged with the supplied head.
 add_gh_pr_merged_for_head() {
   local case_dir=$1 head=$2
@@ -384,6 +399,17 @@ append_pr_meta_url() {
 commit_tree_from_wt_head() {
   local case_dir=$1 parent=$2 msg=$3 tree
   tree=$(git -C "$case_dir/wt" rev-parse "$parent^{tree}") || return 1
+  printf '%s\n' "$msg" | git -C "$case_dir/wt" commit-tree "$tree" -p "$parent"
+}
+
+# Like commit_tree_from_wt_head, but the new commit also adds <file>=<content>,
+# so it carries real content that no default branch already holds.
+# Args: case_dir parent file content msg
+commit_file_from_wt_head() {
+  local case_dir=$1 parent=$2 file=$3 content=$4 msg=$5 blob tree
+  blob=$(printf '%s\n' "$content" | git -C "$case_dir/wt" hash-object -w --stdin) || return 1
+  tree=$({ git -C "$case_dir/wt" ls-tree "$parent"; printf '100644 blob %s\t%s\n' "$blob" "$file"; } \
+    | git -C "$case_dir/wt" mktree) || return 1
   printf '%s\n' "$msg" | git -C "$case_dir/wt" commit-tree "$tree" -p "$parent"
 }
 
@@ -2113,7 +2139,7 @@ test_detached_teardown_keeps_task_branch_with_unlanded_commits() {
   git -C "$case_dir/wt" checkout -q --detach
   # The task branch moved past the landed commit the copy is detached at; that
   # extra commit exists only on the branch and must never be discarded.
-  extra=$(commit_tree_from_wt_head "$case_dir" "$landed" "unlanded follow-up")
+  extra=$(commit_file_from_wt_head "$case_dir" "$landed" follow-up.txt more "unlanded follow-up")
   git -C "$case_dir/project" update-ref refs/heads/fm/task-x1 "$extra"
 
   set +e
@@ -2140,7 +2166,7 @@ test_detached_teardown_keeps_mismatched_task_branch() {
   git -C "$case_dir/wt" checkout -q --detach
   # The recorded branch names unrelated history that is neither the landed
   # copy's work nor on any remote or the default branch.
-  sibling=$(commit_tree_from_wt_head "$case_dir" "$base" "unrelated unlanded work")
+  sibling=$(commit_file_from_wt_head "$case_dir" "$base" sibling.txt other "unrelated unlanded work")
   git -C "$case_dir/project" update-ref refs/heads/fm/task-x1 "$sibling"
 
   set +e
@@ -2160,7 +2186,7 @@ test_forced_detached_teardown_keeps_unproven_task_branch() {
   local case_dir rc tip
   case_dir=$(make_case branch-keep-forced-detached)
   write_meta "$case_dir" local-only ship
-  wt_commit "$case_dir" "unlanded work"
+  wt_commit_file "$case_dir" feature.txt hello "unlanded work"
   tip=$(git -C "$case_dir/wt" rev-parse HEAD)
   git -C "$case_dir/wt" checkout -q --detach
 
@@ -2194,6 +2220,100 @@ test_detached_refusal_keeps_task_branch() {
     || fail "branch-keep-refusal: a refused teardown touched the task branch"
   [ -e "$case_dir/state/task-x1.meta" ] || fail "branch-keep-refusal: refusal erased the task record"
   pass "a refused teardown of a detached copy keeps the task branch"
+}
+
+# The no-mistakes validation mirror is a local copy, so work that only it holds
+# is unlanded: teardown refuses and keeps the branch and record.
+test_no_mistakes_mirror_only_work_refuses() {
+  local case_dir rc tip
+  case_dir=$(make_case nm-mirror-only)
+  write_meta "$case_dir" no-mistakes ship
+  wt_commit_file "$case_dir" feature.txt hello "gate-pushed but unlanded work"
+  tip=$(git -C "$case_dir/wt" rev-parse HEAD)
+  add_no_mistakes_mirror_with_pushed_branch "$case_dir"
+
+  set +e
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 1 "$rc" "nm-mirror-only: teardown should refuse work held only by the validation mirror"
+  grep -q REFUSED "$case_dir/stderr" || fail "nm-mirror-only: no REFUSED line in stderr"
+  [ "$(task_branch_tip "$case_dir")" = "$tip" ] \
+    || fail "nm-mirror-only: the refused teardown removed or moved the task branch"
+  [ -e "$case_dir/state/task-x1.meta" ] || fail "nm-mirror-only: refusal erased the task record"
+  pass "unlanded work reachable only from the no-mistakes mirror is refused"
+}
+
+# The same mirror-held work tears down once a squash put its content on origin.
+test_no_mistakes_mirror_work_allows_once_squash_landed() {
+  local case_dir rc
+  case_dir=$(make_case nm-mirror-squash-landed)
+  write_meta "$case_dir" no-mistakes ship
+  wt_commit_file "$case_dir" feature.txt hello "gate-pushed work"
+  add_no_mistakes_mirror_with_pushed_branch "$case_dir"
+  land_on_origin_main "$case_dir" feature.txt hello
+
+  set +e
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 0 "$rc" "nm-mirror-squash-landed: teardown should succeed once content is on origin"
+  ! grep -q REFUSED "$case_dir/stderr" || fail "nm-mirror-squash-landed: teardown printed a REFUSED line"
+  [ -z "$(task_branch_tip "$case_dir")" ] \
+    || fail "nm-mirror-squash-landed: the squash-landed task branch survived teardown"
+  pass "mirror-held work tears down and retires its branch once its content is squash-landed"
+}
+
+# A copy left detached at the default branch no longer holds its task branch;
+# with no merged PR on record, the branch's content being on origin's default
+# branch by squash is still proof enough to retire it.
+test_squash_landed_task_branch_in_detached_copy_is_retired() {
+  local case_dir rc base
+  case_dir=$(make_case branch-retire-squash-content)
+  write_meta "$case_dir" no-mistakes ship
+  base=$(git -C "$case_dir/wt" rev-parse HEAD)
+  wt_commit_file "$case_dir" feature.txt hello "feature work"
+  land_on_origin_main "$case_dir" feature.txt hello
+  git -C "$case_dir/wt" checkout -q --detach "$base"
+
+  set +e
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 0 "$rc" "branch-retire-squash-content: teardown of the clean detached copy should succeed"
+  [ -z "$(task_branch_tip "$case_dir")" ] \
+    || fail "branch-retire-squash-content: squash-landed task branch survived teardown"
+  ! grep -q "kept task branch" "$case_dir/stderr" \
+    || fail "branch-retire-squash-content: a proven branch was reported as kept"
+  pass "a squash-landed task branch the detached copy no longer holds is retired by content"
+}
+
+# The same detached shape with the branch's content held only by the validation
+# mirror is unlanded, so the branch is kept and reported.
+test_mirror_only_task_branch_in_detached_copy_is_kept() {
+  local case_dir rc base tip
+  case_dir=$(make_case branch-keep-mirror-only)
+  write_meta "$case_dir" no-mistakes ship
+  base=$(git -C "$case_dir/wt" rev-parse HEAD)
+  wt_commit_file "$case_dir" feature.txt hello "gate-pushed but unlanded work"
+  tip=$(git -C "$case_dir/wt" rev-parse HEAD)
+  add_no_mistakes_mirror_with_pushed_branch "$case_dir"
+  git -C "$case_dir/wt" checkout -q --detach "$base"
+
+  set +e
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 0 "$rc" "branch-keep-mirror-only: teardown of the clean detached copy should succeed"
+  [ "$(task_branch_tip "$case_dir")" = "$tip" ] \
+    || fail "branch-keep-mirror-only: a task branch held only by the validation mirror was removed"
+  grep -q "kept task branch fm/task-x1" "$case_dir/stderr" \
+    || fail "branch-keep-mirror-only: the kept branch was not reported"
+  pass "a task branch whose work only the no-mistakes mirror holds is kept and reported"
 }
 
 # The recorded branch= names the task branch, so a project's registered
@@ -4155,6 +4275,8 @@ test_local_only_truly_unpushed_refuses
 test_local_only_merged_to_local_main_allows
 test_no_mistakes_origin_remote_allows
 test_no_mistakes_truly_unpushed_refuses
+test_no_mistakes_mirror_only_work_refuses
+test_no_mistakes_mirror_work_allows_once_squash_landed
 test_local_only_force_overrides_unpushed
 test_landed_task_branch_is_removed_when_checked_out
 test_landed_task_branch_is_removed_when_copy_is_detached_at_its_tip
@@ -4164,6 +4286,8 @@ test_detached_teardown_keeps_task_branch_with_unlanded_commits
 test_detached_teardown_keeps_mismatched_task_branch
 test_forced_detached_teardown_keeps_unproven_task_branch
 test_detached_refusal_keeps_task_branch
+test_squash_landed_task_branch_in_detached_copy_is_retired
+test_mirror_only_task_branch_in_detached_copy_is_kept
 test_landed_task_branch_is_removed_by_its_recorded_name
 test_task_branch_removal_failure_is_reported
 test_secondmate_pr_registration_publishes_ready_line

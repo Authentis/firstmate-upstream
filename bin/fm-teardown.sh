@@ -47,7 +47,9 @@
 # REFUSES if the worktree holds work that has not LANDED, because cleanup
 # hard-resets/removes the worktree and kills its processes. Work has landed when it is
 # reachable from any remote-tracking branch (a fork counts as a remote, so
-# upstream-contribution PRs pushed to a fork satisfy this in any mode), OR - for a
+# upstream-contribution PRs pushed to a fork satisfy this in any mode) other than
+# the no-mistakes validation mirror (refs/remotes/no-mistakes/*, a local copy the
+# pipeline pushes to before anything reaches a real remote), OR - for a
 # normal ship task whose commits are not so reachable - when its PR is merged and
 # GitHub reports a PR head that contains the current local work, or its content is
 # already present in the up-to-date default branch. This recognizes the common
@@ -1491,6 +1493,11 @@ patch_id_for_commit() {
     | awk 'NR == 1 { print $1 }'
 }
 
+# The remote-tracking refs that count as "on a remote": every remote except the
+# no-mistakes validation mirror, which is a local copy and never proves work saved
+# or landed. Use as `--not "${REAL_REMOTES[@]}"`.
+REAL_REMOTES=(--exclude='no-mistakes/*' --remotes)
+
 unpushed_patches_are_in_pr_head() {
   local pr_head=$1 current base pr_patch_ids commit patch_id unpushed
   current=$(git -C "$WT" rev-parse --verify HEAD 2>/dev/null) || return 1
@@ -1504,7 +1511,7 @@ unpushed_patches_are_in_pr_head() {
       | sort -u
   ) || return 1
   [ -n "$pr_patch_ids" ] || return 1
-  unpushed=$(git -C "$WT" log --format=%H HEAD --not --remotes -- 2>/dev/null) || return 1
+  unpushed=$(git -C "$WT" log --format=%H HEAD --not "${REAL_REMOTES[@]}" -- 2>/dev/null) || return 1
   [ -n "$unpushed" ] || return 1
   while IFS= read -r commit; do
     [ -n "$commit" ] || continue
@@ -1597,7 +1604,7 @@ commit_content_in() {  # <ref> <commit>
 }
 
 # Has the worktree's committed work actually LANDED, though its commits are not
-# reachable from any remote-tracking branch? True when a merged PR proves the
+# reachable from any real remote (REAL_REMOTES)? True when a merged PR proves the
 # current local work is contained in the PR head, OR the content is already in the
 # default branch (fallback, which also covers the no-PR and gh-error paths). False
 # only for genuinely unlanded work.
@@ -1888,7 +1895,7 @@ validate_worktree_teardown_safety() {
   fi
   dirty=$(printf '%s\n' "$dirty_raw" | grep -vE '^\?\? (\.claude/|\.fm-(grok|kimi)-turnend$)' | head -1 || true)
 
-  if ! unpushed_raw=$(git -C "$WT" log --oneline HEAD --not --remotes -- 2>/dev/null); then
+  if ! unpushed_raw=$(git -C "$WT" log --oneline HEAD --not "${REAL_REMOTES[@]}" -- 2>/dev/null); then
     if worktree_safety_blocked_by_lock "commits not on a remote"; then
       return "$TEARDOWN_WORKTREE_SAFETY_LOCK_BLOCKED"
     fi
@@ -1953,11 +1960,14 @@ TEARDOWN_HEAD_WORK_PROVEN=0
 # it is checked out in this copy (the landed-work gate above inspected exactly
 # that tip, or --force or a scout's declared scratch authorized discarding it),
 # or its tip is contained in this copy's gate-proven HEAD, in a remote-tracking
-# branch, or in the local default branch. A branch that proves none of these is
+# branch other than the validation mirror (REAL_REMOTES), in the local default
+# branch, or in the merged PR head this teardown proved, or its content is
+# already on the up-to-date default branch (commit_content_in, which recognizes a
+# squash-landed branch the copy no longer holds). A branch that proves none of these is
 # unlanded or mismatched work and is kept, even under --force, because the
 # copy no longer holds it. Every kept branch and every git failure is reported.
 retire_task_branch() {  # <worktree>
-  local wt=$1 ref="refs/heads/$TASK_BRANCH" tip current head unreached default out
+  local wt=$1 ref="refs/heads/$TASK_BRANCH" tip current head unreached default default_ref out
   tip=$(git -C "$wt" rev-parse --quiet --verify "$ref^{commit}" 2>/dev/null) || tip=
   current=$(git -C "$wt" symbolic-ref --quiet HEAD 2>/dev/null) || current=
   if [ -n "$current" ] && [ "$current" != "$ref" ]; then
@@ -1978,14 +1988,21 @@ retire_task_branch() {  # <worktree>
     if [ "$TEARDOWN_HEAD_WORK_PROVEN" = 1 ] && [ -n "$head" ] \
        && git -C "$wt" merge-base --is-ancestor "$tip" "$head" 2>/dev/null; then
       :
-    elif unreached=$(git -C "$wt" rev-list -n 1 "$tip" --not --remotes -- 2>/dev/null) \
+    elif unreached=$(git -C "$wt" rev-list -n 1 "$tip" --not "${REAL_REMOTES[@]}" -- 2>/dev/null) \
        && [ -z "$unreached" ]; then
       :
     elif default=$(default_branch) \
        && git -C "$wt" merge-base --is-ancestor "$tip" "refs/heads/$default" 2>/dev/null; then
       :
+    elif [ -n "$TEARDOWN_MERGED_PR_HEAD" ] \
+       && git -C "$wt" merge-base --is-ancestor "$tip" "$TEARDOWN_MERGED_PR_HEAD" 2>/dev/null; then
+      :
+    elif default_ref=$(fresh_default_ref) \
+       && { git -C "$wt" merge-base --is-ancestor "$tip" "$default_ref" 2>/dev/null \
+            || commit_content_in "$default_ref" "$tip"; }; then
+      :
     else
-      echo "warning: kept task branch $TASK_BRANCH at $tip: its commits are not proven landed (not in this copy's landed work, any remote, or the default branch); inspect it before deleting it by hand" >&2
+      echo "warning: kept task branch $TASK_BRANCH at $tip: its commits are not proven landed (not in this copy's landed work, any remote other than the validation mirror, the default branch, or the merged PR); inspect it before deleting it by hand" >&2
       return 0
     fi
   fi

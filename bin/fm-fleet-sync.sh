@@ -20,8 +20,11 @@
 # repository (the firstmate checkout) and be synced under that directory's label.
 # Anything else is reported as "skipped: not a clone root" naming the repository
 # that would have been touched.
-# Pruning never deletes the checked-out branch or a branch that still has a
-# worktree, so it cannot discard unlanded work; set FM_FLEET_PRUNE=0 to disable it.
+# It also prunes a local branch with no upstream whose content is proven on
+# origin/<default> (a squash-landed side or task branch) and that no live task
+# record in this home names; see prune_gone_branches.
+# Pruning never deletes the checked-out branch, the default branch, or a branch that
+# still has a worktree, so it cannot discard unlanded work; set FM_FLEET_PRUNE=0 to disable it.
 # When the fetch fails on an orphaned .git/packed-refs.lock (left by a ref rewrite
 # killed mid-write - e.g. a timed-out bootstrap sync or a teardown process kill),
 # it is retried with a bounded wait and removed only when provably stale; see
@@ -40,6 +43,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 PROJECTS="${FM_PROJECTS_OVERRIDE:-$FM_HOME/projects}"
+STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 # shellcheck source=bin/fm-lock-lib.sh
 . "$SCRIPT_DIR/fm-lock-lib.sh"
 # Inert unless FM_TIMING_LOG names a file; only the deferred network stage sets it.
@@ -220,38 +224,76 @@ fetch_with_packed_refs_lock_guard() {
   return "$rc"
 }
 
+# Branch names this home's live task records still claim: each record's
+# branch=, else fm/<task-id> for a record that predates it. A recorded branch is
+# never content-pruned, because its task may still add to it.
+recorded_task_branches() {
+  local meta id branch
+  for meta in "$STATE"/*.meta; do
+    [ -f "$meta" ] || continue
+    id=$(basename "$meta" .meta)
+    branch=$(sed -n 's/^branch=//p' "$meta" 2>/dev/null | tail -1)
+    printf '%s\n' "${branch:-fm/$id}"
+  done
+}
+
+# Is everything <commit> introduces already on <base>? Its tip is an ancestor of
+# <base>, or a 3-way merge of <base> with it yields <base>'s own tree (the change
+# landed by squash). Non-zero when inconclusive, so the branch is kept.
+content_on_base() {  # <commit> <base>
+  local commit=$1 base=$2 base_tree merged_tree
+  git -C "$PROJ" merge-base --is-ancestor "$commit" "$base" 2>/dev/null && return 0
+  base_tree=$(git -C "$PROJ" rev-parse --quiet --verify "$base^{tree}" 2>/dev/null) || return 1
+  merged_tree=$(git -C "$PROJ" merge-tree --write-tree "$base" "$commit" 2>/dev/null) || return 1
+  [ "$(printf '%s\n' "$merged_tree" | head -1)" = "$base_tree" ]
+}
+
 prune_gone_branches() {
-  # Delete local branches whose upstream tracking branch is gone - the remote
-  # branch was deleted, which in this fleet means its PR merged - as long as
-  # nothing still needs them. Never the checked-out branch, and never a branch
-  # that still has a worktree (a live or not-yet-torn-down task). "Gone" plus
-  # "no worktree" already proves the work landed: teardown removes a branch's
-  # worktree only after confirming the work reached the remote. We deliberately
-  # do NOT also require the branch to be an ancestor of origin/<default> - PRs in
-  # this fleet are squash-merged, so a merged branch is never an ancestor and
-  # such a check would prune nothing. The no-worktree guard is the real safety
-  # net. Set FM_FLEET_PRUNE=0 to skip pruning entirely.
+  # Delete local branches that nothing still needs and whose work is on a real
+  # remote: never the checked-out branch, the default branch, or a branch that
+  # still has a worktree (a live or not-yet-torn-down task). Two cases qualify.
+  # (1) The upstream tracking branch is gone - the remote branch was deleted,
+  # which in this fleet means its PR merged; "gone" plus "no worktree" already
+  # proves the work landed, because teardown removes a branch's worktree only
+  # after confirming the work reached the remote. No ancestry check is added,
+  # since squash-merged branches are never ancestors of origin/<default>.
+  # (2) The branch has no upstream at all (task branches are created with
+  # checkout -b), no live task record names it, and its content is proven on the
+  # freshly fetched origin/<default> (content_on_base). Anything unproven is
+  # kept. Set FM_FLEET_PRUNE=0 to skip pruning entirely.
   [ "${FM_FLEET_PRUNE:-1}" != "0" ] || return 0
 
-  local worktree_branches current refline branch track
+  local worktree_branches current refline branch track upstream default base="" recorded
   worktree_branches=$(git -C "$PROJ" worktree list --porcelain 2>/dev/null \
     | sed -n 's#^branch refs/heads/##p')
   current=$(git -C "$PROJ" symbolic-ref --quiet --short HEAD 2>/dev/null || true)
+  if default=$(default_branch) \
+     && git -C "$PROJ" rev-parse --verify --quiet "origin/$default^{commit}" >/dev/null; then
+    base="origin/$default"
+  fi
+  recorded=$(recorded_task_branches)
 
-  while IFS= read -r refline; do
-    branch=${refline%% *}
-    track=${refline#* }
-    [ "$track" = "[gone]" ] || continue
+  while IFS=' ' read -r branch upstream track; do
     [ -n "$branch" ] || continue
     [ "$branch" != "$current" ] || continue
     if printf '%s\n' "$worktree_branches" | grep -Fxq -- "$branch"; then
+      continue
+    fi
+    if [ "$track" = "[gone]" ]; then
+      :
+    elif [ "$upstream" = "-" ] && [ -n "$base" ] && [ "$branch" != "$default" ] \
+       && ! printf '%s\n' "$recorded" | grep -Fxq -- "$branch" \
+       && content_on_base "refs/heads/$branch" "$base"; then
+      :
+    else
       continue
     fi
     if git -C "$PROJ" branch -D -- "$branch" >/dev/null 2>&1; then
       echo "$label: pruned $branch"
     fi
   done < <(git -C "$PROJ" for-each-ref \
-    --format='%(refname:short) %(upstream:track)' refs/heads 2>/dev/null)
+    --format='%(refname:short) %(if)%(upstream)%(then)%(upstream:short)%(else)-%(end) %(upstream:track)' \
+    refs/heads 2>/dev/null)
 }
 
 # True when some worktree of $PROJ has $DEFAULT checked out (so we cannot attach

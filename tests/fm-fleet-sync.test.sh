@@ -18,6 +18,10 @@
 # with the enclosing repo left untouched, in both the whole-fleet and
 # single-project forms, while a symlinked clone dir still syncs.
 #
+# It also pins the content-proven branch prune: a local branch with no upstream
+# whose content is on origin/<default> is pruned unless a worktree or a live task
+# record still needs it.
+#
 # It also pins the orphaned .git/packed-refs.lock recovery in the fetch step
 # (fetch_with_packed_refs_lock_guard, backed by bin/fm-lock-lib.sh's shared
 # staleness proof): a provably-stale lock is retried then removed and the clone
@@ -715,6 +719,40 @@ test_non_signature_fetch_failure_is_not_retried() {
   pass "a non-packed-refs.lock fetch failure keeps today's behavior (no retry)"
 }
 
+# A local branch with no upstream whose content reached origin/main by squash is
+# pruned; an unlanded one, one a worktree still has checked out, and one a live
+# task record names (by branch= or the fm/<task-id> default) are all kept.
+test_content_landed_side_branches_are_pruned() {
+  local home clone out branch
+  home=$(new_home)
+  clone=$(build_pair "$home" prune)
+  mkdir -p "$home/state"
+  for branch in squashed fm/task-r1 feat/rec2 checked-out; do
+    git -C "$clone" checkout -q -b "$branch" main
+    commit_file "$clone" landed.txt shipped "side work"
+  done
+  git -C "$clone" checkout -q -b unlanded main
+  commit_file "$clone" unlanded.txt pending "unlanded side work"
+  git -C "$clone" checkout -q main
+  git -C "$clone" worktree add -q "$home/wt-checked-out" checked-out
+  printf 'kind=ship\n' > "$home/state/task-r1.meta"
+  printf 'kind=ship\nbranch=feat/rec2\n' > "$home/state/task-r2.meta"
+  # The same change lands on origin/main as a different (squash) commit.
+  commit_file "$home/work-prune" landed.txt shipped "squash side work"
+  git -C "$home/work-prune" push -q origin main
+
+  out=$(run_sync "$home" "$clone")
+
+  assert_contains "$out" "prune: pruned squashed" "squash-landed side branch reported pruned"
+  ! git -C "$clone" rev-parse --quiet --verify refs/heads/squashed >/dev/null \
+    || fail "squash-landed side branch with no worktree survived the sync"
+  for branch in unlanded checked-out fm/task-r1 feat/rec2 main; do
+    git -C "$clone" rev-parse --quiet --verify "refs/heads/$branch" >/dev/null \
+      || fail "branch $branch was pruned but must be kept"
+  done
+  pass "content-landed side branches are pruned; unlanded, checked-out, and recorded ones are kept"
+}
+
 test_detached_clean_ancestor_recovers
 test_detached_unique_commit_is_stuck_untouched
 test_detached_clean_ancestor_with_diverged_local_default_is_stuck_untouched
@@ -741,3 +779,4 @@ test_non_signature_fetch_failure_is_not_retried
 test_non_clone_dir_never_syncs_the_enclosing_repo
 test_non_clone_dir_named_directly_never_syncs_the_enclosing_repo
 test_symlinked_clone_still_syncs
+test_content_landed_side_branches_are_pruned
