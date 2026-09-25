@@ -389,6 +389,31 @@ test_same_harness_relaunch_keeps_identity_and_reuses_the_endpoint() {
   pass "fm-control relaunch: a same-harness relaunch replaces the agent in the same endpoint and worktree"
 }
 
+# The replacement is a top-level Claude session: an inherited child-session
+# marker would turn its transcript saving off. Execute the recorded launch line
+# against a stand-in claude that reports what it inherited.
+test_relaunch_launches_claude_without_the_child_session_marker() {
+  local dir out rc launch
+  dir=$(new_case child-marker rl45)
+  add_ship_task "$dir" rl45 claude
+  out=$(run_control "$dir" rl45 relaunch --note "keeping transcripts"); rc=$?
+  expect_code 0 "$rc" "the relaunch should succeed"$'\n'"$out"
+  launch=$(grep 'encode launch-brief' "$dir/fake/literal" | tail -1)
+  [ -n "$launch" ] || fail "the replacement launch line should have been recorded"
+  mkdir -p "$dir/claudebin"
+  cat > "$dir/claudebin/claude" <<'SH'
+#!/usr/bin/env bash
+printf 'child=%s\n' "${CLAUDE_CODE_CHILD_SESSION-unset}" > "$FM_FAKE_DIR/claude-env"
+SH
+  chmod +x "$dir/claudebin/claude"
+  (cd "$dir/wt" && CLAUDE_CODE_CHILD_SESSION=1 FM_FAKE_DIR="$dir/fake" \
+    PATH="$dir/claudebin:$PATH" bash -c "$launch") \
+    || fail "the recorded launch line should run"$'\n'"$launch"
+  [ "$(cat "$dir/fake/claude-env" 2>/dev/null)" = "child=unset" ] \
+    || fail "the relaunched claude must not inherit CLAUDE_CODE_CHILD_SESSION, got: $(cat "$dir/fake/claude-env" 2>/dev/null)"
+  pass "fm-control relaunch: a claude replacement launches without the child-session marker"
+}
+
 test_relaunch_refuses_before_exit_when_the_composer_holds_pending_text() {
   local dir out rc
   dir=$(new_case pending-exit rl43)
@@ -2334,6 +2359,7 @@ test_relaunch_moves_a_drifted_item_back_in_flight() {
 }
 
 test_same_harness_relaunch_keeps_identity_and_reuses_the_endpoint
+test_relaunch_launches_claude_without_the_child_session_marker
 test_relaunch_refuses_before_exit_when_the_composer_holds_pending_text
 test_relaunch_refuses_before_exit_when_the_composer_state_is_unproven
 test_relaunch_from_linked_home_preserves_recorded_worktree
