@@ -698,6 +698,10 @@ This section is the single owner of the canonical schema.
       "announce_args": ["<optional args for the command that carries that announcement, default version_args>"],
       "update_args": ["<optional args that make `command` apply its own update, e.g. [\"update\"]>"],
       "npm_package": "<optional npm package that installs `command`, e.g. tasks-axi>",
+      "github_release": "<optional <owner>/<repo> whose latest GitHub release is the update source>",
+      "class": "<optional apply class: auto, quiet, or manual; default manual>",
+      "pin": "<optional highest version the applier may install, e.g. 1.2.3>",
+      "health_args": ["<optional args that must exit 0 after an update, e.g. [\"status\"]>"],
       "git": {
         "repo": "<optional absolute path to a local clone>",
         "remote": "<optional remote name, default origin>",
@@ -718,7 +722,9 @@ An omitted `branch` uses the remote's default branch, taken from the clone's own
 Both probe kinds are read-only and bounded, and a probe that cannot answer is reported as a check failure rather than assumed current.
 `npm_package` is for a `command` tool that has no self-update command of its own and is installed from npm, such as `tasks-axi`, `quota-axi`, or `lavish-axi`.
 The check reports `update available` when `npm view <package> version` names a newer version than the copy `PATH` resolves, and an unreadable or unanswered registry read is a check failure.
-`update_args` is consumed only by the applier below; the check never reads it and never applies anything itself.
+`github_release` is for a `command` tool with no announcement of its own, such as treehouse or herdr: the check asks `gh api repos/<owner>/<repo>/releases/latest` for the latest tag, read-only and bounded, and reports `update available` when that tag names a newer version than the copy `PATH` resolves; a missing `gh`, an unanswered read, or a tag with no version is a check failure, never assumed current.
+A `pin` still lets the check report a newer version, with `(pinned at <pin>)` appended, because the pin holds back the applier, not the news.
+`update_args`, `class`, and `health_args` are consumed only by the applier below; the check never reads them and never applies anything itself.
 A `command` entry sets at most one of `update_args` or `npm_package`, and one with neither is reported manual-only by the applier rather than guessed at; a `git` entry needs no extra field because its existing `repo`/`remote`/`branch` are enough to attempt a fast-forward pull.
 See [`docs/examples/watched-tools.json`](examples/watched-tools.json) for a starting point to copy into local `config/watched-tools.json`.
 
@@ -737,13 +743,27 @@ The sweep must finish inside `FM_CHECK_TIMEOUT` (default 30), because a run the 
 So a budget larger than that timeout allows is cut down to what fits instead of being refused, and the cut is reported in the report line.
 A budget that is not a whole number from 1 to 120 is still refused outright.
 
-Detection is only half of it: [`bin/fm-tool-update.sh`](../bin/fm-tool-update.sh) is the applier, run when the check's `check:` wake says a watched tool needs attention.
-`fm-tool-update.sh apply` applies updates on this host alone; `fm-tool-update.sh` (or `fm-tool-update.sh fleet`) applies on this host and then on every host registered in `data/secondmates.md`, a local secondmate through its own copy of the script and a remote one through `bin/fm-on.sh`, because `config/watched-tools.json` is not inherited and each host watches and applies against its own copy.
+Detection is only half of it: [`bin/fm-tool-update.sh`](../bin/fm-tool-update.sh) is the applier, and a `check:` wake from the check is a report, never a trigger to run it.
+It requires an explicit action.
+`fm-tool-update.sh apply` applies updates on this host alone, and is the only form automation or a host's own schedule may use.
+`fm-tool-update.sh fleet` applies on this host and then on every host registered in `data/secondmates.md`, a local secondmate through its own copy of the script and a remote one through `bin/fm-on.sh`, because `config/watched-tools.json` is not inherited and each host watches and applies against its own copy; it runs only on an explicit human word naming those hosts, never from automation.
+A fleet run reaching a host whose copy predates apply classes applies every configured tool there, so update firstmate on that host first.
+
+Each tool's `class` decides when it may be applied, and an absent `class` is `manual`, so no existing config starts applying on its own.
+One pass applies exactly one class: `apply` applies `auto` tools, and `apply --class quiet` applies `quiet` tools, for a host's own quiet-window step.
+A tool of the other class is reported `held`, and a `manual` tool is never applied by the script at all.
+A tool already at or past its `pin` is held; an `npm_package` tool whose published version is past its pin is installed at exactly the pin; and a pinned `update_args` tool is always held, because its own update command cannot be told a target version.
+
+Before each update the applier appends one line to `data/tool-updates/<YYYY-MM-DD>.md` naming the previous version and the resolved binary path, or the npm `package@version`, or a git tool's previous HEAD, so a rollback is one command; an `update_args` tool's resolved binary is also copied to `data/tool-updates/backup/` first.
+When that record cannot be written, the update is not attempted.
+After an update that moved the version, the health check requires the tool to answer its version probe and, when `health_args` is set, those args to exit 0 within `FM_TOOL_HEALTH_SECS` (default 30, 1 to 300).
+A failed health check rolls back: an `npm_package` tool reinstalls the recorded version, an `update_args` tool gets its saved binary copied back, and the restored copy must report the previous version.
+A rollback that cannot be done or does not verify is reported `ROLLBACK IMPOSSIBLE` in the failed line and in the record; a git tool is never rolled back, because that would mean a reset.
 Every tool is verified, never assumed: a command tool is asked its own version before and after its `update_args` run, and an unchanged version after a clean exit is reported failed rather than done, because that is the PATH-skew shape this check exists to catch.
 An `npm_package` tool is updated with `npm install -g <package>@latest`, the same command bootstrap installs it with, only when `npm view <package> version` names a newer version than the resolved copy; afterward the resolved copy must report that published version, or the update is reported failed.
 A git tool's own HEAD is its verification, advanced only with `git pull --ff-only`.
 No path ever passes `--force`: a command tool's or npm's nonzero exit, an unreadable published version, or git's own refusal on a dirty or diverged tree, is read as that tool's authoritative refusal and reported skipped, never retried or worked around.
-Each host prints one line per tool (`done`, `skipped`, `failed`, `manual`, or `unreachable`) and one `host-summary:` line; a fleet run adds one final `fleet-summary:` line summing every host.
+Each host prints one line per tool (`done`, `skipped`, `failed`, `manual`, `unreachable`, or `held`) and one `host-summary:` line; a fleet run adds one final `fleet-summary:` line summing every host.
 `FM_TOOL_UPDATE_PROBE_SECS` (default 5) bounds each version probe and `FM_TOOL_APPLY_SECS` (default 180, 1 to 1800) bounds one update or git-pull attempt.
 
 ## Fleet steward (config/fleet-steward.json)

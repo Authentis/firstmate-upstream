@@ -11,7 +11,9 @@
     {
       "name": "herdr",
       "command": "herdr",
-      "version_args": ["--version"]
+      "version_args": ["--version"],
+      "github_release": "ogulcancelik/herdr",
+      "class": "quiet"
     },
     {
       "name": "no-mistakes",
@@ -19,12 +21,15 @@
       "version_args": ["--version"],
       "announce_args": ["--help"],
       "announce_pattern": "A new version of no-mistakes is available: [^ ]+ -> [^ ]+",
-      "update_args": ["update"]
+      "update_args": ["update"],
+      "class": "quiet",
+      "health_args": ["daemon", "status"]
     },
     {
       "name": "tasks-axi",
       "command": "tasks-axi",
-      "npm_package": "tasks-axi"
+      "npm_package": "tasks-axi",
+      "class": "auto"
     }
   ]
 }

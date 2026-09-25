@@ -265,6 +265,82 @@ test_npm_package_unreadable_registry_is_a_failure() {
   pass "an npm registry read that fails is a check failure, not a pass"
 }
 
+# make_gh <dir> <tag> [exit]: a fake gh whose `api repos/<slug>/releases/latest`
+# answers with the given tag, logging its arguments so a case can prove it
+# was asked read-only; any other command fails.
+make_gh() {
+  local dir=$1 tag=$2 code=${3:-0}
+  mkdir -p "$dir"
+  cat > "$dir/gh" <<SH
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "\$(dirname "\$0")/.gh-log"
+[ "\${1:-}" = api ] || { echo "unexpected gh \$*" >&2; exit 99; }
+[ $code -eq 0 ] || { echo 'HTTP 404' >&2; exit $code; }
+printf '%s\n' '$tag'
+SH
+  chmod 0755 "$dir/gh"
+}
+
+test_github_release_source_is_reported() {
+  local home dir out
+  home=$(make_home gh-newer)
+  dir="$TMP_ROOT/gh-newer/bin"
+  make_copy "$dir" "$TOOL" 'treehouse 0.3.0'
+  make_gh "$dir" 'v0.4.1'
+  write_config "$home" "{\"tools\":[{\"name\":\"treehouse\",\"command\":\"$TOOL\",\"github_release\":\"example/treehouse\"}]}"
+  out="$home/out.txt"
+  run_check "$home" "$(fixture_path "$dir")" "$out"
+  assert_contains "$(cat "$out")" "treehouse update available: example/treehouse release v0.4.1 is out, PATH resolves 0.3.0" \
+    "a newer GitHub release was not reported"
+  assert_equals "api repos/example/treehouse/releases/latest --jq .tag_name" "$(head -n 1 "$dir/.gh-log")" \
+    "gh was not asked read-only for the latest release"
+
+  make_gh "$dir" 'v0.3.0'
+  rm -f "$home/state/.tool-updates"
+  run_check "$home" "$(fixture_path "$dir")" "$out"
+  [ ! -s "$out" ] || fail "a tool at the latest release was reported: $(cat "$out")"
+  pass "a github_release tool reports a newer latest release and is silent when current"
+}
+
+test_github_release_unreadable_is_a_failure() {
+  local home dir out
+  home=$(make_home gh-unreadable)
+  dir="$TMP_ROOT/gh-unreadable/bin"
+  make_copy "$dir" "$TOOL" 'treehouse 0.3.0'
+  make_gh "$dir" '' 1
+  write_config "$home" "{\"tools\":[{\"name\":\"treehouse\",\"command\":\"$TOOL\",\"github_release\":\"example/treehouse\"}]}"
+  out="$home/out.txt"
+  run_check "$home" "$(fixture_path "$dir")" "$out"
+  assert_contains "$(cat "$out")" "treehouse check failed: could not read the latest release of example/treehouse" \
+    "an unreadable release was treated as current"
+
+  make_gh "$dir" 'nightly'
+  rm -f "$home/state/.tool-updates"
+  run_check "$home" "$(fixture_path "$dir")" "$out"
+  assert_contains "$(cat "$out")" "treehouse check failed: could not read the latest release" \
+    "a release tag with no version was treated as current"
+
+  write_config "$home" "{\"tools\":[{\"name\":\"treehouse\",\"command\":\"$TOOL\",\"github_release\":\"not a slug\"}]}"
+  rm -f "$home/state/.tool-updates"
+  run_check "$home" "$(fixture_path "$dir")" "$out"
+  assert_contains "$(cat "$out")" "github_release must be <owner>/<repo>" "a malformed github_release was accepted"
+  pass "a GitHub release that cannot be read is a check failure, never assumed current"
+}
+
+test_pinned_update_is_still_reported_and_marked() {
+  local home dir out
+  home=$(make_home pinned)
+  dir="$TMP_ROOT/pinned/bin"
+  make_copy "$dir" "$TOOL" 'tasks-axi 0.4.0'
+  make_npm "$dir" '0.5.1'
+  write_config "$home" "{\"tools\":[{\"name\":\"tasks-axi\",\"command\":\"$TOOL\",\"npm_package\":\"tasks-axi\",\"pin\":\"0.4.0\"}]}"
+  out="$home/out.txt"
+  run_check "$home" "$(fixture_path "$dir")" "$out"
+  assert_contains "$(cat "$out")" "tasks-axi update available: tasks-axi 0.5.1 is published, PATH resolves 0.4.0 (pinned at 0.4.0)" \
+    "a pinned tool's update was not reported with its pin"
+  pass "a pinned tool still reports an available update, marked with its pin"
+}
+
 # --- published updates ------------------------------------------------------
 
 test_announced_update_is_reported_from_the_tool_itself() {
@@ -1066,6 +1142,9 @@ test_unreadable_version_is_a_failure_not_a_pass
 test_missing_command_is_reported
 test_npm_package_published_version_is_reported
 test_npm_package_unreadable_registry_is_a_failure
+test_github_release_source_is_reported
+test_github_release_unreadable_is_a_failure
+test_pinned_update_is_still_reported_and_marked
 test_announced_update_is_reported_from_the_tool_itself
 test_announcement_is_read_from_a_second_command
 test_unusable_announce_pattern_is_reported_not_read_as_silence

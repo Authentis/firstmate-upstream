@@ -20,8 +20,13 @@
 #
 #   "<tool> update available"      a newer version exists at the update source:
 #                                  the tool's own announcement, a git remote
-#                                  ahead of the clone, or for an npm_package
-#                                  tool a newer `npm view <pkg> version`.
+#                                  ahead of the clone, for an npm_package
+#                                  tool a newer `npm view <pkg> version`, or
+#                                  for a github_release tool a newer latest
+#                                  release tag read with `gh api` (read-only).
+#                                  A tool with a pin still reports, marked
+#                                  "(pinned at <pin>)", because the pin holds
+#                                  the applier back, not the news.
 #   "<tool> update not in effect"  a newer copy is installed on this host, but
 #                                  PATH still resolves an older one.
 #
@@ -328,6 +333,10 @@ config_validate() {
       elif ($t | has("announce_args")) and (($t | has("announce_pattern")) | not) then "tool \($t.name) announce_args needs announce_pattern"
       elif ($t | has("npm_package")) and (($t.npm_package | type) != "string" or ($t.npm_package | test("^(@[a-z0-9][a-z0-9._-]*/)?[a-z0-9][a-z0-9._-]*$") | not)) then "tool \($t.name) npm_package must be a plain npm package name"
       elif ($t | has("npm_package")) and (($t | has("command")) | not) then "tool \($t.name) npm_package needs command"
+      elif ($t | has("github_release")) and (($t.github_release | type) != "string" or ($t.github_release | test("^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$") | not)) then "tool \($t.name) github_release must be <owner>/<repo>"
+      elif ($t | has("github_release")) and (($t | has("command")) | not) then "tool \($t.name) github_release needs command"
+      elif ($t | has("pin")) and (($t.pin | type) != "string" or ($t.pin | test("^[0-9]+(\\.[0-9]+)+$") | not)) then "tool \($t.name) pin must be a dotted version such as 1.2.3"
+      elif ($t | has("pin")) and (($t | has("command")) | not) then "tool \($t.name) pin needs command"
       elif ($t | has("git")) and (($t.git | type) != "object") then "tool \($t.name) git must be an object"
       elif ($t | has("git")) and (($t.git.repo | type) != "string" or ($t.git.repo | startswith("/") | not) or ($t.git.repo | test("[[:cntrl:]]"))) then "tool \($t.name) git.repo must be an absolute path on one line"
       elif ($t | has("git")) and ($t.git | has("remote")) and (($t.git.remote | type) != "string" or ($t.git.remote | test("^[A-Za-z0-9._-]+$") | not)) then "tool \($t.name) git.remote must be a simple remote name"
@@ -373,7 +382,9 @@ config_records() {
       (.git.repo // ""),
       (.git.remote // "origin"),
       (.git.branch // ""),
-      (.npm_package // "")
+      (.npm_package // ""),
+      (.github_release // ""),
+      (.pin // "")
     ] | join("\u001f")
   ' "$CONFIG" 2>/dev/null
 }
@@ -407,8 +418,44 @@ probe_output() {
   fm_run_timed "$(probe_bound)" "$path" "$@" 2>&1
 }
 
+# Every "update available" finding for a pinned tool carries the pin, so the
+# report still says a newer version exists while making plain that the applier
+# will not move past it.
+pin_mark() {
+  [ -z "$1" ] || printf ' (pinned at %s)' "$1"
+}
+
+# The latest GitHub release of <owner>/<repo>, for a tool with no announcement of
+# its own. Read-only and bounded; an unreadable answer is a check failure, never
+# read as current.
+github_release_findings() {
+  local name=$1 slug=$2 resolved_version=$3 pin=$4 gh_bin out status tag latest
+  gh_bin=$(command -v gh 2>/dev/null) || gh_bin=
+  if [ -z "$gh_bin" ]; then
+    emit "$name check failed: gh is not on PATH to read the latest release of $slug"
+    return 0
+  fi
+  if budget_exhausted; then
+    emit "$name check failed: the time budget ran out before the latest release of $slug was read"
+    return 0
+  fi
+  out=$(fm_run_timed "$(probe_bound)" "$gh_bin" api "repos/$slug/releases/latest" --jq .tag_name 2>/dev/null)
+  status=$?
+  tag=$(printf '%s\n' "$out" | head -n 1 | tr -d '[:space:]')
+  latest=$(parse_version "$tag")
+  if [ "$status" -eq 124 ]; then
+    emit "$name check failed: GitHub did not answer for the latest release of $slug"
+  elif [ "$status" -ne 0 ] || [ -z "$latest" ]; then
+    emit "$name check failed: could not read the latest release of $slug"
+  elif version_newer "$latest" "$resolved_version"; then
+    emit "$name update available: $slug release $tag is out, PATH resolves $resolved_version$(pin_mark "$pin")"
+  fi
+  return 0
+}
+
 command_findings() {
   local name=$1 command_name=$2 args_joined=$3 announce=$4 announce_args=$5 npm_package=$6
+  local github_release=$7 pin=$8
   local hit out version matched announce_out status npm_bin published
   local resolved_path='' resolved_version='' resolved_out=''
   local best_path='' best_version='' unreadable='' hits=''
@@ -484,7 +531,7 @@ EOF
       if [ "$status" -gt 1 ]; then
         emit "$name check failed: announce_pattern is not a usable extended regular expression"
       elif [ -n "$matched" ]; then
-        emit "$name update available: $(printf '%s\n' "$matched" | head -n 1)"
+        emit "$name update available: $(printf '%s\n' "$matched" | head -n 1)$(pin_mark "$pin")"
       fi
     fi
   fi
@@ -505,8 +552,9 @@ EOF
     emit "$name check failed: $unreadable did not report a version"
   fi
 
-  # The registry is this tool's update source, asked only when there is a
-  # resolved version to compare it with.
+  # The release and registry sources are asked only when there is a resolved
+  # version to compare them with.
+  [ -z "$github_release" ] || github_release_findings "$name" "$github_release" "$resolved_version" "$pin"
   [ -n "$npm_package" ] || return 0
   npm_bin=$(command -v npm 2>/dev/null) || npm_bin=
   if [ -z "$npm_bin" ]; then
@@ -525,7 +573,7 @@ EOF
   elif [ "$status" -ne 0 ] || [ -z "$published" ]; then
     emit "$name check failed: npm could not read the published version of $npm_package"
   elif version_newer "$published" "$resolved_version"; then
-    emit "$name update available: $npm_package $published is published, PATH resolves $resolved_version"
+    emit "$name update available: $npm_package $published is published, PATH resolves $resolved_version$(pin_mark "$pin")"
   fi
   return 0
 }
@@ -718,7 +766,7 @@ record_write() {
 
 action_check() {
   local name command_name args_joined announce announce_args repo remote branch npm_package
-  local line now
+  local github_release pin line now
 
   [ -f "$CONFIG" ] || return 0
 
@@ -738,10 +786,10 @@ action_check() {
   if ! config_validate; then
     emit "watched tool registry: $CONFIG_PROBLEM"
   else
-    while IFS=$FIELD_SEP read -r name command_name args_joined announce announce_args repo remote branch npm_package; do
+    while IFS=$FIELD_SEP read -r name command_name args_joined announce announce_args repo remote branch npm_package github_release pin; do
       [ -n "$name" ] || continue
       budget_allows "$name" || break
-      [ -z "$command_name" ] || command_findings "$name" "$command_name" "$args_joined" "$announce" "$announce_args" "$npm_package"
+      [ -z "$command_name" ] || command_findings "$name" "$command_name" "$args_joined" "$announce" "$announce_args" "$npm_package" "$github_release" "$pin"
       [ -z "$repo" ] || git_findings "$name" "$repo" "$remote" "$branch"
     done < <(config_records)
   fi
