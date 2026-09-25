@@ -102,6 +102,15 @@ shift 2
 [ "$entry" = fm-remote-entrypoint.sh ] || exit 92
 case "${FM_FAKE_SSH_MODE:-normal}" in
   unreachable) exit 255 ;;
+  hang)
+    # An alive peer whose remote command never finishes: nothing here ever
+    # exits, and TERM is ignored by the fake and the grandchild it leaves, so
+    # only a whole-group KILL ends them.
+    trap '' TERM
+    sleep 600 &
+    printf '%s %s\n' "$$" "$!" > "$FM_FAKE_SSH_HANG_PIDS"
+    while :; do sleep 1; done
+    ;;
   ambiguous)
     "$FM_FAKE_REMOTE_ENTRYPOINT" "$@"
     exit 255
@@ -206,6 +215,51 @@ assert_contains "$INVALID_INTERVAL_OUT" 'FM_SSH_ALIVE_INTERVAL must be a positiv
 assert_contains "$INVALID_COUNT_OUT" 'FM_SSH_ALIVE_COUNT_MAX must be a positive integer' "invalid count did not explain its constraint"
 [ "$(cat "$SSH_COUNT")" -eq "$SSH_CALLS_BEFORE_INVALID" ] || fail "invalid keepalive configuration launched ssh"
 pass "fm-on rejects invalid dead-peer settings before launching ssh"
+
+# Keepalives cannot end a call whose peer is alive but whose remote command
+# never finishes. FM_ON_TIMEOUT bounds the whole call: the ssh process group,
+# including a grandchild that ignores TERM, is gone at the bound plus grace, and
+# the call reports 255 so callers read unknown completion, never a verdict.
+HANG_PIDS="$TMP_ROOT/hang.pids"
+rm -f "$HANG_PIDS"
+started=$(date +%s)
+set +e
+FM_FAKE_SSH_MODE=hang FM_FAKE_SSH_HANG_PIDS="$HANG_PIDS" FM_ON_TIMEOUT=2 FM_ON_TIMEOUT_GRACE=1 \
+  fm_on ios fm-probe-two.sh > "$TMP_ROOT/hang.out" 2> "$TMP_ROOT/hang.err"
+rc=$?
+set -e
+elapsed=$(( $(date +%s) - started ))
+[ "$rc" -eq 255 ] || fail "a call past its FM_ON_TIMEOUT bound did not report unknown completion (got $rc): $(cat "$TMP_ROOT/hang.err")"
+[ "$elapsed" -le 8 ] || fail "a hung remote call was not stopped near its 2s bound (took ${elapsed}s)"
+assert_grep 'exceeded its 2s bound' "$TMP_ROOT/hang.err" "the bounded call did not explain why it stopped"
+[ -s "$HANG_PIDS" ] || fail "the hanging fake ssh never started"
+for hang_pid in $(tr "\n" " " < "$HANG_PIDS"); do
+  for _ in $(seq 1 40); do kill -0 "$hang_pid" 2>/dev/null || break; sleep 0.05; done
+  if kill -0 "$hang_pid" 2>/dev/null; then
+    kill -KILL "$hang_pid" 2>/dev/null || true
+    fail "the bound left part of the ssh process group running (pid $hang_pid)"
+  fi
+done
+pass "FM_ON_TIMEOUT stops a hung call's whole ssh process group and reports 255"
+
+set +e
+FM_ON_TIMEOUT=30 fm_on --stdin ios fm-probe-one.sh "$REMOTE_HOME/argv-bounded.bin" 23 'bounded' \
+  < "$TMP_ROOT/stdin" > "$TMP_ROOT/stdout-bounded" 2>/dev/null
+rc=$?
+set -e
+[ "$rc" -eq 23 ] || fail "a bounded call that finished in time did not preserve the remote status (got $rc)"
+assert_grep 'stdin: payload two' "$TMP_ROOT/stdout-bounded" "a bounded --stdin call lost its payload"
+pass "a bounded call that finishes in time keeps its stdin, stdout, and exit status"
+
+SSH_CALLS_BEFORE_INVALID=$(cat "$SSH_COUNT")
+set +e
+INVALID_BOUND_OUT=$(FM_ON_TIMEOUT=0 fm_on ios fm-probe-two.sh 2>&1)
+INVALID_BOUND_RC=$?
+set -e
+[ "$INVALID_BOUND_RC" -eq 1 ] || fail "a zero FM_ON_TIMEOUT was accepted (got exit $INVALID_BOUND_RC)"
+assert_contains "$INVALID_BOUND_OUT" 'FM_ON_TIMEOUT must be a positive integer' "an invalid bound did not explain its constraint"
+[ "$(cat "$SSH_COUNT")" -eq "$SSH_CALLS_BEFORE_INVALID" ] || fail "an invalid bound launched ssh"
+pass "fm-on rejects an invalid call bound before launching ssh"
 
 out=$(TOP_SECRET='must-not-cross' fm_on remote-mac fm-probe-two.sh)
 assert_contains "$out" "home=$REMOTE_HOME" "remote FM_HOME was not explicit"

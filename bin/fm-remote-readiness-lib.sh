@@ -16,6 +16,8 @@
 # route and reconciles on the same host instead of treating it as a refusal.
 # FM_REMOTE_READINESS_OUT always holds the output of the last run, which carries
 # the check lines, the remaining human: gaps, and their exact operator actions.
+# Each doctor run inherits the caller's FM_ON_TIMEOUT, so a bounded caller gets
+# a bounded sequence and an expired run returns 255 like any unknown completion.
 
 # Consumed by the sourcing caller, so every assignment reads as unused here.
 # shellcheck disable=SC2034

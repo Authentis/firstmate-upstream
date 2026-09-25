@@ -590,10 +590,17 @@ secondmate_sync() {
 
   # One remote secondmate's convergence, split out of the loop so each host is
   # individually timed; every `return` here was a `continue` and still means
-  # "move on to the next secondmate".
+  # "move on to the next secondmate". Each remote call is bounded by
+  # FM_SECONDMATE_SYNC_TIMEOUT seconds (default 60) through bin/fm-on.sh's
+  # FM_ON_TIMEOUT, so one host that is up but never answers is reported as
+  # unconverged and cannot spend the whole startup network budget.
   secondmate_sync_remote_one() {  # <id> <home> <remote-host>
     local id=$1 _home=$2 remote_host=$3
-    local sync_out sync_rc inherit_out nudge_needed remote_marker remote_pending converged out remote_lock remote_generation
+    local sync_out sync_rc inherit_out nudge_needed remote_marker remote_pending converged out remote_lock remote_generation bound
+    case "${FM_SECONDMATE_SYNC_TIMEOUT:-}" in
+      ''|0*|*[!0-9]*) bound=60 ;;
+      *) bound=$FM_SECONDMATE_SYNC_TIMEOUT ;;
+    esac
     remote_lock=$(fm_remote_inherit_transaction_lock_path "$STATE" "$id" 2>/dev/null || true)
     if [ -z "$remote_lock" ] || ! fm_lock_acquire_wait "$remote_lock"; then
       echo "NUDGE_SECONDMATES: secondmate $id: send failed: cannot lock remote inheritance transaction"
@@ -619,7 +626,7 @@ secondmate_sync() {
     fi
     nudge_needed=0
     converged=1
-    if sync_out=$("$SCRIPT_DIR/fm-on.sh" "$id" fm-remote-secondmate-control.sh sync "$id" \
+    if sync_out=$(FM_ON_TIMEOUT=$bound "$SCRIPT_DIR/fm-on.sh" "$id" fm-remote-secondmate-control.sh sync "$id" \
       "$primary_head" < /dev/null 2>&1); then
       case "$sync_out" in synced:*) nudge_needed=1 ;; esac
     else
@@ -627,7 +634,7 @@ secondmate_sync() {
       echo "SECONDMATE_SYNC: secondmate $id: skipped: remote tracked-file sync failed on $remote_host: $(remote_sync_failure_reason "$sync_rc" "$sync_out")"
       converged=0
     fi
-    if inherit_out=$(FM_CONFIG_INHERIT_LIVE=1 \
+    if inherit_out=$(FM_CONFIG_INHERIT_LIVE=1 FM_ON_TIMEOUT=$bound \
       "$SCRIPT_DIR/fm-remote-inherit-push.sh" "$id" "$remote_generation" 2>&1); then
       if printf '%s\n' "$inherit_out" | grep -Eq '^(pushed|removed):'; then nudge_needed=1; fi
     else

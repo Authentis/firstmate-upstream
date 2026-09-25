@@ -74,6 +74,16 @@ CURSOR_DIR="$STATE/remote-replies"
 REMOTE_LOG='state/parent-replies.status'
 WAIT_SECONDS=${FM_REMOTE_REPLY_WAIT_SECONDS:-55}
 MAX_DOC_BYTES=${FM_REMOTE_REPLY_MAX_DOC_BYTES:-262144}
+# Every remote call carries a wall-clock bound through bin/fm-on.sh's
+# FM_ON_TIMEOUT, so a host that is up but never answers ends as unavailable
+# transport (255) instead of wedging this source forever: the delta read gets
+# its own wait window plus FM_REMOTE_REPLY_TRANSPORT_MARGIN seconds (default
+# 60), and a document fetch gets FM_REMOTE_REPLY_FETCH_TIMEOUT (default 60).
+case "$WAIT_SECONDS" in ''|*[!0-9]*) WAIT_SECONDS=55 ;; esac
+TRANSPORT_MARGIN=${FM_REMOTE_REPLY_TRANSPORT_MARGIN:-}
+case "$TRANSPORT_MARGIN" in ''|0*|*[!0-9]*) TRANSPORT_MARGIN=60 ;; esac
+FETCH_TIMEOUT=${FM_REMOTE_REPLY_FETCH_TIMEOUT:-}
+case "$FETCH_TIMEOUT" in ''|0*|*[!0-9]*) FETCH_TIMEOUT=60 ;; esac
 # fm-on.sh returns ssh's status unchanged, so 255 alone means unavailable
 # transport or unknown remote completion. Any other nonzero status is the remote
 # reader's own refusal of that path at that moment. The reader has no permanence
@@ -258,7 +268,7 @@ cmd_source() {
   validate_id "$id"
   read_cursor "$id"
   started=$(fm_pending_reply_now)
-  "$SCRIPT_DIR/fm-on.sh" "$id" fm-remote-delta-read.sh \
+  FM_ON_TIMEOUT=$((WAIT_SECONDS + TRANSPORT_MARGIN)) "$SCRIPT_DIR/fm-on.sh" "$id" fm-remote-delta-read.sh \
     "$REMOTE_LOG" "$CURSOR_OFFSET" "$CURSOR_HASH" "$WAIT_SECONDS" < /dev/null || rc=$?
   if [ "$rc" -eq "$WINDOW_CLOSED_EMPTY" ]; then
     fm_pending_reply_note_remote_channel_caught_up "$STATE" "$id" "$started" || true
@@ -382,7 +392,7 @@ fetch_document() { # <id> <remote-relative> <result-var>
   [ ! -L "$destination" ] || return "$DOCUMENT_LOCAL_FAILURE"
   err=$(umask 077; mktemp "${TMPDIR:-/tmp}/fm-remote-doc-reason.XXXXXX") || return "$DOCUMENT_LOCAL_FAILURE"
   tmp=$(umask 077; mktemp "$parent/.remote-doc.XXXXXX") || { rm -f -- "$err"; return "$DOCUMENT_LOCAL_FAILURE"; }
-  "$SCRIPT_DIR/fm-on.sh" "$id" fm-remote-file.sh get "$rel" "$MAX_DOC_BYTES" < /dev/null > "$tmp" 2> "$err" || rc=$?
+  FM_ON_TIMEOUT=$FETCH_TIMEOUT "$SCRIPT_DIR/fm-on.sh" "$id" fm-remote-file.sh get "$rel" "$MAX_DOC_BYTES" < /dev/null > "$tmp" 2> "$err" || rc=$?
   if [ "$rc" -ne 0 ]; then
     FETCH_DOC_REASON=$(summarize_fetch_reason "$err" "$rel")
     rm -f -- "$tmp" "$err"

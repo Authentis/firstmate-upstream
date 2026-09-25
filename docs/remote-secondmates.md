@@ -189,6 +189,7 @@ When deduplication finds that the worker already moved the matching record into 
 The remote host runs no doorbell re-ring ladder of its own; a swallowed doorbell for an ordinary reply-bearing request surfaces through the parent's pending-reply recovery and escalation, whose recovery request rings the doorbell again when it is enqueued.
 `fm-peek.sh` and `fm-crew-state.sh` route remote-secondmate reads to the endpoint's host instead of consulting local worktree or backend state.
 An unreachable or unreadable remote read is unknown, not evidence that the endpoint is dead.
+A host can also accept SSH and then never answer, for example when its remote side waits on a lock that never frees; keepalives cannot end that call, so every supervision, startup, and reply-source remote call carries a wall-clock bound through `bin/fm-on.sh`'s `FM_ON_TIMEOUT`, and an expired bound is the same unknown 255 outcome.
 
 Marked requests keep the existing correlation contract.
 The remote charter appends replies to `state/parent-replies.status` in the remote home.

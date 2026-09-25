@@ -632,6 +632,14 @@ EOF
   cat > "$fakebin/ssh" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "${FM_FAKE_SSH_LOG:?}"
+if [ "${FM_FAKE_REMOTE_HANG:-0}" = 1 ]; then
+  # A peer that is up but whose remote command never returns: only a KILL of
+  # the whole ssh process group ends this fake and its grandchild.
+  trap '' TERM
+  sleep 600 &
+  printf '%s %s\n' "$$" "$!" >> "${FM_FAKE_SSH_LOG}.pids"
+  while :; do sleep 1; done
+fi
 [ -z "${FM_FAKE_REMOTE_REPLY:-}" ] || printf '%s\n' "$FM_FAKE_REMOTE_REPLY"
 exit "${FM_FAKE_REMOTE_RC:-0}"
 SH
@@ -700,6 +708,34 @@ test_remote_poll_probe_unreachable_preserves_route() {
   pass "poll probe: unreachable or inconclusive remote reads preserve the route"
 }
 
+# The 2026-09-25 freeze: a remote host whose firstmate services were stopped
+# accepted ssh and then never answered, so the probe never returned. Every
+# remote call a probe makes is now bounded, in poll and full mode alike, and an
+# expired bound reads as an unreachable host with the route preserved.
+test_remote_probe_bounds_a_hung_remote() {
+  local w out mode started elapsed pid
+  w=$(make_remote_probe_world probe-hung)
+  for mode in poll full; do
+    : > "$w/ssh.log"
+    rm -f "$w/ssh.log.pids"
+    started=$(date +%s)
+    out=$(probe_remote "$w" "$mode" FM_FAKE_REMOTE_HANG=1 FM_SECONDMATE_PROBE_TIMEOUT=2 FM_ON_TIMEOUT_GRACE=1)
+    elapsed=$(( $(date +%s) - started ))
+    [ "$out" = 'skipped|unknown|0|||remote host unavailable or endpoint state unknown; route preserved on lab-host' ] \
+      || fail "$mode probe: a hung remote must read as unreachable with the route preserved, got: $out"
+    [ "$elapsed" -le 10 ] || fail "$mode probe: a hung remote was not bounded near 2s (took ${elapsed}s)"
+    [ "$(wc -l < "$w/ssh.log" | tr -d ' ')" -eq 1 ] \
+      || fail "$mode probe: a hung remote should end the probe after its first bounded call: $(cat "$w/ssh.log")"
+    for pid in $(tr "\n" " " < "$w/ssh.log.pids"); do
+      if kill -0 "$pid" 2>/dev/null; then
+        kill -KILL "$pid" 2>/dev/null || true
+        fail "$mode probe: the bound left part of the ssh process group running (pid $pid)"
+      fi
+    done
+  done
+  pass "probe: a hung remote is bounded in poll and full mode and never reads as death"
+}
+
 test_tmux_agent_state_classifies
 test_tmux_agent_state_rejects_malformed_targets_before_probe
 test_herdr_agent_state_preserves_husk_classifier
@@ -719,5 +755,6 @@ test_sweep_skips_mate_whose_liveness_lock_is_held
 test_sweep_refuses_relaunch_on_ledger_errors
 test_remote_poll_probe_maps_states
 test_remote_poll_probe_unreachable_preserves_route
+test_remote_probe_bounds_a_hung_remote
 
 echo "# all fm-secondmate-liveness tests passed"

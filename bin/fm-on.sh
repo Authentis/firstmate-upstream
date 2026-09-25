@@ -111,6 +111,13 @@ case "$ALIVE_COUNT_MAX" in ''|*[!0-9]*) die "FM_SSH_ALIVE_COUNT_MAX must be a po
 [ "$ALIVE_INTERVAL" -gt 0 ] || die "FM_SSH_ALIVE_INTERVAL must be a positive integer: $ALIVE_INTERVAL"
 [ "$ALIVE_COUNT_MAX" -gt 0 ] || die "FM_SSH_ALIVE_COUNT_MAX must be a positive integer: $ALIVE_COUNT_MAX"
 
+CALL_TIMEOUT=${FM_ON_TIMEOUT:-}
+CALL_GRACE=${FM_ON_TIMEOUT_GRACE:-2}
+if [ -n "$CALL_TIMEOUT" ]; then
+  case "$CALL_TIMEOUT" in 0*|*[!0-9]*) die "FM_ON_TIMEOUT must be a positive integer: $CALL_TIMEOUT" ;; esac
+  case "$CALL_GRACE" in ''|0*|*[!0-9]*) die "FM_ON_TIMEOUT_GRACE must be a positive integer: $CALL_GRACE" ;; esac
+fi
+
 SSH_ARGS=(
   -o ForwardAgent=no
   -o ClearAllForwardings=yes
@@ -119,7 +126,29 @@ SSH_ARGS=(
   -o "ServerAliveCountMax=$ALIVE_COUNT_MAX"
   -- "$HOST" fm-remote-entrypoint.sh "$PROTOCOL" "$ROOT_B64" "$HOME_B64" "$ARGV_B64"
 )
-if [ "$STDIN_MODE" = caller ]; then
-  exec "$SSH_BIN" "${SSH_ARGS[@]}"
+if [ -z "$CALL_TIMEOUT" ]; then
+  if [ "$STDIN_MODE" = caller ]; then
+    exec "$SSH_BIN" "${SSH_ARGS[@]}"
+  fi
+  exec "$SSH_BIN" "${SSH_ARGS[@]}" < /dev/null
 fi
-exec "$SSH_BIN" "${SSH_ARGS[@]}" < /dev/null
+
+# shellcheck source=bin/fm-timeout-lib.sh
+. "$SCRIPT_DIR/fm-timeout-lib.sh"
+# The watchdog stays a child rather than replacing this shell so the bound can
+# be reported as 255. It keeps this shell's process group, so an outer bound
+# that signals this group reaches the watchdog, which forwards the signal to
+# the ssh group it owns.
+started=$SECONDS
+rc=0
+if [ "$STDIN_MODE" = caller ]; then
+  ( fm_exec_timed "$CALL_TIMEOUT" "$CALL_GRACE" "$SSH_BIN" "${SSH_ARGS[@]}" ) || rc=$?
+else
+  ( fm_exec_timed "$CALL_TIMEOUT" "$CALL_GRACE" "$SSH_BIN" "${SSH_ARGS[@]}" < /dev/null ) || rc=$?
+fi
+if fm_timed_out "$rc" && [ $((SECONDS - started)) -ge "$CALL_TIMEOUT" ]; then
+  printf 'error: remote call %s on %s exceeded its %ss bound; ssh stopped, remote completion unknown\n' \
+    "$COMMAND" "$HOST" "$CALL_TIMEOUT" >&2
+  exit 255
+fi
+exit "$rc"

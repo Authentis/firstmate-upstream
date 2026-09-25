@@ -3231,6 +3231,66 @@ SH
   pass "watch liveness: an unreachable remote secondmate is probed, preserved, and never failed over"
 }
 
+# The 2026-09-25 freeze: a remote host that accepted ssh but never answered
+# held the liveness tick forever, so the beacon stopped and supervision went
+# blind. The tick's remote probe is bounded; the watcher must keep beating and
+# keep probing on its cadence while the remote stays hung.
+test_secondmate_liveness_tick_survives_hung_remote() {
+  local dir state pid beat_age probes
+  dir=$(make_secondmate_liveness_case liveness-remote-hung)
+  state="$dir/state"
+  rm -f "$state/sm1.meta"
+  cat > "$state/rsm1.meta" <<EOF
+window=remote:rsm1
+kind=secondmate
+harness=claude
+remote_host=lab-host
+remote_backend=herdr
+remote_herdr_session=fm-remote
+remote_target=fm-remote:w1:p1
+home=/remote/rsm1-home
+EOF
+  cat > "$dir/data/secondmates.md" <<EOF
+- rsm1 - Remote mate (host: lab-host; root: /remote/root; home: /remote/rsm1-home; scope: remote work; projects: alpha; added 2026-01-01)
+EOF
+  cat > "$dir/fakebin/ssh" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${FM_FAKE_SSH_LOG:?}"
+trap '' TERM
+sleep 600 &
+printf '%s %s\n' "$$" "$!" >> "${FM_FAKE_SSH_LOG}.pids"
+while :; do sleep 1; done
+SH
+  chmod +x "$dir/fakebin/ssh"
+  : > "$dir/ssh.log"
+
+  run_liveness_leg "$dir" hung FM_SSH_BIN="$dir/fakebin/ssh" FM_FAKE_SSH_LOG="$dir/ssh.log" \
+    FM_SECONDMATE_PROBE_TIMEOUT=2 FM_ON_TIMEOUT_GRACE=1; pid=$LIVENESS_PID
+  sleep 10
+  is_live_non_zombie "$pid" \
+    || fail "the watcher exited against a hung remote secondmate: $(cat "$dir/watch-hung.out" "$dir/watch-hung.err")"
+  beat_age=$(perl -e 'print time - (stat shift)[9]' "$state/.last-watcher-beat")
+  probes=$(wc -l < "$dir/ssh.log" | tr -d ' ')
+  kill_liveness_leg "$pid"
+  [ "$beat_age" -le 4 ] || fail "the watcher beacon went stale behind a hung remote probe (age ${beat_age}s)"
+  [ "$probes" -ge 2 ] || fail "the tick never returned from its first hung remote probe (probes: $probes)"
+  grep -F 'secondmate rsm1 liveness: remote host unavailable or endpoint state unknown; route preserved on lab-host' \
+    "$state/.watch-triage.log" >/dev/null \
+    || fail "the bounded probe did not read as an unreachable host: $(cat "$state/.watch-triage.log" 2>/dev/null)"
+  [ ! -s "$state/.wake-queue" ] || fail "a hung remote probe queued a wake: $(cat "$state/.wake-queue")"
+  [ ! -e "$state/.secondmate-relaunch-rsm1" ] || fail "a hung remote probe ledgered a relaunch attempt"
+  # The probe in flight when the watcher was stopped keeps its own watchdog,
+  # so it too must be gone once its bound and grace have passed.
+  for pid in $(tr "\n" " " < "$dir/ssh.log.pids"); do
+    for _ in $(seq 1 100); do kill -0 "$pid" 2>/dev/null || break; sleep 0.05; done
+    if kill -0 "$pid" 2>/dev/null; then
+      kill -KILL "$pid" 2>/dev/null || true
+      fail "a bounded probe left part of the ssh process group running (pid $pid)"
+    fi
+  done
+  pass "watch liveness: a hung remote probe is bounded, preserved, and the watcher keeps beating"
+}
+
 test_self_held_lock_reclaims_instead_of_deadlocking
 test_subshell_lock_ownership_without_bashpid
 test_bounded_lock_handoff_after_contention
@@ -3294,3 +3354,4 @@ test_secondmate_liveness_tick_error_keeps_scanning_and_wakes
 test_secondmate_liveness_tick_unqueued_outcome_is_an_error_not_a_wake
 test_secondmate_liveness_tick_skips_mate_whose_lock_is_held
 test_secondmate_liveness_tick_preserves_unreachable_remote
+test_secondmate_liveness_tick_survives_hung_remote
