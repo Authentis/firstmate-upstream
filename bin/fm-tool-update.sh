@@ -28,13 +28,20 @@
 # here is ever forced, stashed, or reset.
 #
 # Reuses config/watched-tools.json as the single inventory (see
-# docs/configuration.md "Watched tool updates" for the full schema owner). The
-# only addition is one optional per-tool field:
+# docs/configuration.md "Watched tool updates" for the full schema owner). It
+# consumes one of two optional per-tool fields on a command tool:
 #
 #   "update_args": ["<args that make the tool's own `command` apply its
 #                     update, e.g. ["update"] for no-mistakes>"]
+#   "npm_package": "<npm package that installs `command`, e.g. tasks-axi>"
 #
-# A command tool without update_args is reported manual-only and never
+# An npm_package tool has no self-update command of its own, so it is updated
+# with `npm install -g <pkg>@latest`, the same command bootstrap installs it
+# with. The published version is asked first (`npm view <pkg> version`); a tool
+# already at or past it is reported done without installing, and a published version
+# that cannot be read is reported skipped rather than installed blind.
+#
+# A command tool with neither field is reported manual-only and never
 # attempted; nothing is guessed at. A git tool needs no extra field - its
 # existing git.repo/remote/branch are enough to attempt a fast-forward pull.
 #
@@ -76,7 +83,7 @@ Usage:
 
 Watched tools are read from config/watched-tools.json (local, gitignored).
 See docs/configuration.md "Watched tool updates" for the schema, including
-the optional per-tool update_args field this script consumes.
+the optional per-tool update_args and npm_package fields this script consumes.
 EOF
 }
 
@@ -118,6 +125,22 @@ first_line() { printf '%s\n' "$1" | tr '\t\r\n' '   ' | awk '{$1=$1;print}' | cu
 
 parse_version() {
   printf '%s' "$1" | grep -oE '[0-9]+(\.[0-9]+)+' | head -n 1
+}
+
+# version_newer <a> <b>: true when version a is numerically newer than b.
+version_newer() {
+  local a=$1 b=$2 i left right
+  local -a ap bp
+  IFS=. read -r -a ap <<< "$a"
+  IFS=. read -r -a bp <<< "$b"
+  i=0
+  while [ "$i" -lt "${#ap[@]}" ] || [ "$i" -lt "${#bp[@]}" ]; do
+    left=$((10#${ap[i]:-0}))
+    right=$((10#${bp[i]:-0}))
+    [ "$left" -eq "$right" ] || { [ "$left" -gt "$right" ]; return; }
+    i=$((i + 1))
+  done
+  return 1
 }
 
 short_sha() { printf '%s' "$1" | cut -c1-12; }
@@ -167,6 +190,9 @@ config_validate() {
       elif ($t | has("update_args")) and (($t.update_args | type) != "array" or ($t.update_args | length) == 0) then "tool \($t.name) update_args must be a non-empty array"
       elif ($t | has("update_args")) and ([$t.update_args[] | select((type != "string") or (test("^[A-Za-z0-9._=+/:-]+$") | not))] | length) > 0 then "tool \($t.name) update_args must be simple flag strings without spaces"
       elif ($t | has("update_args")) and (($t | has("command")) | not) then "tool \($t.name) update_args needs command"
+      elif ($t | has("npm_package")) and (($t.npm_package | type) != "string" or ($t.npm_package | test("^(@[a-z0-9][a-z0-9._-]*/)?[a-z0-9][a-z0-9._-]*$") | not)) then "tool \($t.name) npm_package must be a plain npm package name"
+      elif ($t | has("npm_package")) and (($t | has("command")) | not) then "tool \($t.name) npm_package needs command"
+      elif ($t | has("npm_package")) and ($t | has("update_args")) then "tool \($t.name) may set update_args or npm_package, not both"
       else empty
       end;
     def problems:
@@ -201,38 +227,65 @@ config_records() {
       ((.update_args // []) | join(" ")),
       (.git.repo // ""),
       (.git.remote // "origin"),
-      (.git.branch // "")
+      (.git.branch // ""),
+      (.npm_package // "")
     ] | join("\u001f")
   ' "$CONFIG" 2>/dev/null
 }
 
 # --- apply one tool -------------------------------------------------------
 
-apply_command_tool() {  # <name> <command> <version-args> <update-args>
-  local name=$1 command_name=$2 version_args=$3 update_args=$4
+apply_command_tool() {  # <name> <command> <version-args> <update-args> <npm-package>
+  local name=$1 command_name=$2 version_args=$3 update_args=$4 npm_package=$5
   local resolved before_version out status resolved_after after_version
+  local npm_bin='' published=''
 
   resolved=$(command -v "$command_name" 2>/dev/null) || resolved=
   if [ -z "$resolved" ]; then
     report "$name" "unreachable" "$command_name is not on PATH"
     return 0
   fi
-  if [ -z "$update_args" ]; then
-    report "$name" "manual" "no update_args configured - update it by hand"
+  if [ -z "$update_args" ] && [ -z "$npm_package" ]; then
+    report "$name" "manual" "no update_args or npm_package configured - update it by hand"
     return 0
   fi
 
   before_version=$(version_probe "$resolved" "$version_args")
 
-  # shellcheck disable=SC2086  # deliberate split on validated space-free tokens
-  out=$(fm_run_timed "$APPLY_SECS" "$resolved" $update_args 2>&1)
+  if [ -n "$npm_package" ]; then
+    npm_bin=$(command -v npm 2>/dev/null) || npm_bin=
+    if [ -z "$npm_bin" ]; then
+      report "$name" "unreachable" "npm is not on PATH to update $npm_package"
+      return 0
+    fi
+    out=$(fm_run_timed "$PROBE_SECS" "$npm_bin" view "$npm_package" version 2>&1)
+    status=$?
+    published=$(parse_version "$out")
+    if [ "$status" -ne 0 ] || [ -z "$published" ]; then
+      report "$name" "skipped" "could not read the published version of $npm_package (exit $status): $(first_line "$out")"
+      return 0
+    fi
+    # Never let @latest move a copy that is already at or past what is published.
+    if [ -n "$before_version" ] && ! version_newer "$published" "$before_version"; then
+      report "$name" "done" "already current at $before_version (published $published)"
+      return 0
+    fi
+    out=$(fm_run_timed "$APPLY_SECS" "$npm_bin" install -g "$npm_package@latest" 2>&1)
+  else
+    # shellcheck disable=SC2086  # deliberate split on validated space-free tokens
+    out=$(fm_run_timed "$APPLY_SECS" "$resolved" $update_args 2>&1)
+  fi
   status=$?
   if [ "$status" -eq 124 ]; then
     report "$name" "skipped" "update did not finish within ${APPLY_SECS}s"
     return 0
   fi
   if [ "$status" -ne 0 ]; then
-    report "$name" "skipped" "$resolved refused the update (exit $status): $(first_line "$out")"
+    if [ -n "$npm_package" ]; then
+      report "$name" "skipped" "npm refused to install $npm_package@latest (exit $status): $(first_line "$out")"
+    else
+      report "$name" "skipped" "$resolved refused the update (exit $status): $(first_line "$out")"
+    fi
     return 0
   fi
 
@@ -244,6 +297,8 @@ apply_command_tool() {  # <name> <command> <version-args> <update-args>
     report "$name" "done" "now $after_version (no version was readable beforehand)"
   elif [ "$after_version" = "$before_version" ]; then
     report "$name" "failed" "still $after_version after the update exited 0 - the update did not take effect"
+  elif [ -n "$published" ] && [ "$after_version" != "$published" ]; then
+    report "$name" "failed" "npm installed $npm_package@latest ($published) but $resolved_after reports $after_version"
   else
     report "$name" "done" "$before_version -> $after_version"
   fi
@@ -291,7 +346,7 @@ apply_git_tool() {  # <name> <repo> <remote> <branch>
 
 action_apply() {
   local label=${1:-"this host ($FM_HOME)"}
-  local name command_name version_args update_args repo remote branch
+  local name command_name version_args update_args repo remote branch npm_package
 
   printf 'host: %s\n' "$label"
 
@@ -307,9 +362,9 @@ action_apply() {
     return 1
   fi
 
-  while IFS=$FIELD_SEP read -r name command_name version_args update_args repo remote branch; do
+  while IFS=$FIELD_SEP read -r name command_name version_args update_args repo remote branch npm_package; do
     [ -n "$name" ] || continue
-    [ -z "$command_name" ] || apply_command_tool "$name" "$command_name" "$version_args" "$update_args"
+    [ -z "$command_name" ] || apply_command_tool "$name" "$command_name" "$version_args" "$update_args" "$npm_package"
     [ -z "$repo" ] || apply_git_tool "$name" "$repo" "$remote" "$branch"
   done < <(config_records)
 

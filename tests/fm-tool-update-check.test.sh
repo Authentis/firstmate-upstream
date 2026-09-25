@@ -212,6 +212,59 @@ test_missing_command_is_reported() {
   pass "a watched command missing from PATH is reported"
 }
 
+# make_npm <dir> <view-output> [view-exit]: a fake npm whose `view` answers
+# with the given text and exit status, and which fails any other command so a
+# case can prove the check never installs anything.
+make_npm() {
+  local dir=$1 text=$2 code=${3:-0}
+  mkdir -p "$dir"
+  cat > "$dir/npm" <<SH
+#!/usr/bin/env bash
+[ "\${1:-}" = view ] || { echo "unexpected npm \$*" >&2; exit 99; }
+printf '%s\n' '$text'
+exit $code
+SH
+  chmod 0755 "$dir/npm"
+}
+
+test_npm_package_published_version_is_reported() {
+  local home dir out
+  home=$(make_home npm-newer)
+  dir="$TMP_ROOT/npm-newer/bin"
+  make_copy "$dir" "$TOOL" 'tasks-axi 0.4.0'
+  make_npm "$dir" '0.5.1'
+  write_config "$home" "{\"tools\":[{\"name\":\"tasks-axi\",\"command\":\"$TOOL\",\"npm_package\":\"tasks-axi\"}]}"
+  out="$home/out.txt"
+  run_check "$home" "$(fixture_path "$dir")" "$out"
+  assert_contains "$(cat "$out")" "tasks-axi update available: tasks-axi 0.5.1 is published, PATH resolves 0.4.0" \
+    "a newer published npm version was not reported"
+
+  make_npm "$dir" '0.4.0'
+  rm -f "$home/state/.tool-updates"
+  run_check "$home" "$(fixture_path "$dir")" "$out"
+  [ ! -s "$out" ] || fail "a tool at the published npm version was reported: $(cat "$out")"
+  pass "an npm_package tool reports a newer published version and is silent when current"
+}
+
+test_npm_package_unreadable_registry_is_a_failure() {
+  local home dir out
+  home=$(make_home npm-unreadable)
+  dir="$TMP_ROOT/npm-unreadable/bin"
+  make_copy "$dir" "$TOOL" 'tasks-axi 0.4.0'
+  make_npm "$dir" 'npm error code E404' 1
+  write_config "$home" "{\"tools\":[{\"name\":\"tasks-axi\",\"command\":\"$TOOL\",\"npm_package\":\"tasks-axi\"}]}"
+  out="$home/out.txt"
+  run_check "$home" "$(fixture_path "$dir")" "$out"
+  assert_contains "$(cat "$out")" "tasks-axi check failed: npm could not read the published version of tasks-axi" \
+    "an npm registry read that failed was treated as current"
+
+  printf '%s\n' '{"tools":[{"name":"tasks-axi","npm_package":"tasks-axi"}]}' > "$home/config/watched-tools.json"
+  rm -f "$home/state/.tool-updates"
+  run_check "$home" "$PATH" "$out"
+  assert_contains "$(cat "$out")" "needs command, git, or both" "an npm_package with nothing to compare against was accepted"
+  pass "an npm registry read that fails is a check failure, not a pass"
+}
+
 # --- published updates ------------------------------------------------------
 
 test_announced_update_is_reported_from_the_tool_itself() {
@@ -1011,6 +1064,8 @@ test_identical_versions_are_silent
 test_one_copy_reached_twice_is_probed_once
 test_unreadable_version_is_a_failure_not_a_pass
 test_missing_command_is_reported
+test_npm_package_published_version_is_reported
+test_npm_package_unreadable_registry_is_a_failure
 test_announced_update_is_reported_from_the_tool_itself
 test_announcement_is_read_from_a_second_command
 test_unusable_announce_pattern_is_reported_not_read_as_silence

@@ -20,6 +20,9 @@
 #     line whose counters equal the sum of every host-summary line.
 #   - A registered local secondmate whose home has no fm-tool-update.sh yet is
 #     reported unreachable rather than skipped silently or crashing the sweep.
+#   - An npm_package tool is installed with `npm install -g <pkg>@latest` only
+#     when the published version is newer, is verified to have moved to it, and
+#     an npm refusal or unreadable published version is reported skipped.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -74,6 +77,111 @@ SH
 }
 
 fixture_path() { printf '%s:%s\n' "$1" "$PATH"; }
+
+# make_npm <dir>: a fake npm. `view <pkg> version` prints FM_TEST_NPM_PUBLISHED
+# (exiting FM_TEST_NPM_VIEW_EXIT when set); `install` logs its arguments to
+# <dir>/.npm-log, exits FM_TEST_NPM_INSTALL_EXIT when set, and otherwise writes
+# FM_TEST_NPM_INSTALL_TO into the version state file FM_TEST_NPM_STATE.
+make_npm() {
+  local dir=$1
+  mkdir -p "$dir"
+  cat > "$dir/npm" <<'SH'
+#!/usr/bin/env bash
+case "${1:-}" in
+  view)
+    [ -z "${FM_TEST_NPM_VIEW_EXIT:-}" ] || { echo 'npm error 404' >&2; exit "$FM_TEST_NPM_VIEW_EXIT"; }
+    printf '%s\n' "${FM_TEST_NPM_PUBLISHED:-}"
+    ;;
+  install)
+    printf '%s\n' "$*" >> "$(dirname "$0")/.npm-log"
+    [ -z "${FM_TEST_NPM_INSTALL_EXIT:-}" ] || { echo 'npm error EACCES' >&2; exit "$FM_TEST_NPM_INSTALL_EXIT"; }
+    [ -z "${FM_TEST_NPM_INSTALL_TO:-}" ] || printf '%s\n' "$FM_TEST_NPM_INSTALL_TO" > "$FM_TEST_NPM_STATE"
+    ;;
+esac
+SH
+  chmod +x "$dir/npm"
+}
+
+# --- npm package tools -------------------------------------------------
+
+test_npm_package_tool_is_installed_and_verified() {
+  local home fakebin out
+  home=$(make_home npm-done)
+  fakebin="$TMP_ROOT/npm-done/fakebin"
+  make_command "$fakebin" npmtool 1.0.0
+  make_npm "$fakebin"
+  write_config "$home" '{"tools":[{"name":"npmtool","command":"npmtool","npm_package":"@scope/npmtool"}]}'
+
+  out=$(FM_HOME="$home" PATH="$(fixture_path "$fakebin")" FM_TEST_NPM_PUBLISHED=1.2.0 \
+    FM_TEST_NPM_INSTALL_TO=1.2.0 FM_TEST_NPM_STATE="$fakebin/.npmtool-version" "$APPLY" apply)
+  assert_contains "$out" "npmtool: done: 1.0.0 -> 1.2.0" "a verified npm install was not reported done"
+  assert_equals "install -g @scope/npmtool@latest" "$(cat "$fakebin/.npm-log")" "npm was not asked to install the package at latest"
+  pass "an npm_package tool is updated with npm install -g <pkg>@latest and verified"
+}
+
+test_npm_package_tool_already_current_is_not_installed() {
+  local home fakebin out
+  home=$(make_home npm-current)
+  fakebin="$TMP_ROOT/npm-current/fakebin"
+  make_command "$fakebin" npmtool 1.3.0
+  make_npm "$fakebin"
+  write_config "$home" '{"tools":[{"name":"npmtool","command":"npmtool","npm_package":"npmtool"}]}'
+
+  out=$(FM_HOME="$home" PATH="$(fixture_path "$fakebin")" FM_TEST_NPM_PUBLISHED=1.2.0 "$APPLY" apply)
+  assert_contains "$out" "npmtool: done: already current at 1.3.0" "a copy at or past the published version was not reported current"
+  assert_equals no "$([ -e "$fakebin/.npm-log" ] && echo yes || echo no)" "npm install must not run when nothing newer is published"
+  pass "an npm_package tool at or past the published version is never reinstalled"
+}
+
+test_npm_package_install_that_does_not_take_is_a_failure() {
+  local home fakebin out
+  home=$(make_home npm-unchanged)
+  fakebin="$TMP_ROOT/npm-unchanged/fakebin"
+  make_command "$fakebin" npmtool 1.0.0
+  make_npm "$fakebin"
+  write_config "$home" '{"tools":[{"name":"npmtool","command":"npmtool","npm_package":"npmtool"}]}'
+
+  out=$(FM_HOME="$home" PATH="$(fixture_path "$fakebin")" FM_TEST_NPM_PUBLISHED=1.2.0 "$APPLY" apply)
+  assert_contains "$out" "npmtool: failed: still 1.0.0" "an npm install that left PATH on the old version was not a failure"
+
+  printf '1.0.0\n' > "$fakebin/.npmtool-version"
+  out=$(FM_HOME="$home" PATH="$(fixture_path "$fakebin")" FM_TEST_NPM_PUBLISHED=1.2.0 \
+    FM_TEST_NPM_INSTALL_TO=1.1.0 FM_TEST_NPM_STATE="$fakebin/.npmtool-version" "$APPLY" apply)
+  assert_contains "$out" "npmtool: failed: npm installed npmtool@latest (1.2.0) but" "a copy that moved short of the published version was not a failure"
+  pass "an npm install whose version did not reach the published one is reported failed"
+}
+
+test_npm_refusals_are_skipped_not_retried() {
+  local home fakebin out
+  home=$(make_home npm-refuse)
+  fakebin="$TMP_ROOT/npm-refuse/fakebin"
+  make_command "$fakebin" npmtool 1.0.0
+  make_npm "$fakebin"
+  write_config "$home" '{"tools":[{"name":"npmtool","command":"npmtool","npm_package":"npmtool"}]}'
+
+  out=$(FM_HOME="$home" PATH="$(fixture_path "$fakebin")" FM_TEST_NPM_PUBLISHED=1.2.0 FM_TEST_NPM_INSTALL_EXIT=243 "$APPLY" apply)
+  assert_contains "$out" "npmtool: skipped: npm refused to install npmtool@latest (exit 243): npm error EACCES" "npm's own refusal was not reported skipped"
+  assert_equals 1 "$(wc -l < "$fakebin/.npm-log" | tr -d ' ')" "a refused npm install must never be retried"
+  assert_not_contains "$(cat "$fakebin/.npm-log")" "--force" "npm must never be forced"
+
+  rm -f "$fakebin/.npm-log"
+  out=$(FM_HOME="$home" PATH="$(fixture_path "$fakebin")" FM_TEST_NPM_VIEW_EXIT=1 "$APPLY" apply)
+  assert_contains "$out" "npmtool: skipped: could not read the published version of npmtool" "an unreadable published version was not reported skipped"
+  assert_equals no "$([ -e "$fakebin/.npm-log" ] && echo yes || echo no)" "npm install must not run blind"
+  pass "npm refusals and unreadable published versions are reported skipped, never retried or forced"
+}
+
+test_npm_package_schema_is_validated() {
+  local home out
+  home=$(make_home npm-schema)
+  write_config "$home" '{"tools":[{"name":"npmtool","command":"npmtool","npm_package":"npmtool","update_args":["update"]}]}'
+  out=$(FM_HOME="$home" "$APPLY" apply)
+  assert_contains "$out" "may set update_args or npm_package, not both" "update_args with npm_package was not refused"
+  write_config "$home" '{"tools":[{"name":"npmtool","command":"npmtool","npm_package":"npmtool@latest; rm"}]}'
+  out=$(FM_HOME="$home" "$APPLY" apply)
+  assert_contains "$out" "npm_package must be a plain npm package name" "an unsafe package name was not refused"
+  pass "an npm_package that is ambiguous or not a plain package name is refused"
+}
 
 # --- command tool outcomes ---------------------------------------------
 
@@ -291,3 +399,8 @@ test_absent_config_reports_nothing_to_apply
 test_malformed_config_is_reported_not_silently_skipped
 test_fleet_applies_locally_and_on_a_registered_local_secondmate
 test_fleet_reports_a_secondmate_with_no_applier_yet_as_unreachable
+test_npm_package_tool_is_installed_and_verified
+test_npm_package_tool_already_current_is_not_installed
+test_npm_package_install_that_does_not_take_is_a_failure
+test_npm_refusals_are_skipped_not_retried
+test_npm_package_schema_is_validated

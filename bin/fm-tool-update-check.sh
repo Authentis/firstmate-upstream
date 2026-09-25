@@ -18,7 +18,10 @@
 #
 # Two conditions are reported, and they are deliberately distinct:
 #
-#   "<tool> update available"      a newer version exists at the update source.
+#   "<tool> update available"      a newer version exists at the update source:
+#                                  the tool's own announcement, a git remote
+#                                  ahead of the clone, or for an npm_package
+#                                  tool a newer `npm view <pkg> version`.
 #   "<tool> update not in effect"  a newer copy is installed on this host, but
 #                                  PATH still resolves an older one.
 #
@@ -323,6 +326,8 @@ config_validate() {
       elif ($t | has("announce_args")) and (($t.announce_args | type) != "array" or ($t.announce_args | length) == 0) then "tool \($t.name) announce_args must be a non-empty array"
       elif ($t | has("announce_args")) and ([$t.announce_args[] | select((type != "string") or (test("^[A-Za-z0-9._=+/:-]+$") | not))] | length) > 0 then "tool \($t.name) announce_args must be simple flag strings without spaces"
       elif ($t | has("announce_args")) and (($t | has("announce_pattern")) | not) then "tool \($t.name) announce_args needs announce_pattern"
+      elif ($t | has("npm_package")) and (($t.npm_package | type) != "string" or ($t.npm_package | test("^(@[a-z0-9][a-z0-9._-]*/)?[a-z0-9][a-z0-9._-]*$") | not)) then "tool \($t.name) npm_package must be a plain npm package name"
+      elif ($t | has("npm_package")) and (($t | has("command")) | not) then "tool \($t.name) npm_package needs command"
       elif ($t | has("git")) and (($t.git | type) != "object") then "tool \($t.name) git must be an object"
       elif ($t | has("git")) and (($t.git.repo | type) != "string" or ($t.git.repo | startswith("/") | not) or ($t.git.repo | test("[[:cntrl:]]"))) then "tool \($t.name) git.repo must be an absolute path on one line"
       elif ($t | has("git")) and ($t.git | has("remote")) and (($t.git.remote | type) != "string" or ($t.git.remote | test("^[A-Za-z0-9._-]+$") | not)) then "tool \($t.name) git.remote must be a simple remote name"
@@ -367,7 +372,8 @@ config_records() {
       ((.announce_args // .version_args // ["--version"]) | join(" ")),
       (.git.repo // ""),
       (.git.remote // "origin"),
-      (.git.branch // "")
+      (.git.branch // ""),
+      (.npm_package // "")
     ] | join("\u001f")
   ' "$CONFIG" 2>/dev/null
 }
@@ -402,8 +408,8 @@ probe_output() {
 }
 
 command_findings() {
-  local name=$1 command_name=$2 args_joined=$3 announce=$4 announce_args=$5
-  local hit out version matched announce_out status
+  local name=$1 command_name=$2 args_joined=$3 announce=$4 announce_args=$5 npm_package=$6
+  local hit out version matched announce_out status npm_bin published
   local resolved_path='' resolved_version='' resolved_out=''
   local best_path='' best_version='' unreadable='' hits=''
 
@@ -497,6 +503,29 @@ EOF
 
   if [ -n "$unreadable" ]; then
     emit "$name check failed: $unreadable did not report a version"
+  fi
+
+  # The registry is this tool's update source, asked only when there is a
+  # resolved version to compare it with.
+  [ -n "$npm_package" ] || return 0
+  npm_bin=$(command -v npm 2>/dev/null) || npm_bin=
+  if [ -z "$npm_bin" ]; then
+    emit "$name check failed: npm is not on PATH to ask for the published version of $npm_package"
+    return 0
+  fi
+  if budget_exhausted; then
+    emit "$name check failed: the time budget ran out before npm was asked for the published version of $npm_package"
+    return 0
+  fi
+  out=$(probe_output "$npm_bin" view "$npm_package" version)
+  status=$?
+  published=$(parse_version "$out")
+  if [ "$status" -eq 124 ]; then
+    emit "$name check failed: npm did not answer for the published version of $npm_package"
+  elif [ "$status" -ne 0 ] || [ -z "$published" ]; then
+    emit "$name check failed: npm could not read the published version of $npm_package"
+  elif version_newer "$published" "$resolved_version"; then
+    emit "$name update available: $npm_package $published is published, PATH resolves $resolved_version"
   fi
   return 0
 }
@@ -688,7 +717,7 @@ record_write() {
 # --- actions ----------------------------------------------------------------
 
 action_check() {
-  local name command_name args_joined announce announce_args repo remote branch
+  local name command_name args_joined announce announce_args repo remote branch npm_package
   local line now
 
   [ -f "$CONFIG" ] || return 0
@@ -709,10 +738,10 @@ action_check() {
   if ! config_validate; then
     emit "watched tool registry: $CONFIG_PROBLEM"
   else
-    while IFS=$FIELD_SEP read -r name command_name args_joined announce announce_args repo remote branch; do
+    while IFS=$FIELD_SEP read -r name command_name args_joined announce announce_args repo remote branch npm_package; do
       [ -n "$name" ] || continue
       budget_allows "$name" || break
-      [ -z "$command_name" ] || command_findings "$name" "$command_name" "$args_joined" "$announce" "$announce_args"
+      [ -z "$command_name" ] || command_findings "$name" "$command_name" "$args_joined" "$announce" "$announce_args" "$npm_package"
       [ -z "$repo" ] || git_findings "$name" "$repo" "$remote" "$branch"
     done < <(config_records)
   fi

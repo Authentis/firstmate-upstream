@@ -21,7 +21,7 @@ Prefer each tool's own refusal over a guard of our own.
 `fm-tool-update.sh` never passes `--force` to anything.
 A command tool's nonzero exit from its own update command, or git's own refusal of `git pull --ff-only` on a dirty or diverged tree, is read as that tool's authoritative refusal - reported skipped, never retried, never worked around.
 `no-mistakes update` without `--force` already refuses outright while pipeline runs are active, which is exactly this mechanism; no separate busy-check exists or is needed.
-A command tool with no `update_args` configured in `config/watched-tools.json` is reported manual-only and never attempted - nothing is guessed at.
+A command tool with neither `update_args` nor `npm_package` configured in `config/watched-tools.json` is reported manual-only and never attempted - nothing is guessed at.
 Every attempted update is verified, never assumed: the tool is asked its own version (or, for a git tool, its own HEAD) before and after, and an unchanged result after a clean exit is reported failed, not done.
 
 ## What it does
@@ -39,7 +39,7 @@ Every attempted update is verified, never assumed: the tool is asked its own ver
    - `skipped: <reason>` - the tool (or git) refused the update itself; nothing was forced.
      A `no-mistakes` skip during active pipeline runs is expected and needs no action - it will pick up the update the next time it is quiet.
    - `failed: <reason>` - the update command exited cleanly but the tool's version (or the git repo's HEAD) did not move; this needs attention, most often the PATH-skew shape where an update installs correctly but an earlier copy on `PATH` still shadows it.
-   - `manual: <reason>` - no `update_args` is configured for that tool in `config/watched-tools.json`; add one (see `docs/examples/watched-tools.json`) or update it by hand.
+   - `manual: <reason>` - neither `update_args` nor `npm_package` is configured for that tool in `config/watched-tools.json`; add one (see `docs/examples/watched-tools.json`) or update it by hand.
    - `unreachable: <reason>` - the command is missing from `PATH`, the git repo is missing or not a repository, or (for a secondmate host) that home does not yet have `bin/fm-tool-update.sh` - update firstmate there first.
 
 3. **Report to the captain in plain outcomes**, per `AGENTS.md` section 9, without the internal per-line vocabulary above.

@@ -20,6 +20,11 @@
       "announce_args": ["--help"],
       "announce_pattern": "A new version of no-mistakes is available: [^ ]+ -> [^ ]+",
       "update_args": ["update"]
+    },
+    {
+      "name": "tasks-axi",
+      "command": "tasks-axi",
+      "npm_package": "tasks-axi"
     }
   ]
 }
