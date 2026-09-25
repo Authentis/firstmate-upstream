@@ -117,10 +117,24 @@ fm_parent_channel_destination() {  # <home> <state>
       FM_PARENT_CHANNEL_ID=$id
       # shellcheck disable=SC2034 # Output globals read by sourcing callers.
       FM_PARENT_CHANNEL_ROUTE=remote
-      printf '%s/parent-replies.status\n' "$state"
+      fm_parent_channel_outbound_path "$state"
       ;;
     *) return 3 ;;
   esac
+}
+
+# This home's own outbound channel file under <state>, the remote route's
+# destination. It carries this home's reports to its parent, never work for it.
+fm_parent_channel_outbound_path() {  # <state>
+  printf '%s/parent-replies.status\n' "$1"
+}
+
+# 0 when <file> is <home>'s own outbound channel file: <home> is a secondmate
+# home and <file> is its state's outbound path. The watcher uses this so a mate
+# never wakes on its own words to the parent; the drain may still present them.
+fm_parent_channel_is_own_outbound() {  # <home> <state> <file>
+  [ "$3" = "$(fm_parent_channel_outbound_path "$2")" ] || return 1
+  fm_parent_channel_home_id "$1" >/dev/null 2>&1
 }
 
 # Fold <text> onto one bounded line, so a note copied from a child ledger or a

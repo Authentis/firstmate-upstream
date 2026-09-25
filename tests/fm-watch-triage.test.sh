@@ -27,6 +27,16 @@ DRAIN="$ROOT/bin/fm-wake-drain.sh"
 
 TMP_ROOT=$(fm_test_tmproot fm-watch-triage-tests)
 
+# A declared-wait recheck is fold-class (SO-12): queued without a wake, then
+# delivered by the fold digest, whose reason names the oldest folded row. A
+# zero digest delay makes that digest the next poll, so the recheck cases below
+# still observe one wake naming the recheck; the fold itself is pinned with a
+# long delay in test_nonterminal_stale_paused_absorbed_then_resurfaced.
+export FM_FOLD_DIGEST_SECS=0
+# The drain's forward measurement reads a presented stale row's current state;
+# this file counts the watcher's own current-state reads, so skip that one.
+export FM_WAKE_MEASURE_CREW_TIMEOUT=0
+
 ack_stopped_cycle() {  # <state>
   local state=$1 err sequence generation
   err="$state/.test-cycle-drain.err"
@@ -2289,7 +2299,7 @@ test_nonterminal_stale_not_working_surfaced() {
 # the pause's own status-file age, so a churny idle pane cannot reset the cadence)
 # for a recheck, so a forgotten pause cannot rot invisibly.
 test_nonterminal_stale_paused_absorbed_then_resurfaced() {
-  local dir state fakebin out drain_out capture_file window key pane_hash sig pid back statusf
+  local dir state fakebin out drain_out capture_file window key pane_hash sig pid back statusf i
   dir=$(make_case nonterminal-stale-paused); state="$dir/state"; fakebin="$dir/fakebin"
   out="$dir/watch.out"; drain_out="$dir/drain.out"; capture_file="$dir/pane.txt"
   window="test:fm-held"
@@ -2334,20 +2344,31 @@ test_nonterminal_stale_paused_absorbed_then_resurfaced() {
   sig=$(seen_sig "$statusf"); printf '%s' "$sig" > "$state/.seen-held_status"
   : > "$out"
   printf 'idle, holding for upstream (token 2)' > "$capture_file"
+  # SO-12: the recheck is folded - queued durably without a wake of its own -
+  # and the same watcher later raises the one digest wake that delivers it.
   PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
     FM_FAKE_TMUX_CURRENT_COMMAND=zsh \
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_PAUSE_RESURFACE_SECS=240 FM_POLL=1 FM_SIGNAL_GRACE=1 \
-    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+    FM_FOLD_DIGEST_SECS=4 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
   pid=$!
-  wait_for_exit "$pid" 100 || fail "watcher did not re-surface a declared pause past the threshold"
-  grep -F "stale: $window" "$out" >/dev/null || fail "re-surface did not print a stale wake"
-  grep -F "awaiting external" "$out" >/dev/null || fail "re-surface was not labeled a paused/awaiting-external recheck"
-  grep -F "possible wedge" "$out" >/dev/null && fail "a declared pause was mislabeled a possible wedge"
-  [ -e "$state/.paused-resurfaced-$key" ] || fail "the paused re-surface throttle marker was not recorded"
+  i=0
+  while [ ! -e "$state/.paused-resurfaced-$key" ] && [ "$i" -lt 100 ]; do sleep 0.1; i=$((i + 1)); done
+  [ -e "$state/.paused-resurfaced-$key" ] || { reap "$pid"; fail "the paused re-surface throttle marker was not recorded"; }
+  kill -0 "$pid" 2>/dev/null || fail "watcher woke on a declared-pause recheck instead of folding it: $(cat "$out")"
+  [ ! -s "$out" ] || { reap "$pid"; fail "a folded recheck printed a wake reason: $(cat "$out")"; }
+  grep "$(printf '\tstale\t')" "$state/.wake-queue" | grep -F "$window" | grep -F "awaiting external" >/dev/null \
+    || { reap "$pid"; fail "the folded recheck was not queued as a paused/awaiting-external recheck"; }
+  [ -s "$state/.wake-queue.fold" ] || { reap "$pid"; fail "the recheck was not recorded as fold-class"; }
+  wait_for_exit "$pid" 100 || fail "watcher did not raise the fold digest"
+  grep -F "possible wedge" "$state/.wake-queue" >/dev/null && fail "a declared pause was mislabeled a possible wedge"
   [ ! -e "$state/.stale-since-$key" ] || fail "a paused re-surface must not use the wedge timer"
-  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$drain_out" 2>/dev/null || fail "drain after the paused re-surface failed"
-  grep "$(printf '\tstale\t')" "$drain_out" | grep -F "$window" >/dev/null || fail "paused re-surface was not queued"
-  pass "a declared pause is absorbed on first sight, then re-surfaced as a recheck past the threshold, never wedge-escalated"
+  grep -F "check: fold-digest (1 folded; oldest: stale: $window (paused" "$out" >/dev/null \
+    || fail "the digest wake was not the one fold digest naming the folded recheck: $(cat "$out")"
+  FM_STATE_OVERRIDE="$state" "$DRAIN" --ack-if-routine > "$drain_out" 2>/dev/null || fail "drain after the digest failed"
+  grep "$(printf '\tstale\t')" "$drain_out" | grep -F "$window" >/dev/null || fail "the digest drain did not present the folded recheck"
+  grep -q '^ROUTINE: acknowledged through' "$drain_out" || fail "the digest drain was not acknowledged as routine: $(cat "$drain_out")"
+  [ ! -s "$state/.wake-queue" ] || fail "the routine digest acknowledgement left rows queued"
+  pass "a declared pause is absorbed on first sight, folded as a recheck past the threshold, delivered by one digest, never wedge-escalated"
 }
 
 # A captain-held crew can leave a stable backend endpoint after its agent exits.
@@ -6263,3 +6284,29 @@ test_afk_one_shot_never_hands_off_captain_held_under_away_record
 test_paused_until_near_future_is_quiet_before_the_cadence
 test_paused_until_wrong_year_is_bounded_by_the_cadence
 test_paused_until_that_passed_is_rechecked_before_the_cadence
+
+# SO-12 F1: a secondmate home never wakes on its own outbound parent channel.
+# Those lines are its reports to the parent, which the parent wakes on; the
+# author waking on its own words is a bare no-op turn. The same file in a main
+# home is an ordinary status log and still wakes.
+test_secondmate_does_not_wake_on_its_own_parent_channel() {
+  local dir state fakebin out pid
+  dir=$(make_case own-parent-channel); state="$dir/state"; fakebin="$dir/fakebin"; out="$dir/watch.out"
+  printf 'mate\n' > "$dir/.fm-secondmate-home"
+  printf 'done [key=child-pr-x]: PR https://example.invalid/pr/1 checks green\n' > "$state/parent-replies.status"
+  FM_HOME="$dir" watch_bg "$state" "$fakebin" "$out" env FM_HEARTBEAT=0
+  pid=$!
+  wait_poll_cycle "$state" "$pid" || fail "a secondmate woke on its own parent channel: $(cat "$out")"
+  reap "$pid"
+  [ ! -s "$out" ] || fail "a secondmate printed a wake for its own parent channel: $(cat "$out")"
+  [ ! -s "$state/.wake-queue" ] || fail "a secondmate queued a wake for its own parent channel"
+
+  dir=$(make_case main-parent-replies-file); state="$dir/state"; fakebin="$dir/fakebin"; out="$dir/watch.out"
+  printf 'done [key=child-pr-x]: PR https://example.invalid/pr/1 checks green\n' > "$state/parent-replies.status"
+  FM_HOME="$dir" watch_bg "$state" "$fakebin" "$out"
+  pid=$!
+  wait_for_exit "$pid" 100 || fail "a main home did not wake on a captain-relevant status file"
+  grep -F 'parent-replies.status' "$out" >/dev/null || fail "the main-home control woke on the wrong file: $(cat "$out")"
+  pass "a secondmate never wakes on its own outbound parent channel, while the same file in a main home still wakes"
+}
+test_secondmate_does_not_wake_on_its_own_parent_channel

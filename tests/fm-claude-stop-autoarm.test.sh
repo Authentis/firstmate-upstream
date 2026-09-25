@@ -1397,7 +1397,7 @@ test_plain_arm_banner_keeps_its_wake_line_cap() {
   expected=$(
     printf 'firstmate watcher wake - one supervision event needs a handling turn now.\n'
     for i in 1 2 3 4 5 6 7 8; do printf 'stale: fixture-%s actionable\n' "$i"; done
-    printf 'Run bin/fm-wake-drain.sh first, handle the wake, then run its exact WAKE_ACK_REQUIRED --ack-through command. Until that post-handling acknowledgement, interruption leaves the wake durable for idempotent re-handling. This Stop hook owns watcher continuity: when the handling turn ends, the next needed cycle arms automatically - do NOT run bin/fm-watch-arm.sh after an ordinary wake.\n'
+    printf 'Run bin/fm-wake-drain.sh --ack-if-routine first; a ROUTINE: line means it already acknowledged a wake with nothing to handle, otherwise handle the wake, then run its exact WAKE_ACK_REQUIRED --ack-through command. Until that post-handling acknowledgement, interruption leaves the wake durable for idempotent re-handling. This Stop hook owns watcher continuity: when the handling turn ends, the next needed cycle arms automatically - do NOT run bin/fm-watch-arm.sh after an ordinary wake.\n'
   )
   [ "$out" = "$expected" ] || fail "the plain-arm rewake banner changed:"$'\n'"$out"
   pass "auto-arm: without the host the rewake banner is unchanged, eight wake lines at most"

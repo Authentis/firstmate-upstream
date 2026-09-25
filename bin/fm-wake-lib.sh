@@ -778,6 +778,8 @@ _fm_recovery_marker_ack() {
   fm_lock_release "$lock"
 }
 
+# Only a non-fold row makes a queue recoverable here: a fold-class row waits for
+# the next real wake or its digest ("fold-class rows" below), never a resurface.
 _fm_recovery_marker_arm_check() {
   local marker=$1 lock line quarantine
   FM_RECOVERY_MARKER_ACTION='none'
@@ -788,7 +790,7 @@ _fm_recovery_marker_arm_check() {
     return 1
   fi
   if [ ! -e "$marker" ] && [ ! -L "$marker" ]; then
-    if [ -s "$FM_WAKE_QUEUE" ]; then
+    if fm_wake_queue_has_unfolded; then
       if ! _fm_recovery_marker_write_locked "$marker" downtime "" announced; then
         fm_lock_release "$lock"
         fm_lock_release "$FM_WAKE_QUEUE_LOCK"
@@ -837,7 +839,7 @@ _fm_recovery_marker_arm_check() {
       FM_RECOVERY_MARKER_ACTION='recover'
       ;;
     acked:*)
-      if [ -s "$FM_WAKE_QUEUE" ]; then
+      if fm_wake_queue_has_unfolded; then
         if ! _fm_recovery_marker_write_locked "$marker" downtime "" announced; then
           fm_lock_release "$lock"
           fm_lock_release "$FM_WAKE_QUEUE_LOCK"
@@ -1860,19 +1862,22 @@ fm_wake_append() {
   return "$status"
 }
 
-# fm_wake_append_locked <kind> <key> <payload>
+# fm_wake_append_locked <kind> <key> <payload> [fold]
 # Locked core of fm_wake_append: appends the wake row under an already-held
 # FM_WAKE_QUEUE_LOCK. Callers that must commit another durable record atomically
 # with the append (holding this lock excludes the drain's acknowledgement, which
 # deletes consumed rows under the same lock) acquire the lock once, run this and
 # their own write, then release.
+# A trailing `fold` records the row as fold-class instead (see "fold-class
+# rows" below): it publishes no downtime, so it can never re-surface by itself.
 fm_wake_append_locked() {
-  local kind=$1 key=$2 payload=$3 clean_key clean_payload epoch seq seq_file status
+  local kind=$1 key=$2 payload=$3 fold=${4:-} clean_key clean_payload epoch seq seq_file status
   local recovery_marker
   case "$kind" in
     signal|stale|check|heartbeat) ;;
     *) printf 'fm_wake_append: invalid wake kind: %s\n' "$kind" >&2; return 2 ;;
   esac
+  case "$fold" in ''|fold) ;; *) printf 'fm_wake_append: invalid append mode: %s\n' "$fold" >&2; return 2 ;; esac
 
   clean_key=$(printf '%s' "$key" | fm_wake_clean_field)
   clean_payload=$(printf '%s' "$payload" | fm_wake_clean_field)
@@ -1881,7 +1886,7 @@ fm_wake_append_locked() {
   recovery_marker="$STATE/.watcher-down"
   status=0
 
-  _fm_recovery_marker_publish "$recovery_marker" downtime || status=$?
+  [ -n "$fold" ] || _fm_recovery_marker_publish "$recovery_marker" downtime || status=$?
   if [ "$status" -eq 0 ]; then
     seq=$(cat "$seq_file" 2>/dev/null || echo 0)
     case "$seq" in
@@ -1893,7 +1898,158 @@ fm_wake_append_locked() {
   if [ "$status" -eq 0 ]; then
     printf '%s\t%s\t%s\t%s\t%s\n' "$epoch" "$seq" "$kind" "$clean_key" "$clean_payload" >> "$FM_WAKE_QUEUE" || status=$?
   fi
+  if [ "$status" -eq 0 ] && [ -n "$fold" ]; then
+    printf '%s\n' "$seq" >> "$(fm_wake_fold_path)" || status=$?
+  fi
   return "$status"
+}
+
+# --- fold-class rows ----------------------------------------------------------
+#
+# Standing order SO-12: a supervisor wakes only when there is something to do.
+# A fold-class row is a durable queue row for a wake kind measured to end in a
+# bare no-op turn (data/fm-wake-noop-measure-0925 in the operator home). It is
+# queued exactly like any other row, so every drain presents it and every
+# acknowledgement consumes it, but it never wakes the supervisor on its own:
+#   - its append publishes no downtime, and the recovery arm-check counts only
+#     non-fold rows, so it cannot come straight back as check: rearm-resurface;
+#   - it rides along on the next real wake, or on the one fold digest the
+#     watcher's poll loop raises once the oldest fold row is FM_FOLD_DIGEST_SECS
+#     old (default 900) while nothing else is queued.
+# The sidecar <queue>.fold lists fold-class sequence numbers, one per line, and
+# is written only under the queue lock. A number whose row is gone is inert, so
+# consumers join it against the queue rather than trusting it alone.
+# Which wakes fold is each producer's decision (bin/fm-watch.sh names them);
+# this section owns only the record, the routine predicate, and the digest key.
+FM_WAKE_FOLD_DIGEST_KEY='fold-digest'
+
+fm_wake_fold_path() {  # [queue-path]
+  printf '%s.fold\n' "${1:-$FM_WAKE_QUEUE}"
+}
+
+fm_wake_append_fold() {  # <kind> <key> <payload>
+  local status=0
+  fm_lock_acquire_wait "$FM_WAKE_QUEUE_LOCK"
+  fm_wake_append_locked "$1" "$2" "$3" fold || status=$?
+  fm_lock_release "$FM_WAKE_QUEUE_LOCK"
+  return "$status"
+}
+
+# Print "<non-fold-rows> <fold-rows> <oldest-fold-epoch>" for <queue> (default
+# this home's), read against <fold-path> (default the queue's own sidecar). Only structurally valid rows count, a digest row counts as
+# non-fold, and the oldest epoch is 0 with no fold row. Read without the lock
+# when the caller holds none: a torn read can only mis-time one poll.
+fm_wake_fold_summary() {  # [queue-path] [fold-path]
+  local queue=${1:-$FM_WAKE_QUEUE} fold=${2:-}
+  [ -n "$fold" ] || fold=$(fm_wake_fold_path "$queue")
+  [ -f "$queue" ] || { printf '0 0 0\n'; return 0; }
+  awk -F '\t' -v fold="$fold" '
+    BEGIN { while ((getline line < fold) > 0) if (line ~ /^[0-9]+$/) f[line] = 1 }
+    NF >= 5 && $1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+$/ {
+      if ($2 in f) { n++; if (!oldest || $1 < oldest) oldest = $1 } else other++
+    }
+    END { printf "%d %d %d\n", other, n, oldest }
+  ' "$queue"
+}
+
+# Print the payload of the oldest fold-class row in this home's queue, so the
+# digest wake can name what it carries.
+fm_wake_fold_oldest_payload() {
+  [ -f "$FM_WAKE_QUEUE" ] || return 0
+  awk -F '\t' -v fold="$(fm_wake_fold_path)" '
+    BEGIN { while ((getline line < fold) > 0) if (line ~ /^[0-9]+$/) f[line] = 1 }
+    NF >= 5 && $2 ~ /^[0-9]+$/ && ($2 in f) && (!seen || $2 < seq) { seen = 1; seq = $2; payload = $5 }
+    END { if (seen) print payload }
+  ' "$FM_WAKE_QUEUE"
+}
+
+# 0 when <queue> holds at least one structurally valid non-fold row. A queue
+# that cannot be read counts as holding one, so recovery errs toward surfacing.
+fm_wake_queue_has_unfolded() {  # [queue-path] [fold-path]
+  local queue=${1:-$FM_WAKE_QUEUE} summary
+  [ -s "$queue" ] || return 1
+  summary=$(fm_wake_fold_summary "$queue" "${2:-}") || return 0
+  case "${summary%% *}" in ''|*[!0-9]*) return 0 ;; esac
+  [ "${summary%% *}" -gt 0 ]
+}
+
+# Print every routine sequence number among the raw queue rows in <rows-file>:
+# a fold-class row, or the fold digest check row itself.
+# A routine row carries nothing the supervisor must act on alone, so a drain
+# that presents only routine rows may acknowledge them itself.
+fm_wake_routine_seqs() {  # <rows-file>
+  awk -F '\t' -v fold="$(fm_wake_fold_path)" -v digest="$FM_WAKE_FOLD_DIGEST_KEY" '
+    BEGIN { while ((getline line < fold) > 0) if (line ~ /^[0-9]+$/) f[line] = 1 }
+    NF >= 5 && $2 ~ /^[0-9]+$/ && (($2 in f) || ($3 == "check" && $4 == digest)) { print $2 }
+  ' "$1"
+}
+
+# Drop sidecar numbers whose rows are gone. Called under the queue lock by the
+# acknowledgement after it consumed rows, so the sidecar stays bounded.
+fm_wake_fold_prune_locked() {
+  local fold tmp
+  fold=$(fm_wake_fold_path)
+  [ -e "$fold" ] || return 0
+  if [ ! -s "$FM_WAKE_QUEUE" ]; then
+    rm -f -- "$fold"
+    return 0
+  fi
+  tmp=$(mktemp "$fold.tmp.XXXXXX") || return 1
+  awk -F '\t' -v fold="$fold" '
+    BEGIN { while ((getline line < fold) > 0) if (line ~ /^[0-9]+$/) f[line] = 1 }
+    NF >= 5 && ($2 in f) { print $2 }
+  ' "$FM_WAKE_QUEUE" > "$tmp" || { rm -f -- "$tmp"; return 1; }
+  chmod 0600 "$tmp" 2>/dev/null || true
+  _fm_atomic_replace "$tmp" "$fold" || { rm -f -- "$tmp"; return 1; }
+}
+
+# --- forward wake measurement -------------------------------------------------
+#
+# SO-12 widens the fold set only on measured evidence. The drain and its
+# acknowledgement append one line per presented or consumed row to this private,
+# size-capped log: epoch, actor, event (presented, routine-acked, acked), seq,
+# kind, key, payload prefix, fold class, and for a stale row the task's current
+# fm-crew-state line, read within FM_WAKE_MEASURE_CREW_TIMEOUT seconds (default
+# 5; 0 skips that read). FM_WAKE_MEASURE_MAX_BYTES caps the log (default
+# 1048576); past the cap the older half is dropped. Measurement never fails a
+# drain.
+FM_WAKE_MEASURE_LOG="${FM_WAKE_MEASURE_LOG:-$STATE/.wake-measure.log}"
+
+fm_wake_measure_rows() {  # <actor> <event> <rows-file> [<crew-state-bin>]
+  local actor=$1 event=$2 rows=$3 crew=${4:-} max epoch seq kind key payload fold routine line
+  local crew_line task size
+  [ -s "$rows" ] || return 0
+  max=${FM_WAKE_MEASURE_MAX_BYTES:-1048576}
+  case "$max" in ''|*[!0-9]*|0) max=1048576 ;; esac
+  routine=" $(fm_wake_routine_seqs "$rows" 2>/dev/null | tr '\n' ' ')"
+  {
+    while IFS=$(printf '\t') read -r epoch seq kind key payload; do
+      case "$seq" in ''|*[!0-9]*) continue ;; esac
+      fold=0
+      case "$routine" in *" $seq "*) fold=1 ;; esac
+      line="$(date +%s)	$actor	$event	$seq	$kind	$key	$(printf '%s' "$payload" | cut -c1-120)	fold=$fold"
+      if [ "$kind" = stale ] && [ -n "$crew" ] && [ "${FM_WAKE_MEASURE_CREW_TIMEOUT:-5}" != 0 ]; then
+        crew_line=unknown
+        if _fm_wake_require_classify && _fm_wake_require_timeout; then
+          task=$(window_to_task "$key" "$STATE")
+          if [ -n "$task" ]; then
+            crew_line=$(fm_run_timed "${FM_WAKE_MEASURE_CREW_TIMEOUT:-5}" "$crew" "$task" 2>/dev/null | head -1) || true
+          fi
+        fi
+        line="$line	crew=$(printf '%s' "${crew_line:-unknown}" | LC_ALL=C tr '\t\r\n' '   ' | cut -c1-200)"
+      fi
+      printf '%s\n' "$line"
+    done < "$rows"
+  } >> "$FM_WAKE_MEASURE_LOG" 2>/dev/null || return 0
+  size=$(wc -c < "$FM_WAKE_MEASURE_LOG" 2>/dev/null | tr -d '[:space:]')
+  case "$size" in ''|*[!0-9]*) return 0 ;; esac
+  if [ "$size" -gt "$max" ]; then
+    if tail -c $((max / 2)) "$FM_WAKE_MEASURE_LOG" 2>/dev/null | sed '1d' > "$FM_WAKE_MEASURE_LOG.tmp"; then
+      mv -f -- "$FM_WAKE_MEASURE_LOG.tmp" "$FM_WAKE_MEASURE_LOG" 2>/dev/null || true
+    fi
+    rm -f -- "$FM_WAKE_MEASURE_LOG.tmp" 2>/dev/null || true
+  fi
+  return 0
 }
 
 # fm_wake_queued_keys <kind>
@@ -2122,7 +2278,8 @@ fm_wake_branch_grant_live() {  # <rows-file> <owner-file>
 # How many queued rows <actor> can act on right now - exactly the rows a drain
 # by that actor would present or retire, and therefore the only rows worth
 # telling that actor to drain. Main owns every structurally valid row a live
-# branch grant does not reserve, plus every structurally invalid row. The branch
+# branch grant does not reserve, plus every structurally invalid row, except
+# fold-class rows, which wait for a real wake or their digest by design. The branch
 # owns exactly the rows its live grant names. Read without the queue lock: a
 # torn read can only mis-count one poll, and the drain re-derives the set under
 # the lock before it presents or mutates anything.
@@ -2141,10 +2298,13 @@ fm_wake_actor_pending_count() {  # <actor> [<rows-file> <owner-file>]
       END { print n + 0 }
     ' "$FM_WAKE_QUEUE") || count=''
   else
-    count=$(awk -F '\t' -v seqs="$grant" '
-      BEGIN { if (seqs != "") while ((getline line < seqs) > 0) reserved[line] = 1 }
+    count=$(awk -F '\t' -v seqs="$grant" -v fold="$(fm_wake_fold_path)" '
+      BEGIN {
+        if (seqs != "") while ((getline line < seqs) > 0) reserved[line] = 1
+        while ((getline line < fold) > 0) folded[line] = 1
+      }
       NF < 5 || $2 !~ /^[0-9]+$/ { n++; next }
-      !($2 in reserved) { n++ }
+      !($2 in reserved) && !($2 in folded) { n++ }
       END { print n + 0 }
     ' "$FM_WAKE_QUEUE") || count=''
   fi

@@ -586,7 +586,11 @@ SH
   cat > "$sub/state/.wake-queue" <<'EOF'
 100	7	stale	fleet:w2:p4	stale: fleet:w2:p4 (paused 3613s, awaiting external - declared paused)
 100	8	stale	fleet:w2:p3	stale: fleet:w2:p3 (paused 3615s, awaiting external - declared pause, rechecked on a long cadence not a wedge)
+100	9	stale	fleet:w2:p5	stale: fleet:w2:p5 (captain-held 3615s, awaiting the captain - verified hold transfer)
 EOF
+  # A fold-class row (here a captain-held recheck, which carries no pause
+  # wording) waits for its digest by design, so it is not a stall either.
+  printf '9\n' > "$sub/state/.wake-queue.fold"
   printf '1000\n' > "$dir/now"
   PATH="$fakebin:$PATH" FM_FAKE_NOW_FILE="$dir/now" FM_HOME="$dir" FM_ROOT_OVERRIDE="$ROOT" \
     FM_STATE_OVERRIDE="$state" FM_FAKE_TMUX_WINDOW='firstmate:fm-mate' \
@@ -603,7 +607,7 @@ EOF
     || fail "declared external-wait rows fed the secondmate wake-loop escalation"
   ! grep -F 'secondmate wake-loop stalled' "$dir/watch-first.out" "$dir/watch-second.out" >/dev/null \
     || fail "a declared external wait was mislabeled as a stalled wake loop"
-  pass "declared external-wait pause rows do not feed secondmate wake-loop escalation"
+  pass "declared external-wait pause rows and fold-class rows do not feed secondmate wake-loop escalation"
 }
 
 # A retired mate reprovisioned under the same task id gets a fresh home, so its
@@ -3355,3 +3359,135 @@ test_secondmate_liveness_tick_unqueued_outcome_is_an_error_not_a_wake
 test_secondmate_liveness_tick_skips_mate_whose_lock_is_held
 test_secondmate_liveness_tick_preserves_unreachable_remote
 test_secondmate_liveness_tick_survives_hung_remote
+
+# --- SO-12 fold-class rows and the routine drain ------------------------------
+
+# append_fold_wake <state> <kind> <key> <payload>: append a fold-class row with
+# the production wake library, exactly as the watcher's folded re-surface does.
+append_fold_wake() {
+  local state=$1 kind=$2 key=$3 payload=$4 lib="$ROOT/bin/fm-wake-lib.sh"
+  FM_STATE_OVERRIDE="$state" bash -c '
+    # shellcheck disable=SC1090,SC1091
+    . "$1"
+    fm_wake_append_fold "$2" "$3" "$4"
+  ' _ "$lib" "$kind" "$key" "$payload"
+}
+
+# arm_check_action <state>: the recovery arm-check verdict for <state>.
+arm_check_action() {
+  FM_STATE_OVERRIDE="$1" bash -c '
+    # shellcheck disable=SC1090,SC1091
+    . "$1"
+    fm_recovery_marker_arm_check "$STATE/.watcher-down" || exit 1
+    printf "%s\n" "$FM_RECOVERY_MARKER_ACTION"
+  ' _ "$ROOT/bin/fm-wake-lib.sh"
+}
+
+main_pending_count() {
+  FM_STATE_OVERRIDE="$1" bash -c '
+    # shellcheck disable=SC1090,SC1091
+    . "$1"
+    fm_wake_actor_pending_count main
+  ' _ "$ROOT/bin/fm-wake-lib.sh"
+}
+
+drain_ack_command() {  # <err-file> -> "<sequence> <generation>"
+  sed -n 's/^WAKE_ACK_REQUIRED:.*--ack-through \([0-9][0-9]*\) --recovery-generation \([A-Za-z0-9._-][A-Za-z0-9._-]*\)$/\1 \2/p' "$1"
+}
+
+# A fold-class row is durable and presented, but on its own it never re-surfaces
+# through recovery, never tells main to drain, and never keeps an episode open;
+# a real row beside it still recovers exactly as before.
+test_fold_row_never_resurfaces_alone() {
+  local dir state out err ack
+  dir=$(make_case fold-alone); state="$dir/state"; out="$dir/drain.out"; err="$dir/drain.err"
+  append_fold_wake "$state" stale test:w 'stale: test:w (paused 500s, awaiting external - declared pause)' \
+    || fail "fold append failed"
+  [ "$(awk 'END { print NR }' "$state/.wake-queue")" -eq 1 ] || fail "the fold row was not queued durably"
+  [ "$(arm_check_action "$state")" = none ] || fail "a fold-only queue came back as a recovery resurface"
+  [ "$(main_pending_count "$state")" -eq 0 ] || fail "a fold-only queue told main to drain"
+
+  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" 2> "$err" || fail "plain drain failed"
+  grep -F 'stale: test:w (paused 500s' "$out" >/dev/null || fail "the fold row was not presented by a plain drain"
+  ack=$(drain_ack_command "$err")
+  [ -n "$ack" ] || fail "a plain drain stopped naming its acknowledgement"
+  append_fold_wake "$state" stale test:w2 'stale: test:w2 (captain-held 900s, awaiting the captain)' \
+    || fail "second fold append failed"
+  # shellcheck disable=SC2086 # "<sequence> <generation>"
+  set -- $ack
+  FM_STATE_OVERRIDE="$state" "$DRAIN" --ack-through "$1" --recovery-generation "$2" \
+    || fail "the plain acknowledgement failed"
+  grep -F 'test:w2' "$state/.wake-queue" >/dev/null || fail "a fold row appended after presentation was consumed unseen"
+  grep -q '^acked:' "$state/.watcher-down" || fail "rows left behind that are all fold-class kept the episode open"
+  [ "$(arm_check_action "$state")" = none ] || fail "a leftover fold row resurfaced after acknowledgement"
+
+  append_wake "$state" check real 'check: real: something to do' || fail "real append failed"
+  [ "$(main_pending_count "$state")" -eq 1 ] || fail "a real row beside a fold row was not counted for main"
+  [ "$(arm_check_action "$state")" = recover ] || fail "a real row beside a fold row no longer recovers"
+  pass "a fold-class row is queued and presented but never resurfaces, alarms, or holds an episode alone"
+}
+
+# The routine drain acknowledges in one call only when every claimed row is
+# routine and the presentation adds nothing new; everything else is a plain drain.
+test_ack_if_routine_acknowledges_only_routine_presentations() {
+  local dir state out err ack i
+  dir=$(make_case ack-if-routine); state="$dir/state"; out="$dir/drain.out"; err="$dir/drain.err"
+  cat > "$dir/crew-state" <<'SH'
+#!/usr/bin/env bash
+printf 'state: paused · source: status-log · %s\n' "$1"
+SH
+  chmod +x "$dir/crew-state"
+  export FM_CREW_STATE_BIN="$dir/crew-state"
+
+  append_fold_wake "$state" stale test:w 'stale: test:w (paused 500s, awaiting external - declared pause)' || fail "fold append failed"
+  FM_STATE_OVERRIDE="$state" "$DRAIN" --ack-if-routine > "$out" 2> "$err" || fail "routine drain failed"
+  grep -F 'stale: test:w (paused 500s' "$out" >/dev/null || fail "the routine drain did not present the row it acknowledged"
+  grep -qx 'ROUTINE: acknowledged through 1; nothing actionable' "$out" || fail "routine drain did not acknowledge: $(cat "$out" "$err")"
+  ! grep -F WAKE_ACK_REQUIRED "$err" >/dev/null || fail "a routine drain still asked for an acknowledgement"
+  [ ! -s "$state/.wake-queue" ] || fail "the routine acknowledgement left rows queued"
+  grep -q '^acked:' "$state/.watcher-down" || fail "the routine acknowledgement did not retire its episode"
+  grep -F "$(printf '\troutine-acked\t1\tstale\ttest:w\t')" "$state/.wake-measure.log" | grep -F 'fold=1' >/dev/null \
+    || fail "the acknowledgement did not record the routine row in the measurement log"
+  # The presentation line is written off the drain's path and carries the
+  # stale row's current-state line.
+  i=0
+  while ! grep -F "$(printf '\tpresented\t1\tstale\ttest:w\t')" "$state/.wake-measure.log" >/dev/null 2>&1 \
+    && [ "$i" -lt 50 ]; do sleep 0.1; i=$((i + 1)); done
+  grep -F "$(printf '\tpresented\t1\tstale\ttest:w\t')" "$state/.wake-measure.log" \
+    | grep -F 'fold=1' | grep -F "$(printf '\tcrew=state: paused')" >/dev/null \
+    || fail "the presentation was not measured with the stale row's current state: $(cat "$state/.wake-measure.log")"
+
+  # A real row beside a fold row: exactly today's drain.
+  append_fold_wake "$state" stale test:w 'stale: test:w (paused 900s)' || fail "fold append failed"
+  append_wake "$state" check x 'check: x: needs a look' || fail "real append failed"
+  FM_STATE_OVERRIDE="$state" "$DRAIN" --ack-if-routine > "$out" 2> "$err" || fail "mixed drain failed"
+  ! grep -F ROUTINE: "$out" >/dev/null || fail "a real row was acknowledged as routine"
+  ack=$(drain_ack_command "$err")
+  [ -n "$ack" ] || fail "a mixed drain did not name its acknowledgement"
+  [ "$(awk 'END { print NR }' "$state/.wake-queue")" -eq 2 ] || fail "a non-routine drain consumed rows"
+  # shellcheck disable=SC2086 # "<sequence> <generation>"
+  set -- $ack
+  FM_STATE_OVERRIDE="$state" "$DRAIN" --ack-through "$1" --recovery-generation "$2" || fail "mixed ack failed"
+  grep -F "$(printf '\tacked\t')" "$state/.wake-measure.log" >/dev/null || fail "an explicit acknowledgement was not measured"
+
+  # A new open decision is news; the same one shown again is not.
+  printf 'needs-decision [key=k1]: pick A or B\n' > "$state/t1.status"
+  append_fold_wake "$state" stale test:w 'stale: test:w (paused 1200s)' || fail "fold append failed"
+  FM_STATE_OVERRIDE="$state" "$DRAIN" --ack-if-routine > "$out" 2> "$err" || fail "decision drain failed"
+  grep -F 'OPEN DECISIONS' "$out" >/dev/null || fail "the open decision was not presented"
+  ! grep -F ROUTINE: "$out" >/dev/null || fail "a newly presented decision was acknowledged as routine"
+  FM_STATE_OVERRIDE="$state" "$DRAIN" --ack-if-routine > "$out" 2> "$err" || fail "repeat decision drain failed"
+  grep -F 't1 [key=k1] needs-decision' "$out" >/dev/null || fail "the still-open decision was not presented again"
+  grep -q '^ROUTINE: acknowledged through' "$out" || fail "an already-presented decision blocked the routine acknowledgement"
+
+  # An unread informational line is news even beside only routine rows.
+  printf 'note: the answer is 42\n' >> "$state/t1.status"
+  append_fold_wake "$state" stale test:w 'stale: test:w (paused 1500s)' || fail "fold append failed"
+  FM_STATE_OVERRIDE="$state" "$DRAIN" --ack-if-routine > "$out" 2> "$err" || fail "unread drain failed"
+  grep -F 'UNREAD STATUS' "$out" >/dev/null || fail "the unread line was not presented"
+  ! grep -F ROUTINE: "$out" >/dev/null || fail "an unread status line was acknowledged as routine"
+  unset FM_CREW_STATE_BIN
+  pass "--ack-if-routine acknowledges only routine rows with nothing new, and is a plain drain otherwise"
+}
+test_fold_row_never_resurfaces_alone
+test_ack_if_routine_acknowledges_only_routine_presentations
