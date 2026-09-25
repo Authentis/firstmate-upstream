@@ -22,18 +22,23 @@ It never broadens merge authority, bypasses guarded teardown, invents a brief fr
    A pull request still follows the merge-authority and `bin/fm-pr-merge.sh` path, a local-only branch still follows `bin/fm-merge-local.sh`, and a scout report is recorded as its artifact.
 3. Run ordinary `bin/fm-teardown.sh <id>` without `--force`.
    Successful teardown owns metadata removal and the fused backlog close or retain transition, so never close the row separately.
-4. On a teardown refusal, preserve the task and worktree, capture the refusal in a private detail file, and run `bin/fm-fleet-steward.sh exempt <id> --state <reconciled-state> --detail-file <path>`.
+4. On a teardown refusal for a ship task whose worker is gone and whose work is unfinished, park it with `bin/fm-teardown.sh <id> --park`, which saves the work, releases the copy, and returns the item to Queued with a resume pointer; that script header owns what park saves and refuses.
+   Only when park refuses too, or the task is not parkable, preserve the task and worktree, capture the refusal in a private detail file, and run `bin/fm-fleet-steward.sh exempt <id> --state <reconciled-state> --detail-file <path>`.
    This binds the steward exemption to the exact reconciled state without discarding work or hiding sibling exemptions; the script refuses if that state has since changed.
    When that task's work is finished and only its idle Herdr pane is left, close it with `bin/fm-control.sh <id> exit`, which stops any agent still there and hands the pane to `bin/fm-teardown.sh <id> --endpoint-only`, keeping the record, copy, branch, and backlog item; that script header owns the retention checks.
-   When that task's work is unfinished and its worker is gone, `bin/fm-teardown.sh <id> --park` can release its copy after saving the work and return its item to Queued with a resume pointer; that script header owns what park saves and refuses.
-   Park only a task you were explicitly asked to park: this pass never parks on its own, including tasks the snapshot classifies as preserved, until the captain switches automatic parking on.
 5. Refresh the queue with `bin/fm-fleet-steward.sh refresh` before selecting work.
    A failed refresh leaves the last known-good queue in place but does not authorize dispatch from it; report the refresh failure and stop the refill portion of this pass.
-6. Recompute current productive capacity from a fresh `bin/fm-fleet-snapshot.sh --json` result.
-   Productive capacity is that result's `.capacity.occupied`, whose per-task classification `bin/fm-fleet-snapshot.sh` owns; a held record whose worker exited stays preserved but frees its slot, while live, undeclared-exited, and uncertain records stay occupied.
+6. Run `bin/fm-fleet-steward.sh park-preserved`, which parks every ship task a fresh snapshot classifies `parked_preserved` and reports each refusal; report a refusal rather than forcing past it.
+   Then recompute current productive capacity from a fresh `bin/fm-fleet-snapshot.sh --json` result.
+   Productive capacity is that result's `.capacity.occupied`, whose per-task classification `bin/fm-fleet-snapshot.sh` owns; a held record whose worker exited frees its slot (and the park above releases its copy), while live, undeclared-exited, and uncertain records stay occupied.
 7. If productive capacity is below six and `data/next-up.md` still has a `READY` row, validate that row's acceptance and preconditions, prepare the ordinary brief, and dispatch it through the normal guarded spawn path.
    Load `harness-adapters` before spawning.
+   A parked row is dispatched like any Queued row once its blockers and hold clear, with its brief scaffolded by `bin/fm-brief.sh <id> <repo> --mode <mode> --resume`.
+   If the spawn refuses because its pool slot still belongs to a recorded task whose worker is gone, park that task and retry the spawn once.
 8. Repeat the fresh capacity and ready-row check only until productive capacity reaches six or no verified eligible row remains.
+
+Every pass also runs `bin/fm-fleet-steward.sh parked-review`; when it files its batched question about parked work older than 14 days, relay it to the captain under `captain-hold-lifecycle`.
+Parked work, its bundle, and its branch are never dropped without the captain's word.
 
 When handling an individual child's `done:` wake, complete steps 1 through 7 in the same pass rather than postponing refill to a later heartbeat.
 If landing needs merge authority, preserve the ready child and continue only with capacity that still counts it as occupied.

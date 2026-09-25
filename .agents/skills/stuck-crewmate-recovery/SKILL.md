@@ -46,9 +46,9 @@ On tmux there is no reclaim: a task record carries no socket identity for its en
 Do not work around either refusal by respawning - it means a live agent may still hold that worktree.
 That reclaim is the owning home's operation only, and a secondmate is the one exception: recover it through `bin/fm-spawn.sh <id> --secondmate` as above.
 Do not use a fresh generic spawn while the recorded worktree is unaccounted for, because allocating another worktree can split one task across two copies.
-If the worktree or ownership cannot be reconciled safely, leave all state intact and report the task failed or blocked with the conflicting evidence.
-A task whose worker is gone and whose work is unfinished can instead give up its copy through `bin/fm-teardown.sh <id> --park`, which saves the branch, uncommitted changes, and untracked files under `data/<id>/park/`, keeps the branch, and returns the item to Queued; `bin/fm-brief.sh <id> <repo> --mode <mode> --resume` then scaffolds the next worker from that saved state, including when the recorded copy is gone but its branch survives.
-Park only when explicitly asked to for that task: this playbook never parks on its own until the captain switches automatic parking on.
+When the worker is gone but the recorded copy is gone or cannot be accounted for, and the task's branch ref still exists, park the task with `bin/fm-teardown.sh <id> --park` instead of stopping there: it saves the branch and any uncommitted and untracked work under `data/<id>/park/`, keeps the branch, stops the task's validation run, and returns the item to Queued.
+Then resume it through the ordinary spawn with a brief from `bin/fm-brief.sh <id> <repo> --mode <mode> --resume`; the resumed worker validates its new head afresh.
+If park refuses, or nothing can be reconciled safely, leave all state intact and report the task failed or blocked with the conflicting evidence.
 
 ## A live crewmate claiming the pipeline is dead
 

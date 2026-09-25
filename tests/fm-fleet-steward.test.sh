@@ -399,6 +399,125 @@ JSON
   pass "exempt binds a teardown refusal to the exact reconciled state without losing siblings"
 }
 
+# The automatic park trigger parks every ship the snapshot classifies
+# parked_preserved, reports each outcome, and leaves every other task alone.
+test_park_preserved_parks_exactly_the_preserved_ships() {
+  local home out rc
+  home=$(make_home park-preserved)
+  cat > "$home/snapshot.sh" <<'SH'
+#!/usr/bin/env bash
+cat <<'JSON'
+{"schema":"fm-fleet-snapshot.v1","tasks":[
+ {"id":"frozen-a","kind":"ship","capacity":{"class":"parked_preserved"}},
+ {"id":"live-b","kind":"ship","capacity":{"class":"live_worker"}},
+ {"id":"scout-c","kind":"scout","capacity":{"class":"parked_preserved"}},
+ {"id":"landed-d","kind":"ship","capacity":{"class":"parked_preserved"}},
+ {"id":"refuses-e","kind":"ship","capacity":{"class":"parked_preserved"}},
+ {"id":"working-f","kind":"ship","capacity":{"class":"productive"}}]}
+JSON
+SH
+  cat > "$home/teardown.sh" <<SH
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "$home/teardown.calls"
+case "\$1" in
+  frozen-a) echo "park frozen-a complete (window w, worktree x released)" ;;
+  landed-d) echo "teardown landed-d complete (window w, worktree x)" ;;
+  refuses-e) echo "REFUSED: cannot park task refuses-e: its worker endpoint reads 'alive'. Nothing was changed." >&2; exit 1 ;;
+esac
+SH
+  chmod 0755 "$home/snapshot.sh" "$home/teardown.sh"
+
+  rc=0
+  out=$(FM_HOME="$home" FM_FLEET_STEWARD_SNAPSHOT_BIN="$home/snapshot.sh" \
+    FM_FLEET_STEWARD_TEARDOWN_BIN="$home/teardown.sh" "$STEWARD" park-preserved 2>&1) || rc=$?
+  expect_code 1 "$rc" "park-preserved: a refused park must fail the pass"
+  [ "$(cat "$home/teardown.calls")" = "$(printf '%s\n' 'frozen-a --park' 'landed-d --park' 'refuses-e --park')" ] \
+    || fail "park-preserved: parked the wrong tasks: $(cat "$home/teardown.calls")"
+  assert_contains "$out" "parked: frozen-a" "park-preserved: no parked line"
+  assert_contains "$out" "landed: landed-d" "park-preserved: landed hand-off not reported"
+  assert_contains "$out" "park refused: refuses-e: REFUSED: cannot park task refuses-e" "park-preserved: refusal not reported"
+
+  printf '%s\n' '#!/usr/bin/env bash' 'exit 1' > "$home/snapshot.sh"
+  rc=0
+  out=$(FM_HOME="$home" FM_FLEET_STEWARD_SNAPSHOT_BIN="$home/snapshot.sh" \
+    FM_FLEET_STEWARD_TEARDOWN_BIN="$home/teardown.sh" "$STEWARD" park-preserved 2>&1) || rc=$?
+  expect_code 1 "$rc" "park-preserved: an unreadable snapshot must fail rather than park nothing silently"
+  pass "park-preserved parks exactly the preserved ship tasks and reports every outcome"
+}
+
+make_backlog_home() {
+  local home=$1
+  printf '%s\n' '# Backlog' '' '## In flight' '' '## Queued' '' '## Done' > "$home/data/backlog.md"
+  printf '%s\n' 'backend = "markdown"' '' '[markdown]' 'path = "data/backlog.md"' > "$home/.tasks.toml"
+}
+
+write_park_receipt() {  # <home> <id> <parked_at>
+  mkdir -p "$1/data/$2/park"
+  printf '%s\n' "task=$2" "branch=fm/$2" "head=0123456789abcdef0123456789abcdef01234567" "parked_at=$3" \
+    > "$1/data/$2/park/receipt"
+}
+
+# One batched captain question at most every 14 days, listing only parked
+# items at least 14 days old whose work is still open and not resumed.
+test_parked_review_asks_once_per_fourteen_days() {
+  local home out now day=86400 backlog review
+  home=$(make_home parked-review)
+  make_backlog_home "$home"
+  backlog="$home/data/backlog.md"
+  now=$((1790000000))
+  for id in old-a old-b young-c resumed-d closed-e; do
+    tasks-axi add "$id" "work $id" --kind ship --file "$backlog" >/dev/null
+  done
+  tasks-axi "done" closed-e --file "$backlog" >/dev/null
+  write_park_receipt "$home" old-a $((now - 20 * day))
+  write_park_receipt "$home" old-b $((now - 15 * day))
+  write_park_receipt "$home" young-c $((now - 3 * day))
+  write_park_receipt "$home" resumed-d $((now - 30 * day))
+  write_park_receipt "$home" closed-e $((now - 30 * day))
+  printf 'kind=ship\n' > "$home/state/resumed-d.meta"
+
+  out=$(FM_HOME="$home" FM_FLEET_STEWARD_NOW=$now "$STEWARD" parked-review 2>&1) \
+    || fail "parked-review: the first review failed: $out"
+  assert_contains "$out" "old-a: parked 20 days" "parked-review: an old item is missing"
+  assert_contains "$out" "old-b: parked 15 days" "parked-review: an old item is missing"
+  assert_not_contains "$out" "young-c" "parked-review: a young item was asked about"
+  assert_not_contains "$out" "resumed-d" "parked-review: a resumed item was asked about"
+  assert_not_contains "$out" "closed-e" "parked-review: a closed item was asked about"
+  review=$(printf '%s\n' "$out" | sed -n 's/^parked-review: //p')
+  [ -n "$review" ] || fail "parked-review: no review id was printed: $out"
+  FM_HOME="$home" "$ROOT/bin/fm-captain-hold.sh" open "$review" \
+    || fail "parked-review: the review $review is not held for the captain"
+  tasks-axi show "$review" --full --file "$backlog" | grep -Fq "old-a: parked 20 days" \
+    || fail "parked-review: the held review does not list the parked items"
+  assert_present "$home/state/.fleet-steward-parked-review" "parked-review: the last-asked record was not written"
+
+  out=$(FM_HOME="$home" FM_FLEET_STEWARD_NOW=$((now + 13 * day)) "$STEWARD" parked-review 2>&1) \
+    || fail "parked-review: a quiet pass failed: $out"
+  [ -z "$out" ] || fail "parked-review: asked again within 14 days: $out"
+  out=$(FM_HOME="$home" FM_FLEET_STEWARD_NOW=$((now + 14 * day)) "$STEWARD" parked-review 2>&1) \
+    || fail "parked-review: the next review failed: $out"
+  assert_contains "$out" "young-c: parked 17 days" "parked-review: the next review missed an item that aged in"
+  for id in old-a old-b young-c; do
+    [ -f "$home/data/$id/park/receipt" ] || fail "parked-review: parked work $id was dropped"
+    [ "$(tasks-axi show "$id" --file "$backlog" | sed -n 's/^  state: *//p')" = queued ] \
+      || fail "parked-review: parked item $id was closed"
+  done
+  pass "parked-review raises one held captain question per 14 days and never drops parked work"
+}
+
+test_parked_review_is_silent_without_old_parked_work() {
+  local home out
+  home=$(make_home parked-review-quiet)
+  make_backlog_home "$home"
+  tasks-axi add fresh-a "work" --kind ship --file "$home/data/backlog.md" >/dev/null
+  write_park_receipt "$home" fresh-a 1790000000
+  out=$(FM_HOME="$home" FM_FLEET_STEWARD_NOW=1790086400 "$STEWARD" parked-review 2>&1) \
+    || fail "parked-review-quiet: failed: $out"
+  [ -z "$out" ] || fail "parked-review-quiet: asked with nothing old: $out"
+  assert_absent "$home/state/.fleet-steward-parked-review" "parked-review-quiet: recorded an ask that never happened"
+  pass "parked-review stays silent and records nothing when no parked work is old enough"
+}
+
 test_refresh_filters_verified_nonwork_and_ranks_survivors
 test_refresh_failure_preserves_last_known_good_queue
 test_refresh_missing_tool_writes_visible_failure_record
@@ -410,3 +529,6 @@ test_check_resets_for_no_ready_work_and_suppresses_uncertainty
 test_arm_registers_home_check_and_installs_thirty_minute_timer
 test_arm_rolls_back_when_timer_enable_fails
 test_exempt_records_exact_refusal_without_losing_siblings
+test_park_preserved_parks_exactly_the_preserved_ships
+test_parked_review_asks_once_per_fourteen_days
+test_parked_review_is_silent_without_old_parked_work

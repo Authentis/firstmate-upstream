@@ -1440,6 +1440,8 @@ test_resume_brief_checks_out_the_parked_branch() {
   assert_grep "prints anything but \`$head\`" "$brief" "resume: the brief does not assert the saved head"
   assert_grep "git apply --binary '$park/uncommitted.patch'" "$brief" "resume: the brief does not restore the saved patch"
   assert_no_grep "tar -xf" "$brief" "resume: the brief restores an untracked archive the park never saved"
+  assert_grep "is never resumed: validate again from scratch on your new head" "$brief" \
+    "resume: the brief does not require a fresh validation of the resumed head"
 
   out=$(FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "brief-resume-p2" some-proj --mode local-only --resume 2>&1); rc=$?
   [ "$rc" -ne 0 ] || fail "resume: a brief with no park receipt was scaffolded"

@@ -751,7 +751,7 @@ Each host prints one line per tool (`done`, `skipped`, `failed`, `manual`, or `u
 `config/fleet-steward.json` is an optional local, gitignored configuration for one home's verified ready queue and persistent low-capacity wake.
 It is firstmate-maintained, human-editable, and not inherited by secondmate homes because every home owns its capacity source and project checkout.
 This section is the single owner of the canonical schema.
-[`bin/fm-fleet-steward.sh`](../bin/fm-fleet-steward.sh) owns refresh, check, registration, timer, and exemption mechanics.
+[`bin/fm-fleet-steward.sh`](../bin/fm-fleet-steward.sh) owns refresh, check, registration, timer, and exemption mechanics, plus the config-independent park trigger and 14-day parked-work review.
 
 ```json
 {

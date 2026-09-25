@@ -201,7 +201,9 @@
 # verifies each piece before any destructive step. Git-ignored files are cache,
 # not work: they are listed with their total size, never saved. A prior park
 # directory is kept beside the new one. Cleanup then runs the ordinary steps -
-# parked-run abort, process reap, endpoint close, slot return, claim release -
+# run abort (for park, the task's own run is stopped even mid-step, since a
+# resumed worker always validates afresh), process reap, endpoint close, slot
+# return, claim release -
 # but keeps the branch ref, retires no safety refs, pushes nothing, and returns
 # the backlog item to Queued (never closes it, and keeps any hold) with one park
 # note naming the branch, the saved commit, and the park directory; the brief
@@ -2144,8 +2146,11 @@ task_status_is_own_parked_run() {  # <worktree> <axi-status-output>
   [ -z "$outcome" ] || return 1
   status=$(fm_nm_strip_quotes "$(fm_nm_field "$out" status)")
   [ -n "$status" ] || return 1
+  # Park stops the task's own run even mid-step: nobody will answer it, and a
+  # resumed worker always validates its new head afresh.
   case "$status" in
-    completed|failed|cancelled|passed|checks-passed|running|fixing|ci) return 1 ;;
+    completed|failed|cancelled|passed|checks-passed) return 1 ;;
+    running|fixing|ci) [ "$PARK" = 1 ] || return 1 ;;
   esac
   if ! fm_nm_head_matches_worktree "$wt" "$run_head"; then
     # The strict object-local rule rejected this run head. That rejection is
@@ -2164,6 +2169,10 @@ task_status_is_own_parked_run() {  # <worktree> <axi-status-output>
     [ -z "$(fm_nm_resolve_commit "$wt" "$run_head")" ] || return 1
     ledger=$(fm_nm_run "$wt" "$NM_TEARDOWN_TIMEOUT" runs --limit "$NM_TEARDOWN_RUNS_LIMIT")
     [ "$(fm_nm_runs_status_for_worktree "$wt" "$branch" "$ledger" "$run_head")" = running ] || return 1
+  fi
+  if [ "$PARK" = 1 ]; then
+    TASK_RUN_ID=$run_id
+    return 0
   fi
   awaiting=$(printf '%s\n' "$out" | grep -E '^[[:space:]]*awaiting_agent:' | head -1 || true)
   has_gate=$(printf '%s\n' "$out" | grep -Eq '^[[:space:]]*gate:[[:space:]]*' && echo 1 || echo 0)
@@ -2215,7 +2224,11 @@ conclude_task_no_mistakes_run() {  # <worktree>
   command -v no-mistakes >/dev/null 2>&1 || return 0
   task_run_is_own_parked_run "$wt" || return 0
   run_id=$TASK_RUN_ID
-  echo "teardown: no-mistakes run for $ID is parked at a gate; aborting before the worker is removed" >&2
+  if [ "$PARK" = 1 ]; then
+    echo "teardown: stopping no-mistakes run $run_id for $ID before parking it; a resumed worker validates its new head afresh" >&2
+  else
+    echo "teardown: no-mistakes run for $ID is parked at a gate; aborting before the worker is removed" >&2
+  fi
   # Accepted best-effort residual: abort supports run-id targeting but no atomic
   # live-state condition; fully closing the resume race needs upstream compare-and-cancel.
   fm_nm_run_checked "$wt" "$NM_TEARDOWN_TIMEOUT" axi abort --run "$run_id" >/dev/null 2>&1 || true

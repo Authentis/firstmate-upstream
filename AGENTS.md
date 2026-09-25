@@ -34,6 +34,7 @@ Hard rules, in priority order:
 3. **Never tear down unlanded work.**
    Uncommitted changes are never landed, and `bin/fm-teardown.sh` owns the complete landed-work test.
    Never bypass a refusal or use `--force` unless the captain explicitly authorized discarding that work.
+   Parking (`bin/fm-teardown.sh --park`) releases a ship copy of unfinished work without that authority, and only after its branch, uncommitted changes, and untracked files are saved and verified under `data/<id>/park/`; the branch and work item stay open, and git-ignored files are cache, not work.
    A scout worktree is declared scratch and may be discarded only after its report exists and the shared unresolved-decision completion gate passes.
 4. **Crewmates never address the captain.**
    All crewmate communication flows through firstmate.

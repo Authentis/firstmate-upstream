@@ -6,6 +6,8 @@
 #   fm-fleet-steward.sh refresh
 #   fm-fleet-steward.sh check
 #   fm-fleet-steward.sh exempt <task-id> --state <state> --detail-file <path>
+#   fm-fleet-steward.sh park-preserved
+#   fm-fleet-steward.sh parked-review
 #   fm-fleet-steward.sh arm
 #   fm-fleet-steward.sh disarm
 #   fm-fleet-steward.sh --help
@@ -30,6 +32,25 @@
 # with a child-state hold identity, because fm-fleet-snapshot.sh matches an
 # exemption only against that exact observation; the refusal text is kept in
 # the reason and refusal fields.
+#
+# `park-preserved` is the automatic park trigger: it reads a fresh
+# fm-fleet-snapshot.sh --json and runs `fm-teardown.sh <id> --park` for every
+# ship task classified parked_preserved (worker exited, hold declared), one line
+# per task: `parked: <id>`, `landed: <id>` when park handed landed work to the
+# ordinary cleanup, or `park refused: <id>: <reason>`. A refusal leaves that task
+# exactly as it was and does not stop the others; the exit is 1 when any task
+# was refused or the snapshot could not be read. fm-teardown.sh's header owns
+# what park saves and refuses.
+#
+# `parked-review` raises the one batched captain question about parked work
+# nobody resumed. Parked work is never dropped automatically. A parked item is a
+# data/<id>/park/receipt whose parked_at is at least 14 days old
+# (FM_FLEET_STEWARD_PARKED_AGE_DAYS), whose task has no live record, and whose
+# backlog row is still open. At most once per 14 days (the durable last-asked
+# epoch in state/.fleet-steward-parked-review) and only when such items exist,
+# it files one captain-held backlog item, parked-review-<YYYYMMDD>, listing
+# every one of them through fm-captain-hold.sh, prints its id and the list, and
+# only then records the ask. Otherwise it prints nothing and changes nothing.
 #
 # `arm` installs and registers state/fleet-steward.check.sh in this exact home,
 # writes the user units next-up-refresh.service and next-up-refresh.timer, and
@@ -63,6 +84,10 @@ REGISTER_BIN="$SCRIPT_DIR/fm-check-register.sh"
 UNREGISTER_BIN="$SCRIPT_DIR/fm-check-unregister.sh"
 SYSTEMD_USER_DIR="${FM_SYSTEMD_USER_DIR_OVERRIDE:-${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user}"
 SYSTEMCTL="${FM_SYSTEMCTL:-systemctl}"
+SNAPSHOT_BIN="${FM_FLEET_STEWARD_SNAPSHOT_BIN:-$SCRIPT_DIR/fm-fleet-snapshot.sh}"
+TEARDOWN_BIN="${FM_FLEET_STEWARD_TEARDOWN_BIN:-$SCRIPT_DIR/fm-teardown.sh}"
+PARKED_REVIEW_RECORD="$STATE/.fleet-steward-parked-review"
+PARKED_AGE_DAYS="${FM_FLEET_STEWARD_PARKED_AGE_DAYS:-14}"
 GRACE_SECONDS="${FM_FLEET_STEWARD_GRACE_SECONDS:-900}"
 PRODUCTIVE_MIN="${FM_FLEET_STEWARD_PRODUCTIVE_MIN:-6}"
 CAPACITY_MAX_AGE="${FM_FLEET_STEWARD_CAPACITY_MAX_AGE:-1200}"
@@ -456,6 +481,95 @@ action_exempt() {
   printf 'exempted: %s bound to reconciled state %s after guarded teardown refusal\n' "$id" "$observed_state"
 }
 
+action_park_preserved() {
+  local snapshot ids id out rc=0
+  command -v jq >/dev/null 2>&1 || { fail "jq is required"; return 1; }
+  snapshot=$(FM_HOME="$FM_HOME" "$SNAPSHOT_BIN" --json 2>/dev/null) \
+    || { fail "could not read a fresh fleet snapshot"; return 1; }
+  ids=$(printf '%s\n' "$snapshot" | jq -r '
+      .tasks[]? | select(.capacity.class == "parked_preserved" and ((.kind // "ship") == "ship")) | .id
+    ' 2>/dev/null) || { fail "the fleet snapshot is unreadable"; return 1; }
+  for id in $ids; do
+    case "$id" in ''|*[!A-Za-z0-9._-]*|[!A-Za-z0-9]*) continue ;; esac
+    if out=$(FM_HOME="$FM_HOME" "$TEARDOWN_BIN" "$id" --park 2>&1); then
+      case "$out" in
+        *"park $id complete"*) printf 'parked: %s\n' "$id" ;;
+        *) printf 'landed: %s\n' "$id" ;;
+      esac
+    else
+      rc=1
+      printf 'park refused: %s: %s\n' "$id" \
+        "$(printf '%s\n' "$out" | grep -m 1 -E 'REFUSED|error' || printf '%s\n' "$out" | tail -n 1)"
+    fi
+  done
+  return "$rc"
+}
+
+# Parked items older than the review age: "<id>\t<parked_at>\t<branch>\t<head>".
+parked_review_items() {
+  local now=$1 data receipt id parked_at branch head row
+  data="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
+  for receipt in "$data"/*/park/receipt; do
+    [ -f "$receipt" ] && [ ! -L "$receipt" ] || continue
+    id=${receipt%/park/receipt}
+    id=${id##*/}
+    case "$id" in ''|*[!A-Za-z0-9._-]*|[!A-Za-z0-9]*) continue ;; esac
+    [ ! -e "$STATE/$id.meta" ] || continue
+    parked_at=$(sed -n 's/^parked_at=//p' "$receipt" | head -n 1)
+    case "$parked_at" in ''|*[!0-9]*) continue ;; esac
+    [ $((now - parked_at)) -ge $((PARKED_AGE_DAYS * 86400)) ] || continue
+    row=$(FM_HOME="$FM_HOME" "$SCRIPT_DIR/fm-tasks-axi.sh" show "$id" 2>/dev/null | sed -n 's/^  state: *//p' | head -n 1)
+    case "$row" in ''|done*) continue ;; esac
+    branch=$(sed -n 's/^branch=//p' "$receipt" | head -n 1)
+    head=$(sed -n 's/^head=//p' "$receipt" | head -n 1)
+    printf '%s\t%s\t%s\t%s\n' "$id" "$parked_at" "$branch" "$head"
+  done
+}
+
+action_parked_review() {
+  local now last items id parked_at branch head body review days
+  require_uint FM_FLEET_STEWARD_PARKED_AGE_DAYS "$PARKED_AGE_DAYS" || return 1
+  [ -d "$STATE" ] && [ ! -L "$STATE" ] || { fail "state directory is unavailable: $STATE"; return 1; }
+  now=$(record_epoch_now)
+  if [ -e "$PARKED_REVIEW_RECORD" ] || [ -L "$PARKED_REVIEW_RECORD" ]; then
+    [ -f "$PARKED_REVIEW_RECORD" ] && [ ! -L "$PARKED_REVIEW_RECORD" ] \
+      || { fail "the parked-review record is unsafe"; return 1; }
+    last=$(head -n 1 "$PARKED_REVIEW_RECORD")
+    case "$last" in ''|*[!0-9]*) fail "the parked-review record is unreadable"; return 1 ;; esac
+    [ $((now - last)) -ge $((PARKED_AGE_DAYS * 86400)) ] || return 0
+  fi
+  items=$(parked_review_items "$now")
+  [ -n "$items" ] || return 0
+  review="parked-review-$(date -u -r "$now" +%Y%m%d 2>/dev/null || date -u -d "@$now" +%Y%m%d)"
+  body=$(umask 077; mktemp "$STATE/.fleet-steward-parked-review-body.XXXXXX") || return 1
+  {
+    printf '%s\n' "Parked work nobody has resumed for at least $PARKED_AGE_DAYS days. Nothing is dropped without the captain's word; for each item, resume it, keep it parked, or drop it."
+    printf '\n'
+    while IFS="$(printf '\t')" read -r id parked_at branch head; do
+      days=$(( (now - parked_at) / 86400 ))
+      printf -- '- %s: parked %s days, branch %s at %s, saved in data/%s/park/\n' "$id" "$days" "$branch" "$head" "$id"
+    done <<EOF
+$items
+EOF
+  } > "$body"
+  if ! FM_HOME="$FM_HOME" "$SCRIPT_DIR/fm-tasks-axi.sh" show "$review" >/dev/null 2>&1; then
+    FM_HOME="$FM_HOME" "$SCRIPT_DIR/fm-tasks-axi.sh" add "$review" "Parked work older than $PARKED_AGE_DAYS days" \
+      --kind captain --body-file "$body" >/dev/null 2>&1 \
+      || { rm -f -- "$body"; fail "could not file the parked-work review $review"; return 1; }
+  fi
+  if ! FM_HOME="$FM_HOME" "$SCRIPT_DIR/fm-captain-hold.sh" hold "$review" \
+      --reason "Resume, keep parked, or drop each parked item listed" >/dev/null 2>&1; then
+    rm -f -- "$body"
+    fail "could not hold the parked-work review $review for the captain"
+    return 1
+  fi
+  printf 'parked-review: %s\n' "$review"
+  cat "$body"
+  rm -f -- "$body"
+  write_atomic "$PARKED_REVIEW_RECORD" 0600 "$now" \
+    || { fail "the review $review is filed but its last-asked record could not be written"; return 1; }
+}
+
 shim_content() {
   printf '%s\n' \
     '#!/usr/bin/env bash' \
@@ -554,6 +668,8 @@ case "$command" in
   refresh) [ "$#" -eq 1 ] || { usage >&2; exit 2; }; action_refresh ;;
   check) [ "$#" -eq 1 ] || { usage >&2; exit 2; }; action_check ;;
   exempt) action_exempt "${@:2}" ;;
+  park-preserved) [ "$#" -eq 1 ] || { usage >&2; exit 2; }; action_park_preserved ;;
+  parked-review) [ "$#" -eq 1 ] || { usage >&2; exit 2; }; action_parked_review ;;
   arm) [ "$#" -eq 1 ] || { usage >&2; exit 2; }; action_arm ;;
   disarm) [ "$#" -eq 1 ] || { usage >&2; exit 2; }; action_disarm ;;
   --help|-h|help) usage ;;

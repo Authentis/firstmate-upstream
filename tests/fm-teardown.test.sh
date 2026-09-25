@@ -4454,6 +4454,26 @@ test_park_refuses_a_copy_whose_head_left_its_branch() {
   pass "park refuses a copy whose HEAD holds commits its recorded branch does not"
 }
 
+test_park_stops_the_tasks_own_running_validation_run() {
+  local case_dir rc head
+  case_dir=$(make_case park-running-run)
+  write_meta "$case_dir" no-mistakes ship
+  seed_backlog_in_flight "$case_dir"
+  wt_commit_file "$case_dir" feature.txt unfinished "unfinished work"
+  head=$(git -C "$case_dir/wt" rev-parse HEAD)
+
+  rc=0
+  FM_FAKE_AXI_STATUS="$(running_axi_status_toon fm/task-x1 "$head" 01PARKRUN)" \
+  FM_FAKE_NM_ABORT_LOG="$case_dir/nm-abort.log" \
+    run_teardown "$case_dir" --park > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+  expect_code 0 "$rc" "park-running-run: park failed: $(cat "$case_dir/stderr")"
+  assert_grep "abort --run 01PARKRUN" "$case_dir/nm-abort.log" \
+    "park-running-run: park left the task's own running validation run going"
+  [ "$(park_receipt_value "$case_dir" validation_run)" = 01PARKRUN ] \
+    || fail "park-running-run: the receipt does not name the stopped run"
+  pass "park stops the task's own validation run even mid-step, and records it"
+}
+
 test_local_only_fork_remote_allows
 test_teardown_closes_the_backlog_item_itself
 test_teardown_manual_backend_leaves_the_backlog_to_the_operator
@@ -4564,3 +4584,4 @@ test_park_saves_dirty_work_restorably_and_keeps_the_branch
 test_park_of_landed_work_runs_the_ordinary_cleanup
 test_park_of_a_vanished_copy_saves_from_the_branch_and_drops_its_claim
 test_park_refuses_a_copy_whose_head_left_its_branch
+test_park_stops_the_tasks_own_running_validation_run

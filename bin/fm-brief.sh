@@ -63,7 +63,9 @@
 # released: instead of creating the branch, Setup checks out the kept branch (or
 # fetches it from the saved bundle when the ref is gone), asserts HEAD is the
 # exact saved commit, then restores the saved uncommitted patch and untracked
-# files. It reads data/<task-id>/park/receipt, which park writes, and refuses
+# files, and tells the worker that any validation run from before the park was
+# stopped and is never resumed, so its new head is validated afresh.
+# It reads data/<task-id>/park/receipt, which park writes, and refuses
 # before writing anything when that receipt is missing or unreadable, or names a
 # branch other than the one --branch-prefix and the task id form. Ship only.
 # --forge names the project's forge, defaults to none, and is orthogonal to --mode
@@ -680,6 +682,7 @@ if [ "$RESUME" -eq 1 ]; then
   [ "$RESUME_TAR" = none ] || SETUP1="$SETUP1
    - Restore the saved untracked files: \`tar -xf $(shell_quote "$PARK_DIR/$RESUME_TAR")\`."
   SETUP1="$SETUP1
+   - Any validation run from before the park was stopped when it was parked and is never resumed: validate again from scratch on your new head, exactly as the Definition of done requires.
    - Then carry on from where the work stopped; \`status.log\` and \`brief.md\` in that directory show where that was."
 fi
 RULE1=$(fm_ship_rule_one "$MODE" "$ID" "$BRANCH" "$FORGE") || exit 1
