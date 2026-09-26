@@ -398,7 +398,7 @@ test_relaunch_launches_claude_without_the_child_session_marker() {
   add_ship_task "$dir" rl45 claude
   out=$(run_control "$dir" rl45 relaunch --note "keeping transcripts"); rc=$?
   expect_code 0 "$rc" "the relaunch should succeed"$'\n'"$out"
-  launch=$(grep 'encode launch-brief' "$dir/fake/literal" | tail -1)
+  launch=$(grep 'CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false' "$dir/fake/literal" | tail -1)
   [ -n "$launch" ] || fail "the replacement launch line should have been recorded"
   mkdir -p "$dir/claudebin"
   cat > "$dir/claudebin/claude" <<'SH'
