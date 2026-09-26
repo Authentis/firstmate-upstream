@@ -54,6 +54,10 @@ jobs:
       # fails locally before merge.
       # Dedicated runners take both bounded workers; local lint defaults to serial.
       - name: Lint canonical partition
+        env:
+          # Fail closed rather than lint uncapped when a configured per-root
+          # bound (wall deadline or memory rlimit) cannot be enforced here.
+          FM_LINT_REQUIRE_BOUNDS: '1'
         run: |
           set -eu
           mkdir -p "$RUNNER_TEMP/fm-lint"
@@ -64,7 +68,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: fm-lint-telemetry-${{ matrix.partition }}
-          path: ${{ runner.temp }}/fm-lint/partition-${{ matrix.partition }}.tsv
+          path: |
+            ${{ runner.temp }}/fm-lint/partition-${{ matrix.partition }}.tsv
+            ${{ runner.temp }}/fm-lint/partition-${{ matrix.partition }}.roots.tsv
           if-no-files-found: warn
 
   # Deterministic proof that portable parallel shards + portable serial + Herdr

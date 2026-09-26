@@ -30,6 +30,10 @@
 #   "<tool> update not in effect"  a newer copy is installed on this host, but
 #                                  PATH still resolves an older one.
 #
+# A tool that announces its own update is only reported as "update available"
+# when the version it announces is newer than the newest installed copy found;
+# a version already installed is reported only as "update not in effect".
+#
 # The second condition is the reason this script exists. A tool that
 # self-installs into ~/.local/bin while a version manager keeps its own older
 # copy earlier on PATH looks fully up to date to anything that asks only "is a
@@ -251,6 +255,12 @@ parse_version() {
   printf '%s' "$1" | grep -oE '[0-9]+(\.[0-9]+)+' | head -n 1
 }
 
+# Last dotted number in the text: an announcement phrase like "v1.46.0 ->
+# v1.47.0" names the current version first and the announced version last.
+parse_announced_version() {
+  printf '%s' "$1" | grep -oE '[0-9]+(\.[0-9]+)+' | tail -n 1
+}
+
 # version_newer <a> <b>: true when version a is numerically newer than b.
 version_newer() {
   local a=$1 b=$2 i left right
@@ -456,7 +466,7 @@ github_release_findings() {
 command_findings() {
   local name=$1 command_name=$2 args_joined=$3 announce=$4 announce_args=$5 npm_package=$6
   local github_release=$7 pin=$8
-  local hit out version matched announce_out status npm_bin published
+  local hit out version matched announce_out status npm_bin published matched_line announced_version
   local resolved_path='' resolved_version='' resolved_out=''
   local best_path='' best_version='' unreadable='' hits=''
 
@@ -531,7 +541,14 @@ EOF
       if [ "$status" -gt 1 ]; then
         emit "$name check failed: announce_pattern is not a usable extended regular expression"
       elif [ -n "$matched" ]; then
-        emit "$name update available: $(printf '%s\n' "$matched" | head -n 1)$(pin_mark "$pin")"
+        matched_line=$(printf '%s\n' "$matched" | head -n 1)
+        announced_version=$(parse_announced_version "$matched_line")
+        # An announcement naming no readable version is reported as today; one
+        # naming a version already installed is not an available update.
+        if [ -z "$announced_version" ] || [ -z "$best_version" ] \
+          || version_newer "$announced_version" "$best_version"; then
+          emit "$name update available: $matched_line$(pin_mark "$pin")"
+        fi
       fi
     fi
   fi

@@ -613,8 +613,8 @@ fi
 assert_contains "$(cat "$MULTI_ROOT/firstmate-arm.err")" "owned by task worker-1" \
   "second armer refusal did not name the worker owner"
 list_out=$(FM_HOME="$HMULTI" "$ROOT/bin/fm-procevent.sh" list)
-assert_contains "$list_out" "task:worker-1/dead" \
-  "the source list did not expose the worker-owned board state"
+assert_contains "$list_out" "task:worker-1/listening" \
+  "arm did not leave the worker-owned board with a live listener"
 PATH="$MULTI_BIN:$PATH" LAVISH_AXI_HOST=recovery.example LAVISH_AXI_PORT=34387 FM_HOME="$HMULTI" \
   pe "$HMULTI" start "$multi_id" > "$MULTI_ROOT/run1" 2>&1 &
 MULTI_RUN=$!
@@ -758,8 +758,11 @@ pass "worker-owned Lavish rounds deliver to the worker, acknowledge on re-arm, a
 # the same sequence and still routes to the owning worker.
 HORPHAN="$TMP_ROOT/horphan"; new_home "$HORPHAN"
 ORPHAN_BIN=$(fm_fakebin "$TMP_ROOT/lavish-orphan-stub")
+ORPHAN_TRIGGER="$TMP_ROOT/lavish-orphan-hold"
+export ORPHAN_TRIGGER
 cat > "$ORPHAN_BIN/lavish-axi" <<'SH'
 #!/usr/bin/env bash
+while [ ! -e "$ORPHAN_TRIGGER" ]; do sleep 0.02; done
 printf 'session:\n  status: feedback\nprompts[1]{uid,prompt,selector,tag,text}:\n  "","after the crash","","message",""\n'
 SH
 chmod +x "$ORPHAN_BIN/lavish-axi"
@@ -775,7 +778,12 @@ PATH="$ORPHAN_BIN:$PATH" FM_HOME="$HORPHAN" \
 chmod 0700 "$HORPHAN/state/procevent-inbox"
 printf 'worker-4\n' > "$HORPHAN/state/procevent-inbox/$orphan_id.1.owner-task"
 chmod 0600 "$HORPHAN/state/procevent-inbox/$orphan_id.1.owner-task"
+touch "$ORPHAN_TRIGGER"
 PATH="$ORPHAN_BIN:$PATH" pe "$HORPHAN" start "$orphan_id" >/dev/null 2>&1 || true
+wait_for "$HORPHAN/state/procevent-inbox/$orphan_id.1.result" \
+  || fail "an owner sidecar with no committed result wedged the next capture of its source"
+wait_for "$HORPHAN/state/worker-4.inbox/001.msg" \
+  || fail "the recovered capture did not reach its owning worker's steering inbox"
 [ -f "$HORPHAN/state/procevent-inbox/$orphan_id.1.result" ] \
   || fail "an owner sidecar with no committed result wedged the next capture of its source"
 [ -f "$HORPHAN/state/worker-4.inbox/001.msg" ] \
@@ -802,7 +810,8 @@ fm_test_track_procevent_home "$HADOPT"
 new_task_endpoint "$HADOPT" worker-5
 PATH="$ADOPT_BIN:$PATH" FM_HOME="$HADOPT" \
   "$ROOT/bin/fm-procevent-lavish.sh" arm "$ADOPT_ART" >/dev/null
-PATH="$ADOPT_BIN:$PATH" pe "$HADOPT" start "$adopt_id" >/dev/null 2>&1 || true
+wait_capture "$HADOPT" "$adopt_id" \
+  || fail "the firstmate fixture capture never landed"
 [ -f "$HADOPT/state/procevent-inbox/$adopt_id.1.result" ] \
   || fail "the firstmate fixture capture never landed"
 [ ! -f "$HADOPT/state/procevent-inbox/$adopt_id.1.handled" ] \
@@ -862,7 +871,8 @@ fm_test_track_procevent_home "$HREDELIVER"
 new_task_endpoint "$HREDELIVER" worker-6
 PATH="$ADOPT_BIN:$PATH" FM_HOME="$HREDELIVER" \
   "$ROOT/bin/fm-procevent-lavish.sh" arm "$REDELIVER_ART" --for worker-6 >/dev/null
-PATH="$ADOPT_BIN:$PATH" pe "$HREDELIVER" start "$redeliver_id" >/dev/null 2>&1 || true
+wait_capture "$HREDELIVER" "$redeliver_id" \
+  || fail "the first worker-owned round was never captured"
 [ -f "$HREDELIVER/state/worker-6.inbox/001.msg" ] \
   || fail "the first worker-owned round never reached the worker inbox"
 mv "$HREDELIVER/state/worker-6.inbox/001.msg" \
@@ -893,7 +903,8 @@ fm_test_track_procevent_home "$HCONC"
 new_task_endpoint "$HCONC" worker-7
 PATH="$CONC_BIN:$PATH" FM_HOME="$HCONC" \
   "$ROOT/bin/fm-procevent-lavish.sh" arm "$CONC_ART" --for worker-7 >/dev/null
-PATH="$CONC_BIN:$PATH" pe "$HCONC" start "$conc_id" >/dev/null 2>&1 || true
+wait_capture "$HCONC" "$conc_id" \
+  || fail "the terminal worker-owned round never landed"
 [ -f "$HCONC/state/procevent-inbox/$conc_id.1.result" ] \
   || fail "the terminal worker-owned round never landed"
 [ -e "$HCONC/state/procevent/$conc_id.source" ] \
@@ -947,7 +958,8 @@ fm_test_track_procevent_home "$HINTR"
 new_task_endpoint "$HINTR" worker-12
 PATH="$INTR_BIN:$PATH" FM_HOME="$HINTR" \
   "$ROOT/bin/fm-procevent-lavish.sh" arm "$INTR_ART" --for worker-12 >/dev/null
-PATH="$INTR_BIN:$PATH" pe "$HINTR" start "$intr_id" >/dev/null 2>&1 || true
+wait_capture "$HINTR" "$intr_id" \
+  || fail "the terminal worker-owned round was never captured"
 [ "$(cat "$INTR_ROOT/count" 2>/dev/null || echo 0)" = 1 ] \
   || fail "the terminal worker-owned round was not polled exactly once"
 rm -f "$HINTR/state/procevent/$intr_id.source"
@@ -993,9 +1005,15 @@ printf 'reply from generation two\n' > "$ROLL_ROOT/reply2"
 PATH="$ROLL_BIN:$PATH" FM_HOME="$HROLL" \
   "$ROOT/bin/fm-procevent-lavish.sh" arm "$ROLL_ART" --for worker-8 \
   --agent-reply-file "$ROLL_ROOT/reply1" >/dev/null
-PATH="$ROLL_BIN:$PATH" pe "$HROLL" start "$roll_id" >/dev/null 2>&1 || true
+wait_for "$ROLL_ROOT/replies" \
+  || fail "the first generation's reply never reached the board"
 [ "$(grep -c 'generation one' "$ROLL_ROOT/replies" 2>/dev/null || true)" = 1 ] \
   || fail "the first generation's reply never reached the board"
+# The reply is posted before the round is captured. Making the inbox read-only
+# before the runner commits and exits would fail that capture instead of the
+# re-arm's acknowledgement, leaving no round for the retried re-arm.
+wait_capture "$HROLL" "$roll_id" \
+  || fail "the first generation's round was never captured"
 cp "$HROLL/state/procevent/$roll_id.source" "$ROLL_ROOT/generation-one.source"
 chmod 0500 "$HROLL/state/procevent-inbox"
 rollback_status=0
@@ -1012,7 +1030,8 @@ cmp -s "$ROLL_ROOT/generation-one.source" "$HROLL/state/procevent/$roll_id.sourc
 PATH="$ROLL_BIN:$PATH" FM_HOME="$HROLL" \
   "$ROOT/bin/fm-procevent-lavish.sh" arm "$ROLL_ART" --for worker-8 \
   --agent-reply-file "$ROLL_ROOT/reply2" >/dev/null
-PATH="$ROLL_BIN:$PATH" pe "$HROLL" start "$roll_id" >/dev/null 2>&1 || true
+wait_for_lines "$ROLL_ROOT/replies" 2 \
+  || fail "the retried re-arm did not hand the board its generation's reply exactly once"
 [ "$(grep -c 'generation two' "$ROLL_ROOT/replies" 2>/dev/null || true)" = 1 ] \
   || fail "the retried re-arm did not hand the board its generation's reply exactly once"
 pass "a re-arm that cannot acknowledge its round leaves the running generation alone"
@@ -1029,6 +1048,7 @@ cat > "$REARM_BIN/lavish-axi" <<'SH'
 #!/usr/bin/env bash
 set -eu
 [ "${3-}" != --agent-reply ] || printf '%s\n' "$4" >> "$REARM_ROOT/replies"
+while [ ! -e "$REARM_ROOT/release" ]; do sleep 0.02; done
 printf 'session:\n  status: feedback\nprompts[1]{uid,prompt,selector,tag,text}:\n  "","one more round","","message",""\n'
 SH
 chmod +x "$REARM_BIN/lavish-axi"
@@ -1052,7 +1072,11 @@ if PATH="$REARM_BIN:$PATH" FM_HOME="$HREARM" \
 fi
 assert_contains "$(cat "$REARM_ROOT/idle-rearm.err")" "worker-11" \
   "the refused idle re-arm did not name the task that already holds the board"
+touch "$REARM_ROOT/release"
 PATH="$REARM_BIN:$PATH" pe "$HREARM" start "$rearm_id" >/dev/null 2>&1 || true
+wait_for "$REARM_ROOT/replies" || fail "the listener never posted the reply it was armed with"
+wait_for "$HREARM/state/procevent-inbox/$rearm_id.1.result" \
+  || fail "the first worker-owned round never landed"
 [ "$(grep -c 'first generation reply' "$REARM_ROOT/replies" 2>/dev/null || true)" = 1 ] \
   || fail "the refused idle re-arm cost the board the reply its listener was already carrying"
 [ -f "$HREARM/state/procevent-inbox/$rearm_id.1.result" ] \
@@ -1069,7 +1093,8 @@ PATH="$REARM_BIN:$PATH" FM_HOME="$HREARM" \
   --agent-reply-file "$REARM_ROOT/reply2" >/dev/null
 [ -f "$HREARM/state/procevent-inbox/$rearm_id.1.handled" ] \
   || fail "re-arming over an open round did not acknowledge that round"
-PATH="$REARM_BIN:$PATH" pe "$HREARM" start "$rearm_id" >/dev/null 2>&1 || true
+wait_for_lines "$REARM_ROOT/replies" 2 \
+  || fail "the acknowledging re-arm did not hand the board its own generation's reply"
 [ "$(grep -c 'second generation reply' "$REARM_ROOT/replies" 2>/dev/null || true)" = 1 ] \
   || fail "the acknowledging re-arm did not hand the board its own generation's reply"
 pass "a worker-owned board is armed once and re-armed only to acknowledge an open round"
@@ -1211,7 +1236,6 @@ HREPLY="$TMP_ROOT/hreply"; new_home "$HREPLY"
 REPLY_ART="$TMP_ROOT/reply-retry-board.html"
 printf '<h1>reply retry</h1>\n' > "$REPLY_ART"
 lavish_session "$REPLY_ART"
-reply_id=$("$ROOT/bin/fm-procevent-lavish.sh" source-id "$REPLY_ART")
 fm_test_track_procevent_home "$HREPLY"
 new_task_endpoint "$HREPLY" worker-9
 printf 'applied round one\n' > "$TMP_ROOT/reply-retry.txt"
@@ -1220,7 +1244,8 @@ LAVISH_COUNT="$TMP_ROOT/reply-retry-count"; LAVISH_SCRIPT="interrupt interrupt f
 PATH="$LAVISH_SCRIPTED_BIN:$PATH" FM_HOME="$HREPLY" \
   "$ROOT/bin/fm-procevent-lavish.sh" arm "$REPLY_ART" --for worker-9 \
   --agent-reply-file "$TMP_ROOT/reply-retry.txt" >/dev/null
-PATH="$LAVISH_SCRIPTED_BIN:$PATH" pe "$HREPLY" start "$reply_id" >/dev/null
+wait_for "$HREPLY/state/worker-9.inbox/001.msg" 200 \
+  || fail "the round that delivered after quiet retries did not reach the worker inbox"
 [ "$(cat "$LAVISH_COUNT")" = 3 ] \
   || fail "the reply-carrying listener was polled $(cat "$LAVISH_COUNT") times, not the two quiet retries plus the delivering poll"
 [ "$(grep -c 'applied round one' "$LAVISH_REPLY_LOG" 2>/dev/null || true)" = 1 ] \
@@ -1302,11 +1327,14 @@ fm_test_track_procevent_home "$HEXH"
 LAVISH_COUNT="$TMP_ROOT/exhaust-count"; LAVISH_SCRIPT="interrupt"
 PATH="$LAVISH_SCRIPTED_BIN:$PATH" FM_HOME="$HEXH" \
   "$ROOT/bin/fm-procevent-lavish.sh" arm "$EXH_ART" >/dev/null
-PATH="$LAVISH_SCRIPTED_BIN:$PATH" pe "$HEXH" start "$exh_id" >/dev/null
+wait_capture "$HEXH" "$exh_id" 200 \
+  || fail "exhaustion produced no captured result"
 [ "$(cat "$LAVISH_COUNT")" = 13 ] \
   || fail "the retry bound polled $(cat "$LAVISH_COUNT") times, not the first poll plus 12 bounded retries"
 [ "$(count_results "$HEXH" "$exh_id")" = 1 ] \
   || fail "exhaustion produced $(count_results "$HEXH" "$exh_id") captured results instead of one"
+wait_for "$HEXH/state/.wake-queue" \
+  || fail "the interruption that survives the bound produced no wake"
 assert_contains "$(wake_payloads "$HEXH")" "procevent lavish $exh_id 1" \
   "the interruption that survives the bound is announced normally"
 assert_grep 'poll response was interrupted' "$(first_result "$HEXH" "$exh_id")" \
@@ -1326,7 +1354,8 @@ fm_test_track_procevent_home "$HOTHER"
 LAVISH_COUNT="$TMP_ROOT/other-count"; LAVISH_SCRIPT="other-server-error"
 PATH="$LAVISH_SCRIPTED_BIN:$PATH" FM_HOME="$HOTHER" \
   "$ROOT/bin/fm-procevent-lavish.sh" arm "$OTHER_ART" >/dev/null
-PATH="$LAVISH_SCRIPTED_BIN:$PATH" pe "$HOTHER" start "$other_id" >/dev/null
+wait_for "$HOTHER/state/.wake-queue" \
+  || fail "an unrelated SERVER_ERROR is captured and announced immediately"
 [ "$(cat "$LAVISH_COUNT")" = 1 ] \
   || fail "an unrelated SERVER_ERROR was retried $(cat "$LAVISH_COUNT") times instead of surfacing at once"
 assert_contains "$(wake_payloads "$HOTHER")" "procevent lavish $other_id 1" \
@@ -1347,7 +1376,8 @@ fm_test_track_procevent_home "$HNEAR"
 LAVISH_COUNT="$TMP_ROOT/near-count"; LAVISH_SCRIPT="near-interrupt feedback"
 PATH="$LAVISH_SCRIPTED_BIN:$PATH" FM_HOME="$HNEAR" FM_LAVISH_POLL_RETRY_DELAY=1 \
   "$ROOT/bin/fm-procevent-lavish.sh" arm "$NEAR_ART" >/dev/null
-PATH="$LAVISH_SCRIPTED_BIN:$PATH" FM_HOME="$HNEAR" pe "$HNEAR" start "$near_id" >/dev/null
+wait_for "$HNEAR/state/.wake-queue" \
+  || fail "a whitespace variant of the interruption is captured and announced immediately"
 [ "$(cat "$LAVISH_COUNT")" = 1 ] \
   || fail "a near-match interruption was retried instead of surfacing on its first poll"
 assert_contains "$(wake_payloads "$HNEAR")" "procevent lavish $near_id 1" \
@@ -1399,11 +1429,10 @@ lavish_session "$STREAM_ART"
 stream_id=$("$ROOT/bin/fm-procevent-lavish.sh" source-id "$STREAM_ART")
 fm_test_track_procevent_home "$HSTREAM"
 LAVISH_COUNT="$TMP_ROOT/stream-count"; LAVISH_SCRIPT="stream"
-PATH="$LAVISH_SCRIPTED_BIN:$PATH" FM_HOME="$HSTREAM" \
-  "$ROOT/bin/fm-procevent-lavish.sh" arm "$STREAM_ART" >/dev/null
-PATH="$LAVISH_SCRIPTED_BIN:$PATH" TMPDIR="$STREAM_TMPDIR" \
+PATH="$LAVISH_SCRIPTED_BIN:$PATH" FM_HOME="$HSTREAM" TMPDIR="$STREAM_TMPDIR" \
   LAVISH_STREAM_READY="$LAVISH_STREAM_READY" LAVISH_STREAM_RELEASE="$LAVISH_STREAM_RELEASE" \
-  FM_PROCEVENT_MAX_OUTPUT_BYTES=100 pe "$HSTREAM" reconcile >/dev/null
+  FM_PROCEVENT_MAX_OUTPUT_BYTES=100 \
+  "$ROOT/bin/fm-procevent-lavish.sh" arm "$STREAM_ART" >/dev/null
 wait_for "$LAVISH_STREAM_READY" || fail "streaming poll did not start"
 stream_staged=("$STREAM_TMPDIR"/fm-lavish-poll.*)
 [ -e "${stream_staged[0]}" ] || fail "streaming poll created no classifier staging file"
