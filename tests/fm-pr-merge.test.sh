@@ -241,7 +241,7 @@ case "${1:-} ${2:-}" in
         *"/rules/branches/"*|*"/check-runs"*) ;;
         *"/pulls?state=open"*) cat "$retire_dir/open.json"; exit 0 ;;
         *"/pulls/"*) cat "$retire_dir/pull.json"; exit 0 ;;
-        *"/branches/"*) [ -f "$retire_dir/branch.json" ] || exit 1; cat "$retire_dir/branch.json"; exit 0 ;;
+        *"/branches/fm/"*) [ -f "$retire_dir/branch.json" ] || exit 1; cat "$retire_dir/branch.json"; exit 0 ;;
       esac
     fi
     # The required-check reads: the branch itself, and its rules read without
