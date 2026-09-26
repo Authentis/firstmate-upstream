@@ -685,7 +685,9 @@ test_matrix_pi_dollar_status_footer_is_empty() {
   [ "$(fm_composer_classify_screen "$CAPS_STYLED" "$dollar")" = need-identity ] \
     || fail "a dollar-first Pi footer must still request the lazy identity probe"
   assert_screen "dollar-first status without identity capability" unknown "$CAPS_PLAIN" "$dollar"
-  assert_screen "working pi with dollar-first status defers" unknown \
+  # Herdr's native status tells working from blocked, so a working Pi's
+  # dollar-first footer reads empty there, like its idle one.
+  assert_screen "working pi with dollar-first status on native status" empty \
     "$CAPS_STYLED" "$dollar" '' "$pi_working"
   assert_screen "non-pi identity with dollar-first status defers" unknown \
     "$CAPS_STYLED" "$dollar" '' "$none"
