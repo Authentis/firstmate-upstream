@@ -240,7 +240,15 @@ fm_composer_normalize_trim_var() {  # <varname>
 #   - dark/muted TRUECOLOR foreground runs (SGR 38;2;r;g;b or the colon form
 #     38:2::r:g:b) whose perceived luminance (0.299R + 0.587G + 0.114B) is below
 #     FM_COMPOSER_GHOST_LUMA_MAX (default 128): how grok renders its placeholder
-#     and hint text. A reset (SGR 0), a default-foreground (SGR 39), any base
+#     and hint text. Only a MUTED dark colour is de-emphasis: a run whose
+#     chroma (max channel minus min channel) reaches FM_COMPOSER_GHOST_CHROMA_MIN
+#     (default 64) is a saturated accent and is kept. Claude in a truecolor
+#     terminal draws a recognized slash command such as `/exit` in
+#     38;2;87;105;247 (luminance ~115.8, chroma 160; verified, Claude Code
+#     under Herdr), so a luminance-only test stripped the typed command itself
+#     and every lifecycle exit's payload proof refused to press Enter. Every
+#     verified ghost colour is a near-grey (chroma under 30).
+#     A reset (SGR 0), a default-foreground (SGR 39), any base
 #     foreground colour (30-37 / 90-97), or a lighter 38;2 foreground ends the
 #     dark-foreground run. This assumes a DARK terminal theme, the firstmate
 #     fleet reality, where real typed input is bright and only de-emphasised UI
@@ -259,7 +267,8 @@ fm_composer_normalize_trim_var() {  # <varname>
 # LC_ALL=C makes awk walk bytes, so multibyte glyphs (e.g. ❯) and de-emphasised
 # runs alike pass through or drop intact without locale-dependent classes.
 fm_composer_strip_ghost() {
-  LC_ALL=C awk -v lumamax="${FM_COMPOSER_GHOST_LUMA_MAX:-128}" '
+  LC_ALL=C awk -v lumamax="${FM_COMPOSER_GHOST_LUMA_MAX:-128}" \
+    -v chromamin="${FM_COMPOSER_GHOST_CHROMA_MIN:-64}" '
     function sgr_code(v, b) {
       b = v
       sub(/:.*/, "", b)
@@ -276,20 +285,28 @@ fm_composer_strip_ghost() {
       if (code == "2") return p + 4
       return p + 1
     }
+    # rgb_is_muted_dark: 1 when a truecolor foreground is below lumamax AND
+    # its chroma is below chromamin, i.e. a dark near-grey; 0 otherwise.
+    function rgb_is_muted_dark(r, g, b,   hi, lo) {
+      if ((299*r + 587*g + 114*b) / 1000 >= lumamax) return 0
+      hi = r; if (g > hi) hi = g; if (b > hi) hi = b
+      lo = r; if (g < lo) lo = g; if (b < lo) lo = b
+      return (hi - lo < chromamin) ? 1 : 0
+    }
     # fg38_is_dark: 1 when the SGR 38 foreground starting at param p is a
-    # TRUECOLOR (38;2 / 38:2) whose luminance is below lumamax; 0 otherwise
-    # (a 38;5 palette colour, a bright truecolor, or a malformed run).
-    function fg38_is_dark(a, p, k, lumamax,   spec, nf, f, r, g, b) {
+    # TRUECOLOR (38;2 / 38:2) muted dark colour; 0 otherwise (a 38;5 palette
+    # colour, a bright or saturated truecolor, or a malformed run).
+    function fg38_is_dark(a, p, k,   spec, nf, f, r, g, b) {
       spec = a[p]
       if (index(spec, ":") > 0) {           # colon form: whole colour in a[p]
         nf = split(spec, f, ":")
         if (f[2] != "2" || nf < 5) return 0
         r = f[nf - 2] + 0; g = f[nf - 1] + 0; b = f[nf] + 0
-        return ((299*r + 587*g + 114*b) / 1000 < lumamax) ? 1 : 0
+        return rgb_is_muted_dark(r, g, b)
       }
       if (p + 1 > k || a[p + 1] != "2" || p + 4 > k) return 0
       r = a[p + 2] + 0; g = a[p + 3] + 0; b = a[p + 4] + 0
-      return ((299*r + 587*g + 114*b) / 1000 < lumamax) ? 1 : 0
+      return rgb_is_muted_dark(r, g, b)
     }
     {
       line = $0; out = ""; dim = 0; darkfg = 0; n = length(line); i = 1
@@ -310,7 +327,7 @@ fm_composer_strip_ghost() {
               for (p = 1; p <= k; p++) {
                 v = a[p]; code = sgr_code(v)
                 if (code == "38") {
-                  darkfg = fg38_is_dark(a, p, k, lumamax)
+                  darkfg = fg38_is_dark(a, p, k)
                   p = skip_color_payload(a, p, k)
                 } else if (code == "48" || code == "58") {
                   p = skip_color_payload(a, p, k)

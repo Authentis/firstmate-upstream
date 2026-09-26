@@ -1490,6 +1490,7 @@ Real captures verified these active distinctions:
 - Pi uses content between complete separator rows and requires exact native Pi identity.
 - Dim or faint suggestion text is ghost content, while normally styled text is pending input.
 - Grok dark truecolor placeholders are ghost content, while bright truecolor typed input remains pending.
+- Claude in a truecolor terminal draws a recognized typed slash command in the saturated accent `38;2;87;105;247`, dark (luminance about 116) but typed input rather than ghost content; verified 2026-09-26 on Claude Code 2.1.283 by capturing the raw terminal stream of Claude launched with Herdr's `TERM=xterm-256color`, `COLORTERM=truecolor`, `TERM_PROGRAM=ghostty` environment and typing `/exit`.
 - A bare shell prompt has no safe agent-composer container and is unknown.
 - Codex 0.154's idle braille starfield rows are composer furniture, with the dated Herdr evidence and refresh command in [Composer classification matrix](#composer-classification-matrix).
 

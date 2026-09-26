@@ -154,6 +154,22 @@ test_strip_ghost_drops_dark_truecolor_ghost() {
   pass "fm_tmux_strip_ghost drops a dark/muted truecolor foreground (grok placeholder)"
 }
 
+# Claude in a truecolor terminal draws a recognized slash command such as
+# `/exit` in 38;2;87;105;247 (luminance ~115.8, verified live under Herdr):
+# dark, but a saturated accent, not a muted ghost. It must survive stripping, or
+# the typed command reads as an empty composer. A near-grey at the same
+# luminance is still ghost text, so the test drives the two apart.
+test_strip_ghost_keeps_saturated_dark_accent() {
+  local out
+  out=$(printf '\xe2\x9d\xaf \033[38;2;87;105;247m/exit\033[39m\n' | fm_tmux_strip_ghost)
+  [ "$out" = "$(printf '\xe2\x9d\xaf /exit')" ] || fail "claude's accent-coloured /exit was stripped as ghost: '$out'"
+  out=$(printf '\xe2\x9d\xaf \033[38:2::87:105:247m/exit\033[39m\n' | fm_tmux_strip_ghost)
+  [ "$out" = "$(printf '\xe2\x9d\xaf /exit')" ] || fail "colon-form accent /exit was stripped as ghost: '$out'"
+  out=$(printf '\xe2\x9d\xaf \033[38;2;112;115;120mmuted grey\033[39m\n' | fm_tmux_strip_ghost)
+  [ "$out" = "$(printf '\xe2\x9d\xaf ')" ] || fail "a muted grey at the same luminance was not stripped: '$out'"
+  pass "fm_tmux_strip_ghost keeps a saturated dark accent (claude slash command) and still drops a muted grey"
+}
+
 # --- muse's composer sits closest to the ghost threshold ---------------------
 
 # These are muse 0.1.0-R708.1's real captured composer rows. Its prompt glyph
@@ -685,6 +701,7 @@ test_strip_ghost_drops_dim_keeps_normal
 test_strip_ghost_handles_combined_and_boundary_codes
 test_strip_ghost_keeps_colored_text_with_2_payloads
 test_strip_ghost_drops_dark_truecolor_ghost
+test_strip_ghost_keeps_saturated_dark_accent
 test_strip_ghost_keeps_muse_composer_colors
 test_dim_ghost_only_composer_is_not_pending
 test_dim_ghost_inside_bordered_composer_is_not_pending
