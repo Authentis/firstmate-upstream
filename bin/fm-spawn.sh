@@ -347,6 +347,9 @@
 #   Launch templates live in launch_template() below; placeholders replaced before launch:
 #     __BRIEF__    absolute path to data/<task-id>/brief.md
 #     __CLAUDEPERMFLAG__ the claude permission flag selected by config/claude-permission-mode
+#     __CLAUDESESSIONFLAG__ `--session-id <uuid> ` for a claude ship or scout launch,
+#                  also recorded as claude_session_ids= (bin/fm-claude-scratch-lib.sh);
+#                  empty for a secondmate or when no UUID source exists
 #     __PIBIN__    quoted concrete Pi-family executable path resolved from PATH
 #     __PITUIMODE__ optional --tui-mode regular when that executable advertises it
 #     __PIRESUME__ optional relaunch-only `--session <reference>` that keeps a
@@ -624,6 +627,8 @@ fm_backlog_directory_present "$STATE" "state directory" || {
 . "$SCRIPT_DIR/fm-control-lib.sh"
 # shellcheck source=/dev/null
 . "$SCRIPT_DIR/fm-gate-refuse-lib.sh"
+# shellcheck source=bin/fm-claude-scratch-lib.sh
+. "$SCRIPT_DIR/fm-claude-scratch-lib.sh"
 # shellcheck source=/dev/null
 . "$SCRIPT_DIR/fm-busy-lib.sh"
 # shellcheck source=/dev/null
@@ -2094,7 +2099,11 @@ launch_template() {
     # record-backed doorbell: the full envelope is published into the receiving
     # home's state/operational-inbox before launch and only a printable doorbell
     # naming it is passed. A record that cannot be published stops the spawn.
-    printf '%s' '__MODELFLAG____EFFORTFLAG____BRIEFDOORBELL__'
+    # A task worker's pinned session id (bin/fm-claude-scratch-lib.sh) lets
+    # cleanup remove exactly its scratch; a persistent secondmate keeps its own.
+    printf '%s' '__MODELFLAG____EFFORTFLAG__'
+    [ "$kind" = secondmate ] || printf '%s' '__CLAUDESESSIONFLAG__'
+    printf '%s' '__BRIEFDOORBELL__'
     ;;
   # --disable hooks (equivalent to -c features.hooks=false) turns codex's whole
   # lifecycle-hook layer off for CREWMATE and SCOUT launches only.
@@ -4562,6 +4571,28 @@ if ! (umask 077 && mkdir "$TASK_TMP") 2>/dev/null; then
 fi
 mkdir -p "$TASK_TMP/gotmp"
 
+# Claude task-worker session identity (bin/fm-claude-scratch-lib.sh owns the
+# format and the scratch layout). Only the claude ship/scout template carries
+# the flag, so a raw launch or a secondmate records nothing. Every launch of
+# this task, fresh spawn and each relaunch, appends its own id to
+# claude_session_ids= so a replaced worker's scratch is not orphaned. Without a
+# UUID source the launch proceeds unchanged; teardown then skips with a note.
+CLAUDE_SESSION_ID=
+CLAUDE_SESSION_IDS=
+if [ "$RELAUNCH" -eq 1 ]; then
+  CLAUDE_SESSION_IDS=$(fm_meta_get "$RELAUNCH_META" claude_session_ids)
+fi
+case "$LAUNCH" in
+*__CLAUDESESSIONFLAG__*)
+  if CLAUDE_SESSION_ID=$(fm_claude_session_id_new); then
+    CLAUDE_SESSION_IDS="${CLAUDE_SESSION_IDS:+$CLAUDE_SESSION_IDS }$CLAUDE_SESSION_ID"
+  else
+    CLAUDE_SESSION_ID=
+    echo "warning: no UUID source for a Claude session id; $ID's scratch will not be removed at cleanup" >&2
+  fi
+  ;;
+esac
+
 # Per-harness turn-end hook where enabled: a file that touches
 # state/<id>.turn-ended when the agent finishes a turn. Worktree-resident hooks
 # and token pointers stay out of git's view so they never block teardown's dirty
@@ -5039,7 +5070,7 @@ SPAWN_META_PATH=$SPAWN_META_TMP
 preserve_relaunch_meta() {
   awk -F= '
     BEGIN {
-      split("window endpoint_task_id worktree project harness kind mode yolo branch tasktmp model effort account account_provider busy_gen spawn_gen traceparent backend herdr_session herdr_workspace_id herdr_tab_id herdr_pane_id zellij_session zellij_tab_id zellij_pane_id orca_worktree_id terminal cmux_workspace_id cmux_surface_id home projects control_relaunch_tx", keys, " ")
+      split("window endpoint_task_id worktree project harness kind mode yolo branch tasktmp model effort account account_provider busy_gen spawn_gen claude_session_ids traceparent backend herdr_session herdr_workspace_id herdr_tab_id herdr_pane_id zellij_session zellij_tab_id zellij_pane_id orca_worktree_id terminal cmux_workspace_id cmux_surface_id home projects control_relaunch_tx", keys, " ")
       for (i in keys) owned[keys[i]] = 1
     }
     !($1 in owned)
@@ -5064,6 +5095,7 @@ preserve_relaunch_meta() {
   [ -z "$WORKER_ACCOUNT_PROVIDER" ] || echo "account_provider=$WORKER_ACCOUNT_PROVIDER"
   [ -z "${BUSY_GEN:-}" ] || echo "busy_gen=$BUSY_GEN"
   echo "spawn_gen=$SPAWN_GEN"
+  [ -z "$CLAUDE_SESSION_IDS" ] || echo "claude_session_ids=$CLAUDE_SESSION_IDS"
   # Default-off writes no traceparent= line.
   # backend= is written only for a non-default (non-tmux) backend, so the
   # default path's meta stays byte-identical (absent backend= means tmux;
@@ -5215,6 +5247,9 @@ if [ "$RELAUNCH" -eq 1 ]; then
 fi
 LAUNCH=${LAUNCH//__PIRESUME__/$RESUME_ARGS}
 LAUNCH=${LAUNCH//__CLAUDEPERMFLAG__/$CLAUDE_PERM_FLAG}
+CLAUDESESSIONFLAG=
+[ -z "$CLAUDE_SESSION_ID" ] || CLAUDESESSIONFLAG="--session-id $CLAUDE_SESSION_ID "
+LAUNCH=${LAUNCH//__CLAUDESESSIONFLAG__/$CLAUDESESSIONFLAG}
 if [ "$HARNESS" = rovo ]; then
   ROVOCONFIGOVERRIDE=$(rovo_config_override_flag "$EFFORT" "$DATA" "$STATE" "$ID") || {
     echo "error: could not resolve this task's home paths for rovo's allowedExternalPaths grant" >&2

@@ -4474,6 +4474,162 @@ test_park_stops_the_tasks_own_running_validation_run() {
   pass "park stops the task's own validation run even mid-step, and records it"
 }
 
+# --- Claude session scratch: remove exactly the recorded sessions -----------
+
+CLAUDE_SID_A=0a0a0a0a-1111-4222-8333-444444444444
+CLAUDE_SID_B=0b0b0b0b-1111-4222-8333-444444444444
+CLAUDE_SID_OTHER=0c0c0c0c-1111-4222-8333-444444444444
+
+# Print the Claude slug directory for this case's worktree under its scratch root.
+claude_scratch_slug_dir() {  # <case-dir>
+  local real
+  real=$(cd "$1/wt" && pwd -P)
+  printf '%s/claude-scratch/%s\n' "$1" "$(printf '%s' "$real" | LC_ALL=C tr -c 'A-Za-z0-9' '-')"
+}
+
+# Seed a session directory with a scratchpad file. Args: case_dir session-id
+seed_claude_scratch() {
+  local dir
+  dir="$(claude_scratch_slug_dir "$1")/$2"
+  mkdir -p "$dir/scratchpad"
+  printf '%s\n' parquet > "$dir/scratchpad/data.parquet"
+}
+
+run_claude_scratch_teardown() {  # <case-dir> [teardown args...]
+  local case_dir=$1
+  shift
+  FM_CLAUDE_SCRATCH_ROOT="$case_dir/claude-scratch" run_teardown "$case_dir" "$@"
+}
+
+test_claude_session_scratch_is_removed_and_a_reused_slug_is_kept() {
+  local case_dir rc slug
+  case_dir=$(make_case claude-scratch-remove)
+  write_meta "$case_dir" no-mistakes ship
+  printf '%s\n' harness=claude "claude_session_ids=$CLAUDE_SID_A $CLAUDE_SID_B" >> "$case_dir/state/task-x1.meta"
+  seed_backlog_in_flight "$case_dir"
+  wt_commit_file "$case_dir" feature.txt shipped "shipped"
+  land_on_origin_main "$case_dir" feature.txt shipped
+  slug=$(claude_scratch_slug_dir "$case_dir")
+  seed_claude_scratch "$case_dir" "$CLAUDE_SID_A"
+  seed_claude_scratch "$case_dir" "$CLAUDE_SID_B"
+  # Another worker reused the same copy, so its session shares the slug.
+  seed_claude_scratch "$case_dir" "$CLAUDE_SID_OTHER"
+
+  rc=0
+  run_claude_scratch_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+  expect_code 0 "$rc" "claude-scratch-remove: teardown failed: $(cat "$case_dir/stderr")"
+  assert_absent "$slug/$CLAUDE_SID_A" "claude-scratch-remove: the first recorded session was kept"
+  assert_absent "$slug/$CLAUDE_SID_B" "claude-scratch-remove: the relaunched session was kept"
+  assert_present "$slug/$CLAUDE_SID_OTHER/scratchpad/data.parquet" \
+    "claude-scratch-remove: another session under the reused slug was removed"
+  assert_grep "removed task task-x1's Claude session scratch $slug/$CLAUDE_SID_A" "$case_dir/stderr" \
+    "claude-scratch-remove: removal was not reported"
+  pass "cleanup removes every recorded Claude session's scratch and leaves another session under a reused slug"
+}
+
+test_claude_scratch_without_identity_or_matching_shape_is_skipped() {
+  local case_dir rc slug
+  case_dir=$(make_case claude-scratch-no-id)
+  write_meta "$case_dir" no-mistakes ship
+  printf '%s\n' harness=claude >> "$case_dir/state/task-x1.meta"
+  seed_backlog_in_flight "$case_dir"
+  wt_commit_file "$case_dir" feature.txt shipped "shipped"
+  land_on_origin_main "$case_dir" feature.txt shipped
+  slug=$(claude_scratch_slug_dir "$case_dir")
+  seed_claude_scratch "$case_dir" "$CLAUDE_SID_OTHER"
+
+  rc=0
+  run_claude_scratch_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+  expect_code 0 "$rc" "claude-scratch-no-id: teardown failed: $(cat "$case_dir/stderr")"
+  assert_present "$slug/$CLAUDE_SID_OTHER/scratchpad/data.parquet" \
+    "claude-scratch-no-id: a scratch directory was removed without a recorded identity"
+  [ "$(grep -c "recorded no Claude session id" "$case_dir/stderr")" = 1 ] \
+    || fail "claude-scratch-no-id: missing identity was not noted in exactly one line: $(cat "$case_dir/stderr")"
+
+  # A malformed id and a session path that is a symlink are both refused.
+  case_dir=$(make_case claude-scratch-bad-shape)
+  write_meta "$case_dir" no-mistakes ship
+  printf '%s\n' harness=claude "claude_session_ids=../$CLAUDE_SID_OTHER $CLAUDE_SID_A" >> "$case_dir/state/task-x1.meta"
+  seed_backlog_in_flight "$case_dir"
+  wt_commit_file "$case_dir" feature.txt shipped "shipped"
+  land_on_origin_main "$case_dir" feature.txt shipped
+  slug=$(claude_scratch_slug_dir "$case_dir")
+  seed_claude_scratch "$case_dir" "$CLAUDE_SID_OTHER"
+  mkdir -p "$case_dir/elsewhere"
+  printf '%s\n' keep > "$case_dir/elsewhere/keep"
+  ln -s "$case_dir/elsewhere" "$slug/$CLAUDE_SID_A"
+
+  rc=0
+  run_claude_scratch_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+  expect_code 0 "$rc" "claude-scratch-bad-shape: teardown failed: $(cat "$case_dir/stderr")"
+  assert_present "$slug/$CLAUDE_SID_OTHER/scratchpad/data.parquet" \
+    "claude-scratch-bad-shape: a malformed id reached another session"
+  assert_present "$case_dir/elsewhere/keep" "claude-scratch-bad-shape: a symlinked session path was followed"
+  [ -L "$slug/$CLAUDE_SID_A" ] || fail "claude-scratch-bad-shape: the symlinked session path was removed"
+  [ "$(grep -c "skipped task task-x1's Claude session scratch" "$case_dir/stderr")" = 2 ] \
+    || fail "claude-scratch-bad-shape: each refused session was not noted: $(cat "$case_dir/stderr")"
+  pass "cleanup skips with a note, removing nothing, when the Claude identity is missing or does not match its shape"
+}
+
+test_non_claude_task_scratch_is_untouched() {
+  local case_dir rc slug
+  case_dir=$(make_case claude-scratch-codex)
+  write_meta "$case_dir" no-mistakes ship
+  printf '%s\n' harness=codex >> "$case_dir/state/task-x1.meta"
+  seed_backlog_in_flight "$case_dir"
+  wt_commit_file "$case_dir" feature.txt shipped "shipped"
+  land_on_origin_main "$case_dir" feature.txt shipped
+  slug=$(claude_scratch_slug_dir "$case_dir")
+  seed_claude_scratch "$case_dir" "$CLAUDE_SID_OTHER"
+
+  rc=0
+  run_claude_scratch_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+  expect_code 0 "$rc" "claude-scratch-codex: teardown failed: $(cat "$case_dir/stderr")"
+  assert_present "$slug/$CLAUDE_SID_OTHER/scratchpad/data.parquet" "claude-scratch-codex: scratch was removed"
+  assert_no_grep "Claude session" "$case_dir/stderr" "claude-scratch-codex: a non-claude task printed a Claude note"
+  pass "a non-claude task's cleanup leaves Claude scratch alone and says nothing about it"
+}
+
+test_park_removes_claude_scratch_only_after_its_bundle_verifies() {
+  local case_dir rc slug
+  case_dir=$(make_case claude-scratch-park-refused)
+  write_meta "$case_dir" no-mistakes ship
+  printf '%s\n' harness=claude "claude_session_ids=$CLAUDE_SID_A" >> "$case_dir/state/task-x1.meta"
+  seed_backlog_in_flight "$case_dir"
+  wt_commit_file "$case_dir" feature.txt unfinished "unfinished work"
+  add_unreadable_tmux "$case_dir"
+  log_treehouse_returns "$case_dir"
+  slug=$(claude_scratch_slug_dir "$case_dir")
+  seed_claude_scratch "$case_dir" "$CLAUDE_SID_A"
+
+  rc=0
+  run_claude_scratch_teardown "$case_dir" --park > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+  expect_code 1 "$rc" "claude-scratch-park-refused: park must refuse a worker it cannot prove gone"
+  assert_absent "$case_dir/data/task-x1/park" "claude-scratch-park-refused: a refused park saved a bundle"
+  assert_present "$slug/$CLAUDE_SID_A/scratchpad/data.parquet" \
+    "claude-scratch-park-refused: a refused park removed the session scratch"
+
+  case_dir=$(make_case claude-scratch-park-saved)
+  write_meta "$case_dir" no-mistakes ship
+  printf '%s\n' harness=claude "claude_session_ids=$CLAUDE_SID_A" >> "$case_dir/state/task-x1.meta"
+  seed_backlog_in_flight "$case_dir"
+  wt_commit_file "$case_dir" feature.txt unfinished "unfinished work"
+  log_treehouse_returns "$case_dir"
+  slug=$(claude_scratch_slug_dir "$case_dir")
+  seed_claude_scratch "$case_dir" "$CLAUDE_SID_A"
+  seed_claude_scratch "$case_dir" "$CLAUDE_SID_OTHER"
+
+  rc=0
+  run_claude_scratch_teardown "$case_dir" --park > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+  expect_code 0 "$rc" "claude-scratch-park-saved: park failed: $(cat "$case_dir/stderr")"
+  (cd "$case_dir/data/task-x1/park" && shasum -a 256 -c SHA256SUMS >/dev/null 2>&1) \
+    || fail "claude-scratch-park-saved: the park bundle does not verify"
+  assert_absent "$slug/$CLAUDE_SID_A" "claude-scratch-park-saved: a verified park kept the session scratch"
+  assert_present "$slug/$CLAUDE_SID_OTHER/scratchpad/data.parquet" \
+    "claude-scratch-park-saved: park removed another session under the reused slug"
+  pass "park removes the Claude session scratch only after its bundle is saved and verified"
+}
+
 # Copy the public teardown script tree, then drop or blank one required file.
 # Symlinks keep the copy cheap; an unreadable case replaces one link with a
 # real mode-000 file so the probe is of the file itself.
@@ -4765,3 +4921,7 @@ test_park_of_landed_work_runs_the_ordinary_cleanup
 test_park_of_a_vanished_copy_saves_from_the_branch_and_drops_its_claim
 test_park_refuses_a_copy_whose_head_left_its_branch
 test_park_stops_the_tasks_own_running_validation_run
+test_claude_session_scratch_is_removed_and_a_reused_slug_is_kept
+test_claude_scratch_without_identity_or_matching_shape_is_skipped
+test_non_claude_task_scratch_is_untouched
+test_park_removes_claude_scratch_only_after_its_bundle_verifies

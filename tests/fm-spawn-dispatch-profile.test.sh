@@ -1324,6 +1324,48 @@ test_claude_secondmate_launch_omits_task_control_channel_authority() {
   pass "a persistent claude secondmate keeps its supervisor contract without a task-worker authority overlay"
 }
 
+test_claude_task_launch_records_its_session_id() {
+  local rec id out status launch session meta
+  id=profile-claude-session-id-z25
+  rec=$(make_spawn_case profile-claude-session-id claude "$id")
+  read_case_record "$rec"
+
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
+  status=$?
+  expect_code 0 "$status" "claude crewmate spawn should succeed"$'\n'"$out"
+  meta="$HOME_DIR/state/$id.meta"
+  [ "$(grep -c '^claude_session_ids=' "$meta")" = 1 ] || fail "claude task record does not carry exactly one claude_session_ids= line"
+  session=$(sed -n 's/^claude_session_ids=//p' "$meta")
+  printf '%s' "$session" | grep -Eq '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' \
+    || fail "recorded Claude session id is not one lowercase UUID: $session"
+  launch=$(cat "$LAUNCH_LOG")
+  assert_contains "$launch" "--session-id $session " "claude launch did not use the recorded session id"
+  pass "a claude task launch records the session id it passes to Claude"
+}
+
+test_claude_secondmate_and_other_harness_record_no_session_id() {
+  local rec id sm out status
+  id=profile-secondmate-session-id-z26
+  rec=$(make_spawn_case profile-secondmate-session-id claude "$id")
+  read_case_record "$rec"
+  sm="$CASE_DIR/secondmate-home"
+  make_seeded_secondmate_home "$sm" "$id"
+  out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$sm" --secondmate)
+  status=$?
+  expect_code 0 "$status" "secondmate claude spawn should succeed"$'\n'"$out"
+  assert_not_contains "$(cat "$LAUNCH_LOG")" "--session-id" "persistent secondmate launch received a pinned session id"
+  assert_no_grep '^claude_session_ids=' "$HOME_DIR/state/$id.meta" "secondmate record carries a Claude session id"
+
+  id=profile-codex-session-id-z27
+  rec=$(make_spawn_case profile-codex-session-id codex "$id")
+  read_case_record "$rec"
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
+  status=$?
+  expect_code 0 "$status" "codex crewmate spawn should succeed"$'\n'"$out"
+  assert_no_grep '^claude_session_ids=' "$HOME_DIR/state/$id.meta" "codex record carries a Claude session id"
+  pass "a secondmate or non-claude launch records no Claude session id"
+}
+
 test_claude_long_launch_is_delivered_intact() {
   local rec id out status launch expected
   id=profile-claude-long-launch-z24
@@ -1706,12 +1748,13 @@ claude_launch_brief_arg() {  # <launch>
 }
 
 claude_expected_launch() {  # <launch> <home> <id> <permission-flag>
-  local doorbell quoted
+  local doorbell quoted session
+  session=$(sed -n 's/^claude_session_ids=//p' "$2/state/$3.meta")
   doorbell=$(claude_launch_brief_arg "$1")
   [ "$(printf '%s' "$doorbell" | "$ROOT/bin/fm-operational-input.sh" doorbell-kind)" = launch-brief ] \
     || doorbell="not a launch-brief doorbell"
   quoted="'$(printf '%s' "$doorbell" | sed "s/'/'\\\\''/g")'"
-  printf '%s' "export COMPACT_ADVISER_DISABLE=1; $(ai_trailer_hooks_prefix "$2" "$3")env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI env -u CLAUDE_CODE_CHILD_SESSION CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_SEND_FEEDBACK=0 claude $4 --settings '{\"feedbackDrafts\":\"off\",\"attribution\":{\"commit\":\"\",\"pr\":\"\",\"sessionUrl\":false}}' $CLAUDE_CONTROL_CHANNEL_FLAG $quoted"
+  printf '%s' "export COMPACT_ADVISER_DISABLE=1; $(ai_trailer_hooks_prefix "$2" "$3")env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI env -u CLAUDE_CODE_CHILD_SESSION CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_SEND_FEEDBACK=0 claude $4 --settings '{\"feedbackDrafts\":\"off\",\"attribution\":{\"commit\":\"\",\"pr\":\"\",\"sessionUrl\":false}}' $CLAUDE_CONTROL_CHANNEL_FLAG --session-id $session $quoted"
 }
 
 test_claude_permission_mode_bypass_matches_absent_launch() {
@@ -1857,6 +1900,8 @@ test_non_claude_harness_ignores_claude_permission_mode
 test_non_claude_harness_ignores_config_dir
 test_claude_task_launch_carries_control_channel_authority
 test_claude_secondmate_launch_omits_task_control_channel_authority
+test_claude_task_launch_records_its_session_id
+test_claude_secondmate_and_other_harness_record_no_session_id
 test_claude_long_launch_is_delivered_intact
 test_claude_crewmate_launch_carries_the_attribution_policy
 test_claude_secondmate_launch_carries_the_attribution_policy

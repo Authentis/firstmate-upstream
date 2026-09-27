@@ -1168,6 +1168,21 @@ test_spawn_relaunch_without_a_harness_reuses_the_recorded_one() {
   pass "fm-spawn --relaunch: with no explicit harness it reuses the task's recorded one, never the crew default"
 }
 
+test_spawn_relaunch_appends_a_fresh_claude_session_id() {
+  local dir ids
+  dir=$(new_case claudesession rl43)
+  add_ship_task "$dir" rl43 claude
+  printf 'claude_session_ids=0a0a0a0a-1111-4222-8333-444444444444\n' >> "$dir/home/state/rl43.meta"
+  printf 'zsh' > "$dir/fake/command"
+  run_spawn "$dir" rl43 --relaunch >/dev/null
+  [ "$(grep -c '^claude_session_ids=' "$dir/home/state/rl43.meta")" = 1 ] \
+    || fail "a relaunch must keep exactly one claude_session_ids= line"
+  ids=$(meta_field "$dir" rl43 claude_session_ids)
+  printf '%s' "$ids" | grep -Eq '^0a0a0a0a-1111-4222-8333-444444444444 [0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' \
+    || fail "a claude relaunch must keep the prior session id and append its own, got '$ids'"
+  pass "fm-spawn --relaunch: a claude replacement appends its own session id to the recorded ones"
+}
+
 # A promoted scout records kind=ship and a custom ship branch in its meta, but
 # its brief is the scout scaffold: it never gained a Ship branch line, and a
 # relaunch cannot regenerate the brief (--branch-prefix is refused there). The
@@ -2505,6 +2520,7 @@ test_secondmate_relaunch_onto_a_crewmate_only_adapter_refuses_before_stop
 test_explicit_secondmate_harness_ignores_configured_profile_axes
 test_ship_relaunch_ignores_the_crew_harness_config
 test_spawn_relaunch_without_a_harness_reuses_the_recorded_one
+test_spawn_relaunch_appends_a_fresh_claude_session_id
 test_spawn_relaunch_of_promoted_scout_uses_the_recorded_branch
 test_promoted_scout_relaunch_receives_the_current_delivery_contract
 test_prefixed_prior_harness_wiring_is_still_retired

@@ -211,6 +211,17 @@
 # worker from the receipt. A record whose copy has vanished parks from the
 # branch ref alone and drops its own orphaned slot claim by path. Park is
 # Treehouse-and-ship only and never combines with --force or --endpoint-only.
+# Claude session scratch: for a ship or scout task whose record carries
+# claude_session_ids= (bin/fm-spawn.sh records one id per Claude launch),
+# cleanup removes exactly those session directories under this user's
+# /tmp/claude-<uid>/<worktree slug>/, after the endpoint is closed and, for
+# --park, only after the park bundle is saved and verified (a refused park
+# removes nothing). bin/fm-claude-scratch-lib.sh owns the layout and shape
+# checks. The path is derived from the recorded id and worktree, never from a
+# slug glob, because reused copies share one slug. A missing identity, or an id
+# or path that does not match, is skipped with a one-line note; an absent
+# directory is silent. Other harnesses, a secondmate, and --endpoint-only are
+# untouched.
 # Usage: fm-teardown.sh <task-id> [--force] [--legacy-record]
 #        fm-teardown.sh <task-id> --endpoint-only
 #        fm-teardown.sh <task-id> --park [--legacy-record]
@@ -404,6 +415,8 @@ unset _teardown_source
 . "$SCRIPT_DIR/fm-public-followup-lib.sh"
 # shellcheck source=bin/fm-secondmate-registry-lib.sh
 . "$SCRIPT_DIR/fm-secondmate-registry-lib.sh"
+# shellcheck source=bin/fm-claude-scratch-lib.sh
+. "$SCRIPT_DIR/fm-claude-scratch-lib.sh"
 # shellcheck source=bin/fm-secondmate-parent-lib.sh
 . "$SCRIPT_DIR/fm-secondmate-parent-lib.sh"
 # shellcheck source=/dev/null # Canonical lint root; following it here breaks the lint memory ceiling.
@@ -1205,6 +1218,10 @@ PR_URL=$(grep '^pr=' "$META" | tail -1 | cut -d= -f2- || true)
 # tasktmp is recorded by fm-spawn for tasks that set up a per-task temp root
 # (/tmp/fm-<id>/); absent for tasks spawned before that change, so tolerate empty.
 TASK_TMP=$(grep '^tasktmp=' "$META" | cut -d= -f2- || true)
+# Claude session scratch (script header): resolve the worktree's real path now,
+# while the copy still exists, so the slug matches the one Claude derived.
+CLAUDE_SESSION_IDS=$(fm_meta_get "$META" claude_session_ids)
+CLAUDE_SCRATCH_CWD=$(cd "$WT" 2>/dev/null && pwd -P) || CLAUDE_SCRATCH_CWD=$WT
 BUSY_GEN=$(fm_meta_get "$META" busy_gen)
 if [ -z "$BUSY_GEN" ]; then
   BUSY_GEN=$(cat "$STATE/$ID.busy-gen" 2>/dev/null || true)
@@ -1404,6 +1421,33 @@ elif [ "$KIND" = secondmate ]; then
 elif [ "$FORCE" != "--force" ] && fm_pf_relay_active "$FM_HOME"; then
   PUBLIC_FOLLOWUP_RELAY_ACTIVE=1
 fi
+
+# Remove each recorded Claude session's scratch directory (script header).
+remove_claude_session_scratch() {
+  local id dir rc ids
+  [ "$KIND" != secondmate ] || return 0
+  if [ -z "$CLAUDE_SESSION_IDS" ]; then
+    [ "$(fm_meta_get "$META" harness)" != claude ] \
+      || echo "teardown: task $ID recorded no Claude session id, so its Claude scratch is left for the system temp cleaner" >&2
+    return 0
+  fi
+  read -r -a ids <<<"$CLAUDE_SESSION_IDS"
+  for id in "${ids[@]}"; do
+    rc=0
+    dir=$(fm_claude_scratch_resolve "$CLAUDE_SCRATCH_CWD" "$id") || rc=$?
+    case "$rc" in
+      0)
+        if rm -rf -- "$dir"; then
+          echo "teardown: removed task $ID's Claude session scratch $dir" >&2
+        else
+          echo "warning: could not fully remove task $ID's Claude session scratch $dir" >&2
+        fi
+        ;;
+      2) ;;
+      *) echo "teardown: skipped task $ID's Claude session scratch: $dir" >&2 ;;
+    esac
+  done
+}
 
 default_branch() {
   local ref branch
@@ -4303,6 +4347,7 @@ fm_backend_clear_transition "$BACKEND" "$STATE" "$T" || true
 # Remove the per-task temp root (/tmp/fm-<id>/, incl. its gotmp/) recorded by spawn.
 # Read before the state-file rm below; empty (pre-fix tasks without tasktmp=) is a no-op.
 [ -n "$TASK_TMP" ] && rm -rf "$TASK_TMP"
+remove_claude_session_scratch
 # Retire only this Firstmate home's launch namespace. Its never-reused per-spawn
 # files leave the equal task-id namespace of every other home untouched.
 teardown_launch_home_token() {
