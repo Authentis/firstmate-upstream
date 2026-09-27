@@ -1669,9 +1669,26 @@ _fm_composer_select_cursorless() {
   [ -n "$FM_COMPOSER_SELECTED_KIND" ]
 }
 
+# _fm_composer_separators_close_over: 0 when the last scan's separator pair
+# closes over <row>, the one proof that a bare glyph row is a real composer
+# container (claude 2.x). The classifier and the payload extractor both read it
+# here, so the cursor-cell ghost strip cannot drift between the empty verdict
+# and the pre-send proof that relies on it.
+_fm_composer_separators_close_over() {  # <row>
+  [ "$FM_COMPOSER_SCAN_PI_PAIR_FOUND" = 1 ] \
+    && [ "$1" -gt "$FM_COMPOSER_SCAN_PI_OPEN" ] \
+    && [ "$1" -lt "$FM_COMPOSER_SCAN_PI_CLOSE" ]
+}
+
+# fm_composer_extract_selected_content: the selected composer's visible text,
+# with the same ghost stripping the classifier applies, including the
+# cursor-cell strip inside a proven container (box rows, or a single bare row
+# a separator pair closes over). A pre-send proof that kept Claude's focused
+# suggestion cursor cell read a composer the classifier calls empty as
+# holding one letter and refused every send into it.
 fm_composer_extract_selected_content() {  # <caps> <screen>
   local caps=$1 screen=$2 styled=0 kv plain row raw content glyph joined='' footer_re prompt_row=-1
-  local leading_blank=1 placeholder_position=0 prompt_is_shell=0
+  local leading_blank=1 placeholder_position=0 prompt_is_shell=0 cursorcell=
   footer_re=${FM_COMPOSER_LEFTBAR_FOOTER_RE:-$FM_COMPOSER_LEFTBAR_FOOTER_RE_DEFAULT}
   while IFS= read -r kv; do
     [ "$kv" = styled=1 ] && styled=1
@@ -1681,10 +1698,19 @@ EOF
   plain=$(printf '%s\n' "$screen" | fm_composer_strip_ansi)
   _fm_composer_scan_screen "$plain" '' 1
   _fm_composer_select_cursorless "$plain" || return 1
+  case "$FM_COMPOSER_SELECTED_KIND" in
+    box) cursorcell='cursor-cell' ;;
+    bare)
+      if [ "$FM_COMPOSER_SELECTED_LAST" -eq "$FM_COMPOSER_SELECTED_FIRST" ] \
+         && _fm_composer_separators_close_over "$FM_COMPOSER_SELECTED_FIRST"; then
+        cursorcell='cursor-cell'
+      fi
+      ;;
+  esac
   row=$FM_COMPOSER_SELECTED_FIRST
   while [ "$row" -le "$FM_COMPOSER_SELECTED_LAST" ]; do
     raw=$(_fm_composer_screen_row "$row" "$screen")
-    content=$(_fm_composer_row_content "$raw" "$styled")
+    content=$(_fm_composer_row_content "$raw" "$styled" "$cursorcell")
     placeholder_position=0
     case "$FM_COMPOSER_SELECTED_KIND" in
       bare)
@@ -1781,9 +1807,7 @@ EOF
       return 0
     fi
     if [ "$FM_COMPOSER_SCAN_BARE_ROW" -ge 0 ] && [ "$cy" -eq "$FM_COMPOSER_SCAN_BARE_ROW" ]; then
-      if [ "$FM_COMPOSER_SCAN_PI_PAIR_FOUND" = 1 ] \
-         && [ "$cy" -gt "$FM_COMPOSER_SCAN_PI_OPEN" ] \
-         && [ "$cy" -lt "$FM_COMPOSER_SCAN_PI_CLOSE" ]; then
+      if _fm_composer_separators_close_over "$cy"; then
         _fm_composer_classify_bare_pi_overlap "$screen" "$styled" "$has_identity" "$identity" "$cy"
       else
         _fm_composer_classify_bare_row "$screen" "$styled" "$cy"
@@ -1836,9 +1860,7 @@ EOF
       if [ "$FM_COMPOSER_SELECTED_LAST" -gt "$FM_COMPOSER_SELECTED_FIRST" ]; then
         _fm_composer_classify_bare_wrap "$screen" "$styled" \
           "$FM_COMPOSER_SELECTED_FIRST" "$FM_COMPOSER_SELECTED_LAST"
-      elif [ "$FM_COMPOSER_SCAN_PI_PAIR_FOUND" = 1 ] \
-         && [ "$FM_COMPOSER_SELECTED_FIRST" -gt "$FM_COMPOSER_SCAN_PI_OPEN" ] \
-         && [ "$FM_COMPOSER_SELECTED_FIRST" -lt "$FM_COMPOSER_SCAN_PI_CLOSE" ]; then
+      elif _fm_composer_separators_close_over "$FM_COMPOSER_SELECTED_FIRST"; then
         _fm_composer_classify_bare_pi_overlap "$screen" "$styled" "$has_identity" "$identity" \
           "$FM_COMPOSER_SELECTED_FIRST"
       else

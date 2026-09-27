@@ -4853,6 +4853,58 @@ test_send_text_submit_claude_exit_command_in_accent_colour_is_submitted() {
   pass "fm_backend_herdr_send_text_submit: a Claude /exit drawn in its saturated accent colour is proven and submitted"
 }
 
+# Claude draws its prompt suggestion as a reverse-video first cell plus dim
+# text while its pane is focused, between two rules, and Herdr re-serializes
+# each run after a reset (the shape of a remote second mate's idle composer).
+# The composer verdict already read that composer empty, so the pre-send proof
+# must agree: keeping the reverse-video letter refused every lifecycle exit
+# with send-failed before anything was typed.
+herdr_focused_suggestion_screen() {  # <resp-file> <first-cell> <rest> <rest-sgr>
+  local rule='\033[0m\033[38;2;136;136;136m────────────────────────\033[0m\n'
+  {
+    printf 'transcript line\n'
+    printf '%b' "$rule"
+    printf '\xe2\x9d\xaf\xc2\xa0\033[0m\033[7m%s\033[0m\033[%sm%s\033[0m\n' "$2" "$4" "$3"
+    printf '%b' "$rule"
+  } > "$1"
+}
+
+test_send_text_submit_claude_exit_over_focused_suggestion_is_submitted() {
+  local dir log resp fb out enter_count
+  dir="$TMP_ROOT/submit-claude-exit-suggestion"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
+  printf '{"result":{"agent":{"agent_status":"idle"}}}\n' > "$resp/2.out"
+  printf '{"result":{"agent":{"agent_status":"working"}}}\n' > "$resp/4.out"
+  herdr_submit_claude_prefix "$resp" /exit
+  herdr_focused_suggestion_screen "$resp/2.out" F 'irstmate instruction waiting: list the netcup inbox and act on each' 2
+  printf '\033[39m\xe2\x9d\xaf\xc2\xa0\033[38;2;87;105;247m/exit\033[39m\n' > "$resp/4.out"
+  fb=$(make_herdr_fakebin "$dir")
+  out=$( PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" FM_BACKEND_HERDR_SUBMIT_POLLS=1 \
+    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_send_text_submit default:w1:p2 /exit 3 0.01 0.01' "$ROOT" )
+  [ "$out" = empty ] || fail "a Claude composer holding only its focused suggestion should accept /exit, got '$out'"
+  assert_contains "$(cat "$log")" $'\x1f''pane'$'\x1f''send-text'$'\x1f''w1:p2'$'\x1f''/exit' "the /exit command was never typed"
+  enter_count=$(grep -c $'\x1f''pane'$'\x1f''send-keys'$'\x1f''w1:p2'$'\x1f''enter' "$log")
+  [ "$enter_count" -eq 1 ] || fail "the proven /exit should be submitted once, sent $enter_count Enter(s)"
+  pass "fm_backend_herdr_send_text_submit: /exit typed over Claude's focused suggestion ghost is proven and submitted"
+}
+
+# Counter case: the cursor parked on the first letter of real typed text draws
+# the same reverse-video cell, but the text after it is not de-emphasised, so
+# the composer is not empty and nothing may be typed onto it.
+test_send_text_submit_claude_real_text_under_cursor_refuses_send() {
+  local dir log resp fb out
+  dir="$TMP_ROOT/submit-claude-real-text-cursor"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
+  herdr_submit_claude_prefix "$resp" /exit
+  herdr_focused_suggestion_screen "$resp/2.out" f 'ix the login bug' 0
+  fb=$(make_herdr_fakebin "$dir")
+  out=$( PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" FM_BACKEND_HERDR_SUBMIT_POLLS=1 \
+    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_send_text_submit default:w1:p2 /exit 3 0.01 0.01' "$ROOT" )
+  [ "$out" = send-failed ] || fail "real typed text under Claude's cursor must refuse the send, got '$out'"
+  case "$(cat "$log")" in
+    *$'\x1f''send-text'$'\x1f'*) fail "nothing may be typed onto a composer holding real text" ;;
+  esac
+  pass "fm_backend_herdr_send_text_submit: real typed text under Claude's cursor cell still refuses the send"
+}
+
 test_send_text_submit_refuses_enter_when_composer_holds_only_the_suffix() {
   local dir log resp fb out enter_count text suffix
   dir="$TMP_ROOT/submit-long-suffix"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
@@ -5921,6 +5973,8 @@ test_send_text_submit_unknown_on_capture_failure
 test_send_text_submit_unknown_on_composer_capture_failure
 test_send_text_submit_long_literal_submits_when_composer_holds_every_byte
 test_send_text_submit_claude_exit_command_in_accent_colour_is_submitted
+test_send_text_submit_claude_exit_over_focused_suggestion_is_submitted
+test_send_text_submit_claude_real_text_under_cursor_refuses_send
 test_send_text_submit_refuses_enter_when_composer_holds_only_the_suffix
 test_send_text_submit_refused_suffix_that_will_not_clear_is_unknown
 test_send_text_submit_clears_a_wrapped_suffix_one_row_per_press
