@@ -3208,8 +3208,9 @@ fm_backend_herdr_rendered_busy_state() {  # <target> [harness] -> busy|idle|unkn
 # (Enter only, never retyped) until native agent-state, a cleared composer, or
 # fm_composer_queued_enter_verdict confirms delivery. When native identity is
 # Claude, text is typed only into an empty composer and Enter is sent only
-# after the composer shows the payload (fm_backend_herdr_composer_payload_shown).
-# A missing read, a shorter suffix, or a paste placeholder followed by a
+# after the composer shows the payload (fm_backend_herdr_composer_payload_wait,
+# which re-reads a composer that is unreadable or still drawing it). A read
+# that never shows it, a shorter suffix, or a paste placeholder followed by a
 # literal remainder does not press Enter: the composer is cleared back to
 # empty and the verdict is send-failed, or unknown when the clear cannot be
 # verified. Other harnesses skip this proof. Verified hazard
@@ -3350,12 +3351,8 @@ fm_backend_herdr_composer_content() {  # <target> [lines]
 # remainder, is the head-truncation shape and is not proof.
 fm_backend_herdr_composer_payload_shown() {  # <text> <after>
   local text=$1 after=$2 literal
-  fm_composer_normalize_spaces_var text
-  fm_composer_normalize_spaces_var after
-  text=${text//[$' \t\r\n\v\f']/}
-  text=${text//$'\xE2\x81\xA3'/}
-  after=${after//[$' \t\r\n\v\f']/}
-  after=${after//$'\xE2\x81\xA3'/}
+  _fm_backend_herdr_payload_normalize_var text
+  _fm_backend_herdr_payload_normalize_var after
   [ -n "$text" ] && [ -n "$after" ] || return 1
   [ "$after" = "$text" ] && return 0
   literal=$after
@@ -3363,6 +3360,52 @@ fm_backend_herdr_composer_payload_shown() {  # <text> <after>
     literal=${literal/"${BASH_REMATCH[0]}"/}
   done
   [ -z "$literal" ]
+}
+
+# _fm_backend_herdr_payload_normalize_var: the one comparison form both payload
+# predicates read - spaces normalized, whitespace and U+2063 dropped.
+_fm_backend_herdr_payload_normalize_var() {  # <var-name>
+  local __fmpn_text
+  fm_composer_normalize_spaces_var "$1"
+  __fmpn_text=${!1}
+  __fmpn_text=${__fmpn_text//[$' \t\r\n\v\f']/}
+  __fmpn_text=${__fmpn_text//$'\xE2\x81\xA3'/}
+  printf -v "$1" '%s' "$__fmpn_text"
+}
+
+# fm_backend_herdr_composer_payload_drawing: 0 when <after> is what a composer
+# still drawing <text> shows - nothing yet, or a strict leading part of it.
+# Typed input reaches the pane at once but the agent draws it on its own
+# schedule, and a CPU-starved host (a remote second mate's, at 8 cores and a
+# load near 50) can take longer than the settle to draw a five-character
+# `/exit`. Anything else - a suffix, a placeholder with a remainder, foreign
+# text - is a settled refusal, never a composer that is still catching up.
+fm_backend_herdr_composer_payload_drawing() {  # <text> <after>
+  local text=$1 after=$2
+  _fm_backend_herdr_payload_normalize_var text
+  _fm_backend_herdr_payload_normalize_var after
+  [ -n "$text" ] || return 1
+  [ -n "$after" ] || return 0
+  [ "${#after}" -lt "${#text}" ] && [ "${text:0:${#after}}" = "$after" ]
+}
+
+# fm_backend_herdr_composer_payload_wait: the pre-Enter proof. 0 once the
+# composer shows <text>. An unreadable composer, or one still drawing it, is
+# re-read up to FM_BACKEND_HERDR_PROOF_READS times, FM_BACKEND_HERDR_PROOF_POLL
+# seconds apart, so one read taken before a slow agent drew the payload does not
+# refuse a send that landed. A settled wrong shape refuses on the read that
+# shows it.
+fm_backend_herdr_composer_payload_wait() {  # <target> <text> <lines>
+  local target=$1 text=$2 lines=$3 reads=${FM_BACKEND_HERDR_PROOF_READS:-12} i=0 content
+  while :; do
+    if content=$(fm_backend_herdr_composer_content "$target" "$lines"); then
+      fm_backend_herdr_composer_payload_shown "$text" "$content" && return 0
+      fm_backend_herdr_composer_payload_drawing "$text" "$content" || return 1
+    fi
+    i=$((i + 1))
+    [ "$i" -lt "$reads" ] || return 1
+    sleep "${FM_BACKEND_HERDR_PROOF_POLL:-0.5}"
+  done
 }
 
 # fm_backend_herdr_composer_clear: after a refused proof, press Ctrl+U until
@@ -3402,8 +3445,7 @@ fm_backend_herdr_send_text_submit() {  # <target> <text> <retries> <enter-sleep>
   fm_backend_herdr_send_literal "$target" "$text" || { printf 'send-failed'; return 0; }
   sleep "$settle"
   if [ "$proof" = 1 ]; then
-    if ! content=$(fm_backend_herdr_composer_content "$target" "$proof_lines") \
-      || ! fm_backend_herdr_composer_payload_shown "$text" "$content"; then
+    if ! fm_backend_herdr_composer_payload_wait "$target" "$text" "$proof_lines"; then
       if fm_backend_herdr_composer_clear "$target" "$text"; then
         printf 'send-failed'
       else

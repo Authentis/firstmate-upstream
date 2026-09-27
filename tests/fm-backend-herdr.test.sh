@@ -4853,6 +4853,88 @@ test_send_text_submit_claude_exit_command_in_accent_colour_is_submitted() {
   pass "fm_backend_herdr_send_text_submit: a Claude /exit drawn in its saturated accent colour is proven and submitted"
 }
 
+# A CPU-starved host (the remote second mate's: 8 cores, load near 50) can take
+# longer than the settle to draw typed input, so the first read after the send
+# still shows the idle composer. Rules close over the prompt row, and Herdr
+# re-serializes every run after a reset, as in the captured pane. That read is
+# a composer still drawing the payload, not a refusal: reading it once refused
+# every lifecycle exit on that host with send-failed.
+herdr_idle_claude_composer() {  # <resp-file> [typed-text]
+  local rule='\033[0m\033[38;2;136;136;136m────────────────────────\033[0m\r\n'
+  {
+    printf 'transcript line\r\n'
+    printf '%b' "$rule"
+    if [ -n "${2:-}" ]; then
+      printf '\033[0m\033[39m\xe2\x9d\xaf\xc2\xa0\033[0m\033[38;2;87;105;247m%s\033[0m\r\n' "$2"
+    else
+      printf '\033[0m\033[38;2;153;153;153m\xe2\x9d\xaf\xc2\xa0\033[0m\r\n'
+    fi
+    printf '%b' "$rule"
+  } > "$1"
+}
+
+test_send_text_submit_claude_exit_drawn_late_is_submitted() {
+  local dir log resp fb out enter_count
+  dir="$TMP_ROOT/submit-claude-exit-late"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
+  printf '{"result":{"agent":{"agent":"claude","agent_status":"idle"}}}\n' > "$resp/1.out"
+  herdr_idle_claude_composer "$resp/2.out"
+  herdr_idle_claude_composer "$resp/4.out"
+  herdr_idle_claude_composer "$resp/5.out" /ex
+  herdr_idle_claude_composer "$resp/6.out" /exit
+  printf '{"result":{"agent":{"agent_status":"idle"}}}\n' > "$resp/7.out"
+  printf '{"result":{"agent":{"agent_status":"working"}}}\n' > "$resp/9.out"
+  fb=$(make_herdr_fakebin "$dir")
+  out=$( PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" FM_BACKEND_HERDR_SUBMIT_POLLS=1 \
+    FM_BACKEND_HERDR_PROOF_POLL=0.01 \
+    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_send_text_submit default:w1:p2 /exit 3 0.01 0.01' "$ROOT" )
+  [ "$out" = empty ] || fail "a /exit the composer draws after the settle should be proven and submitted, got '$out'"
+  [ "$(grep -c $'\x1f''pane'$'\x1f''read' "$log")" -eq 4 ] || fail "the proof should re-read the still-drawing composer until it shows /exit"
+  enter_count=$(grep -c $'\x1f''pane'$'\x1f''send-keys'$'\x1f''w1:p2'$'\x1f''enter' "$log")
+  [ "$enter_count" -eq 1 ] || fail "the late-drawn /exit should be submitted once, sent $enter_count Enter(s)"
+  [ "$(herdr_ctrl_u_count "$log")" -eq 0 ] || fail "a late-drawn /exit must not be cleared"
+  pass "fm_backend_herdr_send_text_submit: a /exit a loaded Claude draws after the settle is re-read, proven, and submitted"
+}
+
+# The wait is bounded: a composer that never draws the payload is cleared and
+# refused after FM_BACKEND_HERDR_PROOF_READS reads, never submitted.
+test_send_text_submit_claude_payload_never_drawn_refuses_send() {
+  local dir log resp fb out
+  dir="$TMP_ROOT/submit-claude-exit-never"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
+  printf '{"result":{"agent":{"agent":"claude","agent_status":"idle"}}}\n' > "$resp/1.out"
+  herdr_idle_claude_composer "$resp/2.out"
+  herdr_idle_claude_composer "$resp/4.out"
+  herdr_idle_claude_composer "$resp/5.out"
+  herdr_idle_claude_composer "$resp/6.out"
+  herdr_idle_claude_composer "$resp/8.out"
+  fb=$(make_herdr_fakebin "$dir")
+  out=$( PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" FM_BACKEND_HERDR_SUBMIT_POLLS=1 \
+    FM_BACKEND_HERDR_PROOF_READS=3 FM_BACKEND_HERDR_PROOF_POLL=0.01 \
+    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_send_text_submit default:w1:p2 /exit 3 0.01 0.01' "$ROOT" )
+  [ "$out" = send-failed ] || fail "a payload the composer never draws should refuse the send, got '$out'"
+  [ "$(grep -c $'\x1f''pane'$'\x1f''send-keys'$'\x1f''w1:p2'$'\x1f''enter' "$log")" -eq 0 ] || fail "an unproven payload must not be submitted"
+  [ "$(herdr_ctrl_u_count "$log")" -eq 1 ] || fail "the refused send should be cleared once, sent $(herdr_ctrl_u_count "$log")"
+  pass "fm_backend_herdr_send_text_submit: a payload the composer never draws is refused after a bounded number of reads"
+}
+
+# Counter case: real typed text the payload landed after is a settled wrong
+# shape, not a composer still drawing, so it is refused on the first read.
+test_send_text_submit_claude_payload_after_real_text_refuses_at_once() {
+  local dir log resp fb out
+  dir="$TMP_ROOT/submit-claude-exit-after-text"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
+  printf '{"result":{"agent":{"agent":"claude","agent_status":"idle"}}}\n' > "$resp/1.out"
+  herdr_idle_claude_composer "$resp/2.out"
+  herdr_idle_claude_composer "$resp/4.out" 'fix the login bug/exit'
+  herdr_idle_claude_composer "$resp/6.out"
+  fb=$(make_herdr_fakebin "$dir")
+  out=$( PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" FM_BACKEND_HERDR_SUBMIT_POLLS=1 \
+    FM_BACKEND_HERDR_PROOF_POLL=0.01 \
+    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_send_text_submit default:w1:p2 /exit 3 0.01 0.01' "$ROOT" )
+  [ "$out" = send-failed ] || fail "real typed text before the payload must refuse the send, got '$out'"
+  [ "$(grep -c $'\x1f''pane'$'\x1f''read' "$log")" -eq 3 ] || fail "a settled wrong composer must be refused on its first post-send read, not re-read"
+  [ "$(grep -c $'\x1f''pane'$'\x1f''send-keys'$'\x1f''w1:p2'$'\x1f''enter' "$log")" -eq 0 ] || fail "real text plus the payload must not be submitted"
+  pass "fm_backend_herdr_send_text_submit: real typed text in front of the payload is refused on the first read, never waited on"
+}
+
 # Claude draws its prompt suggestion as a reverse-video first cell plus dim
 # text while its pane is focused, between two rules, and Herdr re-serializes
 # each run after a reset (the shape of a remote second mate's idle composer).
@@ -5973,6 +6055,9 @@ test_send_text_submit_unknown_on_capture_failure
 test_send_text_submit_unknown_on_composer_capture_failure
 test_send_text_submit_long_literal_submits_when_composer_holds_every_byte
 test_send_text_submit_claude_exit_command_in_accent_colour_is_submitted
+test_send_text_submit_claude_exit_drawn_late_is_submitted
+test_send_text_submit_claude_payload_never_drawn_refuses_send
+test_send_text_submit_claude_payload_after_real_text_refuses_at_once
 test_send_text_submit_claude_exit_over_focused_suggestion_is_submitted
 test_send_text_submit_claude_real_text_under_cursor_refuses_send
 test_send_text_submit_refuses_enter_when_composer_holds_only_the_suffix
