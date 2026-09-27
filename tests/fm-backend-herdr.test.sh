@@ -61,6 +61,9 @@ if [ "${1:-}" = status ] && [ "${2:-}" = --json ] && [ "${FM_HERDR_SCRIPT_STATUS
   printf '{"client":{"version":"0.7.1","protocol":14},"server":{"running":true}}\n'
   exit 0
 fi
+if [ "${1:-}" = config ] && [ "${2:-}" = check ]; then
+  exit 0
+fi
 if [ "${1:-}" = terminal ] && [ "${2:-}" = title ] && [ "${3:-}" = clear ]; then
   reason=${FM_FAKE_HERDR_FOREGROUND_REASON:-no_foreground_client}
   printf '{"result":{"reason":"%s"}}\n' "$reason"
@@ -142,9 +145,13 @@ case "${1:-}" in
       printf '{"server":{"running":false}}\n'
     fi
     ;;
+  config)
+    # `config check` validates the file HERDR_CONFIG_PATH names.
+    [ "${FM_HERDR_CONFIG_CHECK_FAIL:-0}" != 1 ] || { echo "config: issues found" >&2; exit 1; }
+    ;;
   server)
     {
-      for name in FM_HOME FM_ROOT_OVERRIDE FM_STATE_OVERRIDE FM_DATA_OVERRIDE FM_PROJECTS_OVERRIDE FM_CONFIG_OVERRIDE CURSOR_AGENT CURSOR_INVOKED_AS CLAUDECODE PI_CODING_AGENT FM_PI_HARNESS GROK_AGENT FM_SUPERVISION_MODEL FM_HERDR_SENTINEL HERDR_SESSION; do
+      for name in FM_HOME FM_ROOT_OVERRIDE FM_STATE_OVERRIDE FM_DATA_OVERRIDE FM_PROJECTS_OVERRIDE FM_CONFIG_OVERRIDE CURSOR_AGENT CURSOR_INVOKED_AS CLAUDECODE PI_CODING_AGENT FM_PI_HARNESS GROK_AGENT FM_SUPERVISION_MODEL FM_HERDR_SENTINEL HERDR_SESSION HERDR_CONFIG_PATH; do
         eval 'value=${'"$name"'-<unset>}'
         printf '%s=%s\n' "$name" "$value"
       done
@@ -1194,7 +1201,7 @@ test_server_ensure_scrubs_home_and_harness_identity() {
   dir="$TMP_ROOT/server-env"; mkdir -p "$dir"; log="$dir/env"; marker="$dir/running"
   fb=$(make_herdr_server_env_fakebin "$dir")
   PATH="$fb:$PATH" FM_HERDR_SERVER_ENV_LOG="$log" FM_HERDR_SERVER_MARKER="$marker" FM_HERDR_SENTINEL=kept \
-    FM_HOME=/tmp/wrong-home FM_ROOT_OVERRIDE=/tmp/wrong-root FM_STATE_OVERRIDE=/tmp/wrong-state \
+    FM_HOME=/tmp/wrong-home FM_ROOT_OVERRIDE=/tmp/wrong-root FM_STATE_OVERRIDE="$dir/state" \
     FM_DATA_OVERRIDE=/tmp/wrong-data FM_PROJECTS_OVERRIDE=/tmp/wrong-projects FM_CONFIG_OVERRIDE=/tmp/wrong-config \
     CURSOR_AGENT=1 CURSOR_INVOKED_AS=cursor-agent CLAUDECODE=1 PI_CODING_AGENT=true FM_PI_HARNESS=pi-signed GROK_AGENT=1 FM_SUPERVISION_MODEL=autoarm \
     bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_server_ensure fmtest' "$ROOT"
@@ -1208,6 +1215,51 @@ test_server_ensure_scrubs_home_and_harness_identity() {
   assert_contains "$output" "HERDR_SESSION=fmtest" "server_ensure lost explicit Herdr session routing"
   assert_contains "$output" "args=server --session fmtest" "server_ensure lost the trailing Herdr session flag"
   pass "fm_backend_herdr_server_ensure: scrubs home and harness identity without disturbing unrelated environment or session routing"
+}
+
+# server_start_config <dir> <operator-config|-> [extra env...]: start a server
+# through the env-recording fake with the operator config at <dir>/xdg and
+# echo the HERDR_CONFIG_PATH the long-lived server received.
+# shellcheck disable=SC2016
+server_start_config() {
+  local dir=$1 src=$2 fb
+  shift 2
+  mkdir -p "$dir/xdg/herdr"
+  [ "$src" = - ] || printf '%s' "$src" > "$dir/xdg/herdr/config.toml"
+  fb=$(make_herdr_server_env_fakebin "$dir")
+  env PATH="$fb:$PATH" FM_HERDR_SERVER_ENV_LOG="$dir/env" FM_HERDR_SERVER_MARKER="$dir/running" \
+    FM_STATE_OVERRIDE="$dir/state" XDG_CONFIG_HOME="$dir/xdg" "$@" \
+    bash -c 'unset HERDR_CONFIG_PATH; . "$0/bin/backends/herdr.sh"; fm_backend_herdr_server_ensure fmtest' "$ROOT" \
+    2>"$dir/stderr" || fail "server_ensure should start the server ($(cat "$dir/stderr"))"
+  sed -n 's/^HERDR_CONFIG_PATH=//p' "$dir/env"
+}
+
+test_server_ensure_turns_off_herdr_agent_restore() {
+  local dir cfg body
+  dir="$TMP_ROOT/server-restore-table"
+  cfg=$(server_start_config "$dir" $'onboarding = false\n[session]\n# note\nresume_agents_on_restore = true\n\n[ui]\nsidebar_width = 30\n')
+  [ "$cfg" = "$dir/state/herdr-server-fmtest.toml" ] || fail "server_ensure should start the server on the derived config, got '$cfg'"
+  body=$(cat "$cfg")
+  [ "$(grep -c 'resume_agents_on_restore' "$cfg")" = 1 ] || fail "the derived config must carry exactly one restore key: $body"
+  assert_contains "$body" $'[session]\nresume_agents_on_restore = false\n# note' "the restore key must be forced off inside the operator's own [session] table"
+  assert_contains "$body" $'[ui]\nsidebar_width = 30' "the derived config dropped the operator's other settings"
+  assert_contains "$body" "onboarding = false" "the derived config dropped the operator's root settings"
+
+  dir="$TMP_ROOT/server-restore-none"
+  cfg=$(server_start_config "$dir" $'[ui]\nsidebar_width = 30\n')
+  body=$(cat "$cfg")
+  assert_contains "$body" $'sidebar_width = 30\n\n[session]\nresume_agents_on_restore = false' "a config without a [session] table should gain one with restore off"
+
+  dir="$TMP_ROOT/server-restore-absent"
+  cfg=$(server_start_config "$dir" -)
+  [ "$(cat "$cfg")" = $'[session]\nresume_agents_on_restore = false' ] || fail "with no operator config the derived config should only turn restore off, got '$(cat "$cfg")'"
+
+  dir="$TMP_ROOT/server-restore-invalid"
+  cfg=$(server_start_config "$dir" $'[session]\n' FM_HERDR_CONFIG_CHECK_FAIL=1)
+  [ "$cfg" = "<unset>" ] || fail "a derived config Herdr rejects must not reach the server, got '$cfg'"
+  assert_contains "$(cat "$dir/stderr")" "did not validate" "a rejected derived config should warn"
+  [ -z "$(ls -A "$dir/state")" ] || fail "a rejected derived config should leave nothing behind: $(ls -A "$dir/state")"
+  pass "fm_backend_herdr_server_ensure: starts the server with Herdr agent auto-restore forced off in a copy of the operator's config, and falls back unchanged when Herdr rejects the copy"
 }
 
 test_container_ensure_reuses_existing_workspace() {
@@ -4909,8 +4961,10 @@ test_send_text_submit_claude_payload_never_drawn_refuses_send() {
   fb=$(make_herdr_fakebin "$dir")
   out=$( PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" FM_BACKEND_HERDR_SUBMIT_POLLS=1 \
     FM_BACKEND_HERDR_PROOF_READS=3 FM_BACKEND_HERDR_PROOF_POLL=0.01 \
-    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_send_text_submit default:w1:p2 /exit 3 0.01 0.01' "$ROOT" )
+    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_send_text_submit default:w1:p2 /exit 3 0.01 0.01' "$ROOT" 2>"$dir/stderr" )
   [ "$out" = send-failed ] || fail "a payload the composer never draws should refuse the send, got '$out'"
+  assert_contains "$(cat "$dir/stderr")" 'herdr send to default:w1:p2 refused before Enter: the composer never showed the typed text, so it was cleared (composer showed: "")' \
+    "a refused send must say why on stderr, since a remote lifecycle caller keeps only its output"
   [ "$(grep -c $'\x1f''pane'$'\x1f''send-keys'$'\x1f''w1:p2'$'\x1f''enter' "$log")" -eq 0 ] || fail "an unproven payload must not be submitted"
   [ "$(herdr_ctrl_u_count "$log")" -eq 1 ] || fail "the refused send should be cleared once, sent $(herdr_ctrl_u_count "$log")"
   pass "fm_backend_herdr_send_text_submit: a payload the composer never draws is refused after a bounded number of reads"
@@ -4928,8 +4982,10 @@ test_send_text_submit_claude_payload_after_real_text_refuses_at_once() {
   fb=$(make_herdr_fakebin "$dir")
   out=$( PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" FM_BACKEND_HERDR_SUBMIT_POLLS=1 \
     FM_BACKEND_HERDR_PROOF_POLL=0.01 \
-    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_send_text_submit default:w1:p2 /exit 3 0.01 0.01' "$ROOT" )
+    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_send_text_submit default:w1:p2 /exit 3 0.01 0.01' "$ROOT" 2>"$dir/stderr" )
   [ "$out" = send-failed ] || fail "real typed text before the payload must refuse the send, got '$out'"
+  assert_contains "$(cat "$dir/stderr")" 'never showed the typed text, so it was cleared (composer showed: "fix the login bug/exit")' \
+    "a refused send must name what the composer showed instead of the payload"
   [ "$(grep -c $'\x1f''pane'$'\x1f''read' "$log")" -eq 3 ] || fail "a settled wrong composer must be refused on its first post-send read, not re-read"
   [ "$(grep -c $'\x1f''pane'$'\x1f''send-keys'$'\x1f''w1:p2'$'\x1f''enter' "$log")" -eq 0 ] || fail "real text plus the payload must not be submitted"
   pass "fm_backend_herdr_send_text_submit: real typed text in front of the payload is refused on the first read, never waited on"
@@ -4979,8 +5035,10 @@ test_send_text_submit_claude_real_text_under_cursor_refuses_send() {
   herdr_focused_suggestion_screen "$resp/2.out" f 'ix the login bug' 0
   fb=$(make_herdr_fakebin "$dir")
   out=$( PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" FM_BACKEND_HERDR_SUBMIT_POLLS=1 \
-    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_send_text_submit default:w1:p2 /exit 3 0.01 0.01' "$ROOT" )
+    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_send_text_submit default:w1:p2 /exit 3 0.01 0.01' "$ROOT" 2>"$dir/stderr" )
   [ "$out" = send-failed ] || fail "real typed text under Claude's cursor must refuse the send, got '$out'"
+  assert_contains "$(cat "$dir/stderr")" 'refused before Enter: the composer was not empty before typing (composer showed: "fix the login bug")' \
+    "a send refused before typing must name the text the composer already held"
   case "$(cat "$log")" in
     *$'\x1f''send-text'$'\x1f'*) fail "nothing may be typed onto a composer holding real text" ;;
   esac
@@ -5905,6 +5963,7 @@ test_workspace_ensure_other_home_ignores_the_launcher_identity
 test_container_ensure_refuses_an_ambiguous_home_label
 test_container_ensure_starts_server_and_workspace
 test_server_ensure_scrubs_home_and_harness_identity
+test_server_ensure_turns_off_herdr_agent_restore
 test_container_ensure_reuses_existing_workspace
 test_container_ensure_creates_with_no_focus_flag
 test_container_ensure_uses_secondmate_home_label

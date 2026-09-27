@@ -1726,6 +1726,34 @@ poll 8: {"agent_status":"working","session":".../2026-09-21T14-10-08-776Z_01a0c4
 
 The read that supplies the reference is `bin/backends/herdr.sh`'s `fm_backend_herdr_pane_agent_session_ref`, the per-harness rule is `bin/fm-control-lib.sh`'s `fm_control_relaunch_resume_flag`, and the launch argument is composed by `relaunch_resume_args` in `bin/fm-spawn.sh`; `docs/herdr-backend.md` "Agent status authority and relaunch" owns the contract. Nothing here changes `resume` as a control verb, and only a relaunch asks for it.
 
+### Agent auto-restore
+
+Measured 2026-09-27 on macOS arm64 against Herdr 0.9.1 (client protocol 22) and Claude Code 2.1.283, in isolated `fm-lab-` sessions (`bin/fm-herdr-lab.sh`).
+`herdr --default-config` documents the setting as `[session]` `resume_agents_on_restore`, default true, and the 0.9.1 binary reads its config from `HERDR_CONFIG_PATH` when set, else `$XDG_CONFIG_HOME/herdr/config.toml` (a broken file placed there is reported by `herdr config check`).
+Each run provisioned a lab session, ran `claude --permission-mode auto` in a pane until `agent get` reported a `herdr:claude` session reference, stopped the session with the lab helper's `stop`, and provisioned it again:
+
+```sh
+"$HERDR_LAB_HELPER" provision "$SES"
+"$HERDR_LAB_HELPER" run "$SES" pane run w1:p1 "claude --permission-mode auto"
+"$HERDR_LAB_HELPER" stop "$SES"; "$HERDR_LAB_HELPER" provision "$SES"
+"$HERDR_LAB_HELPER" run "$SES" pane read w1:p1 --source recent --lines 15
+```
+
+With no override, the restarted server typed the resume itself:
+
+```text
+lundi@M4-25 firstmate % claude --resume 850679f0-2288-4afe-8861-93e6e2bf5b4a
+```
+
+With `HERDR_CONFIG_PATH` naming a copy of the operator config plus `[session]` `resume_agents_on_restore = false` in the environment of both provisions, the same pane came back as a plain shell with nothing typed (`pane process-info` foreground `["-zsh"]`):
+
+```text
+lundi@M4-25 firstmate %
+```
+
+`herdr config check` exits 1 and prints `using defaults` for a file with a duplicate `[session]` table, which is why `fm_backend_herdr_server_config` validates its copy before using it.
+`docs/herdr-backend.md` "Agent auto-restore" owns the contract, and `tests/fm-backend-herdr.test.sh` pins the derived config.
+
 ### Away-mode transport
 
 The away daemon is no longer launched on Pi; the away posture there is the record `bin/fm-afk-contract.sh` owns.

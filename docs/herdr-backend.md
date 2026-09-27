@@ -527,6 +527,7 @@ When the selected named server is not running, the adapter launches it without t
 - The supervision-model override.
 
 Herdr passes its server startup environment to every later pane, so retaining those values could misroute panes for another Firstmate home or harness.
+The launch also turns Herdr's agent auto-restore off, as [Agent auto-restore](#agent-auto-restore) describes.
 An already-running server is reused without restart or environment changes.
 Explicit named-session routing and unrelated launch environment remain intact.
 
@@ -560,6 +561,9 @@ If the composer cannot be verified empty again, the submit reports `unknown` ins
 
 Other harnesses, and panes with no native identity, skip this proof and keep the type-then-Enter path.
 They skip it because their paste placeholders and composer shapes are not live-verified.
+
+Every refusal before Enter writes one stderr line naming the step that refused and, where one was read, what the composer showed.
+A lifecycle caller's own error names only the failed send, and a remote second mate's restart keeps nothing but its output, so that line is the only record of why.
 
 ### Submit confirmation
 
@@ -668,6 +672,22 @@ A restored same-labeled tab with a missing pane or no registered agent is a husk
 
 Create replaces only a confidently dead or no-agent husk, creates the replacement before closing the old tab, and refuses live or unknown states.
 This prevents closing the workspace's last tab before a replacement exists.
+
+### Agent auto-restore
+
+Herdr's `[session] resume_agents_on_restore` setting defaults to true: a restarted server re-runs every agent pane it has a session reference for, as a bare `claude --resume <id>`, `opencode`, or similar, all at once.
+Those agents carry none of the launch flags or environment Firstmate gave them, so a second mate can come back in Claude's default permission posture instead of its configured one, and a whole fleet respawning together can stall a small host.
+
+A server Firstmate starts runs with that setting off.
+`fm_backend_herdr_server_config` copies the operator's own Herdr config (the file `HERDR_CONFIG_PATH`, `$XDG_CONFIG_HOME`, or `~/.config` names) to `state/herdr-server-<session>.toml` with the setting forced to false, and the server is launched with `HERDR_CONFIG_PATH` naming that copy.
+The copy is regenerated at every start, so operator edits carry over, and it is checked with `herdr config check` first, because Herdr falls back to every default, auto-restore included, on a config it cannot parse.
+A copy that cannot be written or does not validate prints a warning, and the server then starts on the operator's config unchanged.
+
+With the setting off, each restored agent pane comes back as a plain shell in its saved directory.
+Firstmate reads that as a stopped agent: the secondmate liveness sweep relaunches a second mate from it with its recorded harness, flags, and environment, and an ordinary lane surfaces as a stopped worker for the normal recovery path, one supervision action at a time rather than all at once.
+
+A server Firstmate did not start, such as the captain's own `default` session or a host's service unit, reads the operator's config directly.
+To get the same behavior there, set `resume_agents_on_restore = false` in the `[session]` table of the config that server reads; it takes effect at that server's next start.
 
 ### Stale agent registrations
 

@@ -1645,21 +1645,65 @@ fm_backend_herdr_projection_order_best_effort() {  # <session> <created-workspac
   return 0
 }
 
+# fm_backend_herdr_server_config: print the path of a config for a server
+# firstmate starts for <session>: the operator's own Herdr config (the one
+# HERDR_CONFIG_PATH, else $XDG_CONFIG_HOME or ~/.config, names) with
+# `[session] resume_agents_on_restore = false` forced. With Herdr's default
+# (true), a restarted server re-runs every agent pane itself as a bare
+# `claude --resume <id>` or `opencode`, all at once and without any of the
+# launch flags or FM_* environment firstmate gave it; with it off, each pane
+# comes back as a plain shell, which firstmate's liveness and recovery read as
+# a stopped agent and relaunch through fm-spawn. The file is regenerated at
+# every start under the home's state directory, so operator edits carry over,
+# and must stay in place for the server's lifetime because reload-config
+# re-reads it. The derived file is proven with `herdr config check`, since
+# Herdr falls back to all defaults (restore on) on a config it cannot parse;
+# a failure prints a warning and returns nonzero, and the caller then starts
+# the server on the operator's config unchanged.
+fm_backend_herdr_server_config() {  # <session>
+  local session=$1 state src out tmp
+  state=${FM_STATE_OVERRIDE:-$FM_HOME/state}
+  src=${HERDR_CONFIG_PATH:-${XDG_CONFIG_HOME:-$HOME/.config}/herdr/config.toml}
+  case "$session" in ''|*[!A-Za-z0-9._-]*) return 1 ;; esac
+  out="$state/herdr-server-$session.toml"
+  if ! mkdir -p "$state" 2>/dev/null || ! tmp=$(mktemp "$state/.herdr-server-config.XXXXXX" 2>/dev/null); then
+    echo "warning: cannot write a Herdr server config under $state; starting '$session' with Herdr's agent auto-restore unchanged" >&2
+    return 1
+  fi
+  {
+    [ ! -f "$src" ] || awk '
+      /^[ \t]*(session\.)?resume_agents_on_restore[ \t]*=/ { next }
+      { print }
+      /^[ \t]*\[[ \t]*session[ \t]*\][ \t]*(#.*)?$/ { print "resume_agents_on_restore = false"; seen = 1 }
+      END { if (!seen) printf "\n[session]\nresume_agents_on_restore = false\n" }
+    ' "$src"
+    [ -f "$src" ] || printf '[session]\nresume_agents_on_restore = false\n'
+  } > "$tmp" && HERDR_CONFIG_PATH="$tmp" fm_backend_herdr_cli "$session" config check >/dev/null 2>&1 \
+    && mv -f "$tmp" "$out" && { printf '%s' "$out"; return 0; }
+  rm -f "$tmp"
+  echo "warning: the Herdr server config derived from $src did not validate; starting '$session' with Herdr's agent auto-restore unchanged" >&2
+  return 1
+}
+
 # fm_backend_herdr_server_ensure: start the herdr server for <session>
 # headless (no TUI client) if not already running, mirroring tmux's `tmux
 # has-session || tmux new-session -d`. Verified: a bare socket CLI call does
 # NOT auto-start the server, so this must run before any workspace/tab/pane
 # call. The server outlives its launcher and passes its startup environment to
 # every later pane, so remove home, harness identity, and supervision selection
-# inherited from whichever agent happened to start it. Bounded poll for the
-# server to report running.
+# inherited from whichever agent happened to start it. The server also starts
+# with Herdr's agent auto-restore off (fm_backend_herdr_server_config), so a
+# restart brings its panes back as plain shells for firstmate to relaunch.
+# Bounded poll for the server to report running.
 fm_backend_herdr_server_ensure() {  # <session>
-  local session=$1 running out i
+  local session=$1 running out i config
   running=$(fm_backend_herdr_cli "$session" status --json 2>/dev/null | jq -r '.server.running // false' 2>/dev/null)
   [ "$running" = "true" ] && return 0
+  config=$(fm_backend_herdr_server_config "$session") || config=
   (
     unset FM_HOME FM_ROOT_OVERRIDE FM_STATE_OVERRIDE FM_DATA_OVERRIDE FM_PROJECTS_OVERRIDE FM_CONFIG_OVERRIDE \
       CURSOR_AGENT CURSOR_INVOKED_AS CLAUDECODE PI_CODING_AGENT FM_PI_HARNESS GROK_AGENT FM_SUPERVISION_MODEL
+    [ -z "$config" ] || export HERDR_CONFIG_PATH="$config"
     fm_backend_herdr_cli "$session" server >/dev/null 2>&1 &
   ) || return 1
   for i in $(seq 1 20); do
@@ -2229,9 +2273,10 @@ EOF
 #                 produces (verified empirically: `session stop` + fresh `herdr
 #                 server` restart leaves the pane alive, agent_status "unknown",
 #                 agent get -> agent_not_found - docs/herdr-backend.md "ID
-#                 stability across a server restart"), and what a future
-#                 `resume_agents_on_restore = false` restore would produce too
-#                 (a plain shell, never an agent).
+#                 stability across a server restart"), and what a server
+#                 started with `resume_agents_on_restore = false`
+#                 (fm_backend_herdr_server_config) brings back too (a plain
+#                 shell, never an agent).
 #   stale-agent - `agent get` reports a registered agent_status (working, idle,
 #                 done, or blocked) but fm_backend_herdr_pane_process_state
 #                 proves the pane is shell-only: the registered agent's process
@@ -2456,10 +2501,10 @@ fm_backend_herdr_agent_alive() {  # <target>
 # A same-labeled tab already existing no longer means an automatic refusal:
 # herdr persists and restores its whole session layout (workspaces/tabs/
 # panes) across a server restart, including a reboot, and a restored fm-<id>
-# task tab comes back a HUSK - a dead pane, or (today, and unconditionally
-# once a future `resume_agents_on_restore = false` config ships) a plain
-# agent-less shell sitting in the saved cwd, never the crewmate that used to
-# be there. Before this fix, every fleet respawn after such a restart needed
+# task tab comes back a HUSK - a dead pane, or (always on a server started
+# with `resume_agents_on_restore = false`, fm_backend_herdr_server_config) a
+# plain agent-less shell sitting in the saved cwd, never the crewmate that
+# used to be there. Before this fix, every fleet respawn after such a restart needed
 # the operator to manually close each husk pane first before firstmate could
 # spawn into it again. fm_backend_herdr_tab_is_husk classifies the existing
 # tab's pane conservatively (dead or no-agent only; anything live or
@@ -3394,11 +3439,14 @@ fm_backend_herdr_composer_payload_drawing() {  # <text> <after>
 # re-read up to FM_BACKEND_HERDR_PROOF_READS times, FM_BACKEND_HERDR_PROOF_POLL
 # seconds apart, so one read taken before a slow agent drew the payload does not
 # refuse a send that landed. A settled wrong shape refuses on the read that
-# shows it.
+# shows it. On a refusal FM_BACKEND_HERDR_PROOF_LAST holds what the last
+# readable composer showed, or `<unreadable>` when no read succeeded.
 fm_backend_herdr_composer_payload_wait() {  # <target> <text> <lines>
   local target=$1 text=$2 lines=$3 reads=${FM_BACKEND_HERDR_PROOF_READS:-12} i=0 content
+  FM_BACKEND_HERDR_PROOF_LAST='<unreadable>'
   while :; do
     if content=$(fm_backend_herdr_composer_content "$target" "$lines"); then
+      FM_BACKEND_HERDR_PROOF_LAST=$content
       fm_backend_herdr_composer_payload_shown "$text" "$content" && return 0
       fm_backend_herdr_composer_payload_drawing "$text" "$content" || return 1
     fi
@@ -3406,6 +3454,21 @@ fm_backend_herdr_composer_payload_wait() {  # <target> <text> <lines>
     [ "$i" -lt "$reads" ] || return 1
     sleep "${FM_BACKEND_HERDR_PROOF_POLL:-0.5}"
   done
+}
+
+# fm_backend_herdr_send_refusal: say on stderr why a send was refused before
+# Enter. A lifecycle caller's own error names only the failed send, and
+# a remote one's output is all that survives, so the reason must travel with
+# it. <shown> is the composer text, flattened and cut to 120 characters.
+fm_backend_herdr_send_refusal() {  # <target> <why> [shown]
+  local shown=${3-}
+  shown=${shown//[$'\r\n\t']/ }
+  shown=${shown:0:120}
+  if [ "$#" -ge 3 ]; then
+    printf 'herdr send to %s refused before Enter: %s (composer showed: "%s")\n' "$1" "$2" "$shown" >&2
+  else
+    printf 'herdr send to %s refused before Enter: %s\n' "$1" "$2" >&2
+  fi
 }
 
 # fm_backend_herdr_composer_clear: after a refused proof, press Ctrl+U until
@@ -3438,17 +3501,27 @@ fm_backend_herdr_send_text_submit() {  # <target> <text> <retries> <enter-sleep>
   if [ "${identity%%$'\t'*}" = claude ]; then
     proof=1
     proof_lines=$(fm_backend_herdr_proof_lines "$text")
-    content=$(fm_backend_herdr_composer_content "$target" "$proof_lines") \
-      || { printf 'send-failed'; return 0; }
-    [ -z "${content//[$' \t\r\n\v\f']/}" ] || { printf 'send-failed'; return 0; }
+    content=$(fm_backend_herdr_composer_content "$target" "$proof_lines") || {
+      fm_backend_herdr_send_refusal "$target" "the composer could not be read before typing"
+      printf 'send-failed'; return 0
+    }
+    [ -z "${content//[$' \t\r\n\v\f']/}" ] || {
+      fm_backend_herdr_send_refusal "$target" "the composer was not empty before typing" "$content"
+      printf 'send-failed'; return 0
+    }
   fi
-  fm_backend_herdr_send_literal "$target" "$text" || { printf 'send-failed'; return 0; }
+  fm_backend_herdr_send_literal "$target" "$text" || {
+    fm_backend_herdr_send_refusal "$target" "typing the text failed"
+    printf 'send-failed'; return 0
+  }
   sleep "$settle"
   if [ "$proof" = 1 ]; then
     if ! fm_backend_herdr_composer_payload_wait "$target" "$text" "$proof_lines"; then
       if fm_backend_herdr_composer_clear "$target" "$text"; then
+        fm_backend_herdr_send_refusal "$target" "the composer never showed the typed text, so it was cleared" "$FM_BACKEND_HERDR_PROOF_LAST"
         printf 'send-failed'
       else
+        fm_backend_herdr_send_refusal "$target" "the composer never showed the typed text, and clearing it could not be verified" "$FM_BACKEND_HERDR_PROOF_LAST"
         printf 'unknown'
       fi
       return 0
