@@ -341,13 +341,29 @@ fm_task_inbox_ring() {  # <backend> <target> <record-path> [expected-label]
   return 0
 }
 
+# The selected composer's visible text, or failure when it cannot be read.
+fm_task_inbox_composer_text() {  # <backend> <target> [expected-label]
+  local cap
+  fm_backend_source "$1" || return 1
+  cap=$(fm_backend_capture "$1" "$2" "$FM_COMPOSER_CAPTURE_LINES" "${3:-}" 2>/dev/null) || return 1
+  fm_composer_extract_selected_content styled=0 "$cap"
+}
+
+# Whether composer text <held>, ignoring line wrapping, is exactly <line>.
+fm_task_inbox_is_line() {  # <held> <line>
+  [ -n "$1" ] && [ "$(printf '%s' "$1" | tr -d '[:space:]')" = "$(printf '%s' "$2" | tr -d '[:space:]')" ]
+}
+
 # Whether the composer's content, ignoring line wrapping, is exactly <line>.
 fm_task_inbox_composer_holds() {  # <backend> <target> <line> [expected-label]
-  local cap held
-  fm_backend_source "$1" || return 1
-  cap=$(fm_backend_capture "$1" "$2" "$FM_COMPOSER_CAPTURE_LINES" "${4:-}" 2>/dev/null) || return 1
-  held=$(fm_composer_extract_selected_content styled=0 "$cap") || return 1
-  [ -n "$held" ] && [ "$(printf '%s' "$held" | tr -d '[:space:]')" = "$(printf '%s' "$3" | tr -d '[:space:]')" ]
+  local held
+  held=$(fm_task_inbox_composer_text "$1" "$2" "${4:-}") || return 1
+  fm_task_inbox_is_line "$held" "$3"
+}
+
+# The exact doorbell line this home rings for <task-id>'s steering inbox.
+fm_task_inbox_task_doorbell_line() {  # <state-dir> <task-id>
+  fm_task_inbox_doorbell_line "$(fm_task_inbox_dir "$1" "$2")/000.msg"
 }
 
 fm_task_inbox_is_fire_and_forget() {  # <record-path>

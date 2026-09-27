@@ -50,6 +50,7 @@ muse is the one verified adapter that restores the cancelled prompt back into it
 The clear is refused before anything is sent when the recorded backend cannot deliver it.
 
 `exit` reads the composer's state before typing the exit command and requires the exact `empty` verdict; a `pending` verdict refuses by naming the pending text, and any other verdict (`unknown`, `pending-unproven`, or an unreadable read) refuses as not proven empty, matching the fail-safe contract every other consumer that can overwrite composer input follows.
+The one exception is a Claude composer holding exactly this task's own steering doorbell, a ring whose Enter never landed and which names only the durable inbox record: it is cleared row by row and must then read `empty` before the exit command is typed.
 
 **Teardown and discard are not verbs and will not become verbs.**
 `exit` stops an agent and preserves every record, worktree, and change.

@@ -89,6 +89,16 @@ case "${1:-}" in
     else
       printf '%s\n' "$payload" >> "$D/keys"
       case "$payload" in
+        C-u)
+          # Claude deletes one wrapped composer row per Ctrl+U; model a
+          # 36-column row so an undercounted clear leaves text behind.
+          held=$(cat "$D/composer" 2>/dev/null)
+          if [ "${#held}" -gt 36 ]; then
+            printf '%s' "${held:0:$(( (${#held} - 1) / 36 * 36 ))}" > "$D/composer"
+          else
+            : > "$D/composer"
+          fi
+          ;;
         'export GOTMPDIR='*)
           if [ -n "${FM_FAKE_TRACE_PREPARE:-}" ]; then
             : > "$FM_FAKE_TRACE_PREPARE"
@@ -118,7 +128,9 @@ case "${1:-}" in
   capture-pane)
     [ -z "${FM_FAKE_COMPOSER_READ_FAIL:-}" ] || exit 1
     if [ -s "$D/composer" ]; then
-      printf '╭────╮\n│ %s  │\n╰────╯\n' "$(cat "$D/composer")"
+      held=$(cat "$D/composer")
+      rule=$(printf '%*s' "$(( ${#held} + 3 ))" '' | sed 's/ /─/g')
+      printf '╭%s╮\n│ %s  │\n╰%s╯\n' "$rule" "$held" "$rule"
     else
       printf '╭────╮\n│    │\n╰────╯\n'
     fi
@@ -423,13 +435,65 @@ test_relaunch_refuses_before_exit_when_the_composer_holds_pending_text() {
   out=$(run_control "$dir" rl43 relaunch --note "preserve the pending draft"); rc=$?
 
   expect_code 1 "$rc" "a relaunch must refuse before typing an exit command into pending composer text"
-  assert_contains "$out" "composer visibly holds pending text" \
+  assert_contains "$out" 'composer visibly holds pending text ("i")' \
     "the refusal should name the pending composer text"
   [ "$(cat "$dir/fake/command")" = claude ] \
     || fail "a pending composer refusal must leave the old agent running"
   assert_no_grep "/exit" "$dir/fake/literal" \
     "the exit command must not be concatenated onto pending composer text"
   pass "fm-control relaunch: pending composer text refuses before the exit command is typed"
+}
+
+# rl_doorbell <case-dir> <id>: the exact steering doorbell this home rings for
+# <id>, as fm-task-inbox-lib composes it.
+rl_doorbell() {
+  bash -c '. "$0/bin/fm-task-inbox-lib.sh"; fm_task_inbox_task_doorbell_line "$1" "$2"' \
+    "$ROOT" "$1/home/state" "$2"
+}
+
+# A doorbell whose Enter never landed sits in a Claude composer as this task's
+# own exact line. It only names the durable inbox record, so exit clears it
+# row by row and proceeds instead of refusing forever.
+test_relaunch_clears_the_tasks_own_unsent_doorbell_before_exit() {
+  local dir out rc line
+  dir=$(new_case own-doorbell rl46)
+  add_ship_task "$dir" rl46 claude
+  line=$(rl_doorbell "$dir" rl46)
+  [ "${#line}" -gt 72 ] || fail "the doorbell fixture should wrap over several composer rows"
+  printf '%s' "$line" > "$dir/fake/composer"
+
+  out=$(run_control "$dir" rl46 relaunch --note "clear the stale doorbell"); rc=$?
+
+  expect_code 0 "$rc" "a relaunch should clear this task's own unsent doorbell and proceed"$'\n'"$out"
+  [ ! -s "$dir/fake/composer" ] || fail "every row of the doorbell should be cleared, left: $(cat "$dir/fake/composer")"
+  assert_grep 'C-u' "$dir/fake/keys" "the doorbell should be cleared with Ctrl+U"
+  assert_grep "/exit" "$dir/fake/literal" "the exit command should follow the cleared doorbell"
+  pass "fm-control relaunch: this task's own unsent doorbell is cleared before the exit command is typed"
+}
+
+# Only the exact doorbell may be cleared: extra text after it, or another
+# task's doorbell, may carry someone's real input and still refuses by name.
+test_relaunch_refuses_text_that_is_not_exactly_the_tasks_own_doorbell() {
+  local dir out rc line held
+  for held in suffix other-task; do
+    dir=$(new_case not-own-doorbell-$held rl47)
+    add_ship_task "$dir" rl47 claude
+    case "$held" in
+      suffix) line="$(rl_doorbell "$dir" rl47) and also fix the login bug" ;;
+      other-task) line=$(rl_doorbell "$dir" rl99) ;;
+    esac
+    printf '%s' "$line" > "$dir/fake/composer"
+
+    out=$(run_control "$dir" rl47 relaunch --note "keep the draft"); rc=$?
+
+    expect_code 1 "$rc" "a relaunch must refuse composer text that is not exactly this task's doorbell ($held)"
+    assert_contains "$out" 'composer visibly holds pending text (": Firstmate instruction waiting' \
+      "the refusal should name the text it found ($held)"
+    [ "$(cat "$dir/fake/composer")" = "$line" ] || fail "text that is not this task's doorbell must be left intact ($held)"
+    assert_no_grep 'C-u' "$dir/fake/keys" "nothing may be deleted from a composer that is not this task's doorbell ($held)"
+    assert_no_grep "/exit" "$dir/fake/literal" "the exit command must not be typed ($held)"
+  done
+  pass "fm-control relaunch: composer text that is not exactly this task's own doorbell still refuses, naming the text"
 }
 
 test_relaunch_refuses_before_exit_when_the_composer_state_is_unproven() {
@@ -2414,6 +2478,8 @@ test_same_harness_relaunch_keeps_identity_and_reuses_the_endpoint
 test_relaunch_launches_claude_without_the_child_session_marker
 test_relaunch_refuses_before_exit_when_the_composer_holds_pending_text
 test_relaunch_refuses_before_exit_when_the_composer_state_is_unproven
+test_relaunch_clears_the_tasks_own_unsent_doorbell_before_exit
+test_relaunch_refuses_text_that_is_not_exactly_the_tasks_own_doorbell
 test_relaunch_from_linked_home_preserves_recorded_worktree
 test_relaunch_preserves_durable_task_metadata
 test_relaunch_serializes_concurrent_durable_metadata_publication

@@ -554,6 +554,7 @@ A composer that holds a shorter suffix, or a placeholder plus a literal remainde
 Instead:
 
 1. The adapter presses Ctrl+U until the shared classifier reads the composer as empty.
+   Live Claude deletes one wrapped row per press, so the first presses cover every row the payload can fill before any read, because an agent on a starved host that has not drawn the payload yet also reads empty.
 2. It then reports `send-failed`, so a resend starts from a clean composer.
 
 Ctrl+C is not used for this, because Claude documents it as interrupting a running operation.

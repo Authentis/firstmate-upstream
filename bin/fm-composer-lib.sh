@@ -604,6 +604,24 @@ fm_composer_strip_braille() {
 # boxes) from ever competing with the live composer.
 FM_COMPOSER_CAPTURE_LINES=${FM_COMPOSER_CAPTURE_LINES:-20}
 
+# fm_composer_clear_presses: how many line-clear presses (Ctrl+U) remove
+# <text> from a composer before any read may call it cleared. Live Claude
+# deletes one wrapped screen row per press, so this is the rows <text> can fill
+# in a composer at least FM_COMPOSER_CLEAR_MIN_COLUMNS wide, plus one per
+# embedded newline. A read that looks empty after fewer presses is not proof:
+# an agent that has not drawn its input yet (a CPU-starved host) reads empty
+# while the text is still queued ahead of the presses, and stopping there left
+# every row but the last of a firstmate doorbell unsent in a Claude composer
+# (reproduced 2026-09-27 on Claude Code 2.1.283 in a Herdr 0.9.1 lab by pausing
+# the agent). Extra presses on an empty composer delete nothing.
+FM_COMPOSER_CLEAR_MIN_COLUMNS=${FM_COMPOSER_CLEAR_MIN_COLUMNS:-36}
+fm_composer_clear_presses() {  # <text>
+  local text=$1 cols=$FM_COMPOSER_CLEAR_MIN_COLUMNS newlines
+  case "$cols" in ''|*[!0-9]*|0) cols=36 ;; esac
+  newlines=${text//[!$'\n']/}
+  printf '%s' $(( (${#text} + cols - 1) / cols + ${#newlines} ))
+}
+
 # Pi allows a multi-line composer between its horizontal separators. Bound the
 # structural candidate so two unrelated transcript rules with an arbitrarily
 # large region between them can never be promoted into a composer.

@@ -4845,8 +4845,17 @@ herdr_long_payload() {  # <middle-length>
   awk -v n="$1" 'BEGIN { printf "HEAD"; for (i = 0; i < n; i++) printf "m"; printf "TAIL" }'
 }
 
+# Counts Ctrl+U keys, not calls: the clear batches its first presses into one
+# send-keys call.
 herdr_ctrl_u_count() {  # <log>
-  grep -c $'\x1f''pane'$'\x1f''send-keys'$'\x1f''w1:p2'$'\x1f''ctrl+u' "$1"
+  grep $'\x1f''pane'$'\x1f''send-keys'$'\x1f''w1:p2'$'\x1f' "$1" \
+    | tr '\037' '\n' | grep -c '^ctrl+u$'
+}
+
+# herdr_clear_floor: the Ctrl+U presses a refused send owes <text> before any
+# read may call the composer cleared.
+herdr_clear_floor() {  # <text>
+  bash -c '. "$0/bin/fm-composer-lib.sh"; fm_composer_clear_presses "$1"' "$ROOT" "$1"
 }
 
 # herdr_wrapped_composer: a Claude composer holding <text> wrapped at <width>
@@ -5060,7 +5069,8 @@ test_send_text_submit_refuses_enter_when_composer_holds_only_the_suffix() {
   [ "$out" = send-failed ] || fail "a composer holding only the payload suffix, cleared back to empty, should report send-failed, got '$out'"
   enter_count=$(grep -c $'\x1f''pane'$'\x1f''send-keys'$'\x1f''w1:p2'$'\x1f''enter' "$log")
   [ "$enter_count" -eq 0 ] || fail "a suffix must not be submitted, sent $enter_count Enter(s)"
-  [ "$(herdr_ctrl_u_count "$log")" -eq 1 ] || fail "the refused suffix should be cleared with one Ctrl+U, sent $(herdr_ctrl_u_count "$log")"
+  [ "$(herdr_ctrl_u_count "$log")" -eq "$(herdr_clear_floor "$text")" ] \
+    || fail "the refused suffix should get one Ctrl+U per row the payload can fill, sent $(herdr_ctrl_u_count "$log")"
   [ "$(grep -c $'\x1f''agent'$'\x1f''get' "$log")" -eq 1 ] || fail "a refused suffix must not be confirmed by a later working status"
   pass "fm_backend_herdr_send_text_submit: a long payload whose Claude composer kept only the tail is not submitted, is cleared, and reports send-failed"
 }
@@ -5087,22 +5097,57 @@ test_send_text_submit_refused_suffix_that_will_not_clear_is_unknown() {
 }
 
 test_send_text_submit_clears_a_wrapped_suffix_one_row_per_press() {
-  local dir log resp fb out enter_count text suffix drop
+  local dir log resp fb out enter_count text suffix floor
   dir="$TMP_ROOT/submit-long-suffix-wrapped"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
   text=$(herdr_long_payload 1492)
   suffix=${text: -480}
+  floor=$(herdr_clear_floor "$text")
   herdr_submit_claude_prefix "$resp" "$text"
-  for drop in 0 1 2 3 4 5; do
-    herdr_wrapped_composer "$suffix" 96 "$drop" > "$resp/$((4 + 2 * drop)).out"
-  done
+  herdr_wrapped_composer "$suffix" 96 0 > "$resp/4.out"
+  # The up-front presses land while the agent is still catching up, so the
+  # first read after them shows two rows left; each later press removes one.
+  herdr_wrapped_composer "$suffix" 96 3 > "$resp/6.out"
+  herdr_wrapped_composer "$suffix" 96 4 > "$resp/8.out"
+  herdr_wrapped_composer "$suffix" 96 5 > "$resp/10.out"
   fb=$(make_herdr_fakebin "$dir")
   out=$( PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" FM_BACKEND_HERDR_SUBMIT_POLLS=1 \
     bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_send_text_submit default:w1:p2 "$1" 3 0.01 0.01' "$ROOT" "$text" )
   [ "$out" = send-failed ] || fail "a refused suffix wrapped over five rows, cleared row by row, should report send-failed, got '$out'"
   enter_count=$(grep -c $'\x1f''pane'$'\x1f''send-keys'$'\x1f''w1:p2'$'\x1f''enter' "$log")
   [ "$enter_count" -eq 0 ] || fail "a suffix must not be submitted, sent $enter_count Enter(s)"
-  [ "$(herdr_ctrl_u_count "$log")" -eq 5 ] || fail "a five-row wrapped suffix should take five Ctrl+U presses, sent $(herdr_ctrl_u_count "$log")"
-  pass "fm_backend_herdr_send_text_submit: a refused 480-character suffix wrapped over five rows is cleared one row per Ctrl+U and reports send-failed"
+  [ "$(herdr_ctrl_u_count "$log")" -eq $((floor + 2)) ] \
+    || fail "rows still shown after the up-front presses should each take one more Ctrl+U, sent $(herdr_ctrl_u_count "$log") after a floor of $floor"
+  pass "fm_backend_herdr_send_text_submit: rows a refused wrapped suffix still shows after the up-front presses are cleared one per Ctrl+U"
+}
+
+# A CPU-starved agent may not have drawn a refused payload at all when the
+# clear starts, so its composer reads empty while every typed byte is still
+# queued ahead of the Ctrl+U presses. Stopping at that empty read sent one
+# press, and the agent then drew the whole doorbell and deleted only its last
+# row, leaving the rest unsent in the composer (reproduced live by pausing a
+# Claude 2.1.283 agent in a Herdr 0.9.1 lab). Every row the payload can fill
+# must be pressed before any read may call the composer cleared.
+test_send_text_submit_undrawn_refused_payload_gets_every_row_pressed() {
+  local dir log resp fb out text floor n
+  dir="$TMP_ROOT/submit-undrawn-doorbell"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
+  text=": Firstmate instruction waiting: list '/home/crew/firstmate/state/netcup.inbox'/*.msg and, in numeric order, read and act on each, then run '/home/crew/firstmate/bin/fm-inbox-ack.sh' '/home/crew/firstmate/state/netcup.inbox' NNN.msg to acknowledge it."
+  floor=$(herdr_clear_floor "$text")
+  [ "$floor" -ge 5 ] || fail "the doorbell fixture should fill several composer rows, floor was $floor"
+  printf '{"result":{"agent":{"agent":"claude","agent_status":"idle"}}}\n' > "$resp/1.out"
+  for n in 2 4 5 6 8; do
+    herdr_idle_claude_composer "$resp/$n.out"
+  done
+  fb=$(make_herdr_fakebin "$dir")
+  out=$( PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" FM_BACKEND_HERDR_SUBMIT_POLLS=1 \
+    FM_BACKEND_HERDR_PROOF_READS=3 FM_BACKEND_HERDR_PROOF_POLL=0.01 \
+    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_send_text_submit default:w1:p2 "$1" 3 0.01 0.01' "$ROOT" "$text" 2>"$dir/stderr" )
+  [ "$out" = send-failed ] || fail "an undrawn payload should refuse the send, got '$out'"
+  [ "$(grep -c $'\x1f''pane'$'\x1f''send-keys'$'\x1f''w1:p2'$'\x1f''enter' "$log")" -eq 0 ] || fail "an unproven payload must not be submitted"
+  [ "$(herdr_ctrl_u_count "$log")" -eq "$floor" ] \
+    || fail "an undrawn payload that reads empty must still get all $floor Ctrl+U presses, sent $(herdr_ctrl_u_count "$log")"
+  [ "$(grep -c $'\x1f''pane'$'\x1f''read' "$log")" -eq 5 ] \
+    || fail "the clear should read the composer once, only after all its up-front presses"
+  pass "fm_backend_herdr_send_text_submit: a refused payload the agent has not drawn yet still gets one Ctrl+U per row it can fill before the clear is trusted"
 }
 
 test_send_text_submit_refused_suffix_then_clean_retry_submits_only_the_message() {
@@ -5212,7 +5257,7 @@ test_send_text_submit_refuses_marked_digest_missing_its_head() {
   [ "$out" = send-failed ] || fail "a marked digest whose composer kept only the tail should report send-failed, got '$out'"
   enter_count=$(grep -c $'\x1f''pane'$'\x1f''send-keys'$'\x1f''w1:p2'$'\x1f''enter' "$log")
   [ "$enter_count" -eq 0 ] || fail "a marked digest tail must not be submitted, sent $enter_count Enter(s)"
-  [ "$(herdr_ctrl_u_count "$log")" -eq 1 ] || fail "the refused marked digest tail should be cleared"
+  [ "$(herdr_ctrl_u_count "$log")" -eq "$(herdr_clear_floor "$text")" ] || fail "the refused marked digest tail should be cleared"
   pass "fm_backend_herdr_send_text_submit: dropping U+2063 does not let a marked digest missing its head be submitted"
 }
 
@@ -5268,7 +5313,7 @@ test_send_text_submit_refuses_placeholder_followed_by_a_literal_remainder() {
   [ "$out" = send-failed ] || fail "a paste placeholder followed by a literal remainder should report send-failed, got '$out'"
   enter_count=$(grep -c $'\x1f''pane'$'\x1f''send-keys'$'\x1f''w1:p2'$'\x1f''enter' "$log")
   [ "$enter_count" -eq 0 ] || fail "a placeholder plus remainder must not be submitted, sent $enter_count Enter(s)"
-  [ "$(herdr_ctrl_u_count "$log")" -eq 1 ] || fail "the refused placeholder and remainder should be cleared"
+  [ "$(herdr_ctrl_u_count "$log")" -eq "$(herdr_clear_floor "$text")" ] || fail "the refused placeholder and remainder should be cleared"
   pass "fm_backend_herdr_send_text_submit: a paste placeholder followed by a literal remainder is not submitted and is cleared"
 }
 
@@ -6122,6 +6167,7 @@ test_send_text_submit_claude_real_text_under_cursor_refuses_send
 test_send_text_submit_refuses_enter_when_composer_holds_only_the_suffix
 test_send_text_submit_refused_suffix_that_will_not_clear_is_unknown
 test_send_text_submit_clears_a_wrapped_suffix_one_row_per_press
+test_send_text_submit_undrawn_refused_payload_gets_every_row_pressed
 test_send_text_submit_refused_suffix_then_clean_retry_submits_only_the_message
 test_send_text_submit_claude_refuses_to_type_into_a_nonempty_composer
 test_send_text_submit_refuses_suffix_when_transcript_still_shows_the_head

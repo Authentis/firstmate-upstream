@@ -125,7 +125,10 @@
 #   - An ambiguous or unreadable endpoint state refuses; only a positively
 #     classified state acts.
 #   - A composer that visibly holds pending text refuses before an exit command
-#     is typed, so existing text is preserved instead of being concatenated.
+#     is typed, naming that text, so existing text is preserved instead of
+#     being concatenated. The one exception is this task's own exact steering
+#     doorbell on a harness with a verified row-clear key (Claude), which is
+#     cleared and verified empty first (clear_own_doorbell).
 #
 # Environment knobs (all bounded waits, seconds):
 #   FM_CONTROL_POLL              poll interval for postcondition waits (0.5)
@@ -182,6 +185,10 @@ DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 . "$SCRIPT_DIR/fm-wake-lib.sh"
 # shellcheck source=bin/fm-worker-account-lib.sh
 . "$SCRIPT_DIR/fm-worker-account-lib.sh"
+# shellcheck source=bin/fm-task-inbox-lib.sh
+. "$SCRIPT_DIR/fm-task-inbox-lib.sh"
+# shellcheck source=bin/fm-composer-lib.sh
+. "$SCRIPT_DIR/fm-composer-lib.sh"
 
 POLL=${FM_CONTROL_POLL:-0.5}
 SETTLE_WAIT=${FM_CONTROL_SETTLE_WAIT:-5}
@@ -542,7 +549,7 @@ verify_interrupt_running() {
     after=$(agent_state)
     [ "$after" = alive ] \
       || die "task $ID's agent is '$after' after its interrupt key; an interrupt must leave the agent running"
-    proof=agent-alive
+    proof='agent-alive'
   fi
   printf '%s' "$proof"
 }
@@ -558,6 +565,38 @@ retire_busy_incarnation() {
   if [ -f "$STATE/$ID.busy-gen" ]; then
     "$SCRIPT_DIR/fm-busy-event.sh" retire "$STATE" "$ID" --current-gen >/dev/null 2>&1 || true
   fi
+}
+
+# clear_own_doorbell: when the composer's pending text is exactly this task's
+# own steering doorbell - a ring whose Enter never landed - delete it with the
+# harness's row-clear key and wait until the composer reads empty. The doorbell
+# only names the durable inbox record, which stays unacknowledged and is still
+# delivered after a relaunch, so clearing it loses nothing. Any other text is
+# refused, naming it, because it may be someone's real unsent input.
+clear_own_doorbell() {  # <exit-command>
+  local cmd=$1 held line key presses i=0 elapsed=0 state
+  held=$(fm_task_inbox_composer_text "$BACKEND" "$T" "$LABEL") || held=
+  held=${held//[$'\r\n\t']/ }
+  line=$(fm_task_inbox_task_doorbell_line "$STATE" "$ID") || line=
+  key=$(fm_control_composer_clear_key "$HARNESS")
+  if [ -z "$line" ] || [ -z "$key" ] || ! fm_task_inbox_is_line "$held" "$line" \
+     || ! fm_control_backend_supports_key "$BACKEND" "$key"; then
+    die "task $ID's composer visibly holds pending text (\"${held:0:120}\"); refusing to type the $cmd exit command because it would concatenate onto that text. Clear or submit the pending text, then retry '$VERB'"
+  fi
+  presses=$(fm_composer_clear_presses "$line")
+  while [ "$i" -lt "$presses" ]; do
+    fm_backend_send_key "$BACKEND" "$T" "$key" "$LABEL" >/dev/null 2>&1 \
+      || die "task $ID's composer holds this task's own unsent steering doorbell, and clearing it failed; refusing to type the $cmd exit command"
+    i=$((i + 1))
+  done
+  while :; do
+    state=$(fm_backend_composer_state "$BACKEND" "$T" "$LABEL" 2>/dev/null) || state=unknown
+    [ "$state" = empty ] && return 0
+    awk -v e="$elapsed" -v t="$SETTLE_WAIT" 'BEGIN{exit !(e < t)}' || break
+    sleep "$POLL"
+    elapsed=$(awk -v e="$elapsed" -v p="$POLL" 'BEGIN{printf "%.3f", e + p}')
+  done
+  die "task $ID's composer held this task's own unsent steering doorbell, and after clearing it the composer reads '$state', not empty; refusing to type the $cmd exit command"
 }
 
 # do_exit: stop the running agent, preserving endpoint and worktree. Prints
@@ -634,9 +673,7 @@ do_exit() {
     || composer_state=unknown
   case "$composer_state" in
     empty) ;;
-    pending)
-      die "task $ID's composer visibly holds pending text; refusing to type the $cmd exit command because it would concatenate onto that text. Clear or submit the pending text, then retry '$VERB'"
-      ;;
+    pending) clear_own_doorbell "$cmd" ;;
     *)
       die "task $ID's composer state is '$composer_state', not proven empty; refusing to type the $cmd exit command because it could concatenate onto existing text. Clear the composer, then retry '$VERB'"
       ;;

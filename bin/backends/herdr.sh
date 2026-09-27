@@ -3476,17 +3476,30 @@ fm_backend_herdr_send_refusal() {  # <target> <why> [shown]
 # as delete-to-line-start, repeated across lines of a multiline draft; Ctrl+C
 # is not used because it interrupts a running turn. Live Claude deletes one
 # wrapped screen row per press, so a single-line leftover can need several
-# presses. The press count is bounded by the rows the proof capture covers.
+# presses. The first fm_composer_clear_presses presses go out in one call
+# before any read, because a slow agent that has not drawn <text> yet also
+# reads empty; after that each press is followed by a read, and the total is
+# bounded by the rows the proof capture covers.
 # 0 only when the composer is verified empty again.
 fm_backend_herdr_composer_clear() {  # <target> <text>
-  local target=$1 text=$2 presses i=0
+  local target=$1 text=$2 presses floor i=0 keys=()
   presses=$(fm_backend_herdr_proof_lines "$text")
-  while [ "$i" -lt "$presses" ]; do
+  floor=$(fm_composer_clear_presses "$text")
+  [ "$floor" -ge 1 ] || floor=1
+  [ "$floor" -le "$presses" ] || floor=$presses
+  while [ "${#keys[@]}" -lt "$floor" ]; do
+    keys+=("$(fm_backend_herdr_normalize_key C-u)")
+  done
+  fm_backend_herdr_target_ready "$target" || return 1
+  fm_backend_herdr_cli "$FM_BACKEND_HERDR_SESSION" pane send-keys "$FM_BACKEND_HERDR_PANE" "${keys[@]}" >/dev/null 2>&1 \
+    || return 1
+  i=$floor
+  while :; do
+    [ "$(fm_backend_herdr_composer_state "$target")" = empty ] && return 0
+    [ "$i" -lt "$presses" ] || return 1
     fm_backend_herdr_send_key "$target" C-u || return 1
     i=$((i + 1))
-    [ "$(fm_backend_herdr_composer_state "$target")" = empty ] && return 0
   done
-  return 1
 }
 
 fm_backend_herdr_send_text_submit() {  # <target> <text> <retries> <enter-sleep> <settle>
