@@ -55,7 +55,8 @@ ACK_FINGERPRINTS=
 ACK_NOTICE_FINGERPRINTS=
 PRESENTATION_LOCK_TIMEOUT=${FM_STATUS_PRESENTATION_LOCK_TIMEOUT:-10}
 BRANCH_OUTCOMES_RC=0
-BRANCH_OUTCOMES_TEXT=
+BRANCH_OUTCOMES_FILE=
+BRANCH_OUTCOMES_PENDING=0
 case "$PRESENTATION_LOCK_TIMEOUT" in ''|*[!0-9]*|0) PRESENTATION_LOCK_TIMEOUT=10 ;; esac
 
 # --- per-actor consume (docs/watcher-continuity.md "Per-actor acknowledgement") --
@@ -713,10 +714,52 @@ ROWS
     printf '%s' "$text" || return 1
   fi
   [ "$through" -gt 0 ] || return 0
-  if ! "$SCRIPT_DIR/fm-branch-outcome.sh" mark-read --through "$through" >/dev/null 2>&1; then
+  if [ -n "${BRANCH_OUTCOMES_DEFER_THROUGH+x}" ]; then
+    BRANCH_OUTCOMES_DEFER_THROUGH=$through
+    return 0
+  fi
+  branch_outcomes_mark_read "$through"
+}
+
+branch_outcomes_mark_read() {  # <through>
+  if ! "$SCRIPT_DIR/fm-branch-outcome.sh" mark-read --through "$1" >/dev/null 2>&1; then
     printf 'BRANCH OUTCOMES: the store could not record this presentation, so these outcomes are presented again on the next drain and an acknowledgement above is refused until then.\n' >&2
     return 1
   fi
+}
+
+# A routine acknowledgement must know whether BRANCH OUTCOMES has anything to
+# present before claiming "nothing actionable", so the section is staged into
+# a private file first, with its read cursor left alone. branch_outcomes_publish
+# then prints it and only then records the presentation, so a print that fails
+# still leaves every row for the next drain. Without a staging file the section
+# prints directly and nothing is acknowledged as routine.
+branch_outcomes_collect() {
+  BRANCH_OUTCOMES_FILE=
+  if ! BRANCH_OUTCOMES_FILE=$(mktemp "$STATE/.wake-branch-outcomes.XXXXXX" 2>/dev/null); then
+    BRANCH_OUTCOMES_FILE=
+    print_branch_outcomes_section || BRANCH_OUTCOMES_RC=1
+    BRANCH_OUTCOMES_PENDING=1
+    return 0
+  fi
+  BRANCH_OUTCOMES_DEFER_THROUGH=0
+  print_branch_outcomes_section > "$BRANCH_OUTCOMES_FILE" || BRANCH_OUTCOMES_RC=1
+  BRANCH_OUTCOMES_PENDING=0
+  [ ! -s "$BRANCH_OUTCOMES_FILE" ] || BRANCH_OUTCOMES_PENDING=1
+}
+
+branch_outcomes_publish() {
+  local through=${BRANCH_OUTCOMES_DEFER_THROUGH:-0}
+  unset BRANCH_OUTCOMES_DEFER_THROUGH
+  [ -n "$BRANCH_OUTCOMES_FILE" ] || return 0
+  if [ -s "$BRANCH_OUTCOMES_FILE" ] && ! command cat "$BRANCH_OUTCOMES_FILE"; then
+    rm -f "$BRANCH_OUTCOMES_FILE"
+    BRANCH_OUTCOMES_RC=1
+    return 0
+  fi
+  rm -f "$BRANCH_OUTCOMES_FILE"
+  [ "$through" -gt 0 ] || return 0
+  branch_outcomes_mark_read "$through" || BRANCH_OUTCOMES_RC=1
 }
 
 # BRANCH OUTCOMES' per-item cut: the shared digest marker in place of the
@@ -1042,6 +1085,7 @@ cleanup() {
   [ -z "$DRAIN_VIEW_TMP" ] || rm -f -- "$DRAIN_VIEW_TMP" 2>/dev/null || true
   [ -z "$MEASURE_ROWS" ] || rm -f -- "$MEASURE_ROWS" 2>/dev/null || true
   [ -z "$ROUTINE_REPORT" ] || rm -f -- "$ROUTINE_REPORT" "$ROUTINE_REPORT.out" 2>/dev/null || true
+  [ -z "$BRANCH_OUTCOMES_FILE" ] || rm -f -- "$BRANCH_OUTCOMES_FILE" 2>/dev/null || true
   [ -z "$ROUTINE_VIEW" ] || rm -f -- "$ROUTINE_VIEW" 2>/dev/null || true
   if [ "$DRAIN_LOCK_HELD" = true ]; then
     fm_lock_release "$FM_WAKE_QUEUE_LOCK"
@@ -1096,8 +1140,8 @@ if [ ! -s "$FM_WAKE_QUEUE" ]; then
   DRAIN_LOCK_HELD=false
   # BRANCH OUTCOMES is read first so a routine acknowledgement never claims
   # "nothing actionable" over captain outcomes it presents below.
-  BRANCH_OUTCOMES_TEXT=$(print_branch_outcomes_section) || BRANCH_OUTCOMES_RC=1
-  if present_status && [ -z "$BRANCH_OUTCOMES_TEXT" ] && [ "$BRANCH_OUTCOMES_RC" = 0 ]; then
+  branch_outcomes_collect
+  if present_status && [ "$BRANCH_OUTCOMES_PENDING" = 0 ] && [ "$BRANCH_OUTCOMES_RC" = 0 ]; then
     if [ "$RECOVERY_ACK_REQUIRED" = true ]; then
       acknowledge_routine 0 "${RECOVERY_MARKER_TOKEN##*:}" || true
     else
@@ -1105,7 +1149,7 @@ if [ ! -s "$FM_WAKE_QUEUE" ]; then
     fi
     RECOVERY_ACK_REQUIRED=handled
   fi
-  [ -z "$BRANCH_OUTCOMES_TEXT" ] || printf '%s\n' "$BRANCH_OUTCOMES_TEXT"
+  branch_outcomes_publish
   if [ "$RECOVERY_ACK_REQUIRED" = true ]; then
     printf 'WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 0 --recovery-generation %s\n' "${RECOVERY_MARKER_TOKEN##*:}" >&2
   fi
@@ -1189,18 +1233,18 @@ esac
 fm_lock_release "$FM_WAKE_QUEUE_LOCK"
 DRAIN_LOCK_HELD=false
 measure_presented "$RAW_ROWS"
-BRANCH_OUTCOMES_TEXT=$(print_branch_outcomes_section) || BRANCH_OUTCOMES_RC=1
+branch_outcomes_collect
 if [ "$ROUTINE_MODE" != true ]; then
   printf 'WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through %s --recovery-generation %s\n' \
     "$ACK_THROUGH" "${RECOVERY_MARKER_TOKEN##*:}" >&2
   (print_status_presentation "$RAW_ROWS") || true
 elif present_status "$RAW_ROWS" && [ "$ROUTINE_ROWS" = true ] \
-  && [ -z "$BRANCH_OUTCOMES_TEXT" ] && [ "$BRANCH_OUTCOMES_RC" = 0 ]; then
+  && [ "$BRANCH_OUTCOMES_PENDING" = 0 ] && [ "$BRANCH_OUTCOMES_RC" = 0 ]; then
   acknowledge_routine "$ACK_THROUGH" "${RECOVERY_MARKER_TOKEN##*:}" || true
 else
   printf 'WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through %s --recovery-generation %s\n' \
     "$ACK_THROUGH" "${RECOVERY_MARKER_TOKEN##*:}" >&2
 fi
-[ -z "$BRANCH_OUTCOMES_TEXT" ] || printf '%s\n' "$BRANCH_OUTCOMES_TEXT"
+branch_outcomes_publish
 assert_watcher_liveness
 exit "$BRANCH_OUTCOMES_RC"
