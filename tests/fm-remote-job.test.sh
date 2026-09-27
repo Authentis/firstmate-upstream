@@ -50,6 +50,14 @@ cleanup_remote_job_fixture() {
 }
 trap cleanup_remote_job_fixture EXIT
 
+# macOS may append scheduler flags such as N to a stopped process state when a
+# worker is asleep in its longer idle backoff.  The leading T is the portable
+# stopped-process signal this test needs.
+process_stopped() { # <pid>
+  case "$(ps -o state= -p "$1" 2>/dev/null | tr -d ' ')" in T*) return 0 ;; esac
+  return 1
+}
+
 cp "$ROOT/bin/fm-remote-job-lib.sh" "$ROOT/bin/fm-remote-job-worker.sh" \
   "$ROOT/bin/fm-remote-delta-read.sh" "$REMOTE_ROOT/bin/"
 printf 'fixture\n' > "$REMOTE_ROOT/AGENTS.md"
@@ -765,11 +773,10 @@ assert_present "$LOST_STATE/worker.ready" "the ownership-loss worker did not bec
 assert_present "$LOST_STATE/worker.lock" "the ownership-loss worker did not publish its lock"
 kill -STOP "$LOST_TERM_PID"
 for _ in $(seq 1 100); do
-  [ "$(ps -o state= -p "$LOST_TERM_PID" 2>/dev/null | tr -d ' ')" = T ] && break
+  process_stopped "$LOST_TERM_PID" && break
   sleep 0.05
 done
-[ "$(ps -o state= -p "$LOST_TERM_PID" 2>/dev/null | tr -d ' ')" = T ] \
-  || fail "the ownership-loss worker did not stop"
+process_stopped "$LOST_TERM_PID" || fail "the ownership-loss worker did not stop"
 rm -rf -- "$LOST_STATE/worker.lock"
 kill -CONT "$LOST_TERM_PID"
 LOST_READY_BEFORE=$(file_inode "$LOST_STATE/worker.ready")
@@ -823,7 +830,7 @@ done
 assert_present "$HOLD_STARTED" "the held command did not start before ownership loss"
 kill -STOP "$LOST_TERM_PID"
 for _ in $(seq 1 100); do
-  [ "$(ps -o state= -p "$LOST_TERM_PID" 2>/dev/null | tr -d ' ')" = T ] && break
+  process_stopped "$LOST_TERM_PID" && break
   sleep 0.05
 done
 rm -rf -- "$LOST_STATE/worker.lock"
@@ -859,7 +866,7 @@ done
 assert_present "$OWNER_STATE/worker.ready" "the worker that will lose ownership did not become ready"
 kill -STOP "$LOST_TERM_PID"
 for _ in $(seq 1 100); do
-  [ "$(ps -o state= -p "$LOST_TERM_PID" 2>/dev/null | tr -d ' ')" = T ] && break
+  process_stopped "$LOST_TERM_PID" && break
   sleep 0.05
 done
 rm -rf -- "$OWNER_STATE/worker.lock"
@@ -1002,11 +1009,11 @@ STALL_QUARANTINE_INODE=$(file_inode "$STALL_STATE/worker.lock/quarantine")
 # worker has finished.
 kill -STOP "$STALL_REPLACEMENT_PID"
 STALL_DEADLINE=$((SECONDS + 30))
-until [ "$(ps -o state= -p "$STALL_REPLACEMENT_PID" 2>/dev/null | tr -d ' ')" = T ] \
+until process_stopped "$STALL_REPLACEMENT_PID" \
   || [ "$SECONDS" -ge "$STALL_DEADLINE" ]; do
   sleep 0.05
 done
-[ "$(ps -o state= -p "$STALL_REPLACEMENT_PID" 2>/dev/null | tr -d ' ')" = T ] \
+process_stopped "$STALL_REPLACEMENT_PID" \
   || fail "the replacement could not be held while the ousted worker resumed"
 kill -KILL -- "-$STALL_JOB_GROUP" 2>/dev/null || true
 STALL_DEADLINE=$((SECONDS + 30))
@@ -1099,5 +1106,69 @@ RESTART_SUPERVISOR_PID=
 assert_grep "remote job worker exited 3 times; stopping the supervisor" "$TMP_ROOT/restart-supervisor.err" \
   "the restart guard did not explain why it stopped"
 pass "barely healthy worker failures remain bounded by the restart guard"
+
+# The public queue helper doubles an idle serve's delay from the interactive
+# poll to the two-second cap.  The serving loop resets to the fast poll after
+# it finds work, so its next idle delay follows the first transition again.
+[ "$(fm_remote_job_idle_backoff_next 0.05)" = 0.1 ] || fail "idle backoff did not leave the fast poll"
+[ "$(fm_remote_job_idle_backoff_next 0.1)" = 0.2 ] || fail "idle backoff did not double"
+[ "$(fm_remote_job_idle_backoff_next 0.8)" = 1 ] || fail "idle backoff did not approach the cap"
+[ "$(fm_remote_job_idle_backoff_next 1)" = 2 ] || fail "idle backoff did not reach the cap"
+[ "$(fm_remote_job_idle_backoff_next 2)" = 2 ] || fail "idle backoff exceeded the cap"
+[ "$(fm_remote_job_idle_backoff_next 0.05)" = 0.1 ] || fail "new work did not restart idle backoff at the fast poll"
+pass "idle serves use a bounded backoff and restart it at new work"
+
+# The Linux serving child is useful only while its restart supervisor owns it.
+# Killing that parent must make the child clean up and exit rather than polling
+# forever after it is reparented.
+ORPHAN_HOME="$TMP_ROOT/orphan-account"
+ORPHAN_STATE="$TMP_ROOT/orphan-state"
+mkdir -p "$ORPHAN_HOME"
+HOME="$ORPHAN_HOME" FM_ROOT_OVERRIDE="$REMOTE_ROOT" FM_REMOTE_JOB_STATE_ROOT="$ORPHAN_STATE" \
+  FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux "$REMOTE_ROOT/bin/fm-remote-job-worker.sh" \
+  > "$TMP_ROOT/orphan-supervisor.out" 2> "$TMP_ROOT/orphan-supervisor.err" &
+ORPHAN_SUPERVISOR_PID=$!
+for _ in $(seq 1 300); do
+  [ -f "$ORPHAN_STATE/worker.pid" ] && break
+  sleep 0.05
+done
+ORPHAN_SERVE_PID=$(cat "$ORPHAN_STATE/worker.pid" 2>/dev/null || true)
+case "$ORPHAN_SERVE_PID" in ''|*[!0-9]*) fail "the Linux supervisor did not publish its serving child" ;; esac
+kill -KILL "$ORPHAN_SUPERVISOR_PID"
+wait "$ORPHAN_SUPERVISOR_PID" 2>/dev/null || true
+for _ in $(seq 1 300); do
+  [ ! -f "$ORPHAN_STATE/worker.pid" ] && break
+  sleep 0.05
+done
+assert_absent "$ORPHAN_STATE/worker.pid" "a serve kept its worker identity after its supervisor died"
+pass "a serve exits when its Linux supervisor disappears"
+
+# Expiry is operator-driven: old terminal or malformed records are listed and
+# may be removed, while every queued, running, or claimed record stays out of
+# both modes even when its directory is old.
+EXPIRE_HOME="$TMP_ROOT/expire-account"
+EXPIRE_STATE="$TMP_ROOT/expire-state"
+EXPIRE="$ROOT/bin/fm-remote-job-expire.sh"
+mkdir -p "$EXPIRE_HOME" "$EXPIRE_STATE/jobs/job-done" "$EXPIRE_STATE/jobs/job-empty" \
+  "$EXPIRE_STATE/jobs/job-queued" "$EXPIRE_STATE/jobs/job-running" "$EXPIRE_STATE/jobs/job-claimed/.claim"
+printf 'done\n' > "$EXPIRE_STATE/jobs/job-done/state"
+printf 'queued\n' > "$EXPIRE_STATE/jobs/job-queued/state"
+printf 'running\n' > "$EXPIRE_STATE/jobs/job-running/state"
+printf 'done\n' > "$EXPIRE_STATE/jobs/job-claimed/state"
+touch -t 202001010000 "$EXPIRE_STATE/jobs"/job-*
+EXPIRE_DRY_RUN=$(HOME="$EXPIRE_HOME" FM_REMOTE_JOB_STATE_ROOT="$EXPIRE_STATE" "$EXPIRE" --dry-run --older-than 60)
+assert_contains "$EXPIRE_DRY_RUN" 'job-done' "expiry dry-run omitted an old completed record"
+assert_contains "$EXPIRE_DRY_RUN" 'job-empty' "expiry dry-run omitted an old incomplete record with no pending work"
+assert_not_contains "$EXPIRE_DRY_RUN" 'job-queued' "expiry dry-run selected queued work"
+assert_not_contains "$EXPIRE_DRY_RUN" 'job-running' "expiry dry-run selected running work"
+assert_not_contains "$EXPIRE_DRY_RUN" 'job-claimed' "expiry dry-run selected a claimed record"
+assert_present "$EXPIRE_STATE/jobs/job-done" "expiry dry-run changed a candidate"
+HOME="$EXPIRE_HOME" FM_REMOTE_JOB_STATE_ROOT="$EXPIRE_STATE" "$EXPIRE" --apply --older-than 60 > /dev/null
+assert_absent "$EXPIRE_STATE/jobs/job-done" "expiry apply left an eligible completed record"
+assert_absent "$EXPIRE_STATE/jobs/job-empty" "expiry apply left an eligible incomplete record"
+assert_present "$EXPIRE_STATE/jobs/job-queued" "expiry apply removed queued work"
+assert_present "$EXPIRE_STATE/jobs/job-running" "expiry apply removed running work"
+assert_present "$EXPIRE_STATE/jobs/job-claimed" "expiry apply removed a claimed record"
+pass "explicit remote job expiry selects only records with no pending work"
 
 echo "ALL TESTS PASSED"

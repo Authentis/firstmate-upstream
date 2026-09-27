@@ -107,6 +107,21 @@ FM_REMOTE_JOB_EXIT=
 FM_REMOTE_JOB_ERROR=
 FM_REMOTE_JOB_REPAIRED=0
 
+# The serving worker starts at the interactive poll after seeing work and
+# doubles an empty-queue delay until this bounded sequence reaches its cap.
+fm_remote_job_idle_backoff_next() { # <current-seconds> [cap-seconds]
+  local current=$1 cap=${2:-2} next
+  case "$current" in
+    0.05) next=0.1 ;;
+    0.1) next=0.2 ;;
+    0.2) next=0.4 ;;
+    0.4) next=0.8 ;;
+    0.8) next=1 ;;
+    *) next=$cap ;;
+  esac
+  printf '%s\n' "$next"
+}
+
 fm_remote_job_die() {
   printf 'error: %s\n' "$1" >&2
   return 1

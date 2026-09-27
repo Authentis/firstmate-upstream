@@ -50,6 +50,7 @@ FM_REMOTE_JOB_ORPHAN_GRACE_SECONDS=$(worker_bounded_setting "${FM_REMOTE_JOB_ORP
 FM_REMOTE_JOB_SUPERVISOR_MAX_RESTARTS=$(worker_bounded_setting "${FM_REMOTE_JOB_SUPERVISOR_MAX_RESTARTS:-}" 20)
 FM_REMOTE_JOB_SUPERVISOR_MAX_BACKOFF_SECONDS=$(worker_bounded_setting "${FM_REMOTE_JOB_SUPERVISOR_MAX_BACKOFF_SECONDS:-}" 5)
 FM_REMOTE_JOB_SUPERVISOR_HEALTHY_SECONDS=$(worker_bounded_setting "${FM_REMOTE_JOB_SUPERVISOR_HEALTHY_SECONDS:-}" 10)
+FM_REMOTE_JOB_IDLE_MAX_SECONDS=$(worker_bounded_setting "${FM_REMOTE_JOB_IDLE_MAX_SECONDS:-}" 2)
 
 SCRIPT_DIR=$(CDPATH='' cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 FM_ROOT=${FM_ROOT_OVERRIDE:-$(CDPATH='' cd "$SCRIPT_DIR/.." && pwd -P)}
@@ -291,6 +292,24 @@ worker_code_root_abandoned() {
   return 0
 }
 
+# Linux serves are children of the restart supervisor.  A serving child that is
+# reparented after that supervisor disappears cannot be restarted or stopped by
+# its owner, so it must exit instead of becoming an idle orphan.  LaunchAgent
+# serves and direct --serve invocations have no recorded supervisor.
+worker_serve_supervisor_alive() {
+  local pid=${FM_REMOTE_JOB_SERVE_SUPERVISOR_PID:-} recorded_start=${FM_REMOTE_JOB_SERVE_SUPERVISOR_START:-} actual_start
+  [ -z "$pid$recorded_start" ] && return 0
+  case "$pid" in ''|*[!0-9]*) return 1 ;; esac
+  [ -n "$recorded_start" ] || return 1
+  actual_start=$(fm_remote_job_process_start "$pid" 2>/dev/null) || return 1
+  [ "$actual_start" = "$recorded_start" ]
+}
+
+# Keep an idle serve responsive at first, then bound empty-queue work to one
+# wake roughly every two seconds.  A queued job resets the next delay to the
+# configured fast poll.  Integer seconds are sufficient for the cap because
+# the fast setting remains the initial delay and all existing callers use it
+# only for sub-second polling.
 worker_read_process_id() { # <file>
   local file=$1 pid
   fm_remote_job_regular_bounded "$file" 64 || return 1
@@ -1027,7 +1046,7 @@ worker_lane_main() { # <job-id>
   worker_lane_execute "$account_home" "$job"
 }
 
-worker_process_once() { # <account-home>
+worker_process_once() { # <account-home>; 0 when work was found, 1 when idle
   local account_home=$1 job id state queue_deadline home seq candidates=''
   local reserved_index reserved_count home_reserved
   local reserved_homes=()
@@ -1074,7 +1093,7 @@ worker_process_once() { # <account-home>
       *) continue ;;
     esac
   done
-  [ -n "$candidates" ] || return 0
+  [ -n "$candidates" ] || return 1
   while IFS=$'\t' read -r seq id home; do
     [ -n "$id" ] || continue
     worker_lane_busy "$home" && continue
@@ -1097,7 +1116,7 @@ worker_process_once() { # <account-home>
 }
 
 main() {
-  local account_home lock_status
+  local account_home lock_status idle_sleep
   account_home=$(worker_account_home) || { worker_error "cannot resolve account home"; exit 1; }
   FM_ROOT=$(fm_remote_job_canonical_existing_dir "$FM_ROOT") || { worker_error "configured FM_ROOT is unsafe"; exit 1; }
   [ -f "$FM_ROOT/AGENTS.md" ] && [ ! -L "$FM_ROOT/AGENTS.md" ] || { worker_error "FM_ROOT is not a Firstmate checkout"; exit 1; }
@@ -1115,6 +1134,7 @@ main() {
   trap worker_shutdown HUP INT TERM
   worker_publish_identity "$account_home" || { worker_error "cannot publish worker code identity"; exit 1; }
   worker_publish_pid || { worker_error "cannot publish worker pid"; exit 1; }
+  idle_sleep=$FM_REMOTE_JOB_POLL_SECONDS
   while :; do
     worker_write_heartbeat || { worker_error "cannot update worker heartbeat"; exit 1; }
     # Checked right after a fresh heartbeat, so the grace window cannot make a
@@ -1123,13 +1143,17 @@ main() {
       worker_error "configured FM_ROOT $FM_ROOT no longer exists; stopping the abandoned worker"
       exit 0
     fi
-    worker_reap=0
-    if [ "$worker_reap" -eq 0 ]; then
-      fm_remote_job_reap_stale "$account_home" || true
-      worker_reap=1
+    if ! worker_serve_supervisor_alive; then
+      worker_error "restart supervisor is gone; stopping the orphaned serve"
+      exit 0
     fi
-    worker_process_once "$account_home"
-    sleep "$FM_REMOTE_JOB_POLL_SECONDS"
+    fm_remote_job_reap_stale "$account_home" || true
+    if worker_process_once "$account_home"; then
+      idle_sleep=$FM_REMOTE_JOB_POLL_SECONDS
+    else
+      sleep "$idle_sleep"
+      idle_sleep=$(fm_remote_job_idle_backoff_next "$idle_sleep" "$FM_REMOTE_JOB_IDLE_MAX_SECONDS")
+    fi
   done
 }
 
@@ -1175,7 +1199,9 @@ worker_supervise_linux() {
       return 0
     fi
     started=$SECONDS
-    "$SCRIPT_DIR/fm-remote-job-worker.sh" --serve &
+    FM_REMOTE_JOB_SERVE_SUPERVISOR_PID=${BASHPID:-$$} \
+      FM_REMOTE_JOB_SERVE_SUPERVISOR_START="$(fm_remote_job_process_start "${BASHPID:-$$}")" \
+      "$SCRIPT_DIR/fm-remote-job-worker.sh" --serve &
     WORKER_SUPERVISED_PID=$!
     wait "$WORKER_SUPERVISED_PID" 2>/dev/null
     child_status=$?
