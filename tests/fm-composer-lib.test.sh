@@ -189,6 +189,33 @@ test_matrix_claude_bare_nbsp_row() {
   pass "matrix: claude's ❯+NBSP row reads empty on every profile in both locales (#1988)"
 }
 
+test_matrix_claude_focused_suggestion_ghost() {
+  # Claude Code draws its placeholder and rotating prompt suggestion as
+  # invert(text[0]) + dim(text.slice(1)) while the composer is focused (read
+  # from the Claude Code 2.1.283 bundle). A remote second mate sat idle with
+  # unread orders because this ghost-only row kept its reverse-video first
+  # letter through ghost stripping, read `pending`, and the doorbell was skipped.
+  local ghost rule screen typed completion
+  ghost='Firstmate instruction waiting: read and act on the netcup inbox'
+  rule="${ESC}[38;2;136;136;136m────────────────────────${ESC}[39m"
+  screen="transcript line"$'\n'"$rule"$'\n'"❯${NBSP}${ESC}[7mF${ESC}[27m${ESC}[2m${ghost#F}${ESC}[22m"$'\n'"$rule"$'\n'"  ? for shortcuts"
+  assert_screen "claude focused suggestion on herdr" empty "$CAPS_STYLED" "$screen" '' probe-absent
+  assert_screen "claude focused suggestion on zellij" empty "$CAPS_STYLED_NOID" "$screen"
+  assert_screen "claude focused suggestion on tmux" empty "$CAPS_TMUX" "$screen" 2 probe-absent
+  # A herdr re-serialization resets between cells; the shape must still strip.
+  screen="$rule"$'\n'"${ESC}[0m❯${NBSP}${ESC}[0m${ESC}[7mF${ESC}[0m${ESC}[2m${ghost#F}${ESC}[0m"$'\n'"$rule"
+  assert_screen "claude focused suggestion, reset-per-cell" empty "$CAPS_STYLED" "$screen" '' probe-absent
+  # Counter cases: real typed text stays pending, including the same words,
+  # a cursor parked on a typed character, and typed text plus a ghost tail.
+  typed="$rule"$'\n'"❯${NBSP}${ghost}"$'\n'"$rule"
+  assert_screen "claude typed suggestion words" pending "$CAPS_STYLED" "$typed" '' probe-absent
+  typed="$rule"$'\n'"❯${NBSP}${ESC}[7mF${ESC}[27mix the login bug"$'\n'"$rule"
+  assert_screen "claude cursor on a typed character" pending "$CAPS_STYLED" "$typed" '' probe-absent
+  completion="$rule"$'\n'"❯${NBSP}fix ${ESC}[7mt${ESC}[27m${ESC}[2mhe login bug${ESC}[22m"$'\n'"$rule"
+  assert_screen "claude typed text with a ghost tail" pending "$CAPS_STYLED" "$completion" '' probe-absent
+  pass "matrix: claude's focused suggestion ghost reads empty; real typed text stays pending"
+}
+
 test_matrix_claude_arrow_statusline_footer() {
   # Real claude 2.x on herdr (captured live 2026-09-20, herdr 0.8.0): the
   # composer is a bare `❯`+U+00A0 row between two solid rules, and the harness
@@ -1019,6 +1046,7 @@ test_idle_placeholder_is_empty
 test_idle_placeholder_case_mode_is_explicit
 test_real_text_is_pending
 test_matrix_claude_bare_nbsp_row
+test_matrix_claude_focused_suggestion_ghost
 test_matrix_claude_arrow_statusline_footer
 test_composer_footer_demotion_needs_a_proven_pair
 test_composer_footer_zone_is_shape_independent

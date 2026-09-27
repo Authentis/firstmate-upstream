@@ -330,6 +330,14 @@ case "${1:-}" in
     printf '● done\n%s\n' "$rule"
     if [ -s "$FM_FAKE_COMPOSER" ]; then
       fold -w 60 "$FM_FAKE_COMPOSER" | awk 'NR == 1 { print "❯ " $0; next } { print "  " $0 }'
+    elif [ -n "${FM_FAKE_GHOST:-}" ]; then
+      # Claude's focused suggestion: reverse-video first cell, dim remainder.
+      # A styled capture (-e) carries the SGR; a plain one shows bare text.
+      g=$FM_FAKE_GHOST
+      case " $* " in
+        *" -e "*) printf '❯ \033[7m%s\033[27m\033[2m%s\033[22m\n' "${g%"${g#?}"}" "${g#?}" ;;
+        *) printf '❯ %s\n' "$g" ;;
+      esac
     else
       printf '❯ \n'
     fi
@@ -389,6 +397,39 @@ test_ring_submits_its_own_stuck_doorbell() {
     || fail "the retry Enter should submit the doorbell once:"$'\n'"$(cat "$log")"
   [ ! -s "$composer" ] || fail "a lost Enter left the doorbell unsubmitted"
   pass "inbox: the ring submits its own stuck doorbell, skips other pending text, and retries a lost Enter once on both paths"
+}
+
+# A remote second mate sat idle with unread orders because its composer showed
+# only Claude's dim suggestion ghost, whose reverse-video first letter read as
+# pending text, so every doorbell was skipped. A ghost-only composer - including
+# a ghost that repeats our own doorbell - must ring; real typed text must not.
+test_ring_rings_through_a_suggestion_ghost() {
+  local dir state rec doorbell log composer drops rc ghost
+  dir="$TMP_ROOT/ring-ghost"
+  state="$dir/state"
+  mkdir -p "$state"
+  make_composer_stub "$dir"
+  rec=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "please continue")
+  doorbell=$(inbox_lib "$state" fm_task_inbox_doorbell_line "$rec")
+  log="$dir/send.log"; composer="$dir/composer"; drops="$dir/drops"
+  for ghost in 'Firstmate instruction waiting: read and act on the netcup inbox' "$doorbell"; do
+    : > "$log"; : > "$composer"
+    rc=0
+    PATH="$dir/fakebin:$PATH" FM_SEND_LOG="$log" FM_FAKE_COMPOSER="$composer" \
+      FM_FAKE_DROP_ENTERS="$drops" FM_FAKE_GHOST="$ghost" \
+      inbox_lib "$state" fm_task_inbox_ring tmux sess:fm-t1 "$rec" fm-t1 || rc=$?
+    [ "$rc" = 0 ] || fail "a ghost-only composer should be rung, got rc $rc for ghost: $ghost"
+    [ "$(cat "$log")" = "SUBMIT: $doorbell" ] \
+      || fail "a ghost-only composer should receive the doorbell once:"$'\n'"$(cat "$log")"
+  done
+  : > "$log"; printf '%s' 'a half-typed draft' > "$composer"
+  rc=0
+  PATH="$dir/fakebin:$PATH" FM_SEND_LOG="$log" FM_FAKE_COMPOSER="$composer" \
+    FM_FAKE_DROP_ENTERS="$drops" FM_FAKE_GHOST=unused \
+    inbox_lib "$state" fm_task_inbox_ring tmux sess:fm-t1 "$rec" fm-t1 || rc=$?
+  [ "$rc" = 1 ] || fail "real typed text should still skip the ring, got rc $rc"
+  [ ! -s "$log" ] || fail "real typed text was submitted:"$'\n'"$(cat "$log")"
+  pass "inbox: the ring rings through a suggestion ghost and still skips real typed text"
 }
 
 test_idempotent_write_dedups_exact_body() {
@@ -809,6 +850,7 @@ test_doorbell_is_a_shell_noop
 test_doorbell_rejects_terminal_controls
 test_ring_skips_dead_agent
 test_ring_submits_its_own_stuck_doorbell
+test_ring_rings_through_a_suggestion_ghost
 test_idempotent_write_dedups_exact_body
 test_idempotent_write_follows_concurrent_ack
 test_handled_mv_dedups_by_sequence

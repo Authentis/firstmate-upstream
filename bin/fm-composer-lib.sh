@@ -264,12 +264,28 @@ fm_composer_normalize_trim_var() {  # <varname>
 # the tightest margin over the 128 default in the fleet. Above ~150 that glyph is
 # stripped as ghost text, which is why the bare-glyph fallback below must also
 # recognise every agent glyph from the UNSTRIPPED plain row.
+#   - with the optional `cursor-cell` argument only (passed for rows inside a
+#     proven container: a box, or a glyph row a separator pair closes over), the
+#     CURSOR CELL drawn over a
+#     ghost's first character: a one-character reverse-video (SGR 7) run
+#     immediately followed by a de-emphasised run. Claude Code draws its
+#     placeholder and rotating prompt suggestion as invert(text[0]) +
+#     dim(text.slice(1)) whenever the composer is focused (verified in the
+#     Claude Code 2.1.283 bundle), so without this a ghost-only composer kept its
+#     first letter, read `pending`, and fm_task_inbox_ring skipped the doorbell.
+#     A longer reverse run, or one followed by normal text (the cursor parked on
+#     a real typed character), is kept. The mode is opt-in because a BARE row
+#     proves no container: cursor-agent's mid-turn bare row draws the same cell
+#     over a dim placeholder beside a dim busy token, and its herdr delivery
+#     confirmation depends on that row staying `pending`.
 # The dim/faint and dark-foreground states are tracked together as "de-emphasis";
 # codes are processed left to right within a sequence, so "ESC[0;2m" reads as dim.
 # LC_ALL=C makes awk walk bytes, so multibyte glyphs (e.g. ❯) and de-emphasised
 # runs alike pass through or drop intact without locale-dependent classes.
-fm_composer_strip_ghost() {
-  LC_ALL=C awk -v lumamax="${FM_COMPOSER_GHOST_LUMA_MAX:-128}" \
+fm_composer_strip_ghost() {  # [cursor-cell]
+  local cursorcell=0
+  [ "${1:-}" != cursor-cell ] || cursorcell=1
+  LC_ALL=C awk -v lumamax="${FM_COMPOSER_GHOST_LUMA_MAX:-128}" -v cursorcell="$cursorcell" \
     -v chromamin="${FM_COMPOSER_GHOST_CHROMA_MIN:-64}" '
     function sgr_code(v, b) {
       b = v
@@ -310,8 +326,12 @@ fm_composer_strip_ghost() {
       r = a[p + 2] + 0; g = a[p + 3] + 0; b = a[p + 4] + 0
       return rgb_is_muted_dark(r, g, b)
     }
+    BEGIN {
+      for (cb = 128; cb < 192; cb++) contbytes = contbytes sprintf("%c", cb)
+    }
     {
-      line = $0; out = ""; dim = 0; darkfg = 0; n = length(line); i = 1
+      line = $0; out = ""; dim = 0; darkfg = 0; rev = 0; pend = ""; pendn = 0
+      n = length(line); i = 1
       while (i <= n) {
         c = substr(line, i, 1)
         if (c == "\033") {            # ESC: consume a CSI ... final-byte sequence
@@ -334,7 +354,9 @@ fm_composer_strip_ghost() {
                 } else if (code == "48" || code == "58") {
                   p = skip_color_payload(a, p, k)
                 } else if (code == "2") dim = 1
-                else if (code == "0") { dim = 0; darkfg = 0 }
+                else if (code == "7") rev = 1
+                else if (code == "27") rev = 0
+                else if (code == "0") { dim = 0; darkfg = 0; rev = 0 }
                 else if (code == "22") dim = 0
                 else if (code == "39") darkfg = 0
                 else if (code + 0 >= 30 && code + 0 <= 37) darkfg = 0
@@ -345,10 +367,21 @@ fm_composer_strip_ghost() {
           }
           i = i + 1; continue          # lone/other ESC: drop the ESC byte only
         }
-        if (dim == 0 && darkfg == 0) out = out c   # keep only non-de-emphasised bytes
+        if (dim == 0 && darkfg == 0) {   # keep only non-de-emphasised bytes
+          if (rev && cursorcell) {       # hold a reverse-video run until we see what follows it
+            pend = pend c
+            if (index(contbytes, c) == 0) pendn++
+          } else {
+            if (pend != "") { out = out pend; pend = ""; pendn = 0 }
+            out = out c
+          }
+        } else if (pend != "") {         # de-emphasis directly after a reverse run
+          if (pendn != 1) out = out pend  # only a one-cell run is the ghost cursor cell
+          pend = ""; pendn = 0
+        }
         i++
       }
-      print out
+      print out pend
     }
   '
 }
@@ -1223,11 +1256,12 @@ _fm_composer_screen_row() {  # <n> <screen>
 
 # _fm_composer_row_content: extract the classification content of one raw row:
 # ghost-strip when styled, plain otherwise, normalize-trim, and strip one
-# matching pair of side border glyphs.
-_fm_composer_row_content() {  # <raw-row> <styled> -> content on stdout
+# matching pair of side border glyphs. [cursor-cell] is passed through to
+# fm_composer_strip_ghost, only for rows inside a proven composer container.
+_fm_composer_row_content() {  # <raw-row> <styled> [cursor-cell] -> content on stdout
   local raw=$1 styled=$2 stripped
   if [ "$styled" = 1 ]; then
-    stripped=$(printf '%s\n' "$raw" | fm_composer_strip_ghost)
+    stripped=$(printf '%s\n' "$raw" | fm_composer_strip_ghost "${3:-}")
   else
     stripped=$(printf '%s\n' "$raw" | fm_composer_strip_ansi)
   fi
@@ -1252,7 +1286,7 @@ _fm_composer_classify_rows() {  # <screen> <styled> <ambiguous> <first-row> <las
   row=$first
   while [ "$row" -le "$last" ]; do
     raw=$(_fm_composer_screen_row "$row" "$screen")
-    content=$(_fm_composer_row_content "$raw" "$styled")
+    content=$(_fm_composer_row_content "$raw" "$styled" cursor-cell)
     plain=$(_fm_composer_row_content "$raw" 0)
     state=$(fm_composer_classify_content 1 "$content" \
       "${FM_COMPOSER_IDLE_RE:-$FM_COMPOSER_IDLE_RE_DEFAULT}" insensitive "$plain" 1 "$styled")
@@ -1276,10 +1310,12 @@ _fm_composer_classify_rows() {  # <screen> <styled> <ambiguous> <first-row> <las
 # the styled=0 degradation: without styling, trailing text after the glyph may
 # be the harness's own idle suggestion (claude's rotating dim hint, codex's
 # `Use /skills ...`), so it must read `unknown` rather than a false `pending`.
-_fm_composer_classify_bare_row() {  # <screen> <styled> <row>
+# [cursor-cell] is passed only for a glyph row a separator pair closes over
+# (claude 2.x), the one bare shape whose container is proven.
+_fm_composer_classify_bare_row() {  # <screen> <styled> <row> [cursor-cell]
   local screen=$1 styled=$2 row=$3 raw content plain state
   raw=$(_fm_composer_screen_row "$row" "$screen")
-  content=$(_fm_composer_row_content "$raw" "$styled")
+  content=$(_fm_composer_row_content "$raw" "$styled" "${4:-}")
   plain=$(_fm_composer_row_content "$raw" 0)
   _fm_composer_bare_row_strip_furniture_var content
   _fm_composer_bare_row_strip_furniture_var plain
@@ -1882,7 +1918,7 @@ _fm_composer_classify_pi_rows() {  # <screen> <styled>
 _fm_composer_classify_bare_pi_overlap() {  # <screen> <styled> <has-identity> <identity> <bare-row>
   local screen=$1 styled=$2 has_identity=$3 identity=$4 row=$5 agent
   if [ "$has_identity" != 1 ]; then
-    _fm_composer_classify_bare_row "$screen" "$styled" "$row"
+    _fm_composer_classify_bare_row "$screen" "$styled" "$row" cursor-cell
     return 0
   fi
   if [ -z "$identity" ]; then
@@ -1890,14 +1926,14 @@ _fm_composer_classify_bare_pi_overlap() {  # <screen> <styled> <has-identity> <i
     return 0
   fi
   if [ "$identity" = probe-absent ]; then
-    _fm_composer_classify_bare_row "$screen" "$styled" "$row"
+    _fm_composer_classify_bare_row "$screen" "$styled" "$row" cursor-cell
     return 0
   fi
   agent=${identity%%$'\t'*}
   if [ "$agent" = pi ]; then
     _fm_composer_pi_verdict "$screen" "$styled" "$has_identity" "$identity"
   else
-    _fm_composer_classify_bare_row "$screen" "$styled" "$row"
+    _fm_composer_classify_bare_row "$screen" "$styled" "$row" cursor-cell
   fi
 }
 
