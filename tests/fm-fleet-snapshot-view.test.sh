@@ -1748,6 +1748,83 @@ JSON
   pass "live, present-copy, mismatched-identity, expired, and undeclared held-wait exemptions do not settle accounting"
 }
 
+# A netcup-sized backlog and fleet must reach jq through files, never argv:
+# argv beyond ARG_MAX fails exec with E2BIG, which once left the contribution
+# input empty while the snapshot still exited 0.
+test_backlog_beyond_arg_max_is_complete() {
+  local home fakebin arg_max lines i out rc
+  home=$(make_home arg-max)
+  arg_max=$(getconf ARG_MAX 2>/dev/null) || arg_max=2097152
+  case "$arg_max" in ''|*[!0-9]*) arg_max=2097152 ;; esac
+  lines=$((arg_max / 100 + 1))
+  awk -v n="$lines" 'BEGIN {
+    print "## Queued"
+    for (i = 1; i <= n; i++)
+      printf "- [ ] bulk-%07d - Bulk queued item %d padded to push the backlog past the argument limit (repo: sample) (kind: ship)\n", i, i
+    print ""
+    print "## Done"
+  }' > "$home/data/backlog.md"
+  [ "$(wc -c < "$home/data/backlog.md")" -gt "$arg_max" ] \
+    || fail "fixture backlog must exceed ARG_MAX ($arg_max bytes)"
+  for i in 1 2 3; do
+    mkdir -p "$home/projects/bulk-wt-$i"
+    fm_write_meta "$home/state/bulk-task-$i.meta" \
+      "window=firstmate:fm-bulk-task-$i" \
+      "worktree=$home/projects/bulk-wt-$i" \
+      "project=sample" \
+      "harness=codex" \
+      "kind=ship" \
+      "mode=no-mistakes"
+  done
+  fakebin=$(make_fakebin "$home")
+
+  rc=0
+  out=$(PATH="$fakebin:$PATH" FM_HOME="$home" "$SNAPSHOT" --contribution-input) || rc=$?
+  [ "$rc" -eq 0 ] || fail "contribution input must succeed for a backlog beyond ARG_MAX (rc=$rc)"
+  printf '%s' "$out" | jq -e --argjson n "$lines" '
+    (.backlog.records | length) == $n and (.tasks | length) == 3
+  ' >/dev/null || fail "contribution input must carry every backlog record and task"
+
+  rc=0
+  out=$(PATH="$fakebin:$PATH" FM_HOME="$home" "$SNAPSHOT" --json) || rc=$?
+  [ "$rc" -eq 0 ] || fail "snapshot must succeed for a backlog beyond ARG_MAX (rc=$rc)"
+  printf '%s' "$out" | jq -e --argjson n "$lines" '
+    (.backlog.records | length) == $n
+      and ([.tasks[].id] == ["bulk-task-1", "bulk-task-2", "bulk-task-3"])
+  ' >/dev/null || fail "snapshot must carry every backlog record and task"
+  pass "a backlog and fleet beyond ARG_MAX produce a complete snapshot and contribution input"
+}
+
+# A jq failure while building one task record must fail the snapshot, never
+# silently drop that task from an otherwise successful result.
+test_task_record_failure_fails_snapshot() {
+  local home fakebin real_jq out rc
+  home=$(make_home record-failure)
+  mkdir -p "$home/projects/fail-wt"
+  fm_write_meta "$home/state/fail-task.meta" \
+    "window=firstmate:fm-fail-task" \
+    "worktree=$home/projects/fail-wt" \
+    "project=sample" \
+    "harness=codex" \
+    "kind=ship" \
+    "mode=no-mistakes"
+  fakebin=$(make_fakebin "$home")
+  real_jq=$(command -v jq)
+  cat > "$fakebin/jq" <<SH
+#!/usr/bin/env bash
+case "\$*" in
+  *scout_report_present:*) echo "jq: injected record failure" >&2; exit 5 ;;
+esac
+exec "$real_jq" "\$@"
+SH
+  chmod +x "$fakebin/jq"
+  rc=0
+  out=$(PATH="$fakebin:$PATH" FM_HOME="$home" "$SNAPSHOT" --json 2>/dev/null) || rc=$?
+  [ "$rc" -ne 0 ] || fail "a failed task record must fail the snapshot, got: $out"
+  [ -z "$out" ] || fail "a failed snapshot must not print a partial result: $out"
+  pass "a failed task record fails the snapshot instead of dropping the task"
+}
+
 test_empty_fleet_json
 test_capacity_frees_only_declared_exited_holds
 test_home_summary_settles_exempted_exited_unowned_child
@@ -1773,3 +1850,5 @@ test_scout_reports_include_teardown_reports
 test_backlog_tasks_axi_forms_and_overrides
 test_view_renders_snapshot
 test_view_renders_dead_secondmate_agent_status
+test_backlog_beyond_arg_max_is_complete
+test_task_record_failure_fails_snapshot
