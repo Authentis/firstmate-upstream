@@ -3529,7 +3529,10 @@ fm_backend_herdr_send_text_submit() {  # <target> <text> <retries> <enter-sleep>
   }
   sleep "$settle"
   if [ "$proof" = 1 ]; then
-    if ! fm_backend_herdr_composer_payload_wait "$target" "$text" "$proof_lines"; then
+    # The typed text can open a completion menu under the composer, which
+    # pushes the whole composer out of a window sized for the wrap alone.
+    if ! fm_backend_herdr_composer_payload_wait "$target" "$text" \
+         "$((proof_lines + FM_COMPOSER_BELOW_MENU_LINES))"; then
       if fm_backend_herdr_composer_clear "$target" "$text"; then
         fm_backend_herdr_send_refusal "$target" "the composer never showed the typed text, so it was cleared" "$FM_BACKEND_HERDR_PROOF_LAST"
         printf 'send-failed'

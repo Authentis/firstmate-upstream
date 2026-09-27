@@ -5034,6 +5034,90 @@ test_send_text_submit_claude_exit_over_focused_suggestion_is_submitted() {
   pass "fm_backend_herdr_send_text_submit: /exit typed over Claude's focused suggestion ghost is proven and submitted"
 }
 
+# herdr_inline_claude_screen: a Claude Code 2.1.283 pane on its default
+# (inline) renderer in the dark theme, as captured live on Herdr 0.9.1 with one
+# background shell and eight monitors running. <below> is a footer hint - the
+# idle footer then carries it on the right, as in the captain's panes - or
+# `menu`, the slash-command menu the inline renderer draws UNDER the composer
+# once `/` is typed: ten entries of up to two rows each, which replace the
+# footer. [typed] is the composer's text, in the typed-command colour.
+herdr_inline_claude_screen() {  # <resp-file> <ctrl-y|new-task|new-task-large|menu> [typed]
+  local rule dim='\033[0m\033[38;2;153;153;153m' i
+  rule='\033[0m\033[38;2;136;136;136m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\033[0m\r\n'
+  {
+    printf '\xe2\x8f\xba ok\r\n\r\n'
+    printf '\xe2\x9c\xbb Cooked for 11s \xc2\xb7 done 3:51 PM \xc2\xb7 1 shell, 8 monitors still running\r\n\r\n'
+    printf '%b' "$rule"
+    if [ -n "${3:-}" ]; then
+      printf '\xe2\x9d\xaf\xc2\xa0\033[0m\033[38;2;177;185;249m%s\033[0m\r\n' "$3"
+    else
+      printf '\xe2\x9d\xaf\xc2\xa0\033[0m\033[2mcheck on the background monitors\033[0m\r\n'
+    fi
+    printf '%b' "$rule"
+    if [ "$2" = menu ]; then
+      printf '  \033[0m\033[38;2;177;185;249m/\033[0m\033[1m\033[38;2;177;185;249mexit\033[0m\033[38;2;177;185;249m                                          Exit the CLI\033[0m\r\n'
+      printf '  %b/context                                       Visualize current context usage as a colored grid\033[0m\r\n' "$dim"
+      for ((i = 1; i <= 8; i++)); do
+        printf '  %b/skill-%s                                       Use this skill whenever the user asks for item %s of the\033[0m\r\n' "$dim" "$i" "$i"
+        printf '                                                 %bfleet, including its report, its review, and its follow-up w\xe2\x80\xa6\033[0m\r\n' "$dim"
+      done
+    else
+      printf '  \033[0m\033[38;2;255;193;7m\xe2\x8f\xb5\xe2\x8f\xb5 auto mode on\033[0m%b \xc2\xb7 \033[0m\033[38;2;0;204;204m1 shell, 8 monitors\033[0m%b \xc2\xb7 \xe2\x86\x90 for agents \xc2\xb7 \xe2\x86\x93 to manage    ' "$dim" "$dim"
+      case "$2" in
+        ctrl-y) printf 'Ctrl+Y to paste deleted text\033[0m\r\n' ;;
+        new-task) printf 'new task? \033[0m\033[38;2;177;185;249m/clear\033[0m%b to save \033[0m\033[38;2;177;185;249m192k tokens\033[0m\r\n' "$dim" ;;
+        new-task-large) printf 'new task? \033[0m\033[38;2;177;185;249m/clear\033[0m%b to save \033[0m\033[38;2;177;185;249m269.8k tokens\033[0m\r\n' "$dim" ;;
+      esac
+    fi
+  } > "$1"
+}
+
+# An idle Claude composer reads empty under every footer the captain's refused
+# panes showed: auto mode with shell and monitor counts, the kill-ring hint a
+# Ctrl+U clear leaves, and the idle new-task hint. Real text under the same
+# footers is still pending.
+test_composer_state_claude_inline_footer_hints_read_empty() {
+  local dir log resp fb out footer typed want
+  for footer in ctrl-y new-task new-task-large; do
+    for typed in '' 'half-typed draft'; do
+      want=empty
+      [ -z "$typed" ] || want=pending
+      dir="$TMP_ROOT/composer-claude-inline-$footer-$want"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
+      herdr_inline_claude_screen "$resp/1.out" "$footer" "$typed"
+      printf '{"result":{"agent":{"agent":"claude","agent_status":"idle"}}}\n' > "$resp/2.out"
+      fb=$(make_herdr_fakebin "$dir")
+      out=$( PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" \
+        bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_composer_state default:w1:p2' "$ROOT" )
+      [ "$out" = "$want" ] || fail "a Claude composer holding '$typed' under the '$footer' footer should read $want, got '$out'"
+    done
+  done
+  pass "fm_backend_herdr_composer_state: an idle inline Claude composer reads empty under its auto-mode, Ctrl+Y, and new-task footers"
+}
+
+# The captain's refused exits: on the inline renderer a typed `/exit` opens a
+# 20-row command menu under the composer, and a proof window sized for the
+# five typed characters held only menu rows, so every read was `<unreadable>`
+# and the exit was refused before Enter. The proof now reads past the menu.
+test_send_text_submit_claude_exit_over_inline_command_menu_is_submitted() {
+  local dir log resp fb out enter_count footer
+  for footer in ctrl-y new-task new-task-large; do
+    dir="$TMP_ROOT/submit-claude-exit-inline-menu-$footer"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
+    printf '{"result":{"agent":{"agent_status":"idle"}}}\n' > "$resp/2.out"
+    printf '{"result":{"agent":{"agent_status":"working"}}}\n' > "$resp/4.out"
+    herdr_submit_claude_prefix "$resp" /exit
+    herdr_inline_claude_screen "$resp/2.out" "$footer"
+    herdr_inline_claude_screen "$resp/4.out" menu /exit
+    fb=$(make_herdr_fakebin "$dir")
+    out=$( PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" FM_BACKEND_HERDR_SUBMIT_POLLS=1 \
+      bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_send_text_submit default:w1:p2 /exit 3 0.01 0.01' "$ROOT" 2>"$dir/stderr" )
+    [ "$out" = empty ] || fail "/exit typed into an idle inline Claude composer under the '$footer' footer should be proven and submitted, got '$out' ($(cat "$dir/stderr"))"
+    enter_count=$(grep -c $'\x1f''pane'$'\x1f''send-keys'$'\x1f''w1:p2'$'\x1f''enter' "$log")
+    [ "$enter_count" -eq 1 ] || fail "the proven /exit should be submitted once, sent $enter_count Enter(s)"
+    [ "$(herdr_ctrl_u_count "$log")" -eq 0 ] || fail "a proven /exit must not be cleared"
+  done
+  pass "fm_backend_herdr_send_text_submit: /exit is proven through the command menu the inline Claude renderer draws under its composer"
+}
+
 # Counter case: the cursor parked on the first letter of real typed text draws
 # the same reverse-video cell, but the text after it is not de-emphasised, so
 # the composer is not empty and nothing may be typed onto it.
@@ -6163,6 +6247,8 @@ test_send_text_submit_claude_exit_drawn_late_is_submitted
 test_send_text_submit_claude_payload_never_drawn_refuses_send
 test_send_text_submit_claude_payload_after_real_text_refuses_at_once
 test_send_text_submit_claude_exit_over_focused_suggestion_is_submitted
+test_composer_state_claude_inline_footer_hints_read_empty
+test_send_text_submit_claude_exit_over_inline_command_menu_is_submitted
 test_send_text_submit_claude_real_text_under_cursor_refuses_send
 test_send_text_submit_refuses_enter_when_composer_holds_only_the_suffix
 test_send_text_submit_refused_suffix_that_will_not_clear_is_unknown

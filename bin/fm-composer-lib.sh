@@ -604,6 +604,17 @@ fm_composer_strip_braille() {
 # boxes) from ever competing with the live composer.
 FM_COMPOSER_CAPTURE_LINES=${FM_COMPOSER_CAPTURE_LINES:-20}
 
+# The rows a completion menu can draw BELOW a composer that holds typed text,
+# which the bottom-anchored window above does not budget for. Claude Code's
+# default (inline) renderer opens its slash-command menu under the composer's
+# bottom rule as soon as `/` is typed - up to ten entries, each up to two rows -
+# while the fullscreen renderer draws it above (verified 2026-09-27, Claude
+# Code 2.1.283 on Herdr 0.9.1, `tui` default, dark theme: a typed `/exit` put
+# 20 menu rows under the rule, so a 20-row read held no composer at all and
+# every lifecycle exit's payload proof read `<unreadable>`). Only a read taken
+# after typing needs it; an idle composer has no menu open.
+FM_COMPOSER_BELOW_MENU_LINES=${FM_COMPOSER_BELOW_MENU_LINES:-20}
+
 # fm_composer_clear_presses: how many line-clear presses (Ctrl+U) remove
 # <text> from a composer before any read may call it cleared. Live Claude
 # deletes one wrapped screen row per press, so this is the rows <text> can fill
