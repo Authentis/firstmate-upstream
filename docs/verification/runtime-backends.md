@@ -1491,6 +1491,8 @@ Real captures verified these active distinctions:
 - Dim or faint suggestion text is ghost content, while normally styled text is pending input.
 - Grok dark truecolor placeholders are ghost content, while bright truecolor typed input remains pending.
 - Claude in a truecolor terminal draws a recognized typed slash command in the saturated accent `38;2;87;105;247`, dark (luminance about 116) but typed input rather than ghost content; verified 2026-09-26 on Claude Code 2.1.283 by capturing the raw terminal stream of Claude launched with Herdr's `TERM=xterm-256color`, `COLORTERM=truecolor`, `TERM_PROGRAM=ghostty` environment and typing `/exit`.
+- Claude draws its placeholder and prompt suggestion in a focused composer as a reverse-video first character followed by dim text, so that one-cell reverse run is ghost content; read 2026-09-27 from the Claude Code 2.1.283 bundle, where the placeholder renderer returns `l(t[0])+pe.dim(t.slice(1))` when the cursor is shown, focused, and the terminal is focused.
+  A live suggestion could not be made to render in a scratch tmux session on that version, so the regression in `tests/fm-composer-lib.test.sh` pins the bundle's shape rather than a pane capture.
 - A bare shell prompt has no safe agent-composer container and is unknown.
 - Codex 0.154's idle braille starfield rows are composer furniture, with the dated Herdr evidence and refresh command in [Composer classification matrix](#composer-classification-matrix).
 
