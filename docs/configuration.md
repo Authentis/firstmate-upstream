@@ -8,7 +8,7 @@ Start with the directory layout, then use the setting reference for the behavior
 | What you want to configure | Start here |
 | --- | --- |
 | Firstmate's code, private files, or project location | [FM_HOME](#fm_home) and [operational home layout](#operational-home-layout-and-state) |
-| Task windows and worker tools | [Runtime backend](#runtime-backend-configbackend--fm_backend) and [harness support](#harness-support) |
+| Task windows and worker tools | [Runtime backend](#runtime-backend-configbackend--fm_backend), [harness support](#harness-support), and [OpenCode binary](#opencode-binary-configopencode-bin) |
 | Worker permissions, accounts, or environment | [Claude permission mode](#claude-permission-mode-configclaude-permission-mode), [worker account pin](#worker-account-pin-configclaude-account-configpi-account), and [worker launch environment](#worker-launch-environment-configlaunch-env-allowlist) |
 | Backlog, preferences, and memory | [Backlog backend](#backlog-backend-taskstoml--configbacklog-backend), [captain preferences](#captain-preferences-datacaptainmd--datacaptain-sharedmd), and [startup memory budget](#startup-memory-budget-configstartup-memory-budget) |
 | Supervision and presentation | [Pi supervision branch](#pi-supervision-branch), [supervision host](#supervision-host-configsupervision-host), and [Calm preference](#calm-preference-configcalm) |
@@ -802,6 +802,21 @@ Its `remove` action excises only the marker-delimited Firstmate region and remov
 For Pi and pi-signed secondmate launches, `fm-spawn.sh` starts the selected executable with `-e` pointed at the secondmate home's own tracked `.pi/extensions/fm-primary-pi-watch.ts` and `.pi/extensions/fm-primary-turnend-guard.ts`, both already present from the secondmate home's git worktree.
 
 For omp secondmate launches, `fm-spawn.sh` passes no `-e` at all: omp auto-discovers the home's tracked `.omp/extensions/` with no trust gate, and naming a discovered file with `-e` as well loads it twice; every omp launch instead carries the tracked `.omp/fm-worker-overlay.yml` posture overlay through `--config`, which [`fm-spawn.sh --help`](../bin/fm-spawn.sh) owns.
+
+## OpenCode binary (config/opencode-bin)
+
+Every OpenCode worker, scout, and secondmate launch runs one absolute executable path, never the bare name `opencode`, because a worker pane's login shell can put a different CLI of that name first on its own PATH.
+The optional local, gitignored `config/opencode-bin` holds that path as one line.
+
+When the file is present, the launch uses exactly that path, which must be absolute and executable.
+When it is absent, `fm-spawn.sh` resolves `opencode` from its own environment's PATH to an absolute path and launches that.
+
+Either way, the spawn runs `<path> --version` before any pane exists and accepts only the verified 1.x line.
+A missing, relative, non-executable, or wrong-version path refuses the spawn and names this file as the fix; a configured path never falls back to PATH.
+
+The file is not inherited into secondmate homes, because the inherited set also reaches remote hosts, where a local path would be wrong.
+A local secondmate agent is launched from this home's file, while its own workers read the secondmate home's file or that home's PATH.
+A remote secondmate's workers are spawned on the remote host from its own home, so create the file there with the path as seen on that host.
 
 ## Claude permission mode (config/claude-permission-mode)
 

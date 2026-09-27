@@ -375,6 +375,8 @@
 #     __DEVINBIN__ resolved Devin executable
 #     __DEVINCONFIG__ private per-task Devin config with lifecycle hooks
 #     __AGYBIN__    resolved, agy-verified executable for an agy launch
+#     __OPENCODEBIN__ quoted absolute opencode executable, from config/opencode-bin or
+#                  the spawner's PATH, version-checked by resolve_opencode_binary
 # Verified per-harness turn-end hooks are installed automatically where enabled; some live outside the worktree.
 # Kimi uses one surgically installed Firstmate region in $HOME/.kimi-code/config.toml,
 # a firstmate-owned global hook and registry, and a gitignored per-task pointer.
@@ -2123,7 +2125,11 @@ launch_template() {
       printf '%s' 'codex __MODELFLAG____EFFORTFLAG__--dangerously-bypass-approvals-and-sandbox --disable hooks -c "notify=[\"bash\",\"-c\",\"touch __TURNEND__\"]" "$(__OPINPUT__ encode launch-brief < __BRIEF__)"'
     fi
     ;;
-  opencode) printf '%s' 'OPENCODE_CONFIG_CONTENT='\''{"permission":{"*":"allow"}__EFFORTFLAG__}'\'' opencode __MODELFLAG__--prompt "$(__OPINPUT__ encode launch-brief < __BRIEF__)"' ;;
+  # opencode launches by the absolute path resolve_opencode_binary settles
+  # before any pane exists, never by a bare name the pane's own login shell
+  # would look up: a login shell's PATH can put a different CLI named opencode
+  # first, which then dies on the first flag it does not know.
+  opencode) printf '%s' 'OPENCODE_CONFIG_CONTENT='\''{"permission":{"*":"allow"}__EFFORTFLAG__}'\'' __OPENCODEBIN__ __MODELFLAG__--prompt "$(__OPINPUT__ encode launch-brief < __BRIEF__)"' ;;
   pi | pi-signed)
     printf '%s' '__PIBIN____PITUIMODE____PIRESUME__'
     if [ "$kind" = secondmate ]; then
@@ -2514,6 +2520,70 @@ resolve_kimi_binary() {
   return 1
 }
 
+# The opencode launch surface (--model, --prompt, OPENCODE_CONFIG_CONTENT's
+# agent variant) is verified on the 1.x line only; a later major is a different
+# CLI that rejects --model. config/opencode-bin (docs/configuration.md "OpenCode
+# binary") pins one absolute executable; without it the spawner's own PATH is
+# resolved to an absolute path here. Either way the pane runs that exact path
+# and the version is proven before launch, so a login shell's PATH can never
+# swap the binary and a wrong install never silently falls back to PATH.
+FM_OPENCODE_VERIFIED_MAJOR=1
+resolve_opencode_binary() {  # <config-dir>
+  local config=$1 file candidate dir source version rc=0
+  file="$config/opencode-bin"
+  if [ -e "$file" ] || [ -L "$file" ]; then
+    if [ ! -f "$file" ] || [ ! -r "$file" ]; then
+      echo "error: config/opencode-bin must be a readable regular file holding one absolute opencode path" >&2
+      return 1
+    fi
+    candidate=$(sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' "$file" | grep -v '^$' || true)
+    case "$candidate" in
+    *$'\n'* | '')
+      echo "error: config/opencode-bin must contain exactly one absolute opencode path" >&2
+      return 1
+      ;;
+    /*) ;;
+    *)
+      echo "error: config/opencode-bin path '$candidate' is not absolute" >&2
+      return 1
+      ;;
+    esac
+    if [ ! -f "$candidate" ] || [ ! -x "$candidate" ]; then
+      echo "error: config/opencode-bin path '$candidate' is not an executable file" >&2
+      return 1
+    fi
+    source="config/opencode-bin"
+  else
+    candidate=$(type -P -- opencode 2>/dev/null) || candidate=
+    if [ -z "$candidate" ] || [ ! -x "$candidate" ]; then
+      echo "error: opencode executable not found on PATH; install opencode ${FM_OPENCODE_VERIFIED_MAJOR}.x or name it in config/opencode-bin" >&2
+      return 1
+    fi
+    case "$candidate" in
+    /*) ;;
+    *)
+      dir=$(cd "$(dirname "$candidate")" 2>/dev/null && pwd -P) || {
+        echo "error: opencode executable '$candidate' found on PATH cannot be resolved to an absolute path; name it in config/opencode-bin" >&2
+        return 1
+      }
+      candidate="$dir/$(basename "$candidate")"
+      ;;
+    esac
+    source="PATH"
+  fi
+  version=$(fm_run_timed 15 "$candidate" --version 2>/dev/null </dev/null) || rc=$?
+  version=$(printf '%s\n' "$version" | grep -Eo '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1)
+  if [ "$rc" -ne 0 ] || [ -z "$version" ]; then
+    echo "error: opencode at '$candidate' (from $source) did not report a version with --version (exit $rc); name a verified opencode ${FM_OPENCODE_VERIFIED_MAJOR}.x executable in config/opencode-bin" >&2
+    return 1
+  fi
+  if [ "${version%%.*}" != "$FM_OPENCODE_VERIFIED_MAJOR" ]; then
+    echo "error: opencode at '$candidate' (from $source) is version $version, but only the ${FM_OPENCODE_VERIFIED_MAJOR}.x line is verified; name a verified opencode ${FM_OPENCODE_VERIFIED_MAJOR}.x executable in config/opencode-bin" >&2
+    return 1
+  fi
+  printf '%s\n' "$candidate"
+}
+
 resolve_muse_binary() {
   local candidate dir
   candidate=$(command -v muse 2>/dev/null || true)
@@ -2796,6 +2866,13 @@ case "$LAUNCH" in
       exit 1
     }
   fi
+  ;;
+esac
+
+case "$LAUNCH" in
+*__OPENCODEBIN__*)
+  OPENCODE_BIN=$(resolve_opencode_binary "$CONFIG") || exit 1
+  LAUNCH=${LAUNCH//__OPENCODEBIN__/$(shell_quote "$OPENCODE_BIN")}
   ;;
 esac
 

@@ -32,11 +32,26 @@ SH
   chmod +x "$fakebin/$tool"
 }
 
+# A stand-in opencode that answers --version like the real CLI; the reported
+# version comes from the environment at spawn time so a case can stage the
+# verified 1.x line or a different major under the same name.
+make_spawn_opencode_probe() {  # <path> [version-var]
+  mkdir -p "$(dirname "$1")"
+  fm_fake_version_tool "$(dirname "$1")" "$(basename "$1")" "${2:-FM_FAKE_OPENCODE_VERSION}" 1.18.32
+}
+
 make_spawn_fakebin() {
   local dir=$1 fakebin
   fakebin=$(fm_test_make_spawn_fakebin "$dir")
   cat > "$fakebin/timeout" <<'SH'
 #!/usr/bin/env bash
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+  -k | -s) shift 2 ;;
+  -*) shift ;;
+  *) break ;;
+  esac
+done
 shift
 exec "$@"
 SH
@@ -51,6 +66,7 @@ SH
   chmod +x "$fakebin/timeout" "$fakebin/cursor-agent"
   make_spawn_pi_probe "$fakebin" pi
   make_spawn_pi_probe "$fakebin" pi-signed
+  make_spawn_opencode_probe "$fakebin/opencode"
   printf '%s\n' "$fakebin"
 }
 
@@ -105,6 +121,7 @@ run_spawn() {
     FM_FAKE_LAUNCH_LOG="$launchlog" FM_FAKE_PI_VERSION="${FM_TEST_PI_VERSION:-0.84.0}" \
     FM_FAKE_CURSOR_MODELS="${FM_TEST_CURSOR_MODELS:-}" \
     FM_FAKE_CURSOR_LIST_STATUS="${FM_TEST_CURSOR_LIST_STATUS:-0}" \
+    FM_FAKE_OPENCODE_VERSION="${FM_TEST_OPENCODE_VERSION:-1.18.32}" \
     GROK_HOME="$home/grok-home" \
     fm_test_run_spawn "$home" "$wt" "$fakebin" "$@"
 }
@@ -779,7 +796,7 @@ test_opencode_threads_model_and_effort_variant() {
   # the launch already writes, keyed to the resolved model on the default
   # build agent, never as a launch flag.
   assert_contains "$launch" \
-    "OPENCODE_CONFIG_CONTENT='{\"permission\":{\"*\":\"allow\"},\"agent\":{\"build\":{\"model\":\"anthropic/claude-sonnet-4-5\",\"variant\":\"high\"}}}' opencode --model 'anthropic/claude-sonnet-4-5' --prompt" \
+    "OPENCODE_CONFIG_CONTENT='{\"permission\":{\"*\":\"allow\"},\"agent\":{\"build\":{\"model\":\"anthropic/claude-sonnet-4-5\",\"variant\":\"high\"}}}' '$FAKEBIN_DIR/opencode' --model 'anthropic/claude-sonnet-4-5' --prompt" \
     "opencode launch did not write the effort as the build agent's variant in its config"
   assert_not_contains "$launch" "--effort" "opencode launch must not pass unsupported --effort"
   assert_not_contains "$launch" "--variant" "opencode launch must not pass run-only --variant"
@@ -799,7 +816,7 @@ test_opencode_without_effort_keeps_launch_config_unchanged() {
   assert_meta_profile "$HOME_DIR/state/$id.meta" opencode anthropic/claude-sonnet-4-5 default
   launch=$(cat "$LAUNCH_LOG")
   assert_contains "$launch" \
-    "OPENCODE_CONFIG_CONTENT='{\"permission\":{\"*\":\"allow\"}}' opencode --model 'anthropic/claude-sonnet-4-5' --prompt" \
+    "OPENCODE_CONFIG_CONTENT='{\"permission\":{\"*\":\"allow\"}}' '$FAKEBIN_DIR/opencode' --model 'anthropic/claude-sonnet-4-5' --prompt" \
     "opencode launch without effort must keep the permission-only config byte-identical"
   assert_not_contains "$launch" '"variant"' "opencode launch without effort must not write a variant"
   pass "opencode without an effort keeps its launch config unchanged"
@@ -817,7 +834,7 @@ test_opencode_emits_variant_for_openai_family_effort() {
   assert_meta_profile "$HOME_DIR/state/$id.meta" opencode openai/gpt-5.6-sol xhigh
   launch=$(cat "$LAUNCH_LOG")
   assert_contains "$launch" \
-    "OPENCODE_CONFIG_CONTENT='{\"permission\":{\"*\":\"allow\"},\"agent\":{\"build\":{\"model\":\"openai/gpt-5.6-sol\",\"variant\":\"xhigh\"}}}' opencode --model 'openai/gpt-5.6-sol' --prompt" \
+    "OPENCODE_CONFIG_CONTENT='{\"permission\":{\"*\":\"allow\"},\"agent\":{\"build\":{\"model\":\"openai/gpt-5.6-sol\",\"variant\":\"xhigh\"}}}' '$FAKEBIN_DIR/opencode' --model 'openai/gpt-5.6-sol' --prompt" \
     "opencode launch did not write the openai family effort as the build agent's variant"
   pass "opencode emits the variant for an effort the openai family exposes"
 }
@@ -834,10 +851,101 @@ test_opencode_omits_variant_when_model_family_lacks_effort() {
   assert_meta_profile "$HOME_DIR/state/$id.meta" opencode anthropic/claude-sonnet-4-5 medium
   launch=$(cat "$LAUNCH_LOG")
   assert_contains "$launch" \
-    "OPENCODE_CONFIG_CONTENT='{\"permission\":{\"*\":\"allow\"}}' opencode --model 'anthropic/claude-sonnet-4-5' --prompt" \
+    "OPENCODE_CONFIG_CONTENT='{\"permission\":{\"*\":\"allow\"}}' '$FAKEBIN_DIR/opencode' --model 'anthropic/claude-sonnet-4-5' --prompt" \
     "opencode must keep the permission-only config when the model family lacks the effort"
   assert_not_contains "$launch" '"variant"' "opencode must omit the variant when the model family lacks the effort"
   pass "opencode omits the variant for an effort outside the model family's list"
+}
+
+# The pane's login shell can put a different CLI named opencode first on its
+# own PATH, so every opencode launch names one absolute, version-checked path.
+assert_opencode_refused() {  # <out> <status> <id> <expected-text> <label>
+  expect_code 1 "$2" "$5 should refuse the spawn"
+  assert_contains "$1" "$4" "$5 refusal did not name the actionable requirement"
+  assert_absent "$HOME_DIR/state/$3.meta" "$5 refusal wrote task metadata"
+  [ ! -s "$LAUNCH_LOG" ] || fail "$5 refusal typed a launch command"
+}
+
+test_opencode_unconfigured_launches_by_absolute_path() {
+  local rec id out status launch
+  id=opencode-abs-path-z7e
+  rec=$(make_spawn_case opencode-abs-path opencode "$id")
+  read_case_record "$rec"
+
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
+  status=$?
+  expect_code 0 "$status" "unconfigured opencode spawn should succeed"
+  launch=$(cat "$LAUNCH_LOG")
+  assert_contains "$launch" "}}' '$FAKEBIN_DIR/opencode' --prompt" \
+    "unconfigured opencode launch did not use the spawner's resolved absolute path"
+  assert_not_contains "$launch" "}}' opencode " "opencode launch must never name the bare command"
+  pass "unconfigured opencode resolves the spawner's PATH to an absolute launch path"
+}
+
+test_opencode_unconfigured_wrong_major_refuses() {
+  local rec id out status
+  id=opencode-wrong-major-z7f
+  rec=$(make_spawn_case opencode-wrong-major opencode "$id")
+  read_case_record "$rec"
+
+  out=$(FM_TEST_OPENCODE_VERSION=2.0.16 run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
+  status=$?
+  assert_opencode_refused "$out" "$status" "$id" "is version 2.0.16" "an opencode 2.x on PATH"
+  assert_contains "$out" "config/opencode-bin" "wrong-major refusal did not name the config file fix"
+  pass "an unconfigured opencode outside the verified major refuses with the config fix"
+}
+
+test_opencode_configured_path_wins_over_path_shadowing() {
+  local rec id out status launch pinned
+  id=opencode-pinned-z7g
+  rec=$(make_spawn_case opencode-pinned opencode "$id")
+  read_case_record "$rec"
+  pinned="$CASE_DIR/nvm bin/opencode"
+  make_spawn_opencode_probe "$pinned" FM_FAKE_PINNED_OPENCODE_VERSION
+  printf '%s\n' "$pinned" > "$HOME_DIR/config/opencode-bin"
+
+  # The PATH copy reports the incompatible 2.x line; the pinned one is 1.x.
+  out=$(FM_TEST_OPENCODE_VERSION=2.0.16 run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --model anthropic/claude-sonnet-4-5)
+  status=$?
+  expect_code 0 "$status" "configured opencode spawn should succeed despite a 2.x on PATH"
+  launch=$(cat "$LAUNCH_LOG")
+  assert_contains "$launch" "}}' '$pinned' --model 'anthropic/claude-sonnet-4-5' --prompt" \
+    "configured opencode launch did not use the pinned absolute path"
+  assert_not_contains "$launch" "$FAKEBIN_DIR/opencode" "configured opencode launch used the PATH-shadowing binary"
+  pass "config/opencode-bin pins the launch path and ignores a PATH-shadowing opencode"
+}
+
+test_opencode_configured_bad_path_refuses() {
+  local rec id out status case_name value expected
+  while IFS='|' read -r case_name value expected; do
+    id="opencode-bad-$case_name"
+    rec=$(make_spawn_case "opencode-bad-$case_name" opencode "$id")
+    read_case_record "$rec"
+    case "$value" in
+    NONEXEC)
+      value="$CASE_DIR/opencode-nonexec"
+      printf '#!/bin/sh\n' > "$value"
+      chmod -x "$value"
+      ;;
+    MISSING) value="$CASE_DIR/absent/opencode" ;;
+    WRONGMAJOR)
+      value="$CASE_DIR/v2/opencode"
+      make_spawn_opencode_probe "$value" FM_FAKE_PINNED_OPENCODE_VERSION
+      ;;
+    esac
+    printf '%s\n' "$value" > "$HOME_DIR/config/opencode-bin"
+    : > "$LAUNCH_LOG"
+    out=$(FM_FAKE_PINNED_OPENCODE_VERSION=2.0.16 run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
+    status=$?
+    assert_opencode_refused "$out" "$status" "$id" "$expected" "config/opencode-bin $case_name"
+    assert_not_contains "$out" "spawned $id" "config/opencode-bin $case_name fell back to PATH"
+  done <<'EOF'
+relative|bin/opencode|is not absolute
+missing|MISSING|is not an executable file
+nonexec|NONEXEC|is not an executable file
+wrongmajor|WRONGMAJOR|is version 2.0.16
+EOF
+  pass "a relative, missing, non-executable, or wrong-major config/opencode-bin refuses without falling back to PATH"
 }
 
 test_native_effort_validator_keeps_axes_separate() {
@@ -1724,6 +1832,10 @@ test_opencode_threads_model_and_effort_variant
 test_opencode_without_effort_keeps_launch_config_unchanged
 test_opencode_emits_variant_for_openai_family_effort
 test_opencode_omits_variant_when_model_family_lacks_effort
+test_opencode_unconfigured_launches_by_absolute_path
+test_opencode_unconfigured_wrong_major_refuses
+test_opencode_configured_path_wins_over_path_shadowing
+test_opencode_configured_bad_path_refuses
 test_native_effort_validator_keeps_axes_separate
 test_native_pi_ultra_is_explicit_and_model_scoped
 test_batch_preserves_native_ultra
