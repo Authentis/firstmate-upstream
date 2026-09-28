@@ -2878,6 +2878,20 @@ EOF
     fi
   fi
 
+  # Retry queue parking that could not complete when its status line was
+  # consumed (validation still active, or a failed exit).  The park script owns
+  # the state/<id>.park-pending marker and clears it once parked or ineligible.
+  if [ "$(age_of "$STATE/.last-park-retry")" -ge 60 ]; then
+    touch "$STATE/.last-park-retry"
+    for park_marker in "$STATE"/*.park-pending; do
+      [ -f "$park_marker" ] || continue
+      park_id=$(basename "$park_marker" .park-pending)
+      FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_CONFIG_OVERRIDE="$CONFIG" \
+        "$SCRIPT_DIR/fm-park-on-queue.sh" "$park_id" >/dev/null 2>&1 \
+        || triage_log "queue parking retry pending for $park_id"
+    done
+  fi
+
   # On the first changed signal, linger one grace period and re-scan before
   # classifying: a crewmate's final status write and the same turn's turn-end
   # hook land seconds apart, and reporting them as separate actionable wakes
@@ -2897,6 +2911,22 @@ EOF
     while IFS=$(printf '\t') read -r sf sig f; do
       [ -n "$sf" ] || continue
       case " $files " in *" $f "*) ;; *) files="$files $f" ;; esac
+    done <<EOF
+$pending
+EOF
+    # Queue parking belongs at the status transition, not in firstmate's
+    # judgment.  The hook rechecks its own exact eligibility, including open
+    # decisions and active validation, before it sends the allowlisted exit.
+    while IFS=$(printf '\t') read -r _sf _sig park_file; do
+      [ -n "$park_file" ] || continue
+      case "$park_file" in
+        "$STATE"/*.status)
+          park_id=$(basename "$park_file" .status)
+          FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_CONFIG_OVERRIDE="$CONFIG" \
+            "$SCRIPT_DIR/fm-park-on-queue.sh" "$park_id" >/dev/null 2>&1 \
+            || triage_log "queue parking check refused for $park_id"
+          ;;
+      esac
     done <<EOF
 $pending
 EOF

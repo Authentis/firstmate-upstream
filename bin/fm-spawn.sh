@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Spawn a direct report: a crewmate in a treehouse or Orca worktree, or a
 # secondmate in its isolated firstmate home.
-# Usage: fm-spawn.sh <task-id> <project-dir> --mode <no-mistakes|direct-PR|local-only> --yolo <on|off> [--branch-prefix <prefix>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>]
+# Usage: fm-spawn.sh <task-id> <project-dir> --mode <no-mistakes|direct-PR|local-only> --yolo <on|off> [--branch-prefix <prefix>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--admission-override <reason>]
 #        fm-spawn.sh <task-id> <project-dir> --scout [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>]
 #        fm-spawn.sh <task-id> [<firstmate-home>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] --secondmate
 #   --mode and --yolo are this task's delivery contract, REQUIRED for every ship
@@ -43,6 +43,18 @@
 #   steering inbox. This never rewrites a project's instruction files or a
 #   secondmate's charter.
 #        fm-spawn.sh <task-id> --relaunch [--harness <name>] [--model <name>] [--effort <level>]
+#   Fresh ship and scout spawns are admitted only when /proc/meminfo reports at
+#   least config/admission-min-ram-gb GiB of MemAvailable (3 when absent) and
+#   this home has fewer than config/admission-max-agents live ordinary agents
+#   (7 when absent).  `--admission-override <reason>` is an explicit per-spawn escape
+#   hatch for a captain-authorized exception; each use appends a line naming the
+#   task and reason to state/overlay-events.log.  Relaunches and secondmates do not
+#   consume this new-lane budget.
+#   A fresh `dos-product-...` task also runs the config/leaf-admission (on when
+#   absent) FILES/PR preflight through bin/fm-leaf-supply.sh.  It refuses a
+#   leaf already landed on current main through a merged named PR, or one with
+#   an open named or file-touching PR.  The same --admission-override bypasses
+#   this explicitly requested preflight.
 #   --relaunch launches a replacement agent for an EXISTING task into that
 #   task's own recorded worktree, reusing its recorded endpoint when that
 #   endpoint still exists, instead of creating either from scratch. It is
@@ -643,6 +655,8 @@ fm_backlog_directory_present "$STATE" "state directory" || {
 # shellcheck source=/dev/null
 . "$SCRIPT_DIR/fm-busy-lib.sh"
 # shellcheck source=/dev/null
+. "$SCRIPT_DIR/fm-spawn-admission-lib.sh"
+# shellcheck source=/dev/null
 . "$SCRIPT_DIR/fm-cursor-lib.sh"
 # shellcheck source=/dev/null
 . "$SCRIPT_DIR/fm-pr-lib.sh"
@@ -672,6 +686,8 @@ MODE=
 YOLO=
 BRANCH_PREFIX=fm/
 TRACEPARENT_ARG=
+ADMISSION_OVERRIDE=0
+ADMISSION_OVERRIDE_REASON=
 HARNESS_SET=0
 MODEL_SET=0
 EFFORT_SET=0
@@ -716,6 +732,10 @@ for a in "$@"; do
       YOLO=$a
       YOLO_SET=1
       ;;
+    admission-override)
+      ADMISSION_OVERRIDE=1
+      ADMISSION_OVERRIDE_REASON=$a
+      ;;
     branch-prefix)
       BRANCH_PREFIX=$a
       BRANCH_PREFIX_SET=1
@@ -742,6 +762,11 @@ for a in "$@"; do
     KIND_SET=1
     ;;
   --relaunch) RELAUNCH=1 ;;
+  --admission-override) want_value=admission-override ;;
+  --admission-override=*)
+    ADMISSION_OVERRIDE=1
+    ADMISSION_OVERRIDE_REASON=${a#--admission-override=}
+    ;;
   --harness) want_value=harness ;;
   --harness=*)
     HARNESS_ARG=${a#--harness=}
@@ -1575,6 +1600,7 @@ if [ "${#POS[@]}" -gt 0 ] && [ "${POS[0]}" != "$idpart" ] && case "$idpart" in *
   [ -z "$MODEL" ] || shared_args+=(--model "$MODEL")
   [ -z "$EFFORT" ] || shared_args+=(--effort "$EFFORT")
   [ -z "$BACKEND_ARG" ] || shared_args+=(--backend "$BACKEND_ARG")
+  [ "$ADMISSION_OVERRIDE" -eq 0 ] || shared_args+=(--admission-override "$ADMISSION_OVERRIDE_REASON")
   # One delivery contract applies to every pair in a batch, exactly like the shared
   # harness. Each pair still re-validates it against its own brief, so a batch
   # spanning several modes is two invocations rather than a silent mixed dispatch.
@@ -1628,7 +1654,17 @@ if [ -e "$STATE" ] || [ -L "$STATE" ]; then
 elif [ "$RELAUNCH" -eq 1 ]; then
   echo "error: spawn refused: state directory does not exist at $STATE" >&2
   exit 1
+else
+  mkdir -p "$STATE" || {
+    echo "error: could not create parent state directory" >&2
+    exit 1
+  }
+  fm_backlog_directory_present "$STATE" "state directory" || {
+    echo "error: spawn refused: $FM_BACKLOG_TRANSITION_ERROR" >&2
+    exit 1
+  }
 fi
+record_admission_override
 # Role partition: spawning NEW work is MAIN-owned while attended. A relaunch of
 # an existing task is legitimate branch recovery (fm-control drives it through
 # this same entrypoint), so only a fresh spawn refuses the branch actor
@@ -1665,6 +1701,7 @@ spawn_refuse_if_away_spend_cap() {
     exit 1
   fi
 }
+
 # Spend cap (bin/fm-afk-contract.sh's spend_max_concurrent_workers): while the
 # away-posture record exists, a fresh ordinary spawn refuses for BOTH actors
 # once this home already holds that many ordinary task records, counted the
@@ -1708,14 +1745,6 @@ if [ "$RELAUNCH" -eq 1 ]; then
   fi
 fi
 if [ "$RELAUNCH" -eq 0 ]; then
-  mkdir -p "$STATE" || {
-    echo "error: could not create parent state directory" >&2
-    exit 1
-  }
-  fm_backlog_directory_present "$STATE" "state directory" || {
-    echo "error: spawn refused: $FM_BACKLOG_TRANSITION_ERROR" >&2
-    exit 1
-  }
   # A FRESH spawn changes which tasks this home has, so it must not interleave
   # with a forced teardown that has already enumerated that set: a record
   # published inside the enumerate-then-remove window is invisible to the
@@ -1741,6 +1770,7 @@ if [ "$RELAUNCH" -eq 0 ]; then
   fi
   SPAWN_TASK_SET_LOCK_HELD=1
   spawn_refuse_if_away_spend_cap
+  spawn_refuse_if_admission_exhausted
   spawn_require_relocated_queued_work
 fi
 if [ "$KIND" = secondmate ]; then
@@ -3188,6 +3218,7 @@ else
   WT=""
   BRIEF="$DATA/$ID/brief.md"
 fi
+spawn_refuse_if_leaf_unavailable "$PROJ_ABS"
 if [ "$RELAUNCH" -eq 0 ] && [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
   SPAWN_TREEHOUSE_PROJECT_LOCK=$(fm_treehouse_project_lock_path "$PROJ_ABS") || {
     echo "error: could not resolve the shared Treehouse project lock for $PROJ_ABS" >&2
