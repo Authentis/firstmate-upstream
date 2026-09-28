@@ -42,7 +42,7 @@ done
 case "$plan_below" in ''|*[!0-9]*) [ -z "$plan_below" ] || die '--plan-below must be a whole number' ;; esac
 case "$check_id" in ''|[A-Za-z0-9]*[A-Za-z0-9._-]) ;; *) die 'invalid leaf id for --check' ;; esac
 
-for tool in br gh-axi git jq base64; do
+for tool in br gh-axi git jq base64 python3; do
   command -v "$tool" >/dev/null 2>&1 || die "required tool not found: $tool"
 done
 
@@ -71,10 +71,36 @@ jq -e 'type == "array"' "$ready" >/dev/null || die 'br ready returned invalid JS
 unwrap_gh_json() {
   local raw=$1 body
   if jq -e 'type == "array"' "$raw" >/dev/null 2>&1; then cat "$raw"; return 0; fi
-  grep -Fxq '  truncated: false' "$raw" || return 1
-  body=$(sed -n 's/^  body: //p' "$raw")
-  [ -n "$body" ] || return 1
-  printf '%s\n' "$body" | jq -r .
+  if grep -Fxq '  truncated: false' "$raw"; then
+    body=$(sed -n 's/^  body: //p' "$raw")
+    [ -n "$body" ] || return 1
+    printf '%s\n' "$body" | jq -r .
+    return
+  fi
+  python3 - "$raw" <<'PY'
+import json
+import re
+import sys
+
+try:
+    import yaml
+except ImportError:
+    sys.exit(1)
+try:
+    with open(sys.argv[1], encoding="utf-8") as stream:
+        value = yaml.safe_load(re.sub(r"(?m)^\[([0-9]+)\]:", r"page_\1:", stream.read()))
+    if isinstance(value, dict):
+        if not value or not all(re.fullmatch(r"page_[0-9]+", key) and isinstance(page, list)
+                                for key, page in value.items()):
+            raise ValueError
+        value = [row for page in value.values() for row in page]
+    if not isinstance(value, list):
+        raise ValueError
+    json.dump(value, sys.stdout)
+    print()
+except (OSError, ValueError, yaml.YAMLError):
+    sys.exit(1)
+PY
 }
 
 raw_prs="$tmp/prs.raw"

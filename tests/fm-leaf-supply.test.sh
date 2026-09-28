@@ -43,9 +43,56 @@ case "$*" in
     [ -z "${FM_TEST_COMPARE_FAIL:-}" ] || exit 1
     printf '%s\n' ahead
     ;;
-  *pulls?state=*) cat "$FM_TEST_PRS_JSON" ;;
+  *pulls?state=*)
+    if [ -n "${FM_TEST_GH_AXI_PAGINATED_YAML:-}" ]; then
+      cat <<'YAML'
+[1]:
+  - number: 1
+    state: closed
+    merged_at: "2026-09-01T00:00:00Z"
+    merge_commit_sha: aaa111
+    base:
+      ref: main
+    title: finish dos-product-landed
+    head:
+      ref: fm/dos-product-landed
+  - number: 3
+    state: closed
+    merged_at: "2026-09-01T00:00:00Z"
+    merge_commit_sha: bbb222
+    base:
+      ref: main
+    title: finish dos-product-deleted
+    head:
+      ref: fm/dos-product-deleted
+  - number: 4
+    state: closed
+    merged_at: "2026-09-01T00:00:00Z"
+    merge_commit_sha: ccc333
+    base:
+      ref: epic
+    title: finish dos-product-otherbase
+    head:
+      ref: fm/dos-product-otherbase
+  - number: 2
+    state: open
+    merged_at: null
+    title: unrelated work
+    head:
+      ref: fm/unrelated
+YAML
+    else
+      cat "$FM_TEST_PRS_JSON"
+    fi
+    ;;
   *pulls/1/files*) printf '%s\n' '[{"filename":"src/landed.sh"}]' ;;
-  *pulls/2/files*) printf '%s\n' '[{"filename":"src/open.sh"}]' ;;
+  *pulls/2/files*)
+    if [ -n "${FM_TEST_GH_AXI_PAGINATED_YAML:-}" ]; then
+      printf '%s\n' '[1]:' '  - filename: src/open.sh'
+    else
+      printf '%s\n' '[{"filename":"src/open.sh"}]'
+    fi
+    ;;
   *pulls/3/files*|*pulls/4/files*) printf '%s\n' '[]' ;;
   *) exit 2 ;;
 esac
@@ -79,6 +126,19 @@ EOF
   assert_not_contains "$out" 'dos-product-landed' "merged leaf survived"
   assert_not_contains "$out" 'dos-product-open' "open-PR leaf survived"
   pass "leaf supply requires files, ready deps, no merged landing, and no open PR"
+}
+
+test_accepts_paginated_gh_axi_yaml() {
+  local rec root repo tools out
+  rec=$(make_case paginated-yaml)
+  IFS='|' read -r root repo tools <<EOF
+$rec
+EOF
+  out=$(FM_TEST_GH_AXI_PAGINATED_YAML=1 run_supply "$root" "$repo" "$tools" 2>&1) \
+    || fail "leaf supply rejected gh-axi paginated YAML: $out"
+  assert_contains "$out" 'dispatchable: 2' "paginated YAML changed the dispatchable count: $out"
+  assert_not_contains "$out" 'dos-product-landed' "paginated YAML failed to exclude a landed leaf"
+  pass "leaf supply accepts gh-axi paginated YAML"
 }
 
 test_plan_threshold_reports_due_without_spawning() {
@@ -122,6 +182,7 @@ EOF
 }
 
 test_reports_only_dispatchable_file_scoped_leaves
+test_accepts_paginated_gh_axi_yaml
 test_plan_threshold_reports_due_without_spawning
 test_fails_closed_when_current_main_cannot_be_verified
 test_check_refuses_a_leaf_landed_or_held_by_a_pull_request
