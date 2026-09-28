@@ -2080,6 +2080,7 @@ SH
 #!/usr/bin/env bash
 case "$*" in
   *'repo view'*) printf '%s\n' 'example/repo' ;;
+  *compare/aaa111...main*) printf '%s\n' behind ;;
   *pulls?state=*) printf '%s\n' '[{"number":1,"merged_at":"2026-09-01T00:00:00Z","merge_commit_sha":"aaa111","base":{"ref":"main"},"title":"finish dos-product-admission-landed-z3","head":{"ref":"fm/dos-product-admission-landed-z3"}}]' ;;
   *) exit 2 ;;
 esac
@@ -2088,7 +2089,6 @@ SH
 #!/usr/bin/env bash
 case "$*" in
   *'ls-remote --get-url origin'*) printf '%s\n' 'git@github.com:example/repo.git' ;;
-  *"merge-base --is-ancestor aaa111 origin/main"*) exit 0 ;;
   *) exec /usr/bin/git "$@" ;;
 esac
 SH
