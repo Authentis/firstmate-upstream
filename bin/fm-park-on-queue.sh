@@ -21,7 +21,7 @@
 # opens a decision, so a consumed status line never loses the obligation.
 #
 # With config/park-on-queue set to `off`, an otherwise eligible task is not
-# stopped and one line is appended to state/overlay-events.log (once per
+# stopped and one non-eligible line is appended to its status log (once per
 # status line) so the operator can see parking is disabled.
 #
 # Config:
@@ -60,19 +60,8 @@ if [ -e "$CONFIG/park-on-queue" ] || [ -L "$CONFIG/park-on-queue" ]; then
 fi
 status="$STATE/$id.status"
 pending="$STATE/$id.park-pending"
-# The marker holds the retry count; after 20 unsuccessful retries the
-# obligation is dropped and logged rather than retried forever.
 defer_park() {
-  local n
-  n=$(cat "$pending" 2>/dev/null || true)
-  case "$n" in ''|*[!0-9]*) n=0 ;; esac
-  n=$((n + 1))
-  if [ "$n" -ge 20 ]; then
-    rm -f "$pending"
-    printf 'failed [at=%s]: parking gave up after %s attempts task=%s\n' "$(date +%s)" "$n" "$id" >> "$STATE/overlay-events.log"
-  else
-    printf '%s\n' "$n" > "$pending"
-  fi
+  : > "$pending"
 }
 [ -f "$status" ] && [ ! -L "$status" ] && [ -r "$status" ] || { rm -f "$pending"; exit 0; }
 [ -n "$(status_open_decisions "$status")" ] && { rm -f "$pending"; exit 0; }
@@ -93,11 +82,10 @@ esac
 
 if [ "$enabled" != on ]; then
   rm -f "$pending"
-  events="$STATE/overlay-events.log"
   marker=$(printf '%s' "$line" | cksum | cut -d' ' -f1)
-  if ! tail -n 1 "$events" 2>/dev/null | grep -Fq "task=$id status=$marker"; then
-    printf 'paused [at=%s]: park-on-queue is off; %s is done or ready but left running task=%s status=%s\n' \
-      "$(date +%s)" "$id" "$id" "$marker" >> "$events"
+  off_note="park-on-queue is off; task=$id status=$marker"
+  if ! grep -Fq "$off_note" "$status"; then
+    printf 'parking-disabled [at=%s]: %s\n' "$(date +%s)" "$off_note" >> "$status"
   fi
   exit 0
 fi

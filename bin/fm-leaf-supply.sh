@@ -5,8 +5,8 @@
 #                           [--plan-below <count>] [--check <leaf-id>]
 #
 # A dispatchable leaf is an open, non-epic `br ready --json` row with a FILES:
-# declaration, no matching merged pull request whose declared files are on
-# origin/main, and no open pull request that names the leaf or touches one of
+# declaration, no matching merged pull request that the forge reports reached
+# current main, and no open pull request that names the leaf or touches one of
 # its declared files.  `br ready` is the dependency gate, so an open
 # blocks-deps relationship never appears in this report.  The script prints a
 # count and ids.  `--plan-below N` reports when planning is due and prints the
@@ -108,18 +108,22 @@ EOF
 }
 
 id_landed_on_main() {
-  local id=$1 pr merged base sha
+  local id=$1 pr merged base sha compare_status
   while IFS= read -r pr; do
     [ -n "$pr" ] || continue
     merged=$(printf '%s' "$pr" | jq -r '.merged_at // empty')
     [ -n "$merged" ] || continue
     pr_names_leaf "$pr" "$id" || continue
-    # Landed means a merged PR targeted main and its merge commit is reachable
-    # from origin/main; a surviving (or leaf-deleted) FILES path proves nothing.
     base=$(printf '%s' "$pr" | jq -r '.base.ref // empty')
     sha=$(printf '%s' "$pr" | jq -r '.merge_commit_sha // empty')
     [ "$base" = main ] && [ -n "$sha" ] || continue
-    git -C "$repo_path" merge-base --is-ancestor "$sha" origin/main 2>/dev/null && return 0
+    compare_status=$(gh-axi api "/repos/$repository/compare/$sha...main" --jq .status 2>/dev/null) \
+      || die "could not verify whether merged pull request for $id reached current main"
+    case "$compare_status" in
+      behind|identical) return 0 ;;
+      ahead|diverged) ;;
+      *) die "current-main verification returned invalid comparison status for $id" ;;
+    esac
   done < <(jq -c '.[]' "$prs")
   return 1
 }

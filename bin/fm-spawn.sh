@@ -1598,6 +1598,7 @@ if [ "${#POS[@]}" -gt 0 ] && [ "${POS[0]}" != "$idpart" ] && case "$idpart" in *
   [ -z "$MODEL" ] || shared_args+=(--model "$MODEL")
   [ -z "$EFFORT" ] || shared_args+=(--effort "$EFFORT")
   [ -z "$BACKEND_ARG" ] || shared_args+=(--backend "$BACKEND_ARG")
+  [ "$ADMISSION_OVERRIDE" -eq 0 ] || shared_args+=(--admission-override "$ADMISSION_OVERRIDE_REASON")
   # One delivery contract applies to every pair in a batch, exactly like the shared
   # harness. Each pair still re-validates it against its own brief, so a batch
   # spanning several modes is two invocations rather than a silent mixed dispatch.
@@ -1651,7 +1652,26 @@ if [ -e "$STATE" ] || [ -L "$STATE" ]; then
 elif [ "$RELAUNCH" -eq 1 ]; then
   echo "error: spawn refused: state directory does not exist at $STATE" >&2
   exit 1
+else
+  mkdir -p "$STATE" || {
+    echo "error: could not create parent state directory" >&2
+    exit 1
+  }
+  fm_backlog_directory_present "$STATE" "state directory" || {
+    echo "error: spawn refused: $FM_BACKLOG_TRANSITION_ERROR" >&2
+    exit 1
+  }
 fi
+record_admission_override() {
+  [ "$ADMISSION_OVERRIDE" -eq 0 ] && return 0
+  [ -n "$ADMISSION_OVERRIDE_REASON" ] || {
+    echo "error: --admission-override requires a non-empty reason" >&2
+    exit 1
+  }
+  printf 'paused [at=%s]: admission override used task=%s reason=%s\n' \
+    "$(date +%s)" "$ID" "$ADMISSION_OVERRIDE_REASON" >> "$STATE/overlay-events.log"
+}
+record_admission_override
 # Role partition: spawning NEW work is MAIN-owned while attended. A relaunch of
 # an existing task is legitimate branch recovery (fm-control drives it through
 # this same entrypoint), so only a fresh spawn refuses the branch actor
@@ -1738,15 +1758,7 @@ spawn_refuse_if_admission_exhausted() {
   local min_gb max_agents available_kib min_kib
   [ "$RELAUNCH" -ne 1 ] || return 0
   [ "$KIND" != secondmate ] || return 0
-  if [ "$ADMISSION_OVERRIDE" -ne 0 ]; then
-    [ -n "$ADMISSION_OVERRIDE_REASON" ] || {
-      echo "error: --admission-override requires a non-empty reason" >&2
-      exit 1
-    }
-    printf 'paused [at=%s]: admission override used task=%s reason=%s\n' \
-      "$(date +%s)" "$ID" "$ADMISSION_OVERRIDE_REASON" >> "$STATE/overlay-events.log"
-    return 0
-  fi
+  [ "$ADMISSION_OVERRIDE" -eq 0 ] || return 0
   min_gb=$(spawn_admission_uint admission-min-ram-gb 3) || exit 1
   max_agents=$(spawn_admission_uint admission-max-agents 7) || exit 1
   available_kib=$(awk '/^MemAvailable:/ { print $2; exit }' /proc/meminfo 2>/dev/null || true)
@@ -1842,14 +1854,6 @@ if [ "$RELAUNCH" -eq 1 ]; then
   fi
 fi
 if [ "$RELAUNCH" -eq 0 ]; then
-  mkdir -p "$STATE" || {
-    echo "error: could not create parent state directory" >&2
-    exit 1
-  }
-  fm_backlog_directory_present "$STATE" "state directory" || {
-    echo "error: spawn refused: $FM_BACKLOG_TRANSITION_ERROR" >&2
-    exit 1
-  }
   # A FRESH spawn changes which tasks this home has, so it must not interleave
   # with a forced teardown that has already enumerated that set: a record
   # published inside the enumerate-then-remove window is invisible to the

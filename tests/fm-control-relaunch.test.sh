@@ -1157,16 +1157,18 @@ test_ship_relaunch_ignores_the_crew_harness_config() {
 
 test_spawn_relaunch_without_a_harness_reuses_the_recorded_one() {
   local dir out
-  dir=$(new_case spawnharness rl21)
-  add_ship_task "$dir" rl21 claude
+  dir=$(new_case spawnharness admission-relaunch-z71)
+  add_ship_task "$dir" admission-relaunch-z71 claude
   mkdir -p "$dir/home/config"
   printf 'codex\n' > "$dir/home/config/crew-harness"
   printf 'zsh' > "$dir/fake/command"
-  out=$(run_spawn "$dir" rl21 --relaunch)
-  [ "$(meta_field "$dir" rl21 harness)" = claude ] \
-    || fail "fm-spawn --relaunch without --harness must reuse the recorded harness, got '$(meta_field "$dir" rl21 harness)'"
-  assert_contains "$out" "spawned rl21 harness=claude" "the launch should report the recorded harness"
-  pass "fm-spawn --relaunch: with no explicit harness it reuses the task's recorded one, never the crew default"
+  out=$(run_spawn "$dir" admission-relaunch-z71 --relaunch --admission-override 'captain authorized relaunch')
+  [ "$(meta_field "$dir" admission-relaunch-z71 harness)" = claude ] \
+    || fail "fm-spawn --relaunch without --harness must reuse the recorded harness, got '$(meta_field "$dir" admission-relaunch-z71 harness)'"
+  assert_contains "$out" "spawned admission-relaunch-z71 harness=claude" "the launch should report the recorded harness"
+  assert_contains "$(cat "$dir/home/state/overlay-events.log")" \
+    'task=admission-relaunch-z71 reason=captain authorized relaunch' "relaunch override was not audited"
+  pass "fm-spawn --relaunch preserves its harness and audits an override"
 }
 
 test_spawn_relaunch_appends_a_fresh_claude_session_id() {

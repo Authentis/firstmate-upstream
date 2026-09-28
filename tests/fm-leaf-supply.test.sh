@@ -39,6 +39,10 @@ SH
   cat > "$tools/gh-axi" <<'SH'
 #!/usr/bin/env bash
 case "$*" in
+  *compare/aaa111...main*|*compare/bbb222...main*)
+    [ -z "${FM_TEST_COMPARE_FAIL:-}" ] || exit 1
+    printf '%s\n' behind
+    ;;
   *pulls?state=*) cat "$FM_TEST_PRS_JSON" ;;
   *pulls/1/files*) printf '%s\n' '[{"filename":"src/landed.sh"}]' ;;
   *pulls/2/files*) printf '%s\n' '[{"filename":"src/open.sh"}]' ;;
@@ -48,11 +52,7 @@ esac
 SH
   cat > "$tools/git" <<'SH'
 #!/usr/bin/env bash
-case "$*" in
-  *"merge-base --is-ancestor aaa111 origin/main"*|*"merge-base --is-ancestor bbb222 origin/main"*) exit 0 ;;
-  *"merge-base --is-ancestor"*) exit 1 ;;
-  *) exit 2 ;;
-esac
+exit 2
 SH
   chmod 0755 "$tools/br" "$tools/gh-axi" "$tools/git"
   printf '%s|%s|%s\n' "$root" "$repo" "$tools"
@@ -93,6 +93,20 @@ EOF
   pass "low leaf supply reports planning due without spawning a lane"
 }
 
+test_fails_closed_when_current_main_cannot_be_verified() {
+  local rec root repo tools out status
+  rec=$(make_case compare-failure)
+  IFS='|' read -r root repo tools <<EOF
+$rec
+EOF
+  out=$(FM_TEST_COMPARE_FAIL=1 run_supply "$root" "$repo" "$tools" 2>&1)
+  status=$?
+  [ "$status" -ne 0 ] || fail "supply continued without a current-main comparison: $out"
+  assert_contains "$out" 'could not verify whether merged pull request for dos-product-landed reached current main' \
+    "comparison failure was not surfaced as verification failure"
+  pass "leaf supply fails closed when current main cannot be verified"
+}
+
 test_check_refuses_a_leaf_landed_or_held_by_a_pull_request() {
   local rec root repo tools out status
   rec=$(make_case check)
@@ -109,6 +123,7 @@ EOF
 
 test_reports_only_dispatchable_file_scoped_leaves
 test_plan_threshold_reports_due_without_spawning
+test_fails_closed_when_current_main_cannot_be_verified
 test_check_refuses_a_leaf_landed_or_held_by_a_pull_request
 
 echo "# all fm-leaf-supply tests passed"

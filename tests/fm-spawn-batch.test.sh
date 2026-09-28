@@ -143,8 +143,29 @@ test_scout_batch_refuses_delivery_flags() {
   pass "scout batch refuses ship delivery flags instead of ignoring them"
 }
 
+test_batch_forwards_admission_overrides_to_each_task() {
+  local home id1 id2 out status
+  home="$TMP_ROOT/admission-home"
+  id1=admission-batch-a-z13
+  id2=admission-batch-b-z14
+  mkdir -p "$home/data" "$home/projects" "$home/state" "$home/config"
+  out=$(FM_ROOT_OVERRIDE='' FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" \
+    FM_DATA_OVERRIDE="$home/data" FM_PROJECTS_OVERRIDE="$home/projects" \
+    FM_CONFIG_OVERRIDE="$home/config" FM_SPAWN_NO_GUARD=1 \
+    "$SPAWN" "$id1=$TMP_ROOT/no-project-a" "$id2=$TMP_ROOT/no-project-b" \
+    --mode no-mistakes --yolo off --admission-override 'captain authorized batch' 2>&1)
+  status=$?
+  [ "$status" -ne 0 ] || fail "batch with unavailable projects should refuse"
+  assert_contains "$(cat "$home/state/overlay-events.log")" \
+    "task=$id1 reason=captain authorized batch" "first batch override was not audited"
+  assert_contains "$(cat "$home/state/overlay-events.log")" \
+    "task=$id2 reason=captain authorized batch" "second batch override was not audited"
+  pass "batch dispatch audits an override for every re-executed task"
+}
+
 test_batch_dispatches_every_pair
 test_batch_mode_boundaries
 test_batch_requires_the_shared_delivery_contract
 test_scout_batch_refuses_delivery_flags
+test_batch_forwards_admission_overrides_to_each_task
 test_projects_path_scoping
