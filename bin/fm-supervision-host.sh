@@ -45,12 +45,19 @@
 #     engine errors, and the Pi branch's offer rule
 #     (bin/fm-branch-dispatch.mjs offer) says the branch may take this close,
 #     so main-only classes (check triggers, decision-owned triggers, a scan
-#     that is unsafe or holds nothing for the branch) stay main's;
+#     that is unsafe or holds nothing for the branch) stay main's. That
+#     pass-through starts the successor watcher cycle and leaves it running
+#     before the close is printed, so supervision continues when the session
+#     drops the handoff. It confirms no handling handoff, so the recovery
+#     marker still reads downtime and the re-arm owner delivers the close to
+#     main. The watcher singleton lock makes the session's next arm attach to
+#     that cycle instead of starting a second one;
 #   - away (the record exists): every close goes to the engine.
 # Every turn that starts attended meets that rule again at its start, so a
 # close accepted away whose turn starts attended (the captain returned in
 # between) or an attended close whose task turned main-only while the
-# successor started reaches main exactly as the arm printed it.
+# successor started reaches main exactly as the arm printed it, and that
+# successor cycle stays running.
 # A close the engine takes is handled in one order: it starts and verifies the
 # successor watcher cycle and confirms the handling handoff (the order
 # docs/watcher-continuity.md owns), computes the rows the branch may claim in
@@ -608,6 +615,31 @@ start_successor() {  # <predecessor-arm-pid>
   done
 }
 
+# Drop the successor from this host's cleanup without stopping it. The shell
+# signals background jobs when it exits, and this arm's handler would then
+# stop the watcher, so disown it first. The capture file stays tracked so the
+# EXIT trap unlinks it; the arm already holds that descriptor and keeps
+# waiting on the watcher.
+detach_successor() {
+  [ -n "${SUCCESSOR_PID:-}" ] || return 0
+  disown "$SUCCESSOR_PID" 2>/dev/null || true
+  forget_process "$SUCCESSOR_PID"
+  SUCCESSOR_PID=
+}
+
+# Start the same successor a handled wake starts and leave it running. It
+# confirms no handling handoff: main, not the engine, handles this close, and
+# the re-arm owner delivers it only while the recovery marker still reads
+# downtime (autoarm_commit in bin/fm-claude-stop-autoarm.sh). A failed start
+# returns 1; the caller still prints the close unchanged.
+leave_successor_for_main() {
+  if ! start_successor "$CLOSED_ARM_PID"; then
+    log_line "pass-through	successor-unverified	$(printf '%s\n' "$REASON" | head -n 1)"
+    return 1
+  fi
+  detach_successor
+}
+
 # The engine conversation for this turn: the recorded one while it belongs to
 # this main session and has turns left, otherwise a new one. Sets ENGINE_SESSION
 # and ENGINE_MODE (new|resume).
@@ -984,6 +1016,9 @@ while :; do
   if [ ! -f "$STATE/.afk-contract" ]; then
     if ! attended_acceptor "$(printf '%s\n' "$REASON" | head -n 1)"; then
       log_line "pass-through	attended	$ATTENDED_WHY	$(printf '%s\n' "$REASON" | head -n 1)"
+      if [ "$ATTENDED_WHY" = main-only ]; then
+        leave_successor_for_main || true
+      fi
       emit
       exit 0
     fi
@@ -1023,7 +1058,17 @@ while :; do
   HANDLE_RC=$?
   if [ "$HANDLE_RC" -eq 2 ]; then
     log_line "pass-through	attended	$ATTENDED_WHY	$(printf '%s\n' "$REASON" | head -n 1)"
-    retire_successor
+    # The successor this turn already started and confirmed stays up. Retiring
+    # it is what left no watcher after a close that became main-only.
+    detach_successor
+    # Main handles this close after all, so hand back the downtime the handoff
+    # above consumed: the re-arm owner delivers the close only while the
+    # recovery marker reads downtime (leave_successor_for_main).
+    if [ -n "$SUCCESSOR_GENERATION" ] \
+      && ! fm_recovery_marker_publish "$STATE/.watcher-down" downtime >/dev/null 2>&1; then
+      log_line "pass-through	downtime-unrestored	$(printf '%s\n' "$REASON" | head -n 1)"
+      exit 1
+    fi
     emit
     exit 0
   fi
