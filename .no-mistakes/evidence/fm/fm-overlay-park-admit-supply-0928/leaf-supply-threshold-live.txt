@@ -1,0 +1,3 @@
+dispatchable: 0
+planning: due (0 < 14)
+spawn command: bin/fm-spawn.sh leaf-supply-plan <project> --mode no-mistakes --yolo off
