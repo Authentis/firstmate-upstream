@@ -132,6 +132,29 @@ SH
   pass "parking deferred by active validation is retried and clears once parked"
 }
 
+test_gate_lab_queue_parking_reaches_fm_control() {
+  local home bin out rc
+  home=$(env -u FM_GATE_REFUSE_BYPASS NO_MISTAKES_GATE=1 \
+    "$ROOT/bin/fm-lab-home.sh" create "$TMP_ROOT/gate-lab") \
+    || fail "could not create disposable gate lab"
+  bin="$home/bin"
+  mkdir -p "$bin"
+  cat > "$bin/crew-state" <<'SH'
+#!/usr/bin/env bash
+printf 'state: done · source: status-log · no active validation\n'
+SH
+  chmod 0755 "$bin/crew-state"
+  printf 'done [at=1]: implementation committed\n' > "$home/state/lab-gate.status"
+
+  out=$(env -u FM_GATE_REFUSE_BYPASS NO_MISTAKES_GATE=1 FM_HOME="$home" \
+    FM_STATE_OVERRIDE="$home/state" FM_CONFIG_OVERRIDE="$home/config" \
+    FM_PARK_CREW_STATE_BIN="$bin/crew-state" "$PARK" lab-gate 2>&1); rc=$?
+  [ "$rc" -eq 75 ] || fail "unconfigured lab control should defer parking, got $rc: $out"
+  assert_contains "$out" "no task 'lab-gate'" \
+    "queue parking did not reach fm-control through the permitted lab layout"
+  pass "gate-lab queue parking reaches fm-control without an override refusal"
+}
+
 test_failed_exit_keeps_a_retry_obligation() {
   local rec home bin log
   rec=$(make_case failexit)
@@ -155,6 +178,7 @@ test_open_decision_prevents_parking
 test_ready_pause_parks_but_active_validation_does_not
 test_off_switch_leaves_the_lane_running_and_records_it_in_status
 test_deferred_parking_is_retried_until_it_succeeds
+test_gate_lab_queue_parking_reaches_fm_control
 test_failed_exit_keeps_a_retry_obligation
 
 echo "# all fm-park-on-queue tests passed"

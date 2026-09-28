@@ -98,9 +98,14 @@ case "$crew_state" in
     ;;
 esac
 
-if ! FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" "$CONTROL_BIN" "$id" exit >/dev/null 2>&1; then
+# fm-control's gate-lab allowance deliberately accepts only its stock layout;
+# the watcher supplies state/config overrides even when they name that layout.
+# They are unnecessary for this control call because it receives the same home.
+if ! control_error=$(env -u FM_STATE_OVERRIDE -u FM_CONFIG_OVERRIDE \
+  -u FM_ROOT_OVERRIDE -u FM_DATA_OVERRIDE FM_HOME="$FM_HOME" \
+  "$CONTROL_BIN" "$id" exit 2>&1); then
   defer_park
-  echo "error: fm-control exit failed for $id; parking will be retried" >&2
+  printf 'error: fm-control exit failed for %s; parking will be retried: %s\n' "$id" "$control_error" >&2
   exit 75
 fi
 rm -f "$pending"
