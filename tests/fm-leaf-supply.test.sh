@@ -41,7 +41,7 @@ SH
 case "$*" in
   *compare/aaa111...main*|*compare/bbb222...main*)
     [ -z "${FM_TEST_COMPARE_FAIL:-}" ] || exit 1
-    printf '%s\n' behind
+    printf '%s\n' ahead
     ;;
   *pulls?state=*) cat "$FM_TEST_PRS_JSON" ;;
   *pulls/1/files*) printf '%s\n' '[{"filename":"src/landed.sh"}]' ;;

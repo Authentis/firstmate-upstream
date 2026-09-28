@@ -120,8 +120,8 @@ id_landed_on_main() {
     compare_status=$(gh-axi api "/repos/$repository/compare/$sha...main" --jq .status 2>/dev/null) \
       || die "could not verify whether merged pull request for $id reached current main"
     case "$compare_status" in
-      behind|identical) return 0 ;;
-      ahead|diverged) ;;
+      ahead|identical) return 0 ;;
+      behind|diverged) ;;
       *) die "current-main verification returned invalid comparison status for $id" ;;
     esac
   done < <(jq -c '.[]' "$prs")

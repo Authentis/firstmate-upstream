@@ -2080,7 +2080,7 @@ SH
 #!/usr/bin/env bash
 case "$*" in
   *'repo view'*) printf '%s\n' 'example/repo' ;;
-  *compare/aaa111...main*) printf '%s\n' behind ;;
+  *compare/aaa111...main*) printf '%s\n' ahead ;;
   *pulls?state=*) printf '%s\n' '[{"number":1,"merged_at":"2026-09-01T00:00:00Z","merge_commit_sha":"aaa111","base":{"ref":"main"},"title":"finish dos-product-admission-landed-z3","head":{"ref":"fm/dos-product-admission-landed-z3"}}]' ;;
   *) exit 2 ;;
 esac
