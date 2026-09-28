@@ -1,0 +1,6 @@
+== product spawn admission refusal ==
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.xr5Wcy
+error: spawn refused - available RAM is 9677484 KiB; admission requires at least 999999 GiB (1048574951424 KiB)
+spawn exit=1
+== task publication check ==
+no task metadata published after refusal

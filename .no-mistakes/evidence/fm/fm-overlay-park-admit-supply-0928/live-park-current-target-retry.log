@@ -1,0 +1,70 @@
+Scenario: real Claude lane completion is parked through the queue transition hook after the product reports it idle.
+/tmp/fm-lab.VlRnY9
+== private primary: primary
+== spawn ==
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.VlRnY9
+spawned live-park harness=claude kind=ship mode=local-only yolo=off window=primary:fm-live-park worktree=/tmp/fm-lab.VlRnY9/treehouse/.treehouse/lab-project-a8207f/1/lab-project
+== wait for real worker to become idle ==
+poll=1 state: working · source: pane · harness busy (fm-spawn)
+poll=2 state: working · source: pane · harness busy (claude-hook)
+poll=3 state: working · source: pane · harness busy (claude-hook)
+poll=4 state: working · source: pane · harness busy (claude-hook)
+poll=5 state: done · source: status-log · inspected fixture, no changes; branch fm/live-park at 774f016
+poll=6 state: done · source: status-log · inspected fixture, no changes; branch fm/live-park at 774f016
+poll=7 state: done · source: status-log · inspected fixture, no changes; branch fm/live-park at 774f016
+poll=8 state: done · source: status-log · inspected fixture, no changes; branch fm/live-park at 774f016
+poll=9 state: done · source: status-log · inspected fixture, no changes; branch fm/live-park at 774f016
+poll=10 state: done · source: status-log · inspected fixture, no changes; branch fm/live-park at 774f016
+poll=11 state: done · source: status-log · inspected fixture, no changes; branch fm/live-park at 774f016
+poll=12 state: done · source: status-log · inspected fixture, no changes; branch fm/live-park at 774f016
+poll=13 state: done · source: status-log · inspected fixture, no changes; branch fm/live-park at 774f016
+poll=14 state: done · source: status-log · inspected fixture, no changes; branch fm/live-park at 774f016
+poll=15 state: done · source: status-log · inspected fixture, no changes; branch fm/live-park at 774f016
+poll=16 state: done · source: status-log · inspected fixture, no changes; branch fm/live-park at 774f016
+poll=17 state: done · source: status-log · inspected fixture, no changes; branch fm/live-park at 774f016
+poll=18 state: done · source: status-log · inspected fixture, no changes; branch fm/live-park at 774f016
+== worker surface before status transition ==
+
+❯ : Firstmate operational input waiting: read
+  '/tmp/fm-lab.VlRnY9/state/operational-inbox/1790599549-edf2ad89c8eab02a.msg'
+  and handle its contents as Firstmate operational input.
+
+  Read 1 file (ctrl+o to expand)
+
+● Bash(pwd -P; git rev-parse --show-toplevel; git checkout -b fm/live-park -- &&
+      ls -la && git log --oneline -3; ls
+      /tmp/fm-lab.VlRnY9/state/live-park.inbox/ 2>&1)
+  ⎿  /tmp/fm-lab.VlRnY9/treehouse/.treehouse/lab-project-a8207f/1/lab-proje
+     ct
+     /tmp/fm-lab.VlRnY9/treehouse/.treehouse/lab-project-a8207f/1/lab-proje
+     … +10 lines (ctrl+o to expand)
+
+● Isolated worktree confirmed; inbox has no pending .msg. No changes required,
+  so the branch head equals main.
+
+● Bash(cat README.md; git status --short; echo "done [at=$(date +%s)]: inspected
+      fixture, no changes; branch fm/live-park at 774f016" >>
+      '/tmp/fm-lab.VlRnY9/state/live…)
+  ⎿  live fixture
+
+● I looked over the fixture without changing anything and reported the task as
+  done to firstmate.
+
+  - Isolation: the worktree is the disposable one under
+    /tmp/fm-lab.VlRnY9/treehouse/..., not the primary checkout.
+  - Branch: I created fm/live-park from 774f016 ("initial fixture"). There are
+    no new commits, so the branch still points at 774f016, the same commit as
+    main.
+  - Fixture contents: the only file is README.md, which reads "live fixture",
+    plus a .claude/ directory. The working tree is clean.
+  - Inbox: there were no pending messages, so nothing needed acknowledging.
+  - Status file: I appended one done line to the status file.
+
+✻ Churned for 14s · done 2:46 PM
+
+────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents
+
+

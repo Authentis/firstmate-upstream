@@ -1,0 +1,5 @@
+created leaf: live-wmu
+dispatchable: 1
+live-wmu
+planning: due (1 < 14)
+spawn command: bin/fm-spawn.sh leaf-supply-plan <project> --mode no-mistakes --yolo off

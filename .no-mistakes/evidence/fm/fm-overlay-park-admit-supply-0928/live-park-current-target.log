@@ -1,0 +1,74 @@
+Scenario: a real logged-in Claude worker is spawned in a disposable isolated tmux lab, marked done without gate go, then parked through fm-control.
+/tmp/fm-lab.5P4toN
+Created /home/holu/.no-mistakes/worktrees/74707b8d4eb3/01M3KX5JJV97HQAM41SFEK6TMT/treehouse.toml
+== primary Claude surface before spawn ==
+ ▐▛███▛█   Claude Code v2.1.283
+▝▜██████▀  Opus 5.5 with low effort · Claude Max
+ ▝▝   ▝▝   ~/.no-mistakes/worktrees/74707b8d4eb3/01M3KX5JJV97HQAM41SFEK6TMT
+
+
+────────────────────────────────────────────────────────────────────────────────
+❯ Try "write a test for fm-spawn-dispatch-profile.test.sh"
+────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents          ○ low · /effort
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+== private tmux route: primary
+== product spawn output ==
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.5P4toN
+spawned live-park harness=claude kind=ship mode=local-only yolo=off window=primary:fm-live-park worktree=/tmp/fm-lab.5P4toN/treehouse/.treehouse/lab-project-9e194b/1/lab-project
+spawn exit=0
+== worker Claude surface before parking ==
+treehouse get
+holu@387548:/tmp/fm-lab.5P4toN/projects/lab-project$ treehouse get
+🌳 Setting up worktree...
+🌳 Entered worktree at /tmp/fm-lab.5P4toN/treehouse/.treehouse/lab-project-9e194
+b/1/lab-project. Type 'exit' to return.
+holu@387548:/tmp/fm-lab.5P4toN/treehouse/.treehouse/lab-project-9e194b/1/lab-pro
+ject$ cd -- '/tmp/fm-lab.5P4toN/treehouse/.treehouse/lab-project-9e194b/1/lab-pr
+oject'
+holu@387548:/tmp/fm-lab.5P4toN/treehouse/.treehouse/lab-project-9e194b/1/lab-pro
+ject$ export GOTMPDIR=/tmp/fm-live-park/gotmp
+holu@387548:/tmp/fm-lab.5P4toN/treehouse/.treehouse/lab-project-9e194b/1/lab-pro
+ject$ export COMPACT_ADVISER_DISABLE=1
+holu@387548:/tmp/fm-lab.5P4toN/treehouse/.treehouse/lab-project-9e194b/1/lab-pro
+ject$ export FM_TASK_ID=live-park
+holu@387548:/tmp/fm-lab.5P4toN/treehouse/.treehouse/lab-project-9e194b/1/lab-pro
+ject$ export FM_WORKER_COPY=1
+holu@387548:/tmp/fm-lab.5P4toN/treehouse/.treehouse/lab-project-9e194b/1/lab-pro
+ject$ . '/tmp/fm-live-park+14c0e0d0d0353d5c11cb90321795ae14bffc3b8eaa3a75f02fd7c
+c522790360e/launch.s1790599472.217792.7405.sh'
+ ▐▛███▛█   Claude Code v2.1.283
+▝▜██████▀  Opus 5.5 with low effort · Claude Max
+ ▝▝   ▝▝   /…/treehouse/.treehouse/lab-project-9e194b/1/lab-project
+
+
+❯ : Firstmate operational input waiting: read
+  '/tmp/fm-lab.5P4toN/state/operational-inbox/1790599473-ad64e9f1ca2ac8e7.msg'
+  and handle its contents as Firstmate operational input.
+
+✢ Flambéing…
+
+────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ bypass permissions on (shift+tab to cycle) · esc to interrupt · ← for ag…
+                                                               ○ low · /effort
+
+== queue transition hook ==
+error: fm-control exit failed for live-park; parking will be retried: fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.5P4toN
+error: task live-park's composer state is 'unknown', not proven empty; refusing to type the /exit exit command because it could concatenate onto existing text. Clear the composer, then retry 'exit'
+park exit=75

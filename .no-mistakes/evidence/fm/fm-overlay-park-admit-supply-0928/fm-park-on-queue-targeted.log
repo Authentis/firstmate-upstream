@@ -1,0 +1,8 @@
+ok - done queue transition parks through fm-control exit and preserves the task log
+ok - open needs-decision or blocked records keep the task running
+ok - ready pauses park only when no validation run is active
+ok - park-on-queue=off records one task-status event per status line
+ok - parking deferred by active validation is retried and clears once parked
+ok - gate-lab queue parking reaches fm-control without an override refusal
+ok - a failed exit is retried and dropped once the task is no longer eligible
+# all fm-park-on-queue tests passed

@@ -1,0 +1,6 @@
+treehouse get
+cd -- '/tmp/fm-manual-pane.mH3oJP/wt'
+export GOTMPDIR=/tmp/fm-env-manual/gotmp
+export COMPACT_ADVISER_DISABLE=1
+export FM_TASK_ID=env-manual
+export FM_WORKER_COPY=1

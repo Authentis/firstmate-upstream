@@ -1,0 +1,8 @@
+/tmp/fm-lab.mG8N75
+Scenario: live admission refusal with an isolated lab home and real /proc memory.
+Configured floor: 999999 GiB
+Exit: 1
+Product output:
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.mG8N75
+error: spawn refused - available RAM is 10705368 KiB; admission requires at least 999999 GiB (1048574951424 KiB)
+Result: refusal explained the configured memory floor before launching a lane.

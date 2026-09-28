@@ -1,0 +1,82 @@
+/tmp/fm-lab.ljo0UT
+LAB=/tmp/fm-lab.ljo0UT ID=live-park-12841-25898
+--- primary capture ---
+ ▐▛███▛█   Claude Code v2.1.283
+▝▜██████▀  Opus 5.5 with low effort · Claude Max
+ ▝▝   ▝▝   ~/.no-mistakes/worktrees/74707b8d4eb3/01M3KX5JJV97HQAM41SFEK6TMT
+
+
+────────────────────────────────────────────────────────────────────────────────
+❯ Try "create a util logging.py that..."
+────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents          ○ low · /effort
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+--- spawn output ---
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.ljo0UT
+warning: /tmp/fm-lab.ljo0UT/data/live-park-12841-25898/launch-brief.md records no ship branch; defaulting to legacy branch fm/live-park-12841-25898
+spawned live-park-12841-25898 harness=claude kind=ship mode=no-mistakes yolo=off window=primary:fm-live-park-12841-25898 worktree=/home/holu/.treehouse/project-a8b7ad/1/project
+SPAWN_RC=0
+--- windows after spawn ---
+claude:claude:0
+operator:bash:0
+fm-live-park-12841-25898:claude:0
+--- park output ---
+parked: live-park-12841-25898
+PARK_RC=0
+--- task status after park ---
+done [at=1790600722]: live completed lane without gate go
+paused [at=1790600726]: parked on queue; use fm-control relaunch then steer the gate go
+--- windows after park ---
+claude:claude:0
+operator:bash:0
+fm-live-park-12841-25898:bash:0
+--- RAM refusal ---
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.ljo0UT
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e /home/holu/.no-mistakes/worktrees/74707b8d4eb3/01M3KX5JJV97HQAM41SFEK6TMT/.pi/extensions/fm-primary-turnend-guard.ts -e /home/holu/.no-mistakes/worktrees/74707b8d4eb3/01M3KX5JJV97HQAM41SFEK6TMT/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+error: spawn refused - available RAM is 10304204 KiB; admission requires at least 999999 GiB (1048574951424 KiB)
+RAM_RC=1
+--- primary final capture ---
+ ▐▛███▛█   Claude Code v2.1.283
+▝▜██████▀  Opus 5.5 with low effort · Claude Max
+ ▝▝   ▝▝   ~/.no-mistakes/worktrees/74707b8d4eb3/01M3KX5JJV97HQAM41SFEK6TMT
+
+
+────────────────────────────────────────────────────────────────────────────────
+❯ Try "create a util logging.py that..."
+────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

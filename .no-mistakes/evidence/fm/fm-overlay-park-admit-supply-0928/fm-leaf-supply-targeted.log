@@ -1,0 +1,5 @@
+ok - leaf supply requires files, ready deps, no merged landing, and no open PR
+ok - low leaf supply reports planning due without spawning a lane
+ok - leaf supply fails closed when current main cannot be verified
+ok - leaf preflight rejects a landed or pull-request-held leaf
+# all fm-leaf-supply tests passed

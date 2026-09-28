@@ -1,0 +1,6 @@
+== audited override before further spawn validation ==
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.QLoF78
+error: task live-override has no brief at inaccessible data path /tmp/fm-lab.QLoF78/data/live-override/brief.md
+spawn exit=1
+== durable audit event ==
+paused [at=1790598209]: admission override used task=live-override reason=live lab capacity exception

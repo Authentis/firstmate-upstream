@@ -1,0 +1,21 @@
+Scenario: live leaf-supply report uses a real Beads ready leaf and authenticated forge pull-request data.
+Note: switching to 'fa89ae30a1b3b42080628ff9268752e7e674607c'.
+
+You are in 'detached HEAD' state. You can look around, make experimental
+changes and commit them, and you can discard any commits you make in this
+state without impacting any branches by switching back to a branch.
+
+If you want to create a new branch to retain commits you create, you may
+do so (now or later) by using -c with the switch command. Example:
+
+  git switch -c <new-branch-name>
+
+Or undo this operation with:
+
+  git switch -
+
+Turn off this advice by setting config variable advice.detachedHead to false
+
+created ready leaf: firstmate-live-ria
+== product report ==
+fm-leaf-supply: pull request verification returned invalid JSON

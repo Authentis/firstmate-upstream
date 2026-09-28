@@ -1,0 +1,5 @@
+Scenario: live configured resident-agent admission boundary refuses before a lane is launched.
+exit=1
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.LSFrrV
+error: spawn refused - resident agents are 0; admission allows fewer than 0
+Result: real spawn admission rejected the zero-cap boundary with the resident-agent explanation before project/lane launch.

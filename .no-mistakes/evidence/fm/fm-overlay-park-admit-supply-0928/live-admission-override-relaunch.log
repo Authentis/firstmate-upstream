@@ -1,0 +1,7 @@
+Scenario: a real fm-spawn relaunch invocation records its admission override before later relaunch validation.
+exit=1
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.XjQLfz
+error: --relaunch needs an existing task record; no /tmp/fm-lab.XjQLfz/state/live-relaunch.meta
+== durable override audit ==
+paused [at=1790599855]: admission override used task=live-relaunch reason=live capacity exception
+Result: relaunch syntax wrote the required audit record; it then correctly refused because the disposable lab had no existing task metadata to relaunch.

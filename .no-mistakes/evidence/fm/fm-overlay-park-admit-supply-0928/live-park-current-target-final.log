@@ -1,0 +1,69 @@
+Scenario: an actual Claude worker declares completion without gate go, and the product queue hook parks it through fm-control.
+/tmp/fm-lab.kFT6GT
+== private primary: primary
+== real product spawn ==
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lab.kFT6GT
+spawned live-park harness=claude kind=ship mode=local-only yolo=off window=primary:fm-live-park worktree=/tmp/fm-lab.kFT6GT/treehouse/.treehouse/lab-project-6a9527/1/lab-project
+== wait for worker-declared done status ==
+poll=1 state: working · source: pane · harness busy (fm-spawn)
+poll=2 state: working · source: pane · harness busy (claude-hook)
+poll=3 state: working · source: pane · harness busy (claude-hook)
+poll=4 state: working · source: pane · harness busy (claude-hook)
+poll=5 state: done · source: status-log · ready in branch fm/live-park (inspection only, no changes; head 3d2b613)
+== worker Claude surface after its own done declaration ==
+
+
+❯ : Firstmate operational input waiting: read
+  '/tmp/fm-lab.kFT6GT/state/operational-inbox/1790599687-43c6a3ae35150859.msg'
+  and handle its contents as Firstmate operational input.
+
+  Read 1 file (ctrl+o to expand)
+
+● Bash(pwd -P; git rev-parse --show-toplevel; git checkout -b fm/live-park -- &&
+      git status --short && ls -la && git log --oneline; ls
+      /tmp/fm-lab.kFT6GT/state/live-pa…)
+  ⎿  /tmp/fm-lab.kFT6GT/treehouse/.treehouse/lab-project-6a9527/1/lab-proje
+     ct
+     /tmp/fm-lab.kFT6GT/treehouse/.treehouse/lab-project-6a9527/1/lab-proje
+     … +10 lines (ctrl+o to expand)
+
+● Bash(cat README.md; ls .claude; git rev-parse main HEAD; E=$(date +%s); echo
+      "done [at=$E]: ready in branch fm/live-park (inspection only, no changes;
+      head 3d2b613)"…)
+  ⎿  live fixture
+     settings.local.json
+     3d2b613af5c3b2800c01d3b1737bc07ad69ff4f5
+     3d2b613af5c3b2800c01d3b1737bc07ad69ff4f5
+
+● I looked over the fixture and changed nothing, as the brief asked. I've
+  reported done to the status file.
+
+  - Isolation: confirmed. pwd -P and the git top-level both point to the
+    disposable worktree, not the primary checkout.
+  - Branch: I created fm/live-park. It points at the same commit as main
+    (3d2b613, "initial fixture"), so there was nothing to commit.
+  - Contents: the fixture holds a README.md that reads "live fixture" and
+    .claude/settings.local.json. The working tree is clean.
+  - Inbox: the steering inbox has no .msg files waiting, only a handled
+    directory, so there was nothing to acknowledge.
+
+✻ Cogitated for 14s · done 2:48 PM
+
+────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents
+
+
+done [at=1790599701]: ready in branch fm/live-park (inspection only, no changes; head 3d2b613)
+== queue transition hook invokes fm-control exit ==
+parked: live-park
+== pane after automatic park ==
+current-command=bash cwd=/tmp/fm-lab.kFT6GT/treehouse/.treehouse/lab-project-6a9527/1/lab-project
+== retained metadata and parked status ==
+worktree=/tmp/fm-lab.kFT6GT/treehouse/.treehouse/lab-project-6a9527/1/lab-project
+branch=fm/live-park
+done [at=1790599701]: ready in branch fm/live-park (inspection only, no changes; head 3d2b613)
+paused [at=1790599714]: parked on queue; use fm-control relaunch then steer the gate go
+bash
+Result: the queue hook stopped the completed Claude process and retained the task branch, worktree, metadata, and status.

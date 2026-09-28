@@ -1,0 +1,33 @@
+== worker pane before parking ==
+ ▐▛███▛█   Claude Code v2.1.283
+▝▜██████▀  Opus 5.5 with low effort · Claude Max
+ ▝▝   ▝▝   ~/.no-mistakes/worktrees/74707b8d4eb3/01M3KX5JJV97HQAM41SFEK6TMT
+
+
+────────────────────────────────────────────────────────────────────────────────
+❯ Try "fix lint errors"
+────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents
+  tmux focus-events off · add 'set -g focus-events on' to ~/.tmux.conf and re…
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+== watcher transition hook output ==
+error: fm-control exit failed for live-park; parking will be retried
+hook exit=75
+== agent state after parking ==
+state: unknown · source: pane · harness state unavailable (unknown missing)
+crew-state exit=0
+== retained task status ==
+done [at=1]: live product completion without a gate go
