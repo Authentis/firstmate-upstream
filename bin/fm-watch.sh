@@ -2900,6 +2900,22 @@ EOF
     done <<EOF
 $pending
 EOF
+    # Queue parking belongs at the status transition, not in firstmate's
+    # judgment.  The hook rechecks its own exact eligibility, including open
+    # decisions and active validation, before it sends the allowlisted exit.
+    while IFS=$(printf '\t') read -r _sf _sig park_file; do
+      [ -n "$park_file" ] || continue
+      case "$park_file" in
+        "$STATE"/*.status)
+          park_id=$(basename "$park_file" .status)
+          FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_CONFIG_OVERRIDE="$CONFIG" \
+            "$SCRIPT_DIR/fm-park-on-queue.sh" "$park_id" >/dev/null 2>&1 \
+            || triage_log "queue parking check refused for $park_id"
+          ;;
+      esac
+    done <<EOF
+$pending
+EOF
     reason="signal:$files"
     # Triage: a signal is ACTIONABLE when any of these holds (cheapest first):
     #   - the away-mode daemon owns triage (afk) and wants every wake;

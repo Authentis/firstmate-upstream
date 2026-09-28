@@ -1,0 +1,107 @@
+#!/usr/bin/env bash
+# Behavioral tests for dispatchable bead leaf supply.
+set -u
+
+# shellcheck source=tests/lib.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+
+SUPPLY="$ROOT/bin/fm-leaf-supply.sh"
+TMP_ROOT=$(fm_test_tmproot fm-leaf-supply)
+
+make_case() {
+  local name=$1 root repo tools
+  root="$TMP_ROOT/$name"
+  repo="$root/repo"
+  tools="$root/tools"
+  mkdir -p "$repo" "$tools"
+  cat > "$root/ready.json" <<'JSON'
+[
+  {"id":"dos-product-safe","title":"safe","status":"open","issue_type":"task","description":"FILES: src/safe.sh"},
+  {"id":"dos-product-landed","title":"landed","status":"open","issue_type":"task","description":"FILES: src/landed.sh"},
+  {"id":"dos-product-open","title":"open","status":"open","issue_type":"task","description":"FILES: src/open.sh"},
+  {"id":"dos-product-no-files","title":"no files","status":"open","issue_type":"task","description":"no declared surface"}
+]
+JSON
+  cat > "$root/prs.json" <<'JSON'
+[
+  {"number":1,"state":"closed","merged_at":"2026-09-01T00:00:00Z","title":"finish dos-product-landed","head":{"ref":"fm/dos-product-landed"}},
+  {"number":2,"state":"open","merged_at":null,"title":"unrelated work","head":{"ref":"fm/unrelated"}}
+]
+JSON
+  cat > "$tools/br" <<'SH'
+#!/usr/bin/env bash
+cat "$FM_TEST_READY_JSON"
+SH
+  cat > "$tools/gh-axi" <<'SH'
+#!/usr/bin/env bash
+case "$*" in
+  *pulls?state=*) cat "$FM_TEST_PRS_JSON" ;;
+  *pulls/1/files*) printf '%s\n' '[{"filename":"src/landed.sh"}]' ;;
+  *pulls/2/files*) printf '%s\n' '[{"filename":"src/open.sh"}]' ;;
+  *) exit 2 ;;
+esac
+SH
+  cat > "$tools/git" <<'SH'
+#!/usr/bin/env bash
+case "$*" in
+  *origin/main:src/landed.sh*) exit 0 ;;
+  *origin/main:*) exit 1 ;;
+  *) exit 2 ;;
+esac
+SH
+  chmod 0755 "$tools/br" "$tools/gh-axi" "$tools/git"
+  printf '%s|%s|%s\n' "$root" "$repo" "$tools"
+}
+
+run_supply() {
+  local root=$1 repo=$2 tools=$3
+  shift 3
+  env PATH="$tools:$PATH" FM_TEST_READY_JSON="$root/ready.json" FM_TEST_PRS_JSON="$root/prs.json" \
+    "$SUPPLY" "$repo" --repository example/repo "$@"
+}
+
+test_reports_only_dispatchable_file_scoped_leaves() {
+  local rec root repo tools out
+  rec=$(make_case filters)
+  IFS='|' read -r root repo tools <<EOF
+$rec
+EOF
+  out=$(run_supply "$root" "$repo" "$tools" 2>&1) || fail "leaf supply failed: $out"
+  assert_contains "$out" 'dispatchable: 1' "dispatchable leaf count is wrong: $out"
+  assert_contains "$out" 'dos-product-safe' "safe leaf was omitted"
+  assert_not_contains "$out" 'dos-product-landed' "merged leaf survived"
+  assert_not_contains "$out" 'dos-product-open' "open-PR leaf survived"
+  pass "leaf supply requires files, ready deps, no merged landing, and no open PR"
+}
+
+test_plan_threshold_reports_due_without_spawning() {
+  local rec root repo tools out
+  rec=$(make_case threshold)
+  IFS='|' read -r root repo tools <<EOF
+$rec
+EOF
+  out=$(run_supply "$root" "$repo" "$tools" --plan-below 14) || fail "leaf supply threshold failed"
+  assert_contains "$out" 'planning: due (1 < 14)' "threshold did not report planning due"
+  assert_contains "$out" 'spawn command:' "threshold did not print the bounded planning command"
+  pass "low leaf supply reports planning due without spawning a lane"
+}
+
+test_check_refuses_a_leaf_landed_or_held_by_a_pull_request() {
+  local rec root repo tools out status
+  rec=$(make_case check)
+  IFS='|' read -r root repo tools <<EOF
+$rec
+EOF
+  out=$(run_supply "$root" "$repo" "$tools" --check dos-product-landed 2>&1)
+  status=$?
+  [ "$status" -eq 10 ] || fail "landed leaf check should refuse with 10, got $status: $out"
+  assert_contains "$out" 'refused: dos-product-landed is not dispatchable' \
+    "landed leaf refusal did not name the leaf"
+  pass "leaf preflight rejects a landed or pull-request-held leaf"
+}
+
+test_reports_only_dispatchable_file_scoped_leaves
+test_plan_threshold_reports_due_without_spawning
+test_check_refuses_a_leaf_landed_or_held_by_a_pull_request
+
+echo "# all fm-leaf-supply tests passed"

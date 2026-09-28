@@ -1993,6 +1993,97 @@ test_non_claude_harness_ignores_claude_permission_mode() {
   pass "config/claude-permission-mode changes claude launches only"
 }
 
+test_admission_refuses_measured_ram_below_configured_floor() {
+  local rec id out status
+  id=admission-ram-z1
+  rec=$(make_spawn_case admission-ram claude "$id")
+  read_case_record "$rec"
+  printf '999999\n' > "$HOME_DIR/config/admission-min-ram-gb"
+
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
+  status=$?
+  [ "$status" -ne 0 ] || fail "spawn passed an intentionally impossible RAM admission floor"
+  assert_contains "$out" 'available RAM is' "RAM refusal did not report the measured value"
+  assert_contains "$out" '999999 GiB' "RAM refusal did not name the configured threshold"
+  [ ! -e "$HOME_DIR/state/$id.meta" ] || fail "RAM refusal published task metadata"
+  pass "fresh spawn refuses measured available RAM below the configured threshold"
+}
+
+test_admission_refuses_agent_cap_before_launch() {
+  local rec id out status resident
+  id=admission-agents-z2
+  rec=$(make_spawn_case admission-agents claude "$id")
+  read_case_record "$rec"
+  cat > "$FAKEBIN_DIR/tmux" <<'SH'
+#!/usr/bin/env bash
+set -u
+case "$*" in
+  *'#{pane_current_path}'*) printf '%s\n' "${FM_FAKE_PANE_PATH:-}"; exit 0 ;;
+  *'#{pane_current_command}'*) printf '%s\n' claude; exit 0 ;;
+esac
+case "${1:-}" in
+  display-message) printf '%s\n' firstmate ;;
+  list-windows)
+    printf '%s\n' fm-resident-1 fm-resident-2 fm-resident-3 fm-resident-4 fm-resident-5 fm-resident-6 fm-resident-7
+    ;;
+  *) exit 0 ;;
+esac
+SH
+  chmod 0755 "$FAKEBIN_DIR/tmux"
+  for resident in 1 2 3 4 5 6 7; do
+    cat > "$HOME_DIR/state/resident-$resident.meta" <<EOF
+kind=ship
+window=firstmate:fm-resident-$resident
+worktree=$WT_DIR
+project=$PROJ_DIR
+EOF
+  done
+
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
+  status=$?
+  [ "$status" -ne 0 ] || fail "spawn passed the seven-agent admission cap"
+  assert_contains "$out" 'resident agents are 7' "agent-cap refusal did not report the measured count"
+  assert_contains "$out" 'fewer than 7' "agent-cap refusal did not name the threshold"
+  [ ! -e "$HOME_DIR/state/$id.meta" ] || fail "agent-cap refusal published task metadata"
+  pass "fresh spawn refuses the resident-agent admission cap before launch"
+}
+
+test_leaf_admission_refuses_a_landed_dos_product_leaf() {
+  local rec id out status
+  id=dos-product-admission-landed-z3
+  rec=$(make_spawn_case leaf-admission claude "$id")
+  read_case_record "$rec"
+  cat > "$FAKEBIN_DIR/br" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' '[{"id":"dos-product-admission-landed-z3","status":"open","issue_type":"task","description":"FILES: src/landed.sh"}]'
+SH
+  cat > "$FAKEBIN_DIR/gh-axi" <<'SH'
+#!/usr/bin/env bash
+case "$*" in
+  *'repo view'*) printf '%s\n' 'example/repo' ;;
+  *pulls?state=*) printf '%s\n' '[{"number":1,"merged_at":"2026-09-01T00:00:00Z","title":"finish dos-product-admission-landed-z3","head":{"ref":"fm/dos-product-admission-landed-z3"}}]' ;;
+  *) exit 2 ;;
+esac
+SH
+  cat > "$FAKEBIN_DIR/git" <<'SH'
+#!/usr/bin/env bash
+case "$*" in
+  *'ls-remote --get-url origin'*) printf '%s\n' 'git@github.com:example/repo.git' ;;
+  *origin/main:src/landed.sh*) exit 0 ;;
+  *) exec /usr/bin/git "$@" ;;
+esac
+SH
+  chmod 0755 "$FAKEBIN_DIR/br" "$FAKEBIN_DIR/gh-axi" "$FAKEBIN_DIR/git"
+
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
+  status=$?
+  [ "$status" -ne 0 ] || fail "spawn accepted a landed dos-product leaf"
+  assert_contains "$out" "leaf admission for $id" "leaf refusal did not name the rejected task"
+  assert_contains "$out" "not dispatchable" "leaf refusal did not name the supply decision"
+  assert_absent "$HOME_DIR/state/$id.meta" "leaf admission must refuse before task publication"
+  pass "dos-product spawn admission rejects a leaf already landed through a named PR"
+}
+
 test_worker_launch_delivers_role_scope
 test_no_profile_keeps_claude_profile_defaults
 test_claude_launch_brief_publishes_record_doorbell
@@ -2050,6 +2141,9 @@ test_claude_permission_mode_auto_reaches_scout_launch
 test_claude_worker_launch_covers_task_channel_dirs
 test_claude_permission_mode_invalid_refuses_before_endpoint_or_metadata
 test_non_claude_harness_ignores_claude_permission_mode
+test_admission_refuses_measured_ram_below_configured_floor
+test_admission_refuses_agent_cap_before_launch
+test_leaf_admission_refuses_a_landed_dos_product_leaf
 test_non_claude_harness_ignores_config_dir
 test_claude_task_launch_carries_control_channel_authority
 test_claude_secondmate_launch_omits_task_control_channel_authority
