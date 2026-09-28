@@ -61,6 +61,7 @@ The shared no-mistakes gate lifecycle boundary is summarized in [architecture.md
 | `fm-remote-readiness-lib.sh` | Shared remote second-mate readiness gate: check and, when needed, repair then re-check through `fm-remote-doctor.sh` |
 | [`fm-project-origin-lib.sh`](../bin/fm-project-origin-lib.sh) | Accepted origin-form owner shared by both remote provisioning boundaries |
 | `fm-spawn.sh`            | Spawn crewmates, scouts, `id=repo` batches, and secondmates; fresh ships and scouts pass local capacity and applicable leaf-admission checks |
+| `fm-spawn-admission-lib.sh` | Shared fresh-spawn admission helpers for `fm-spawn.sh` |
 | `fm-leaf-supply.sh`      | Report dispatchable FILES-scoped Beads leaves and perform spawn leaf preflight |
 | `fm-git-strip-ai-trailers.sh` | Strip known AI commit trailers at commit-msg time and install that hook for a fleet launch |
 | `fm-backend.sh`          | Runtime-backend selection, meta helpers, selector resolution, and operation dispatch |
