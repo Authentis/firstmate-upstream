@@ -108,16 +108,18 @@ EOF
 }
 
 id_landed_on_main() {
-  local id=$1 files=$2 pr merged file
+  local id=$1 pr merged base sha
   while IFS= read -r pr; do
     [ -n "$pr" ] || continue
     merged=$(printf '%s' "$pr" | jq -r '.merged_at // empty')
     [ -n "$merged" ] || continue
     pr_names_leaf "$pr" "$id" || continue
-    while IFS= read -r file; do
-      [ -n "$file" ] || continue
-      git -C "$repo_path" cat-file -e "origin/main:$file" 2>/dev/null && return 0
-    done < "$files"
+    # Landed means a merged PR targeted main and its merge commit is reachable
+    # from origin/main; a surviving (or leaf-deleted) FILES path proves nothing.
+    base=$(printf '%s' "$pr" | jq -r '.base.ref // empty')
+    sha=$(printf '%s' "$pr" | jq -r '.merge_commit_sha // empty')
+    [ "$base" = main ] && [ -n "$sha" ] || continue
+    git -C "$repo_path" merge-base --is-ancestor "$sha" origin/main 2>/dev/null && return 0
   done < <(jq -c '.[]' "$prs")
   return 1
 }
@@ -154,7 +156,7 @@ while IFS= read -r row; do
   files="$tmp/$id.files"
   printf '%s\n' "$description" | sed -n 's/^[[:space:]]*FILES:[[:space:]]*//p' | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | sed '/^$/d' > "$files"
   [ -s "$files" ] || continue
-  id_landed_on_main "$id" "$files" && continue
+  id_landed_on_main "$id" && continue
   if id_has_open_pr "$id" "$files"; then rc=0; else rc=$?; fi
   [ "$rc" -eq 0 ] && continue
   [ "$rc" -eq 1 ] || die "could not verify open pull requests for $id"

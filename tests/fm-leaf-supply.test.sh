@@ -19,12 +19,16 @@ make_case() {
   {"id":"dos-product-safe","title":"safe","status":"open","issue_type":"task","description":"FILES: src/safe.sh"},
   {"id":"dos-product-landed","title":"landed","status":"open","issue_type":"task","description":"FILES: src/landed.sh"},
   {"id":"dos-product-open","title":"open","status":"open","issue_type":"task","description":"FILES: src/open.sh"},
+  {"id":"dos-product-deleted","title":"deleted","status":"open","issue_type":"task","description":"FILES: src/deleted.sh"},
+  {"id":"dos-product-otherbase","title":"other base","status":"open","issue_type":"task","description":"FILES: src/exists.sh"},
   {"id":"dos-product-no-files","title":"no files","status":"open","issue_type":"task","description":"no declared surface"}
 ]
 JSON
   cat > "$root/prs.json" <<'JSON'
 [
-  {"number":1,"state":"closed","merged_at":"2026-09-01T00:00:00Z","title":"finish dos-product-landed","head":{"ref":"fm/dos-product-landed"}},
+  {"number":1,"state":"closed","merged_at":"2026-09-01T00:00:00Z","merge_commit_sha":"aaa111","base":{"ref":"main"},"title":"finish dos-product-landed","head":{"ref":"fm/dos-product-landed"}},
+  {"number":3,"state":"closed","merged_at":"2026-09-01T00:00:00Z","merge_commit_sha":"bbb222","base":{"ref":"main"},"title":"finish dos-product-deleted","head":{"ref":"fm/dos-product-deleted"}},
+  {"number":4,"state":"closed","merged_at":"2026-09-01T00:00:00Z","merge_commit_sha":"ccc333","base":{"ref":"epic"},"title":"finish dos-product-otherbase","head":{"ref":"fm/dos-product-otherbase"}},
   {"number":2,"state":"open","merged_at":null,"title":"unrelated work","head":{"ref":"fm/unrelated"}}
 ]
 JSON
@@ -38,14 +42,15 @@ case "$*" in
   *pulls?state=*) cat "$FM_TEST_PRS_JSON" ;;
   *pulls/1/files*) printf '%s\n' '[{"filename":"src/landed.sh"}]' ;;
   *pulls/2/files*) printf '%s\n' '[{"filename":"src/open.sh"}]' ;;
+  *pulls/3/files*|*pulls/4/files*) printf '%s\n' '[]' ;;
   *) exit 2 ;;
 esac
 SH
   cat > "$tools/git" <<'SH'
 #!/usr/bin/env bash
 case "$*" in
-  *origin/main:src/landed.sh*) exit 0 ;;
-  *origin/main:*) exit 1 ;;
+  *"merge-base --is-ancestor aaa111 origin/main"*|*"merge-base --is-ancestor bbb222 origin/main"*) exit 0 ;;
+  *"merge-base --is-ancestor"*) exit 1 ;;
   *) exit 2 ;;
 esac
 SH
@@ -67,7 +72,9 @@ test_reports_only_dispatchable_file_scoped_leaves() {
 $rec
 EOF
   out=$(run_supply "$root" "$repo" "$tools" 2>&1) || fail "leaf supply failed: $out"
-  assert_contains "$out" 'dispatchable: 1' "dispatchable leaf count is wrong: $out"
+  assert_contains "$out" 'dispatchable: 2' "dispatchable leaf count is wrong: $out"
+  assert_contains "$out" 'dos-product-otherbase' "leaf merged into a non-main base was treated as landed"
+  assert_not_contains "$out" 'dos-product-deleted' "leaf whose only file it deleted was reported dispatchable"
   assert_contains "$out" 'dos-product-safe' "safe leaf was omitted"
   assert_not_contains "$out" 'dos-product-landed' "merged leaf survived"
   assert_not_contains "$out" 'dos-product-open' "open-PR leaf survived"
@@ -81,7 +88,7 @@ test_plan_threshold_reports_due_without_spawning() {
 $rec
 EOF
   out=$(run_supply "$root" "$repo" "$tools" --plan-below 14) || fail "leaf supply threshold failed"
-  assert_contains "$out" 'planning: due (1 < 14)' "threshold did not report planning due"
+  assert_contains "$out" 'planning: due (2 < 14)' "threshold did not report planning due"
   assert_contains "$out" 'spawn command:' "threshold did not print the bounded planning command"
   pass "low leaf supply reports planning due without spawning a lane"
 }

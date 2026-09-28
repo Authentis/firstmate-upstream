@@ -87,8 +87,69 @@ SH
   pass "ready pauses park only when no validation run is active"
 }
 
+test_off_switch_leaves_the_lane_running_and_logs_it() {
+  local rec home bin log out
+  rec=$(make_case off)
+  IFS='|' read -r home bin log <<EOF
+$rec
+EOF
+  printf 'off\n' > "$home/config/park-on-queue"
+  printf 'done [at=1]: implementation committed\n' > "$home/state/lab-off.status"
+  out=$(run_park "$home" "$bin" "$log" lab-off)
+  [ -z "$out" ] || fail "park-on-queue=off should not park, got: $out"
+  [ ! -e "$log" ] || fail "park-on-queue=off still sent an exit"
+  run_park "$home" "$bin" "$log" lab-off >/dev/null
+  assert_contains "$(cat "$home/state/overlay-events.log")" 'park-on-queue is off; lab-off'     "off switch left no visible event"
+  [ "$(wc -l < "$home/state/overlay-events.log" | tr -d ' ')" = 1 ] || fail "off event repeated for one status line"
+  pass "park-on-queue=off records one visible event per status line"
+}
+
+test_deferred_parking_is_retried_until_it_succeeds() {
+  local rec home bin log out
+  rec=$(make_case retry)
+  IFS='|' read -r home bin log <<EOF
+$rec
+EOF
+  cat > "$bin/crew-active" <<'SH'
+#!/usr/bin/env bash
+printf 'state: working · source: run-step · validation running\n'
+SH
+  chmod 0755 "$bin/crew-active"
+  printf 'done [at=1]: implementation committed\n' > "$home/state/lab-retry.status"
+  FM_HOME="$home" FM_PARK_CREW_STATE_BIN="$bin/crew-active" FM_PARK_CONTROL_BIN="$bin/control" \
+    FM_TEST_CONTROL_LOG="$log" "$PARK" lab-retry >/dev/null && fail "active validation should defer with a nonzero exit"
+  [ -e "$home/state/lab-retry.park-pending" ] || fail "deferred parking left no retry obligation"
+  [ ! -e "$log" ] || fail "deferred parking sent an exit"
+
+  out=$(run_park "$home" "$bin" "$log" lab-retry)
+  [ "$out" = 'parked: lab-retry' ] || fail "retry after validation ended did not park: $out"
+  [ ! -e "$home/state/lab-retry.park-pending" ] || fail "successful park kept the retry obligation"
+  pass "parking deferred by active validation is retried and clears once parked"
+}
+
+test_failed_exit_keeps_a_retry_obligation() {
+  local rec home bin log
+  rec=$(make_case failexit)
+  IFS='|' read -r home bin log <<EOF
+$rec
+EOF
+  printf '#!/usr/bin/env bash\nexit 1\n' > "$bin/control-fail"
+  chmod 0755 "$bin/control-fail"
+  printf 'done [at=1]: implementation committed\n' > "$home/state/lab-fail.status"
+  FM_HOME="$home" FM_PARK_CREW_STATE_BIN="$bin/crew-state" FM_PARK_CONTROL_BIN="$bin/control-fail" \
+    "$PARK" lab-fail >/dev/null 2>&1 && fail "failed exit should return nonzero"
+  [ -e "$home/state/lab-fail.park-pending" ] || fail "failed exit left no retry obligation"
+  printf 'working [at=2]: resumed\n' >> "$home/state/lab-fail.status"
+  run_park "$home" "$bin" "$log" lab-fail >/dev/null
+  [ ! -e "$home/state/lab-fail.park-pending" ] || fail "an ineligible task kept its retry obligation"
+  pass "a failed exit is retried and dropped once the task is no longer eligible"
+}
+
 test_done_parks_through_fm_control_and_keeps_status
 test_open_decision_prevents_parking
 test_ready_pause_parks_but_active_validation_does_not
+test_off_switch_leaves_the_lane_running_and_logs_it
+test_deferred_parking_is_retried_until_it_succeeds
+test_failed_exit_keeps_a_retry_obligation
 
 echo "# all fm-park-on-queue tests passed"

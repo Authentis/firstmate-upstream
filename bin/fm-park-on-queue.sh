@@ -15,6 +15,15 @@
 # example: bin/fm-control.sh <id> relaunch --note 'gate go'; bin/fm-send.sh
 # <id> 'gate go: continue with validation'.
 #
+# An eligible task that cannot be parked yet (validation still active, or a
+# failed exit) leaves state/<id>.park-pending and the script exits 75; the
+# watcher retries that marker until the task parks, stops being eligible, or
+# opens a decision, so a consumed status line never loses the obligation.
+#
+# With config/park-on-queue set to `off`, an otherwise eligible task is not
+# stopped and one line is appended to state/overlay-events.log (once per
+# status line) so the operator can see parking is disabled.
+#
 # Config:
 #   config/park-on-queue  `on` (default) or `off`
 #
@@ -49,11 +58,24 @@ if [ -e "$CONFIG/park-on-queue" ] || [ -L "$CONFIG/park-on-queue" ]; then
     *) echo "error: config/park-on-queue must be on or off" >&2; exit 1 ;;
   esac
 fi
-[ "$enabled" = on ] || exit 0
-
 status="$STATE/$id.status"
-[ -f "$status" ] && [ ! -L "$status" ] && [ -r "$status" ] || exit 0
-[ -n "$(status_open_decisions "$status")" ] && exit 0
+pending="$STATE/$id.park-pending"
+# The marker holds the retry count; after 20 unsuccessful retries the
+# obligation is dropped and logged rather than retried forever.
+defer_park() {
+  local n
+  n=$(cat "$pending" 2>/dev/null || true)
+  case "$n" in ''|*[!0-9]*) n=0 ;; esac
+  n=$((n + 1))
+  if [ "$n" -ge 20 ]; then
+    rm -f "$pending"
+    printf 'failed [at=%s]: parking gave up after %s attempts task=%s\n' "$(date +%s)" "$n" "$id" >> "$STATE/overlay-events.log"
+  else
+    printf '%s\n' "$n" > "$pending"
+  fi
+}
+[ -f "$status" ] && [ ! -L "$status" ] && [ -r "$status" ] || { rm -f "$pending"; exit 0; }
+[ -n "$(status_open_decisions "$status")" ] && { rm -f "$pending"; exit 0; }
 
 line=$(last_status_line "$status")
 verb=$(status_line_verb "$line")
@@ -67,13 +89,32 @@ case "$verb" in
     esac
     ;;
 esac
-[ "$eligible" -eq 1 ] || exit 0
+[ "$eligible" -eq 1 ] || { rm -f "$pending"; exit 0; }
+
+if [ "$enabled" != on ]; then
+  rm -f "$pending"
+  events="$STATE/overlay-events.log"
+  marker=$(printf '%s' "$line" | cksum | cut -d' ' -f1)
+  if ! tail -n 1 "$events" 2>/dev/null | grep -Fq "task=$id status=$marker"; then
+    printf 'paused [at=%s]: park-on-queue is off; %s is done or ready but left running task=%s status=%s\n' \
+      "$(date +%s)" "$id" "$id" "$marker" >> "$events"
+  fi
+  exit 0
+fi
 
 crew_state=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" "$CREW_STATE_BIN" "$id" 2>/dev/null || true)
 case "$crew_state" in
-  'state: working'*'source: run-step'*|'state: parked'*'source: run-step'*) exit 0 ;;
+  'state: working'*'source: run-step'*|'state: parked'*'source: run-step'*)
+    defer_park
+    exit 75
+    ;;
 esac
 
-FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" "$CONTROL_BIN" "$id" exit >/dev/null
+if ! FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" "$CONTROL_BIN" "$id" exit >/dev/null 2>&1; then
+  defer_park
+  echo "error: fm-control exit failed for $id; parking will be retried" >&2
+  exit 75
+fi
+rm -f "$pending"
 printf 'paused [at=%s]: parked on queue; use fm-control relaunch then steer the gate go\n' "$(date +%s)" >> "$status"
 printf 'parked: %s\n' "$id"

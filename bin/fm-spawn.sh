@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Spawn a direct report: a crewmate in a treehouse or Orca worktree, or a
 # secondmate in its isolated firstmate home.
-# Usage: fm-spawn.sh <task-id> <project-dir> --mode <no-mistakes|direct-PR|local-only> --yolo <on|off> [--branch-prefix <prefix>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--admission-override]
+# Usage: fm-spawn.sh <task-id> <project-dir> --mode <no-mistakes|direct-PR|local-only> --yolo <on|off> [--branch-prefix <prefix>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--admission-override <reason>]
 #        fm-spawn.sh <task-id> <project-dir> --scout [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>]
 #        fm-spawn.sh <task-id> [<firstmate-home>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] --secondmate
 #   --mode and --yolo are this task's delivery contract, REQUIRED for every ship
@@ -46,8 +46,9 @@
 #   Fresh ship and scout spawns are admitted only when /proc/meminfo reports at
 #   least config/admission-min-ram-gb GiB of MemAvailable (3 when absent) and
 #   this home has fewer than config/admission-max-agents live ordinary agents
-#   (7 when absent).  `--admission-override` is an explicit per-spawn escape
-#   hatch for a captain-authorized exception; relaunches and secondmates do not
+#   (7 when absent).  `--admission-override <reason>` is an explicit per-spawn escape
+#   hatch for a captain-authorized exception; each use appends a line naming the
+#   task and reason to state/overlay-events.log.  Relaunches and secondmates do not
 #   consume this new-lane budget.
 #   A fresh `dos-product-...` task also runs the config/leaf-admission (on when
 #   absent) FILES/PR preflight through bin/fm-leaf-supply.sh.  It refuses a
@@ -684,6 +685,7 @@ YOLO=
 BRANCH_PREFIX=fm/
 TRACEPARENT_ARG=
 ADMISSION_OVERRIDE=0
+ADMISSION_OVERRIDE_REASON=
 HARNESS_SET=0
 MODEL_SET=0
 EFFORT_SET=0
@@ -728,6 +730,10 @@ for a in "$@"; do
       YOLO=$a
       YOLO_SET=1
       ;;
+    admission-override)
+      ADMISSION_OVERRIDE=1
+      ADMISSION_OVERRIDE_REASON=$a
+      ;;
     branch-prefix)
       BRANCH_PREFIX=$a
       BRANCH_PREFIX_SET=1
@@ -754,7 +760,11 @@ for a in "$@"; do
     KIND_SET=1
     ;;
   --relaunch) RELAUNCH=1 ;;
-  --admission-override) ADMISSION_OVERRIDE=1 ;;
+  --admission-override) want_value=admission-override ;;
+  --admission-override=*)
+    ADMISSION_OVERRIDE=1
+    ADMISSION_OVERRIDE_REASON=${a#--admission-override=}
+    ;;
   --harness) want_value=harness ;;
   --harness=*)
     HARNESS_ARG=${a#--harness=}
@@ -1728,7 +1738,15 @@ spawn_refuse_if_admission_exhausted() {
   local min_gb max_agents available_kib min_kib
   [ "$RELAUNCH" -ne 1 ] || return 0
   [ "$KIND" != secondmate ] || return 0
-  [ "$ADMISSION_OVERRIDE" -eq 0 ] || return 0
+  if [ "$ADMISSION_OVERRIDE" -ne 0 ]; then
+    [ -n "$ADMISSION_OVERRIDE_REASON" ] || {
+      echo "error: --admission-override requires a non-empty reason" >&2
+      exit 1
+    }
+    printf 'paused [at=%s]: admission override used task=%s reason=%s\n' \
+      "$(date +%s)" "$ID" "$ADMISSION_OVERRIDE_REASON" >> "$STATE/overlay-events.log"
+    return 0
+  fi
   min_gb=$(spawn_admission_uint admission-min-ram-gb 3) || exit 1
   max_agents=$(spawn_admission_uint admission-max-agents 7) || exit 1
   available_kib=$(awk '/^MemAvailable:/ { print $2; exit }' /proc/meminfo 2>/dev/null || true)

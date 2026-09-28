@@ -2009,6 +2009,25 @@ test_admission_refuses_measured_ram_below_configured_floor() {
   pass "fresh spawn refuses measured available RAM below the configured threshold"
 }
 
+test_admission_override_records_its_reason() {
+  local rec id out status
+  id=admission-override-z4
+  rec=$(make_spawn_case admission-override claude "$id")
+  read_case_record "$rec"
+  printf '999999\n' > "$HOME_DIR/config/admission-min-ram-gb"
+
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --admission-override= 2>&1)
+  status=$?
+  [ "$status" -ne 0 ] || fail "override without a reason was accepted"
+  assert_contains "$out" 'requires a non-empty reason' "empty override reason was not refused"
+
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --admission-override 'captain ok for lab' 2>&1) || true
+  assert_not_contains "$out" 'spawn refused' "override did not bypass admission: $out"
+  assert_contains "$(cat "$HOME_DIR/state/overlay-events.log")" "task=$id reason=captain ok for lab" \
+    "override use was not recorded with its reason"
+  pass "admission override requires a reason and records every use"
+}
+
 test_admission_refuses_agent_cap_before_launch() {
   local rec id out status resident
   id=admission-agents-z2
@@ -2061,7 +2080,7 @@ SH
 #!/usr/bin/env bash
 case "$*" in
   *'repo view'*) printf '%s\n' 'example/repo' ;;
-  *pulls?state=*) printf '%s\n' '[{"number":1,"merged_at":"2026-09-01T00:00:00Z","title":"finish dos-product-admission-landed-z3","head":{"ref":"fm/dos-product-admission-landed-z3"}}]' ;;
+  *pulls?state=*) printf '%s\n' '[{"number":1,"merged_at":"2026-09-01T00:00:00Z","merge_commit_sha":"aaa111","base":{"ref":"main"},"title":"finish dos-product-admission-landed-z3","head":{"ref":"fm/dos-product-admission-landed-z3"}}]' ;;
   *) exit 2 ;;
 esac
 SH
@@ -2069,7 +2088,7 @@ SH
 #!/usr/bin/env bash
 case "$*" in
   *'ls-remote --get-url origin'*) printf '%s\n' 'git@github.com:example/repo.git' ;;
-  *origin/main:src/landed.sh*) exit 0 ;;
+  *"merge-base --is-ancestor aaa111 origin/main"*) exit 0 ;;
   *) exec /usr/bin/git "$@" ;;
 esac
 SH
@@ -2142,6 +2161,7 @@ test_claude_worker_launch_covers_task_channel_dirs
 test_claude_permission_mode_invalid_refuses_before_endpoint_or_metadata
 test_non_claude_harness_ignores_claude_permission_mode
 test_admission_refuses_measured_ram_below_configured_floor
+test_admission_override_records_its_reason
 test_admission_refuses_agent_cap_before_launch
 test_leaf_admission_refuses_a_landed_dos_product_leaf
 test_non_claude_harness_ignores_config_dir
