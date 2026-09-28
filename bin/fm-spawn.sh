@@ -52,7 +52,7 @@
 #   consume this new-lane budget.
 #   A fresh `dos-product-...` task also runs the config/leaf-admission (on when
 #   absent) FILES/PR preflight through bin/fm-leaf-supply.sh.  It refuses a
-#   leaf already landed on origin/main through a merged named PR, or one with
+#   leaf already landed on current main through a merged named PR, or one with
 #   an open named or file-touching PR.  The same --admission-override bypasses
 #   this explicitly requested preflight.
 #   --relaunch launches a replacement agent for an EXISTING task into that
