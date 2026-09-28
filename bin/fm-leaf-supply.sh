@@ -82,15 +82,81 @@ import json
 import re
 import sys
 
-try:
-    import yaml
-except ImportError:
-    sys.exit(1)
+
+def split_key_value(text):
+    match = re.fullmatch(r"([^:]+):(?: (.*))?", text)
+    if not match:
+        raise ValueError
+    return match.group(1), match.group(2) or ""
+
+
+def scalar(text):
+    if text in ("null", "Null", "NULL", "~"):
+        return None
+    if text in ("true", "True", "TRUE"):
+        return True
+    if text in ("false", "False", "FALSE"):
+        return False
+    if len(text) >= 2 and text[0] == text[-1] == '"':
+        return json.loads(text)
+    if len(text) >= 2 and text[0] == text[-1] == "'":
+        return text[1:-1].replace("''", "'")
+    if text[:1] in ("[", "{"):
+        return json.loads(text)
+    if re.fullmatch(r"-?[0-9]+(?:\.[0-9]+)?", text):
+        return json.loads(text)
+    return text
+
+
 try:
     with open(sys.argv[1], encoding="utf-8") as stream:
-        value = yaml.safe_load(re.sub(r"(?m)^\[([0-9]+)\]:", r"page_\1:", stream.read()))
+        lines = [line.rstrip("\n") for line in stream
+                 if line.strip() and line.strip() not in ("---", "...")]
+    position = 0
+
+    def next_indent():
+        if position >= len(lines):
+            raise ValueError
+        return len(lines[position]) - len(lines[position].lstrip(" "))
+
+    def block(indent):
+        global position
+        if next_indent() != indent:
+            raise ValueError
+        sequence = lines[position][indent:].startswith("- ")
+        value = [] if sequence else {}
+        while position < len(lines) and next_indent() == indent:
+            text = lines[position][indent:]
+            if sequence:
+                if not text.startswith("- "):
+                    raise ValueError
+                text = text[2:]
+                position += 1
+                if not text:
+                    item = block(next_indent())
+                elif ":" in text:
+                    key, raw = split_key_value(text)
+                    item = {}
+                    item[key] = block(next_indent()) if not raw else scalar(raw)
+                    if position < len(lines) and next_indent() > indent:
+                        rest = block(next_indent())
+                        if not isinstance(rest, dict):
+                            raise ValueError
+                        item.update(rest)
+                else:
+                    item = scalar(text)
+                value.append(item)
+            else:
+                if text.startswith("- "):
+                    raise ValueError
+                key, raw = split_key_value(text)
+                position += 1
+                value[key] = block(next_indent()) if not raw else scalar(raw)
+        return value
+
+    value = block(next_indent())
     if isinstance(value, dict):
-        if not value or not all(re.fullmatch(r"page_[0-9]+", key) and isinstance(page, list)
+        if not value or not all(re.fullmatch(r"\[[0-9]+\]", key) and isinstance(page, list)
                                 for key, page in value.items()):
             raise ValueError
         value = [row for page in value.values() for row in page]
@@ -98,7 +164,7 @@ try:
         raise ValueError
     json.dump(value, sys.stdout)
     print()
-except (OSError, ValueError, yaml.YAMLError):
+except (OSError, ValueError, json.JSONDecodeError):
     sys.exit(1)
 PY
 }

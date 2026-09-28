@@ -132,6 +132,36 @@ SH
   pass "parking deferred by active validation is retried and clears once parked"
 }
 
+test_overlay_queue_parking_preserves_effective_state_and_config() {
+  local rec home bin log state config out
+  rec=$(make_case overlay)
+  IFS='|' read -r home bin log <<EOF
+$rec
+EOF
+  state="$TMP_ROOT/overlay-state"
+  config="$TMP_ROOT/overlay-config"
+  mkdir -p "$state" "$config"
+  cat > "$bin/control-overlay" <<'SH'
+#!/usr/bin/env bash
+[ "$FM_STATE_OVERRIDE" = "$FM_TEST_EXPECT_STATE" ] || exit 1
+[ "$FM_CONFIG_OVERRIDE" = "$FM_TEST_EXPECT_CONFIG" ] || exit 1
+printf '%s\n' "$*" >> "$FM_TEST_CONTROL_LOG"
+SH
+  chmod 0755 "$bin/control-overlay"
+  printf 'done [at=1]: implementation committed\n' > "$state/lab-overlay.status"
+
+  out=$(FM_HOME="$home" FM_STATE_OVERRIDE="$state" FM_CONFIG_OVERRIDE="$config" \
+    FM_PARK_CREW_STATE_BIN="$bin/crew-state" FM_PARK_CONTROL_BIN="$bin/control-overlay" \
+    FM_TEST_CONTROL_LOG="$log" FM_TEST_EXPECT_STATE="$state" FM_TEST_EXPECT_CONFIG="$config" \
+    "$PARK" lab-overlay)
+  [ "$out" = 'parked: lab-overlay' ] || fail "overlay queue transition did not park: $out"
+  [ "$(cat "$log")" = 'lab-overlay exit' ] || fail "overlay queue parking did not use fm-control exit"
+  assert_contains "$(cat "$state/lab-overlay.status")" 'paused [at=' \
+    "overlay parking did not append a durable status event"
+  [ ! -e "$home/state/lab-overlay.status" ] || fail "overlay parking used the stock state path"
+  pass "overlay queue parking preserves control state and config overrides"
+}
+
 test_gate_lab_queue_parking_reaches_fm_control() {
   local home bin out rc
   home=$(env -u FM_GATE_REFUSE_BYPASS NO_MISTAKES_GATE=1 \
@@ -178,6 +208,7 @@ test_open_decision_prevents_parking
 test_ready_pause_parks_but_active_validation_does_not
 test_off_switch_leaves_the_lane_running_and_records_it_in_status
 test_deferred_parking_is_retried_until_it_succeeds
+test_overlay_queue_parking_preserves_effective_state_and_config
 test_gate_lab_queue_parking_reaches_fm_control
 test_failed_exit_keeps_a_retry_obligation
 

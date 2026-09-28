@@ -6,6 +6,7 @@ set -u
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 SUPPLY="$ROOT/bin/fm-leaf-supply.sh"
+SYSTEM_PYTHON3=$(command -v python3) || exit 1
 TMP_ROOT=$(fm_test_tmproot fm-leaf-supply)
 
 make_case() {
@@ -101,14 +102,19 @@ SH
 #!/usr/bin/env bash
 exit 2
 SH
-  chmod 0755 "$tools/br" "$tools/gh-axi" "$tools/git"
+  cat > "$tools/python3" <<'SH'
+#!/usr/bin/env bash
+exec "$FM_TEST_SYSTEM_PYTHON3" -S "$@"
+SH
+  chmod 0755 "$tools/br" "$tools/gh-axi" "$tools/git" "$tools/python3"
   printf '%s|%s|%s\n' "$root" "$repo" "$tools"
 }
 
 run_supply() {
   local root=$1 repo=$2 tools=$3
   shift 3
-  env PATH="$tools:$PATH" FM_TEST_READY_JSON="$root/ready.json" FM_TEST_PRS_JSON="$root/prs.json" \
+  env PATH="$tools:$PATH" FM_TEST_SYSTEM_PYTHON3="$SYSTEM_PYTHON3" \
+    FM_TEST_READY_JSON="$root/ready.json" FM_TEST_PRS_JSON="$root/prs.json" \
     "$SUPPLY" "$repo" --repository example/repo "$@"
 }
 

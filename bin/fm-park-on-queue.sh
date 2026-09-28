@@ -39,6 +39,8 @@ CREW_STATE_BIN="${FM_PARK_CREW_STATE_BIN:-$SCRIPT_DIR/fm-crew-state.sh}"
 
 # shellcheck source=bin/fm-classify-lib.sh
 . "$SCRIPT_DIR/fm-classify-lib.sh"
+# shellcheck source=bin/fm-gate-refuse-lib.sh
+. "$SCRIPT_DIR/fm-gate-refuse-lib.sh"
 
 id=${1:-}
 case "$id" in
@@ -98,12 +100,33 @@ case "$crew_state" in
     ;;
 esac
 
-# fm-control's gate-lab allowance deliberately accepts only its stock layout;
-# the watcher supplies state/config overrides even when they name that layout.
-# They are unnecessary for this control call because it receives the same home.
-if ! control_error=$(env -u FM_STATE_OVERRIDE -u FM_CONFIG_OVERRIDE \
-  -u FM_ROOT_OVERRIDE -u FM_DATA_OVERRIDE FM_HOME="$FM_HOME" \
-  "$CONTROL_BIN" "$id" exit 2>&1); then
+stock_gate_lab_layout() {
+  local variable
+  fm_gate_lab_home "$FM_HOME" \
+    && [ "$STATE" = "$FM_HOME/state" ] \
+    && [ "$CONFIG" = "$FM_HOME/config" ] \
+    && { [ -z "${FM_ROOT_OVERRIDE:-}" ] || [ "$FM_ROOT_OVERRIDE" = "$FM_HOME" ]; } \
+    && { [ -z "${FM_DATA_OVERRIDE:-}" ] || [ "$FM_DATA_OVERRIDE" = "$FM_HOME/data" ]; } \
+    && { [ -z "${FM_PROJECTS_OVERRIDE:-}" ] || [ "$FM_PROJECTS_OVERRIDE" = "$FM_HOME/projects" ]; } \
+    || return 1
+  for variable in "${!FM_@}"; do
+    case "$variable" in
+      FM_ROOT_OVERRIDE|FM_STATE_OVERRIDE|FM_CONFIG_OVERRIDE|FM_DATA_OVERRIDE|FM_PROJECTS_OVERRIDE) ;;
+      *_OVERRIDE) [ -z "${!variable}" ] || return 1 ;;
+    esac
+  done
+}
+run_control_exit() {
+  if stock_gate_lab_layout; then
+    env -u FM_STATE_OVERRIDE -u FM_CONFIG_OVERRIDE -u FM_PROJECTS_OVERRIDE \
+      -u FM_ROOT_OVERRIDE -u FM_DATA_OVERRIDE FM_HOME="$FM_HOME" \
+      "$CONTROL_BIN" "$id" exit
+  else
+    FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_CONFIG_OVERRIDE="$CONFIG" \
+      "$CONTROL_BIN" "$id" exit
+  fi
+}
+if ! control_error=$(run_control_exit 2>&1); then
   defer_park
   printf 'error: fm-control exit failed for %s; parking will be retried: %s\n' "$id" "$control_error" >&2
   exit 75
