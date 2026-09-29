@@ -474,19 +474,49 @@ EOF
 # Bounded and silent: prints nothing when no decision is open, which is the
 # common case.
 print_open_decisions_section() {
-  local snapshot=${1:-} open task key verb note line item_bytes=220 global_bytes=4000
-  local output='' used=0 shown=0 omitted=0 bytes
+  local snapshot=${1:-} open task key verb note stamp category records ordered line item_bytes=220 global_bytes=4000
+  local output='' used=0 shown=0 omitted=0 bytes now age age_hint tab
 
   if [ -n "$snapshot" ]; then
-    open=$(scan_open_decisions_snapshot "$STATE" "$snapshot") || return 1
+    open=$(scan_open_decisions_snapshot_with_at "$STATE" "$snapshot") || return 1
   else
-    open=$(scan_open_decisions_incremental "$STATE") || return 1
+    open=$(scan_open_decisions_incremental_with_at "$STATE") || return 1
   fi
   [ -n "$open" ] || return 0
 
-  while IFS=$(printf '\t') read -r task key verb note; do
+  tab=$(printf '\t')
+  now=$(date +%s 2>/dev/null) || now=
+  case "$now" in ''|*[!0-9]*) now= ;; esac
+  records=$(
+    while IFS="$tab" read -r task key verb note stamp; do
+      [ -n "$task" ] || continue
+      if [ -n "$stamp" ]; then category=0; else category=1; stamp=0; fi
+      printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$category" "$stamp" "$task" "$key" "$verb" "$note"
+    done <<EOF
+$open
+EOF
+  ) || return 1
+  ordered=$(printf '%s\n' "$records" | LC_ALL=C sort -s -t "$tab" -k1,1n -k2,2nr) || return 1
+
+  while IFS="$tab" read -r category stamp task key verb note; do
     [ -n "$task" ] || continue
-    line="$task"
+    age_hint=''
+    if [ -n "$now" ] && [ "$category" = 0 ]; then
+      if [ "$stamp" -gt "$now" ]; then age=0; else age=$((now - stamp)); fi
+      case "$age" in
+        [0-9]|[1-5][0-9]) age_hint="[age=${age}s] " ;;
+        *)
+          if [ "$age" -lt 3600 ]; then
+            age_hint="[age=$((age / 60))m] "
+          elif [ "$age" -lt 86400 ]; then
+            age_hint="[age=$((age / 3600))h] "
+          else
+            age_hint="[age=$((age / 86400))d] "
+          fi
+          ;;
+      esac
+    fi
+    line="$age_hint$task"
     [ "$key" = default ] || line="$line [key=$key]"
     line="$line $verb: $note"
     # The shared cut counts the item's own characters; the trailing newline this
@@ -504,7 +534,7 @@ print_open_decisions_section() {
     used=$((used + bytes))
     shown=$((shown + 1))
   done <<EOF
-$open
+$ordered
 EOF
 
   [ "$shown" -gt 0 ] || [ "$omitted" -gt 0 ] || return 0

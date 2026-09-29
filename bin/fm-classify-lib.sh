@@ -782,6 +782,50 @@ _fm_decision_drop() {  # <open-set> <key> [<out-var>]
   done
   if [ "$#" -gt 2 ]; then printf -v "$3" '%s' "$__fm_drop_out"; else printf '%s' "$__fm_drop_out"; fi
 }
+
+# Join the folded open set to its parallel open-time set for cursor storage or
+# a presentation caller that needs order metadata without re-reading a log.
+_fm_decision_open_with_at() {  # <open-set> <open-at-set>
+  local open=$1 open_at=$2 key verb note at_key stamp
+  while IFS=$'\t' read -r key verb note; do
+    [ -n "$key" ] || continue
+    stamp=''
+    while IFS=$'\t' read -r at_key stamp; do
+      [ "$at_key" = "$key" ] && break
+    done <<EOF
+$open_at
+EOF
+    printf '%s\t%s\t%s\t%s\n' "$key" "$verb" "$note" "$stamp"
+  done <<EOF
+$open
+EOF
+}
+
+# Recover the public three-field set and its parallel time metadata from the
+# cursor's four-field representation. The latter is private cursor state.
+_fm_decision_open_split_at() {  # <four-field-set> <open-var> <open-at-var>
+  local __fm_split_data=$1 __fm_split_key __fm_split_verb __fm_split_note __fm_split_stamp
+  local __fm_split_open='' __fm_split_open_at=''
+  while IFS=$'\t' read -r __fm_split_key __fm_split_verb __fm_split_note __fm_split_stamp; do
+    [ -n "$__fm_split_key" ] || continue
+    __fm_split_open="${__fm_split_open}${__fm_split_key}"$'\t'"${__fm_split_verb}"$'\t'"${__fm_split_note}"$'\n'
+    __fm_split_open_at="${__fm_split_open_at}${__fm_split_key}"$'\t'"${__fm_split_stamp}"$'\n'
+  done <<EOF
+$__fm_split_data
+EOF
+  __fm_split_open=${__fm_split_open%$'\n'}
+  __fm_split_open_at=${__fm_split_open_at%$'\n'}
+  printf -v "$2" '%s' "$__fm_split_open"
+  printf -v "$3" '%s' "$__fm_split_open_at"
+}
+
+_fm_decision_open_output() {  # <open-set> <open-at-set> [with-at]
+  if [ "${3:-}" = with-at ]; then
+    _fm_decision_open_with_at "$1" "$2"
+  else
+    printf '%s' "$1"
+  fi
+}
 # Fold ONE status line into an existing "<key>\t<verb>\t<note>\n"-per-line open
 # set, applying the same needs-decision/blocked-opens, resolved/captain-held-closes
 # rule status_open_decisions documents above. Pure text transform, no file I/O.
@@ -913,12 +957,17 @@ _fm_decision_fold_into() {  # <open-var> <status-line> <resolve-verb> <held-verb
 
 # Whole-stream form: folds every line on stdin into <open-var> while holding
 # the set in one local, so a long log does not copy the set twice per line.
-_fm_decision_fold_lines() {  # <open-var> <resolve-verb> <held-verb> <kind> < status-lines
-  local __fm_fold_open=${!1} __fm_fold_line
+_fm_decision_fold_lines() {  # <open-var> <resolve-verb> <held-verb> <kind> [<open-at-var>] < status-lines
+  local __fm_fold_open=${!1} __fm_fold_at='' __fm_fold_line
+  [ "$#" -lt 5 ] || __fm_fold_at=${!5}
   while IFS= read -r __fm_fold_line || [ -n "$__fm_fold_line" ]; do
-    _fm_decision_fold_step "$__fm_fold_line" "$2" "$3" "$4"
+    _fm_decision_fold_step "$__fm_fold_line" "$2" "$3" "$4" __fm_fold_at
   done
   _fm_decision_fold_store "$1"
+  if [ "$#" -ge 5 ]; then
+    __fm_fold_at=${__fm_fold_at%$'\n'}
+    printf -v "$5" '%s' "$__fm_fold_at"
+  fi
 }
 
 # Store its caller's __fm_fold_open into <open-var> without trailing newlines.
@@ -936,9 +985,9 @@ _fm_decision_fold_store() {  # <open-var>
 }
 
 # The per-line rule itself; edits its caller's __fm_fold_open.
-_fm_decision_fold_step() {  # <status-line> <resolve-verb> <held-verb> <kind>
+_fm_decision_fold_step() {  # <status-line> <resolve-verb> <held-verb> <kind> [<open-at-var>]
   local __fm_step_line=$1 __fm_step_resolve=$2 __fm_step_held=$3 __fm_step_kind=$4
-  local __fm_step_verb __fm_step_key __fm_step_note __fm_step_unstamped
+  local __fm_step_verb __fm_step_key __fm_step_note __fm_step_unstamped __fm_step_at=''
   # Both colon tests below ask where the head ends, the same question the note
   # and key readers ask, so they read the same unstamped copy those readers do.
   # A worker-written time tag must never decide whether a decision opens or
@@ -962,7 +1011,11 @@ _fm_decision_fold_step() {  # <status-line> <resolve-verb> <held-verb> <kind>
   case "$__fm_step_unstamped" in
     *:*)
       case "$__fm_step_verb:$__fm_step_kind" in
-        done:ship|done:scout|failed:ship|failed:scout) __fm_fold_open=''; return 0 ;;
+        done:ship|done:scout|failed:ship|failed:scout)
+          __fm_fold_open=''
+          [ "$#" -lt 5 ] || printf -v "$5" '%s' ''
+          return 0
+          ;;
       esac
       ;;
   esac
@@ -977,11 +1030,20 @@ _fm_decision_fold_step() {  # <status-line> <resolve-verb> <held-verb> <kind>
     needs-decision|blocked)
       _fm_decision_drop "$__fm_fold_open" "$__fm_step_key" __fm_fold_open
       __fm_fold_open="${__fm_fold_open}${__fm_step_key}"$'\t'"${__fm_step_verb}"$'\t'"${__fm_step_note}"$'\n'
+      if [ "$#" -gt 4 ]; then
+        _fm_decision_drop "${!5}" "$__fm_step_key" __fm_fold_at
+        _fm_status_at_epoch "$__fm_step_line" __fm_step_at || __fm_step_at=''
+        __fm_fold_at="${__fm_fold_at}${__fm_step_key}"$'\t'"${__fm_step_at}"$'\n'
+      fi
       ;;
     "$__fm_step_resolve"|"$__fm_step_held")
       _fm_decision_drop "$__fm_fold_open" "$__fm_step_key" __fm_fold_open
+      if [ "$#" -gt 4 ]; then
+        _fm_decision_drop "${!5}" "$__fm_step_key" __fm_fold_at
+      fi
       ;;
   esac
+  [ "$#" -lt 5 ] || printf -v "$5" '%s' "$__fm_fold_at"
 }
 
 # Fold the WHOLE status stream into the set of decisions still open. Prints one
@@ -1247,10 +1309,12 @@ _fm_open_decisions_cursor_path() {  # <status-file>
 # malformed worker stamp whose colons used to pose as the head/note separator
 # no longer opens or closes anything; cursors folded under that reading are
 # discarded.
+# 10: each open key retains its canonical opener timestamp for bounded
+# presentation ordering, so cursors without that metadata are rebuilt.
 # Version 4 was already spent on the bracketed-tag parser change above, and a
 # cursor persisted under that reading predates this one, so it must still be
 # discarded and rebuilt from byte 0 under the new reading.
-FM_OPEN_DECISIONS_FOLD_VERSION=9
+FM_OPEN_DECISIONS_FOLD_VERSION=10
 
 # Portable device:inode identity for the rotation/recreation check below.
 _fm_open_decisions_file_ident() {  # <file> -> strongest available identity
@@ -1322,8 +1386,8 @@ _fm_status_read_span() {  # <status-file> <start-offset> <byte-length>
   ' "$f" "$start" "$length"
 }
 
-status_open_decisions_incremental() {  # <status-file> [<captured-end-offset>]
-  local f=$1 captured_end=${2:-} cf offset ident open='' trusted_open='' cursor_data first rest offset_line ident_line
+status_open_decisions_incremental() {  # <status-file> [<captured-end-offset>] [with-at]
+  local f=$1 captured_end=${2:-} include_at=${3:-} cf offset ident open='' open_at='' trusted_open='' trusted_open_at='' cursor_data first rest offset_line ident_line cached_open
   local version='' size actual_size cur_ident resolve held chunk_file chunk_size line cursor_dirty=0
   local target_cursor kind fold_version
   [ -f "$f" ] && [ -r "$f" ] && [ ! -L "$f" ] || return 0
@@ -1358,9 +1422,15 @@ status_open_decisions_incremental() {  # <status-file> [<captured-end-offset>]
                     ident=*)
                       ident=${ident_line#ident=}
                       case "$rest" in
-                        *$'\n'*) open=${rest#*$'\n'} ;;
+                        *$'\n'*)
+                          cached_open=${rest#*$'\n'}
+                          _fm_decision_open_split_at "$cached_open" open open_at
+                          ;;
                       esac
-                      if [ -n "$version" ] && [ -n "$ident" ]; then trusted_open=$open; fi
+                      if [ -n "$version" ] && [ -n "$ident" ]; then
+                        trusted_open=$open
+                        trusted_open_at=$open_at
+                      fi
                       ;;
                     *) offset=0; version='' ;;
                   esac
@@ -1376,17 +1446,17 @@ status_open_decisions_incremental() {  # <status-file> [<captured-end-offset>]
   # A stat/size-read failure is a genuine I/O error, not "the file is empty" -
   # report the already-trusted persisted set unchanged rather than risking a
   # silent invalidation that would wipe it.
-  cur_ident=$(_fm_open_decisions_file_ident "$f") || { printf '%s' "$trusted_open"; return 0; }
-  [ -n "$cur_ident" ] || { printf '%s' "$trusted_open"; return 0; }
+  cur_ident=$(_fm_open_decisions_file_ident "$f") || { _fm_decision_open_output "$trusted_open" "$trusted_open_at" "$include_at"; return 0; }
+  [ -n "$cur_ident" ] || { _fm_decision_open_output "$trusted_open" "$trusted_open_at" "$include_at"; return 0; }
   actual_size=$(_fm_status_file_size "$f") \
-    || { printf '%s' "$trusted_open"; return 0; }
+    || { _fm_decision_open_output "$trusted_open" "$trusted_open_at" "$include_at"; return 0; }
   actual_size=${actual_size//[[:space:]]/}
-  case "$actual_size" in ''|*[!0-9]*) printf '%s' "$trusted_open"; return 0 ;; esac
+  case "$actual_size" in ''|*[!0-9]*) _fm_decision_open_output "$trusted_open" "$trusted_open_at" "$include_at"; return 0 ;; esac
   if [ -n "$captured_end" ]; then
     case "$captured_end" in
-      ''|*[!0-9]*) printf '%s' "$trusted_open"; return 0 ;;
+      ''|*[!0-9]*) _fm_decision_open_output "$trusted_open" "$trusted_open_at" "$include_at"; return 0 ;;
     esac
-    [ "$captured_end" -le "$actual_size" ] || { printf '%s' "$trusted_open"; return 0; }
+    [ "$captured_end" -le "$actual_size" ] || { _fm_decision_open_output "$trusted_open" "$trusted_open_at" "$include_at"; return 0; }
     size=$captured_end
   else
     size=$actual_size
@@ -1395,19 +1465,21 @@ status_open_decisions_incremental() {  # <status-file> [<captured-end-offset>]
   if [ -z "$version" ] || [ -z "$ident" ] || [ "$ident" != "$cur_ident" ] || [ "$offset" -gt "$actual_size" ]; then
     offset=0
     open=''
+    open_at=''
     trusted_open=''
+    trusted_open_at=''
     cursor_dirty=1
   fi
 
   if [ "$offset" -lt "$size" ]; then
     chunk_file="$cf.read.$$"
     _fm_status_read_span "$f" "$offset" "$((size - offset))" > "$chunk_file" 2>/dev/null \
-      || { rm -f "$chunk_file"; printf '%s' "$trusted_open"; return 0; }
+      || { rm -f "$chunk_file"; _fm_decision_open_output "$trusted_open" "$trusted_open_at" "$include_at"; return 0; }
     chunk_size=$(LC_ALL=C wc -c < "$chunk_file" 2>/dev/null) \
       || { rm -f "$chunk_file"; printf '%s' "$trusted_open"; return 0; }
     chunk_size=${chunk_size//[[:space:]]/}
     case "$chunk_size" in
-      ''|*[!0-9]*) rm -f "$chunk_file"; printf '%s' "$trusted_open"; return 0 ;;
+      ''|*[!0-9]*) rm -f "$chunk_file"; _fm_decision_open_output "$trusted_open" "$trusted_open_at" "$include_at"; return 0 ;;
     esac
     # Test-only observability seam (off by default, no production behavior
     # change): when set, records exactly how many bytes THIS call folded, so a
@@ -1417,7 +1489,7 @@ status_open_decisions_incremental() {  # <status-file> [<captured-end-offset>]
       && printf '%s\t%s\n' "$f" "$chunk_size" >> "$FM_OPEN_DECISIONS_READ_PROBE"
     resolve=${FM_CLASSIFY_RESOLVE_VERB:-$FM_CLASSIFY_RESOLVE_VERB_DEFAULT}
     held=${FM_CLASSIFY_CAPTAIN_HELD_VERB:-$FM_CLASSIFY_CAPTAIN_HELD_VERB_DEFAULT}
-    _fm_decision_fold_lines open "$resolve" "$held" "$kind" < "$chunk_file"
+    _fm_decision_fold_lines open "$resolve" "$held" "$kind" open_at < "$chunk_file"
     rm -f "$chunk_file"
     offset=$size
     cursor_dirty=1
@@ -1428,11 +1500,11 @@ status_open_decisions_incremental() {  # <status-file> [<captured-end-offset>]
       printf 'version=%s\n' "$fold_version"
       printf 'offset=%s\n' "$offset"
       printf 'ident=%s\n' "$cur_ident"
-      if [ -n "$open" ]; then printf '%s' "$open"; fi
+      _fm_decision_open_with_at "$open" "$open_at"
     } > "$target_cursor" || return 1
     mv -f "$target_cursor" "$cf" || return 1
   fi
-  printf '%s' "$open"
+  _fm_decision_open_output "$open" "$open_at" "$include_at"
 }
 
 # Incremental sibling of scan_open_decisions: same fleet-wide directory walk and
@@ -1446,6 +1518,25 @@ scan_open_decisions_incremental() {  # <state>
     [ -e "$f" ] || continue
     task=$(basename "$f"); task="${task%.status}"
     open=$(status_open_decisions_incremental "$f") || continue
+    [ -n "$open" ] || continue
+    while IFS= read -r line; do
+      [ -n "$line" ] || continue
+      printf '%s\t%s\n' "$task" "$line"
+    done <<EOF
+$open
+EOF
+  done
+  return 0
+}
+
+# Presentation sibling that carries the opener's canonical epoch as a fifth
+# field, using the incremental fold's persisted metadata rather than a reread.
+scan_open_decisions_incremental_with_at() {  # <state>
+  local state=$1 f task open line
+  for f in "$state"/*.status; do
+    [ -e "$f" ] || continue
+    task=$(basename "$f"); task="${task%.status}"
+    open=$(status_open_decisions_incremental "$f" '' with-at) || continue
     [ -n "$open" ] || continue
     while IFS= read -r line; do
       [ -n "$line" ] || continue
@@ -1904,6 +1995,24 @@ scan_open_decisions_snapshot() {  # <state> <task-and-endpoint-snapshot>
     [ -n "$task" ] || continue
     f="$state/$task.status"
     open=$(status_open_decisions_incremental "$f" "$endpoint") || return 1
+    [ -n "$open" ] || continue
+    while IFS= read -r line; do
+      [ -n "$line" ] || continue
+      printf '%s\t%s\n' "$task" "$line"
+    done <<EOF
+$open
+EOF
+  done <<EOF
+$snapshot
+EOF
+}
+
+scan_open_decisions_snapshot_with_at() {  # <state> <task-and-endpoint-snapshot>
+  local state=$1 snapshot=$2 task endpoint ident f open line
+  while IFS=$(printf '\t') read -r task endpoint ident; do
+    [ -n "$task" ] || continue
+    f="$state/$task.status"
+    open=$(status_open_decisions_incremental "$f" "$endpoint" with-at) || return 1
     [ -n "$open" ] || continue
     while IFS= read -r line; do
       [ -n "$line" ] || continue
