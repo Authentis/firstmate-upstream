@@ -27,8 +27,8 @@
 # whose lane just finished starts its next job promptly; otherwise it sleeps
 # one second between passes. That bound is how long newly staged or cancelled
 # work, a lane that died, an orphaned claim, or an expired queue deadline can
-# wait for the next pass, and it refreshes the readiness heartbeat about once
-# per second, far inside the probe's 10-second freshness bound. The stale
+# wait for the next pass, and it refreshes the readiness heartbeat at least
+# every five seconds while idle and every second with an active lane. The stale
 # sweep, whose state preparation also re-applies the queue directories' 0700
 # modes, runs at startup and then at most every 60 seconds, never more rarely
 # than the shortest record reap age.
@@ -63,6 +63,7 @@ FM_REMOTE_JOB_SUPERVISOR_MAX_BACKOFF_SECONDS=$(worker_bounded_setting "${FM_REMO
 FM_REMOTE_JOB_SUPERVISOR_HEALTHY_SECONDS=$(worker_bounded_setting "${FM_REMOTE_JOB_SUPERVISOR_HEALTHY_SECONDS:-}" 10)
 WORKER_FAST_PASSES=20
 WORKER_IDLE_WAIT_SECONDS=1
+WORKER_HEARTBEAT_SECONDS=5
 WORKER_SWEEP_SECONDS=60
 
 SCRIPT_DIR=$(CDPATH='' cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
@@ -1044,6 +1045,9 @@ worker_start_lane() { # <job-dir> <home>
   WORKER_LANE_PIDS+=("$lane_pid")
   WORKER_LANE_STARTS+=("$lane_start")
   WORKER_LANE_JOBS+=("$job")
+  # Keep the active-work readiness proof promptly refreshable even when this
+  # lane arrived immediately after an idle heartbeat.
+  next_heartbeat=0
 }
 
 worker_lane_main() { # <job-id>
@@ -1145,7 +1149,7 @@ worker_wait_for_work() {
 }
 
 main() {
-  local account_home lock_status next_heartbeat=-1 next_sweep=0 sweep_interval
+  local account_home lock_status next_heartbeat=0 next_supervisor_check=0 next_sweep=0 sweep_interval heartbeat_interval
   account_home=$(worker_account_home) || { worker_error "cannot resolve account home"; exit 1; }
   FM_ROOT=$(fm_remote_job_canonical_existing_dir "$FM_ROOT") || { worker_error "configured FM_ROOT is unsafe"; exit 1; }
   [ -f "$FM_ROOT/AGENTS.md" ] && [ ! -L "$FM_ROOT/AGENTS.md" ] || { worker_error "FM_ROOT is not a Firstmate checkout"; exit 1; }
@@ -1170,9 +1174,11 @@ main() {
   WORKER_FAST_REMAINING=0
   WORKER_ACTIVITY=1
   while :; do
-    if [ "$SECONDS" -ne "$next_heartbeat" ]; then
+    if [ "$SECONDS" -ge "$next_heartbeat" ]; then
       worker_write_heartbeat || { worker_error "cannot update worker heartbeat"; exit 1; }
-      next_heartbeat=$SECONDS
+      heartbeat_interval=$WORKER_HEARTBEAT_SECONDS
+      [ "${#WORKER_LANE_PIDS[@]}" -eq 0 ] || heartbeat_interval=1
+      next_heartbeat=$((SECONDS + heartbeat_interval))
     fi
     # Checked right after a heartbeat no older than a second, so the grace
     # window cannot make a still-healthy worker read as unready to a
@@ -1181,10 +1187,11 @@ main() {
       worker_error "configured FM_ROOT $FM_ROOT no longer exists; stopping the abandoned worker"
       exit 0
     fi
-    if ! worker_serve_supervisor_alive; then
+    if [ "$SECONDS" -ge "$next_supervisor_check" ] && ! worker_serve_supervisor_alive; then
       worker_error "restart supervisor is gone; stopping the orphaned serve"
       exit 0
     fi
+    [ "$SECONDS" -lt "$next_supervisor_check" ] || next_supervisor_check=$((SECONDS + WORKER_HEARTBEAT_SECONDS))
     if [ "$SECONDS" -ge "$next_sweep" ]; then
       fm_remote_job_reap_stale "$account_home" || true
       next_sweep=$((SECONDS + sweep_interval))

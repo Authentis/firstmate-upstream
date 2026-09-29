@@ -1054,9 +1054,8 @@ STALL_JOB_GROUP=
 pass "an ousted worker in shutdown leaves the replacement quarantine untouched"
 
 # An idle worker must not busy-poll its queue: between passes it sleeps one
-# second, so its only steady cost is that sleep and the once-a-second heartbeat
-# plus the periodic sweep, which the 2-second stage reap age pulls in to every
-# 2 seconds. Every external command the worker runs by name goes through a
+# second, and it refreshes the heartbeat every five seconds.
+# Every external command the worker runs by name goes through a
 # counting shim, which makes the exec rate observable without privileges.
 QUIET_HOME="$TMP_ROOT/quiet-account"
 QUIET_STATE="$TMP_ROOT/quiet-state"
@@ -1103,7 +1102,7 @@ quiet_measure() { # <label> <max-sleeps>
   sleeps=$(grep -cx sleep "$QUIET_EXEC_LOG" || true)
   [ "$sleeps" -le "$2" ] \
     || fail "$1 kept polling with sleep ($sleeps sleeps in 4s)"
-  [ "$execs" -le 80 ] \
+  [ "$execs" -le 24 ] \
     || fail "$1 ran $execs commands in 4s; expected only heartbeats and sweeps"$'\n'"$(sort "$QUIET_EXEC_LOG" | uniq -c)"
 }
 # fm_remote_job_probe must keep reading an idle worker as ready: its heartbeat
@@ -1115,7 +1114,7 @@ quiet_heartbeat_stays_fresh() { # <state> <account-home> <label>
       || fail "the probe read the live $3 worker as unready"
     mtime=$(fm_remote_job_path_mtime "$1/worker.ready") || fail "the $3 worker heartbeat vanished"
     age=$(( $(date +%s) - mtime ))
-    [ "$age" -le 3 ] || fail "the $3 worker heartbeat went ${age}s stale"
+    [ "$age" -le 6 ] || fail "the $3 worker heartbeat went ${age}s stale"
     sleep 0.5
   done
 }
@@ -1148,7 +1147,7 @@ quiet_stop() { # <pid>
 quiet_wait_ready "$QUIET_STATE" idle-rate
 quiet_settle 3
 quiet_measure "an idle worker" 6
-pass "an idle worker sleeps out a second between passes instead of busy-polling"
+pass "an idle worker limits filesystem churn between queue passes"
 
 quiet_heartbeat_stays_fresh "$QUIET_STATE" "$QUIET_HOME" idle
 pass "an idle worker keeps its readiness heartbeat fresh between passes"
