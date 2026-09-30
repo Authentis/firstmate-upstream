@@ -1510,7 +1510,7 @@ unpushed_patches_are_in_pr_head() {
       | sort -u
   ) || return 1
   [ -n "$pr_patch_ids" ] || return 1
-  unpushed=$(git -C "$WT" log --format=%H HEAD --not --exclude='no-mistakes/*' --remotes -- 2>/dev/null) || return 1
+  unpushed=$(git -C "$WT" log --format=%H HEAD --not --remotes -- 2>/dev/null) || return 1
   [ -n "$unpushed" ] || return 1
   while IFS= read -r commit; do
     [ -n "$commit" ] || continue
@@ -3561,18 +3561,27 @@ fi
 "$SCRIPT_DIR/fm-remote-job-reap-orphans.sh" >&2 || true
 
 # Best-effort: drop the local task branch so the shared repo does not accumulate refs.
+TASK_BRANCH=$(meta_value "$META" branch 2>/dev/null || true)
+[ -n "$TASK_BRANCH" ] || TASK_BRANCH="fm/$ID"
+retire_recorded_task_branch() { # <worktree>
+  local wt=$1 tip head current
+  tip=$(git -C "$wt" rev-parse --verify --quiet "refs/heads/$TASK_BRANCH^{commit}" 2>/dev/null) || return 0
+  current=$(git -C "$wt" symbolic-ref --quiet HEAD 2>/dev/null || true)
+  if [ "$current" = "refs/heads/$TASK_BRANCH" ]; then
+    git -C "$wt" checkout --detach -q || return 0
+  fi
+  head=$(git -C "$wt" rev-parse --verify --quiet 'HEAD^{commit}' 2>/dev/null || true)
+  if [ "$head" = "$tip" ] || git -C "$wt" merge-base --is-ancestor "$tip" "$head" 2>/dev/null; then
+    git -C "$wt" branch -D -- "$TASK_BRANCH" >/dev/null 2>&1 || true
+  fi
+}
 if [ "$BACKEND" = orca ] && [ "$KIND" != secondmate ]; then
   if [ "$ORCA_PATH_MATCH_VERIFIED" != 1 ]; then
     require_orca_worktree_path_match_if_present "$ORCA_WORKTREE_ID" "$WT" || exit 1
     ORCA_PATH_MATCH_VERIFIED=1
   fi
   if [ -d "$WT" ]; then
-    branch=$(git -C "$WT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo HEAD)
-    if [ "$branch" != "HEAD" ]; then
-      if git -C "$WT" checkout --detach -q 2>/dev/null; then
-        git -C "$WT" branch -D "$branch" >/dev/null 2>&1 || true
-      fi
-    fi
+    retire_recorded_task_branch "$WT"
     rm -f "$WT/.claude/settings.local.json" "$WT/.opencode/plugins/fm-turn-end.js" \
       "$WT/.opencode/plugins/fm-busy-state.js" \
       "$WT/.fm-grok-turnend" "$WT/.fm-kimi-turnend"
@@ -3585,12 +3594,7 @@ if [ "$BACKEND" = orca ] && [ "$KIND" != secondmate ]; then
 elif [ "$KIND" != secondmate ] && ! teardown_owns_worktree; then
   :
 elif [ -d "$WT" ] && [ "$KIND" != secondmate ]; then
-  branch=$(git -C "$WT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo HEAD)
-  if [ "$branch" != "HEAD" ]; then
-    if git -C "$WT" checkout --detach -q 2>/dev/null; then
-      git -C "$WT" branch -D "$branch" >/dev/null 2>&1 || true
-    fi
-  fi
+  retire_recorded_task_branch "$WT"
   # Remove our hook file so a reused pool worktree cannot fire signals for a dead task.
   rm -f "$WT/.claude/settings.local.json" "$WT/.opencode/plugins/fm-turn-end.js" \
     "$WT/.fm-grok-turnend" "$WT/.fm-kimi-turnend"
