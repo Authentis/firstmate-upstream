@@ -411,7 +411,9 @@ afk_present() { [ -e "$STATE/.afk" ]; }
 # lists it, and a recheck would only churn (the 2026-09-07 away-window audit
 # counted hourly rechecks of captain-held items as pure noise). Declared
 # external waits keep their condition-aware cadence in both postures.
-afk_record_present() { fm_afk_contract_present "$STATE"; }
+# Quiet records mean the captain is present; only a real away posture suppresses
+# captain-held rechecks.
+afk_record_present() { fm_afk_contract_away_present "$STATE"; }
 
 # captain_held_silenced <status-line>: 0 when the line declares a captain-held
 # transfer and the away-posture record exists, so every stale path absorbs the
