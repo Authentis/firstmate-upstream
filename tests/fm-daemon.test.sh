@@ -1557,29 +1557,6 @@ test_housekeeping_orca_persistent_stale_resolves_terminal() {
   pass "persistent Orca stale resolves the terminal from metadata"
 }
 
-test_status_seen_offset_bounds_missing_marker() {
-  local dir state f offset size i out
-  dir=$(make_supercase seen-offset-first-scan); state="$dir/state"
-  f="$state/chatty.status"
-  for i in $(seq 1 4000); do printf 'failed [at=1]: build broke number %s\n' "$i"; done > "$f"
-  size=$(log_size "$f")
-  offset=$(status_seen_offset "$state" chatty)
-  [ "$offset" -gt 0 ] || fail "a large log with no marker is replayed from byte 0"
-  [ $((size - offset)) -le 65536 ] || fail "first scan exceeds its bound: $((size - offset)) bytes"
-  [ "$(head -c "$offset" "$f" | tail -c 1 | od -An -c | tr -d ' ')" = '\n' ] \
-    || fail "first scan does not start at a line start"
-  out=$(classify_signal "$f" "$state")
-  case "$out" in escalate\|*) ;; *) fail "bounded first scan did not escalate the tail: ${out:0:80}" ;; esac
-  [ "${#out}" -le 70000 ] || fail "bounded first scan still produced a ${#out}-char item"
-  assert_contains "$out" "build broke number 4000" "bounded first scan missed the newest event"
-  printf 'failed [at=1]: small\n' > "$state/small.status"
-  [ "$(status_seen_offset "$state" small)" = 0 ] || fail "a small log with no marker is not classified whole"
-  printf 'garbage-legacy-marker' > "$state/.subsuper-seen-status-chatty"
-  offset=$(status_seen_offset "$state" chatty)
-  [ "$offset" -gt 0 ] || fail "a legacy marker on a large log replays it from byte 0"
-  pass "a missing or legacy read position classifies only a bounded tail of a large log"
-}
-
 test_escalate_batches_into_one_digest() {
   local dir state fakebin sent capture n record
   dir=$(make_supercase batch)
@@ -3207,7 +3184,6 @@ test_housekeeping_herdr_persistent_stale_resolves_meta
 test_housekeeping_herdr_idle_busy_record_clears_stale
 test_housekeeping_herdr_resumed_stale_cleared
 test_housekeeping_orca_persistent_stale_resolves_terminal
-test_status_seen_offset_bounds_missing_marker
 test_escalate_batches_into_one_digest
 test_escalate_batch_age_uses_first_append
 test_heartbeat_scan_dedup

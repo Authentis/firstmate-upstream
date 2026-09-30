@@ -9,18 +9,11 @@
 #
 # Keep sequence-bound row consumption independent from generation-bound episode
 # retirement; docs/watcher-continuity.md owns the recovery contract.
-#
-# --ack-if-routine is the first command of a wake turn. It drains exactly as a
-# plain drain does, and when every claimed row is routine (fm-wake-lib.sh's
-# "fold-class rows" owns that predicate) and the status presentation adds
-# nothing new - no UNREAD STATUS, STATUS OUTCOME BACKSTOP, RECORD DIVERGENCE,
-# annotation, or skipped/incomplete notice, and an OPEN DECISIONS section
-# byte-identical to the one this actor was last shown - it runs the same
-# generation-bound acknowledgement in this process and prints one
-# `ROUTINE: acknowledged through <seq>; nothing actionable` line instead of
-# WAKE_ACK_REQUIRED. Otherwise its output is a plain drain's.
-# Every drain and acknowledgement also appends its rows to the forward wake
-# measurement log (fm-wake-lib.sh fm_wake_measure_rows).
+# Every scratch file this script mints (.main-eligible-rows.tmp.*,
+# .wake-rows.consume.*, .wake-queue.retire.*, .wake-queue.ack.*,
+# .wake-queue.actor-view.*) is created and removed under the queue lock, so one
+# found while taking that lock was left by a drain that died mid-write; each
+# locked drain rotates such leftovers away before doing anything else.
 # FM_STATUS_PRESENTATION_LOCK_TIMEOUT sets the positive whole-second wait for
 # presentation-path locks (default 10); queue mutation locks remain blocking.
 set -u
@@ -57,8 +50,6 @@ ACK_FINGERPRINTS=
 ACK_NOTICE_FINGERPRINTS=
 PRESENTATION_LOCK_TIMEOUT=${FM_STATUS_PRESENTATION_LOCK_TIMEOUT:-10}
 BRANCH_OUTCOMES_RC=0
-BRANCH_OUTCOMES_FILE=
-BRANCH_OUTCOMES_PENDING=0
 case "$PRESENTATION_LOCK_TIMEOUT" in ''|*[!0-9]*|0) PRESENTATION_LOCK_TIMEOUT=10 ;; esac
 
 # --- per-actor consume (docs/watcher-continuity.md "Per-actor acknowledgement") --
@@ -87,13 +78,6 @@ ACTOR=$(fm_lease_actor) || exit 2
 ELIGIBLE_ROWS_FILE="$STATE/.branch-eligible-rows"
 ELIGIBLE_OWNER_FILE="$STATE/.branch-eligible-owner"
 MAIN_ROWS_FILE="$STATE/.main-eligible-rows"
-# The OPEN DECISIONS section this actor was last shown, so a routine drain can
-# tell a still-open decision it already presented from a new one.
-OPEN_DECISIONS_PRESENTED="$STATE/.wake-open-decisions-presented.$ACTOR"
-ROUTINE_MODE=false
-ROUTINE_REPORT=
-ROUTINE_VIEW=
-MEASURE_ROWS=
 
 rows_file_valid() { fm_wake_grant_rows_valid "$1"; }
 
@@ -244,11 +228,7 @@ case "${1:-}" in
     case "$ACK_GENERATION" in ''|*[!A-Za-z0-9._-]*) echo "wake drain: invalid recovery generation" >&2; exit 2 ;; esac
     [ "$#" -eq 4 ] || { echo "wake drain: unexpected acknowledgement arguments" >&2; exit 2; }
     ;;
-  --ack-if-routine)
-    [ "$#" -eq 1 ] || { echo "wake drain: --ack-if-routine takes no arguments" >&2; exit 2; }
-    ROUTINE_MODE=true
-    ;;
-  *) echo "usage: fm-wake-drain.sh [--ack-if-routine | --ack-through SEQUENCE --recovery-generation GENERATION]" >&2; exit 2 ;;
+  *) echo "usage: fm-wake-drain.sh [--ack-through SEQUENCE --recovery-generation GENERATION]" >&2; exit 2 ;;
 esac
 
 [ "$ACTOR" != branch ] || require_branch_eligible_rows || exit 1
@@ -486,49 +466,19 @@ EOF
 # Bounded and silent: prints nothing when no decision is open, which is the
 # common case.
 print_open_decisions_section() {
-  local snapshot=${1:-} open task key verb note stamp category records ordered line item_bytes=220 global_bytes=4000
-  local output='' used=0 shown=0 omitted=0 bytes now age age_hint tab
+  local snapshot=${1:-} open task key verb note line item_bytes=220 global_bytes=4000
+  local output='' used=0 shown=0 omitted=0 bytes
 
   if [ -n "$snapshot" ]; then
-    open=$(scan_open_decisions_snapshot_with_at "$STATE" "$snapshot") || return 1
+    open=$(scan_open_decisions_snapshot "$STATE" "$snapshot") || return 1
   else
-    open=$(scan_open_decisions_incremental_with_at "$STATE") || return 1
+    open=$(scan_open_decisions_incremental "$STATE") || return 1
   fi
   [ -n "$open" ] || return 0
 
-  tab=$(printf '\t')
-  now=$(date +%s 2>/dev/null) || now=
-  case "$now" in ''|*[!0-9]*) now= ;; esac
-  records=$(
-    while IFS="$tab" read -r task key verb note stamp; do
-      [ -n "$task" ] || continue
-      if [ -n "$stamp" ]; then category=0; else category=1; stamp=0; fi
-      printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$category" "$stamp" "$task" "$key" "$verb" "$note"
-    done <<EOF
-$open
-EOF
-  ) || return 1
-  ordered=$(printf '%s\n' "$records" | LC_ALL=C sort -s -t "$tab" -k1,1n -k2,2nr) || return 1
-
-  while IFS="$tab" read -r category stamp task key verb note; do
+  while IFS=$(printf '\t') read -r task key verb note; do
     [ -n "$task" ] || continue
-    age_hint=''
-    if [ -n "$now" ] && [ "$category" = 0 ]; then
-      if [ "$stamp" -gt "$now" ]; then age=0; else age=$((now - stamp)); fi
-      case "$age" in
-        [0-9]|[1-5][0-9]) age_hint="[age=${age}s] " ;;
-        *)
-          if [ "$age" -lt 3600 ]; then
-            age_hint="[age=$((age / 60))m] "
-          elif [ "$age" -lt 86400 ]; then
-            age_hint="[age=$((age / 3600))h] "
-          else
-            age_hint="[age=$((age / 86400))d] "
-          fi
-          ;;
-      esac
-    fi
-    line="$age_hint$task"
+    line="$task"
     [ "$key" = default ] || line="$line [key=$key]"
     line="$line $verb: $note"
     # The shared cut counts the item's own characters; the trailing newline this
@@ -546,7 +496,7 @@ EOF
     used=$((used + bytes))
     shown=$((shown + 1))
   done <<EOF
-$ordered
+$open
 EOF
 
   [ "$shown" -gt 0 ] || [ "$omitted" -gt 0 ] || return 0
@@ -626,8 +576,9 @@ EOF
 # main last drained (docs/supervision-host.md "Captain outcomes"). Off Pi this
 # presentation is what the Pi branch's transcript entries are. It runs only for
 # main, only where fm_supervision_host_outcomes_drained holds (the Pi branch
-# extension owns this path on Pi), and never while the away-posture record
-# exists, because those outcomes wait for the return. Bounded, and silent when
+# extension owns this path on Pi), and never while an away record exists,
+# because those outcomes wait for the return; quiet mode's record is a present
+# captain (bin/fm-afk-contract.sh AWAY OR QUIET). Bounded, and silent when
 # nothing is new or unprocessed.
 #   - Captain outcomes come first and never wait behind routine ones. Every
 #     unprocessed captain row is presented on every drain until main
@@ -763,52 +714,10 @@ ROWS
     printf '%s' "$text" || return 1
   fi
   [ "$through" -gt 0 ] || return 0
-  if [ -n "${BRANCH_OUTCOMES_DEFER_THROUGH+x}" ]; then
-    BRANCH_OUTCOMES_DEFER_THROUGH=$through
-    return 0
-  fi
-  branch_outcomes_mark_read "$through"
-}
-
-branch_outcomes_mark_read() {  # <through>
-  if ! "$SCRIPT_DIR/fm-branch-outcome.sh" mark-read --through "$1" >/dev/null 2>&1; then
+  if ! "$SCRIPT_DIR/fm-branch-outcome.sh" mark-read --through "$through" >/dev/null 2>&1; then
     printf 'BRANCH OUTCOMES: the store could not record this presentation, so these outcomes are presented again on the next drain and an acknowledgement above is refused until then.\n' >&2
     return 1
   fi
-}
-
-# A routine acknowledgement must know whether BRANCH OUTCOMES has anything to
-# present before claiming "nothing actionable", so the section is staged into
-# a private file first, with its read cursor left alone. branch_outcomes_publish
-# then prints it and only then records the presentation, so a print that fails
-# still leaves every row for the next drain. Without a staging file the section
-# prints directly and nothing is acknowledged as routine.
-branch_outcomes_collect() {
-  BRANCH_OUTCOMES_FILE=
-  if ! BRANCH_OUTCOMES_FILE=$(mktemp "$STATE/.wake-branch-outcomes.XXXXXX" 2>/dev/null); then
-    BRANCH_OUTCOMES_FILE=
-    print_branch_outcomes_section || BRANCH_OUTCOMES_RC=1
-    BRANCH_OUTCOMES_PENDING=1
-    return 0
-  fi
-  BRANCH_OUTCOMES_DEFER_THROUGH=0
-  print_branch_outcomes_section > "$BRANCH_OUTCOMES_FILE" || BRANCH_OUTCOMES_RC=1
-  BRANCH_OUTCOMES_PENDING=0
-  [ ! -s "$BRANCH_OUTCOMES_FILE" ] || BRANCH_OUTCOMES_PENDING=1
-}
-
-branch_outcomes_publish() {
-  local through=${BRANCH_OUTCOMES_DEFER_THROUGH:-0}
-  unset BRANCH_OUTCOMES_DEFER_THROUGH
-  [ -n "$BRANCH_OUTCOMES_FILE" ] || return 0
-  if [ -s "$BRANCH_OUTCOMES_FILE" ] && ! command cat "$BRANCH_OUTCOMES_FILE"; then
-    rm -f "$BRANCH_OUTCOMES_FILE"
-    BRANCH_OUTCOMES_RC=1
-    return 0
-  fi
-  rm -f "$BRANCH_OUTCOMES_FILE"
-  [ "$through" -gt 0 ] || return 0
-  branch_outcomes_mark_read "$through" || BRANCH_OUTCOMES_RC=1
 }
 
 # BRANCH OUTCOMES' per-item cut: the shared digest marker in place of the
@@ -840,43 +749,32 @@ cap_outcome_line() {  # <line> <max-bytes>
 }
 
 print_status_sections() {
-  local snapshot=${1:-} fully_presented=${2:-} acknowledged prepared od tail od_new=0
+  local snapshot=${1:-} fully_presented=${2:-} acknowledged prepared
   if [ -z "$snapshot" ]; then snapshot=$(status_presentation_snapshot "$STATE") || return 1; fi
   [ -n "$snapshot" ] || return 0
   acknowledged=$(status_acknowledge_presented_snapshot "$STATE" "$snapshot" "$fully_presented") || return 1
   prepared=$(mktemp "$STATE/.status-presentation.prepared.XXXXXX") || return 1
-  od="$prepared.od"
-  tail="$prepared.tail"
   if ! {
     print_unread_status_section "$snapshot" \
-      && print_status_outcome_backstop_section "$snapshot"
-  } > "$prepared" \
-    || ! print_open_decisions_section "$snapshot" > "$od" \
-    || ! print_record_divergence_section > "$tail"; then
-    rm -f -- "$prepared" "$od" "$tail"
+      && print_status_outcome_backstop_section "$snapshot" \
+      && print_open_decisions_section "$snapshot" \
+      && print_record_divergence_section
+  } > "$prepared"; then
+    rm -f -- "$prepared"
     return 1
   fi
   # Prepare every section before presentation, but do not commit its receipt
   # until the prepared bytes reach stdout. If the consumer closes or fails,
   # leave the receipt behind so the next drain can recover the presentation.
-  if ! command cat "$prepared" "$od" "$tail"; then
-    rm -f -- "$prepared" "$od" "$tail"
+  if ! command cat "$prepared"; then
+    rm -f -- "$prepared"
     return 1
   fi
   if ! status_commit_presentation_snapshot "$STATE" "$acknowledged"; then
-    rm -f -- "$prepared" "$od" "$tail"
+    rm -f -- "$prepared"
     return 1
   fi
-  if [ -s "$od" ] && ! cmp -s "$od" "$OPEN_DECISIONS_PRESENTED" 2>/dev/null; then od_new=1; fi
-  if [ -s "$od" ]; then
-    mv -f -- "$od" "$OPEN_DECISIONS_PRESENTED" 2>/dev/null || od_new=1
-  else
-    rm -f -- "$OPEN_DECISIONS_PRESENTED" 2>/dev/null || true
-  fi
-  [ -z "$ROUTINE_REPORT" ] \
-    || printf '%s %s\n' "$od_new" "$(( $(wc -c < "$prepared") + $(wc -c < "$tail") ))" > "$ROUTINE_REPORT" \
-    || true
-  rm -f -- "$prepared" "$od" "$tail"
+  rm -f -- "$prepared"
 }
 
 print_status_presentation() {  # [<deduped-raw-rows>]
@@ -911,12 +809,42 @@ print_status_presentation() {  # [<deduped-raw-rows>]
   return "$rc"
 }
 
-# Consume this actor's rows through ACK_THROUGH and retire the recovery episode
-# bound to ACK_GENERATION, with the queue lock already held. <event> names the
-# acknowledgement in the measurement log. Shared by --ack-through and the
-# routine acknowledgement so both run the identical sequence.
-run_acknowledgement() { # <event>
-  local ack_event=$1 consumed
+# shellcheck disable=SC2317,SC2329 # Invoked by trap handlers below.
+cleanup() {
+  local status=$?
+  [ -z "$DRAIN_TMP" ] || rm -f -- "$DRAIN_TMP" 2>/dev/null || true
+  [ -z "$DRAIN_VIEW_TMP" ] || rm -f -- "$DRAIN_VIEW_TMP" 2>/dev/null || true
+  if [ "$DRAIN_LOCK_HELD" = true ]; then
+    fm_lock_release "$FM_WAKE_QUEUE_LOCK"
+  fi
+  exit "$status"
+}
+
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+if [ -n "$ACK_THROUGH" ]; then
+  fm_lock_acquire_wait "$FM_WAKE_QUEUE_LOCK"
+elif fm_lock_acquire_wait_bounded "$FM_WAKE_QUEUE_LOCK" "$PRESENTATION_LOCK_TIMEOUT"; then
+  :
+else
+  lock_rc=$?
+  if [ "$lock_rc" -eq 124 ]; then
+    printf 'WAKE DRAIN SKIPPED: queue lock remains held by live pid %s after %ss; retry on the next drain.\n' \
+      "${FM_LOCK_HELD_PID:-unknown}" "$PRESENTATION_LOCK_TIMEOUT"
+    exit 0
+  fi
+  printf 'wake drain: queue lock could not be acquired safely\n' >&2
+  exit 1
+fi
+DRAIN_LOCK_HELD=true
+rotate_scratch_locked
+reclaim_stale_branch_grant_locked || exit 1
+[ "$ACTOR" != main ] || retire_unconsumable_rows_locked
+[ "$ACTOR" != branch ] || require_branch_eligible_rows || exit 1
+
+if [ -n "$ACK_THROUGH" ]; then
   if [ "$ACTOR" = branch ]; then
     PRESENTED_MAX=$(presented_max_row "$ELIGIBLE_ROWS_FILE") || exit 1
   else
@@ -987,13 +915,7 @@ run_acknowledgement() { # <event>
     }
   fi
   ACK_REMOVED=$(( $(awk 'END { print NR }' "$FM_WAKE_QUEUE") - $(awk 'END { print NR }' "$DRAIN_TMP") ))
-  consumed=$(mktemp "$STATE/.wake-queue.consumed.XXXXXX") || exit 1
-  MEASURE_ROWS=$consumed
-  awk -v keep="$DRAIN_TMP" 'BEGIN { while ((getline line < keep) > 0) kept[line] = 1 } !($0 in kept)' \
-    "$FM_WAKE_QUEUE" > "$consumed" || exit 1
-  # Rows left behind that are all fold-class retire the episode like an empty
-  # queue: they wait for a real wake or their digest, never a resurface.
-  if ! fm_wake_queue_has_unfolded "$DRAIN_TMP" "$(fm_wake_fold_path)"; then
+  if [ ! -s "$DRAIN_TMP" ]; then
     fm_recovery_marker_ack "$RECOVERY_MARKER" "$ACK_GENERATION"
     RECOVERY_ACK_STATUS=$?
     case "$RECOVERY_ACK_STATUS" in
@@ -1016,10 +938,6 @@ run_acknowledgement() { # <event>
     exit 1
   fi
   DRAIN_TMP=
-  fm_wake_measure_rows "$ACTOR" "$ack_event" "$consumed"
-  rm -f -- "$consumed"
-  MEASURE_ROWS=
-  fm_wake_fold_prune_locked || true
   if [ "$ACTOR" = branch ]; then
     consume_actor_rows_locked "$ELIGIBLE_ROWS_FILE" "$ACK_THROUGH" || exit 1
   else
@@ -1049,125 +967,6 @@ run_acknowledgement() { # <event>
     printf 'wake drain: acknowledged wakes through %s (%s row(s) consumed), but a newer recovery episode is pending; re-run bin/fm-wake-drain.sh and use the new WAKE_ACK_REQUIRED command\n' \
       "$ACK_THROUGH" "$ACK_REMOVED" >&2
   fi
-  return 0
-}
-
-# Present status sections. Outside --ack-if-routine this is the plain
-# presentation and returns 1. In routine mode the presentation is captured,
-# printed, and 0 is returned only when it added nothing new (header).
-present_status() {  # [<deduped-raw-rows>]
-  local rc=0 od_new='' other='' out_bytes od_bytes=0
-  if [ "$ROUTINE_MODE" != true ]; then
-    (print_status_presentation "${1:-}") || true
-    return 1
-  fi
-  if ! ROUTINE_REPORT=$(mktemp "$STATE/.wake-routine.XXXXXX"); then
-    ROUTINE_REPORT=
-    (print_status_presentation "${1:-}") || true
-    return 1
-  fi
-  (print_status_presentation "${1:-}") > "$ROUTINE_REPORT.out" || rc=1
-  command cat "$ROUTINE_REPORT.out" || rc=1
-  [ "$rc" -eq 0 ] || return 1
-  out_bytes=$(wc -c < "$ROUTINE_REPORT.out" | tr -d '[:space:]')
-  if [ -s "$ROUTINE_REPORT" ]; then
-    read -r od_new other < "$ROUTINE_REPORT" || return 1
-    [ "$od_new" = 0 ] && [ "$other" = 0 ] || return 1
-    [ ! -f "$OPEN_DECISIONS_PRESENTED" ] || od_bytes=$(wc -c < "$OPEN_DECISIONS_PRESENTED" | tr -d '[:space:]')
-  fi
-  [ "$out_bytes" = "$od_bytes" ]
-}
-
-# 0 when every row in <view-file> (this actor's claimed rows, before dedupe)
-# is routine under fm-wake-lib.sh's predicate.
-rows_all_routine() {  # <view-file>
-  local total routine
-  total=$(awk -F '\t' 'NF >= 5 && $2 ~ /^[0-9]+$/ { n++ } END { print n + 0 }' "$1") || return 1
-  routine=$(fm_wake_routine_seqs "$1" | awk 'END { print NR }') || return 1
-  [ "$total" = "$routine" ]
-}
-
-# Acknowledge a routine presentation in this process, through the same
-# sequence the WAKE_ACK_REQUIRED line would have named. When the queue lock
-# cannot be taken, print that line instead; any other shortfall is already
-# reported by the acknowledgement itself, with its own remedy.
-acknowledge_routine() {  # <sequence> <generation>
-  ACK_THROUGH=$1
-  ACK_GENERATION=$2
-  if ! fm_lock_acquire_wait "$FM_WAKE_QUEUE_LOCK"; then
-    printf 'WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through %s --recovery-generation %s\n' \
-      "$ACK_THROUGH" "$ACK_GENERATION" >&2
-    return 1
-  fi
-  DRAIN_LOCK_HELD=true
-  reclaim_stale_branch_grant_locked || exit 1
-  [ "$ACTOR" != branch ] || require_branch_eligible_rows || exit 1
-  ACK_REMOVED=0
-  RECOVERY_ACK_MOVED=false
-  run_acknowledgement routine-acked
-  if [ "$RECOVERY_ACK_MOVED" = true ] \
-    || { [ "$ACK_REMOVED" -eq 0 ] && [ "$PRESENTED_MAX" -gt "$ACK_THROUGH" ]; }; then
-    return 1
-  fi
-  printf 'ROUTINE: acknowledged through %s; nothing actionable\n' "$ACK_THROUGH"
-}
-
-# Record presented rows in the forward measurement log without delaying the
-# drain: a stale row's crew-state read is bounded but can take seconds.
-measure_presented() {  # <deduped-raw-rows>
-  local rows
-  [ -n "${1:-}" ] || return 0
-  rows=$(mktemp "$STATE/.wake-measure.rows.XXXXXX") || return 0
-  printf '%s\n' "$1" > "$rows" || { rm -f -- "$rows"; return 0; }
-  (
-    trap - EXIT INT TERM
-    FM_CREW_STATE_NO_FORGE=1 fm_wake_measure_rows "$ACTOR" presented "$rows" \
-      "${FM_CREW_STATE_BIN:-$SCRIPT_DIR/fm-crew-state.sh}"
-    rm -f -- "$rows"
-  ) </dev/null >/dev/null 2>&1 &
-}
-
-# shellcheck disable=SC2317,SC2329 # Invoked by trap handlers below.
-cleanup() {
-  local status=$?
-  [ -z "$DRAIN_TMP" ] || rm -f -- "$DRAIN_TMP" 2>/dev/null || true
-  [ -z "$DRAIN_VIEW_TMP" ] || rm -f -- "$DRAIN_VIEW_TMP" 2>/dev/null || true
-  [ -z "$MEASURE_ROWS" ] || rm -f -- "$MEASURE_ROWS" 2>/dev/null || true
-  [ -z "$ROUTINE_REPORT" ] || rm -f -- "$ROUTINE_REPORT" "$ROUTINE_REPORT.out" 2>/dev/null || true
-  [ -z "$BRANCH_OUTCOMES_FILE" ] || rm -f -- "$BRANCH_OUTCOMES_FILE" 2>/dev/null || true
-  [ -z "$ROUTINE_VIEW" ] || rm -f -- "$ROUTINE_VIEW" 2>/dev/null || true
-  if [ "$DRAIN_LOCK_HELD" = true ]; then
-    fm_lock_release "$FM_WAKE_QUEUE_LOCK"
-  fi
-  exit "$status"
-}
-
-trap cleanup EXIT
-trap 'exit 130' INT
-trap 'exit 143' TERM
-
-if [ -n "$ACK_THROUGH" ]; then
-  fm_lock_acquire_wait "$FM_WAKE_QUEUE_LOCK"
-elif fm_lock_acquire_wait_bounded "$FM_WAKE_QUEUE_LOCK" "$PRESENTATION_LOCK_TIMEOUT"; then
-  :
-else
-  lock_rc=$?
-  if [ "$lock_rc" -eq 124 ]; then
-    printf 'WAKE DRAIN SKIPPED: queue lock remains held by live pid %s after %ss; retry on the next drain.\n' \
-      "${FM_LOCK_HELD_PID:-unknown}" "$PRESENTATION_LOCK_TIMEOUT"
-    exit 0
-  fi
-  printf 'wake drain: queue lock could not be acquired safely\n' >&2
-  exit 1
-fi
-DRAIN_LOCK_HELD=true
-rotate_scratch_locked
-reclaim_stale_branch_grant_locked || exit 1
-[ "$ACTOR" != main ] || retire_unconsumable_rows_locked
-[ "$ACTOR" != branch ] || require_branch_eligible_rows || exit 1
-
-if [ -n "$ACK_THROUGH" ]; then
-  run_acknowledgement acked
   exit 0
 fi
 
@@ -1188,18 +987,8 @@ if [ ! -s "$FM_WAKE_QUEUE" ]; then
   esac
   fm_lock_release "$FM_WAKE_QUEUE_LOCK"
   DRAIN_LOCK_HELD=false
-  # BRANCH OUTCOMES is read first so a routine acknowledgement never claims
-  # "nothing actionable" over captain outcomes it presents below.
-  branch_outcomes_collect
-  if present_status && [ "$BRANCH_OUTCOMES_PENDING" = 0 ] && [ "$BRANCH_OUTCOMES_RC" = 0 ]; then
-    if [ "$RECOVERY_ACK_REQUIRED" = true ]; then
-      acknowledge_routine 0 "${RECOVERY_MARKER_TOKEN##*:}" || true
-    else
-      printf 'ROUTINE: nothing queued; nothing actionable\n'
-    fi
-    RECOVERY_ACK_REQUIRED=handled
-  fi
-  branch_outcomes_publish
+  (print_status_presentation) || true
+  print_branch_outcomes_section || BRANCH_OUTCOMES_RC=1
   if [ "$RECOVERY_ACK_REQUIRED" = true ]; then
     printf 'WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 0 --recovery-generation %s\n' "${RECOVERY_MARKER_TOKEN##*:}" >&2
   fi
@@ -1261,8 +1050,6 @@ awk -F '\t' -v seqs="$ACTOR_ROWS_FILE" '
   NF >= 5 && ($2 in keep)
 ' "$FM_WAKE_QUEUE" > "$DRAIN_VIEW_TMP" || exit 1
 RAW_ROWS=$(fm_wake_print_deduped "$DRAIN_VIEW_TMP") || exit "$?"
-ROUTINE_ROWS=false
-[ "$ROUTINE_MODE" != true ] || ! rows_all_routine "$DRAIN_VIEW_TMP" || ROUTINE_ROWS=true
 rm -f -- "$DRAIN_VIEW_TMP" || exit 1
 DRAIN_VIEW_TMP=
 ACK_THROUGH=$(printf '%s\n' "$RAW_ROWS" | awk -F '\t' '$2 ~ /^[0-9]+$/ && $2 > max { max=$2 } END { print max + 0 }') || exit 1
@@ -1282,19 +1069,10 @@ case "$RECOVERY_MARKER_TOKEN" in
 esac
 fm_lock_release "$FM_WAKE_QUEUE_LOCK"
 DRAIN_LOCK_HELD=false
-measure_presented "$RAW_ROWS"
-branch_outcomes_collect
-if [ "$ROUTINE_MODE" != true ]; then
-  printf 'WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through %s --recovery-generation %s\n' \
-    "$ACK_THROUGH" "${RECOVERY_MARKER_TOKEN##*:}" >&2
-  (print_status_presentation "$RAW_ROWS") || true
-elif present_status "$RAW_ROWS" && [ "$ROUTINE_ROWS" = true ] \
-  && [ "$BRANCH_OUTCOMES_PENDING" = 0 ] && [ "$BRANCH_OUTCOMES_RC" = 0 ]; then
-  acknowledge_routine "$ACK_THROUGH" "${RECOVERY_MARKER_TOKEN##*:}" || true
-else
-  printf 'WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through %s --recovery-generation %s\n' \
-    "$ACK_THROUGH" "${RECOVERY_MARKER_TOKEN##*:}" >&2
-fi
-branch_outcomes_publish
+printf 'WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through %s --recovery-generation %s\n' \
+  "$ACK_THROUGH" "${RECOVERY_MARKER_TOKEN##*:}" >&2
+
+(print_status_presentation "$RAW_ROWS") || true
+print_branch_outcomes_section || BRANCH_OUTCOMES_RC=1
 assert_watcher_liveness
 exit "$BRANCH_OUTCOMES_RC"

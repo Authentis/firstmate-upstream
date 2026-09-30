@@ -354,9 +354,6 @@ It then retains each child's durable identity unless that exact pane returns str
 Durable task records are erased only once the exact pane is confirmed gone through its structured presence.
 After every close path, only a structured not-found response counts as gone.
 A present or unknown result retains every record with a visible, retryable error.
-That retention survives session start, which keeps a still-present task record and its pending backlog close for the teardown rerun instead of replaying the close past it, so a pane whose close failed is never left without the record that names it.
-A finished task whose record must stay after cleanup refuses - committed work not yet landed, or a record that names no isolated copy - can have only its idle pane closed through `bin/fm-teardown.sh <id> --endpoint-only`, which uses the same locked close and gone-confirmation, keeps every record, the copy, the branch, and the backlog item, and refuses while the agent is live or the task has an open decision, uncommitted changes, or an unfinished validation run (script header).
-`bin/fm-control.sh <id> exit` runs that same retirement for a Herdr ship or scout once its agent reads stopped, so closing an agent through the supported verb leaves no idle pane unless one of those checks keeps it.
 Missing or malformed endpoint identity and missing confirmation machinery are ambiguity, never proof of a gone pane, and refuse record removal the same way.
 If lock, snapshot, pane identity, or restoration is ambiguous, cleanup warns and preserves the journal for manual inspection.
 Once the exact pane is confirmed gone, teardown retires the task's own journal when it binds that same pane, or when it is a version 1 attempt whose token-bearing projected workspace is itself confirmed gone, because nothing then remains for the session-start sweep to correlate; a journal bound to any other pane, or a version 1 attempt whose workspace is still present or unreadable, stays for that sweep.
@@ -528,7 +525,6 @@ When the selected named server is not running, the adapter launches it without t
 - The supervision-model override.
 
 Herdr passes its server startup environment to every later pane, so retaining those values could misroute panes for another Firstmate home or harness.
-The launch also turns Herdr's agent auto-restore off, as [Agent auto-restore](#agent-auto-restore) describes.
 An already-running server is reused without restart or environment changes.
 Explicit named-session routing and unrelated launch environment remain intact.
 
@@ -557,7 +553,6 @@ A composer that holds a shorter suffix, or a placeholder plus a literal remainde
 Instead:
 
 1. The adapter presses Ctrl+U until the shared classifier reads the composer as empty.
-   Live Claude deletes one wrapped row per press, so the first presses cover every row the payload can fill before any read, because an agent on a starved host that has not drawn the payload yet also reads empty.
 2. It then reports `send-failed`, so a resend starts from a clean composer.
 
 Ctrl+C is not used for this, because Claude documents it as interrupting a running operation.
@@ -565,9 +560,6 @@ If the composer cannot be verified empty again, the submit reports `unknown` ins
 
 Other harnesses, and panes with no native identity, skip this proof and keep the type-then-Enter path.
 They skip it because their paste placeholders and composer shapes are not live-verified.
-
-Every refusal before Enter writes one stderr line naming the step that refused and, where one was read, what the composer showed.
-A lifecycle caller's own error names only the failed send, and a remote second mate's restart keeps nothing but its output, so that line is the only record of why.
 
 ### Submit confirmation
 
@@ -632,15 +624,13 @@ It hands the visible pane's ANSI viewport plus Herdr's capability facts to the f
 - Bordered boxes.
 - Bare agent-glyph rows, including muse's `⟩`, which the adapter's retired local pattern silently omitted.
 - opencode's left bar.
-- The Pi separator region this adapter pioneered, admitted only when native `agent get` identity is exactly Pi and state is idle, done, or working.
+- The Pi separator region this adapter pioneered, admitted only when native `agent get` identity is exactly Pi and state is idle or done.
 
 ### Pi composer states
 
 A blocked Pi is parked on an interactive prompt, so its blank composer region is a menu's and not a free composer's.
 That state defers instead of proving emptiness.
-Working is admitted only because Herdr's native status also reports `blocked`; a footer-inferred status such as tmux's cannot tell working from blocked, so a busy Pi there stays unknown.
-A working Pi (0.85.1) labels its top composer rule with its spinner, `── ⠏ Working ──`; that labelled rule counts as the separator only under a native `working` status, never under an idle or footer-inferred one.
-A Pi separator with a pending middle row, missing identity, incomplete pair, or over-tall candidate remains unknown or pending.
+A working Pi, pending middle row, missing identity, incomplete separator pair, or over-tall candidate remains unknown or pending.
 Identity stays a lazy second read, consulted only when a separator pair could change the verdict.
 
 ### Placeholder and ghost text
@@ -677,22 +667,6 @@ A restored same-labeled tab with a missing pane or no registered agent is a husk
 
 Create replaces only a confidently dead or no-agent husk, creates the replacement before closing the old tab, and refuses live or unknown states.
 This prevents closing the workspace's last tab before a replacement exists.
-
-### Agent auto-restore
-
-Herdr's `[session] resume_agents_on_restore` setting defaults to true: a restarted server re-runs every agent pane it has a session reference for, as a bare `claude --resume <id>`, `opencode`, or similar, all at once.
-Those agents carry none of the launch flags or environment Firstmate gave them, so a second mate can come back in Claude's default permission posture instead of its configured one, and a whole fleet respawning together can stall a small host.
-
-A server Firstmate starts runs with that setting off.
-`fm_backend_herdr_server_config` copies the operator's own Herdr config (the file `HERDR_CONFIG_PATH`, `$XDG_CONFIG_HOME`, or `~/.config` names) to `state/herdr-server-<session>.toml` with the setting forced to false, and the server is launched with `HERDR_CONFIG_PATH` naming that copy.
-The copy is regenerated at every start, so operator edits carry over, and it is checked with `herdr config check` first, because Herdr falls back to every default, auto-restore included, on a config it cannot parse.
-A copy that cannot be written or does not validate prints a warning, and the server then starts on the operator's config unchanged.
-
-With the setting off, each restored agent pane comes back as a plain shell in its saved directory.
-Firstmate reads that as a stopped agent: the secondmate liveness sweep relaunches a second mate from it with its recorded harness, flags, and environment, and an ordinary lane surfaces as a stopped worker for the normal recovery path, one supervision action at a time rather than all at once.
-
-A server Firstmate did not start, such as the captain's own `default` session or a host's service unit, reads the operator's config directly.
-To get the same behavior there, set `resume_agents_on_restore = false` in the `[session]` table of the config that server reads; it takes effect at that server's next start.
 
 ### Stale agent registrations
 
@@ -871,9 +845,6 @@ tests/fm-backend-herdr-workspace-per-home-e2e.test.sh
 tests/fm-backend-herdr-launcher-workspace-e2e.test.sh
 tests/fm-backend-herdr-presentation-e2e.test.sh
 tests/fm-backend-herdr-agent-exit-shell-e2e.test.sh
-tests/fm-teardown-herdr-restart-e2e.test.sh
-tests/fm-teardown-herdr-endpoint-only-e2e.test.sh
-tests/fm-control-herdr-exit-retire-e2e.test.sh
 tests/fm-herdr-pi-stale-registration-live-e2e.test.sh
 tests/fm-backend-herdr-eventwait-smoke.test.sh
 tests/fm-control-herdr-smoke.test.sh

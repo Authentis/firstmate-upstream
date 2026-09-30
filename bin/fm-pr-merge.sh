@@ -135,19 +135,7 @@
 # explicit captain instruction and never skips the live green check, the
 # away-record read, or a captain hold.
 #
-# Remote head branch retirement: merged work belongs on the default branch, so
-# once the forge confirms the merge LANDED (never before, and never for a queued
-# or unconfirmed merge) this script deletes the pull request's remote head
-# branch. Its commits stay reachable through the forge's own merge-request ref
-# (refs/pull/<n>/head, refs/merge-requests/<n>/head). The branch is kept, and
-# the reason reported, when its head lives in another repository (a fork), it
-# is the default or a protected branch, its tip has moved past the verified
-# merged head, another open pull request targets it, its name is outside the
-# plain [A-Za-z0-9._/-] set, or any read fails; --keep-branch keeps it outright.
-# A kept branch or a failed deletion is reported, never fatal: the merge itself
-# is already proven. This is the only branch deletion outside --attended-override.
-#
-# Usage: fm-pr-merge.sh <task-id> <pr-url> [--attended-override] [--keep-branch] [--allow-red <check-name>] [--allow-missing <check-name>] [-- <extra forge merge args>]
+# Usage: fm-pr-merge.sh <task-id> <pr-url> [--attended-override] [--allow-red <check-name>] [--allow-missing <check-name>] [-- <extra forge merge args>]
 #
 # On GitLab, this script confirms the MR is actually merged before reporting it;
 # an auto-merge-queued or unconfirmed request leaves the poll armed and records
@@ -161,15 +149,14 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
-DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 
 # shellcheck source=bin/fm-pr-lib.sh
 . "$SCRIPT_DIR/fm-pr-lib.sh"
 # shellcheck source=bin/fm-backlog-transition-lib.sh
 . "$SCRIPT_DIR/fm-backlog-transition-lib.sh"
-# shellcheck source=/dev/null # Canonical lint root; following it here breaks the lint memory ceiling.
+# shellcheck source=bin/fm-merge-outcome-lib.sh
 . "$SCRIPT_DIR/fm-merge-outcome-lib.sh"
-# shellcheck source=/dev/null # Canonical lint root; following it here breaks the lint memory ceiling.
+# shellcheck source=bin/fm-merge-authority-lib.sh
 . "$SCRIPT_DIR/fm-merge-authority-lib.sh"
 # shellcheck source=bin/fm-afk-contract.sh
 . "$SCRIPT_DIR/fm-afk-contract.sh"
@@ -207,15 +194,10 @@ if [ "$PROVIDER" = gerrit ]; then
 fi
 shift 2
 ATTENDED_OVERRIDE=false
-KEEP_BRANCH=false
 ALLOW_RED=()
 ALLOW_MISSING=()
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --keep-branch)
-      KEEP_BRANCH=true
-      shift
-      ;;
     --attended-override)
       ATTENDED_OVERRIDE=true
       shift
@@ -389,7 +371,7 @@ fm_backlog_directory_present "$STATE" "state directory" || {
 }
 META="$STATE/$ID.meta"
 
-# shellcheck source=/dev/null # Canonical lint root; following it here breaks the lint memory ceiling.
+# shellcheck source=bin/fm-wake-lib.sh
 . "$SCRIPT_DIR/fm-wake-lib.sh"
 # Role partition: merging is MAIN-owned while attended; the Pi supervision
 # branch reports the green PR and never merges (contract: bin/fm-lease-lib.sh;
@@ -1178,28 +1160,6 @@ persist_accepted_merge_authority() {
   return 1
 }
 
-# Durable proof of WHO merged and against WHICH head, written beside the
-# task's own deliverable in data/<id>/ rather than only into
-# state/<id>.merge-authority and state/<id>.meta's pr_head=, both of which
-# teardown removes once the task lands. Without this copy, a captain-held
-# gate finding sitting next to a merged pull request is indistinguishable
-# from a control failure once cleanup has run.
-record_merge_proof() {
-  local dir="$DATA/$ID" file stamp
-  file="$dir/merge-proof.md"
-  stamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-  if ! mkdir -p -- "$dir" || ! {
-    printf '## %s\n\n' "$stamp"
-    printf -- '- PR: %s\n' "$URL"
-    printf -- '- verified head: %s\n' "${FM_PR_MERGE_HEAD:-unknown}"
-    printf -- '- authority: %s\n' "${FM_PR_MERGE_AUTHORITY:-unknown}"
-    printf '\n'
-  } >> "$file"; then
-    printf 'actionable: merged %s but could not durably record the merge proof to %s\n' \
-      "$URL" "$file" >&2
-  fi
-}
-
 # While away, a merge proceeds only when the base branch's rules prove no
 # merge queue, because a queued merge can land after its away authority
 # lapses with the record's archive. A repository whose
@@ -1366,114 +1326,6 @@ gitlab_confirm_merged() {
   [ "$state" = merged ]
 }
 
-# Remote head branch retirement (script header owns the rule). Every function
-# below prints why a branch is kept and returns 0; only a deletion attempt that
-# the forge refused returns non-zero, and the caller never lets either outcome
-# change the exit status of an already proven merge.
-retire_note() {
-  printf 'note: kept the remote head branch%s of %s: %s\n' "${1:+ $1}" "$URL" "$2" >&2
-}
-
-retire_ref_name_ok() {
-  local LC_ALL=C
-  [[ "$1" =~ ^[A-Za-z0-9._/-]+$ ]] || return 1
-  case "$1" in
-    /*|*/|*..*|*//*|-*) return 1 ;;
-  esac
-}
-
-retire_github_head_branch() {
-  local api="repos/$PR_OWNER/$PR_REPO" json fields ref head_repo base_repo default protected tip open out
-  if ! json=$(gh api "$api/pulls/$PR_NUMBER" 2>/dev/null) \
-    || ! fields=$(printf '%s' "$json" | jq -r \
-      '[.head.ref, (.head.repo.full_name // ""), .base.repo.full_name, .base.repo.default_branch] | map(tostring) | join("\t")' 2>/dev/null) \
-    || [ -z "$fields" ]; then
-    retire_note '' "the pull request's head branch could not be read"
-    return 0
-  fi
-  IFS=$'\t' read -r ref head_repo base_repo default <<EOF
-$fields
-EOF
-  retire_ref_name_ok "$ref" || { retire_note "$ref" "its name is outside the plain branch-name set"; return 0; }
-  if [ -z "$head_repo" ] \
-    || [ "$(printf '%s' "$head_repo" | tr '[:upper:]' '[:lower:]')" != "$(printf '%s' "$base_repo" | tr '[:upper:]' '[:lower:]')" ]; then
-    retire_note "$ref" "its head lives in another repository (${head_repo:-unknown})"
-    return 0
-  fi
-  [ "$ref" != "$default" ] || { retire_note "$ref" "it is the default branch"; return 0; }
-  if ! json=$(gh api "$api/branches/$ref" 2>/dev/null) \
-    || ! fields=$(printf '%s' "$json" | jq -r '[(.protected | tostring), (.commit.sha // "")] | join("\t")' 2>/dev/null); then
-    retire_note "$ref" "it could not be read (it may already be deleted)"
-    return 0
-  fi
-  IFS=$'\t' read -r protected tip <<EOF
-$fields
-EOF
-  [ "$protected" = false ] || { retire_note "$ref" "it is protected or its protection could not be read"; return 0; }
-  [ "$tip" = "$FM_PR_MERGE_HEAD" ] \
-    || { retire_note "$ref" "its tip ${tip:-unknown} is not the verified merged head $FM_PR_MERGE_HEAD"; return 0; }
-  if ! open=$(gh api "$api/pulls?state=open&base=$ref&per_page=1" 2>/dev/null \
-    | jq -r 'if type == "array" then length else error("not a list") end' 2>/dev/null); then
-    retire_note "$ref" "open pull requests targeting it could not be read"
-    return 0
-  fi
-  [ "$open" = 0 ] || { retire_note "$ref" "another open pull request targets it"; return 0; }
-  if ! out=$(gh api -X DELETE "$api/git/refs/heads/$ref" 2>&1); then
-    printf 'warning: merged %s but could not delete its remote branch %s: %s\n' "$URL" "$ref" "$out" >&2
-    return 1
-  fi
-  printf 'retired: remote branch %s of %s deleted after its verified merge; its commits stay reachable via refs/pull/%s/head\n' \
-    "$ref" "$URL" "$PR_NUMBER"
-}
-
-retire_gitlab_head_branch() {
-  local project enc_ref json fields ref source_id target_id protected is_default tip open out
-  project=$(printf '%s' "$PR_PATH" | sed 's#/#%2F#g')
-  if ! json=$(GITLAB_HOST="$FM_PR_HOST" glab api --hostname "$FM_PR_HOST" \
-      "projects/$project/merge_requests/$PR_NUMBER" 2>/dev/null) \
-    || ! fields=$(printf '%s' "$json" | jq -r \
-      '[.source_branch, .source_project_id, .target_project_id] | map(tostring) | join("\t")' 2>/dev/null) \
-    || [ -z "$fields" ]; then
-    retire_note '' "the merge request's source branch could not be read"
-    return 0
-  fi
-  IFS=$'\t' read -r ref source_id target_id <<EOF
-$fields
-EOF
-  retire_ref_name_ok "$ref" || { retire_note "$ref" "its name is outside the plain branch-name set"; return 0; }
-  [ "$source_id" = "$target_id" ] && [ "$source_id" != null ] \
-    || { retire_note "$ref" "its source lives in another project"; return 0; }
-  enc_ref=$(printf '%s' "$ref" | sed 's#/#%2F#g')
-  if ! json=$(GITLAB_HOST="$FM_PR_HOST" glab api --hostname "$FM_PR_HOST" \
-      "projects/$project/repository/branches/$enc_ref" 2>/dev/null) \
-    || ! fields=$(printf '%s' "$json" | jq -r \
-      '[(.protected | tostring), (.default | tostring), (.commit.id // "")] | join("\t")' 2>/dev/null); then
-    retire_note "$ref" "it could not be read (it may already be deleted)"
-    return 0
-  fi
-  IFS=$'\t' read -r protected is_default tip <<EOF
-$fields
-EOF
-  [ "$is_default" = false ] || { retire_note "$ref" "it is the default branch or that could not be read"; return 0; }
-  [ "$protected" = false ] || { retire_note "$ref" "it is protected or its protection could not be read"; return 0; }
-  [ "$tip" = "$FM_PR_MERGE_HEAD" ] \
-    || { retire_note "$ref" "its tip ${tip:-unknown} is not the verified merged head $FM_PR_MERGE_HEAD"; return 0; }
-  if ! open=$(GITLAB_HOST="$FM_PR_HOST" glab api --hostname "$FM_PR_HOST" \
-      "projects/$project/merge_requests?state=opened&target_branch=$enc_ref&per_page=1" 2>/dev/null \
-    | jq -r 'if type == "array" then length else error("not a list") end' 2>/dev/null); then
-    retire_note "$ref" "open merge requests targeting it could not be read"
-    return 0
-  fi
-  [ "$open" = 0 ] || { retire_note "$ref" "another open merge request targets it"; return 0; }
-  if ! out=$(GITLAB_HOST="$FM_PR_HOST" glab api --hostname "$FM_PR_HOST" -X DELETE \
-      "projects/$project/repository/branches/$enc_ref" 2>&1); then
-    printf 'warning: merged %s but could not delete its remote branch %s: %s\n' "$URL" "$ref" "$out" >&2
-    return 1
-  fi
-  printf 'retired: remote branch %s of %s deleted after its verified merge; its commits stay reachable via refs/merge-requests/%s/head\n' \
-    "$ref" "$URL" "$PR_NUMBER"
-}
-
 # Record before either forge call. This arms the merge poll without claiming a
 # landed outcome, so even a provider read failure after a real merge cannot
 # leave teardown without the PR identity it needs to verify the result.
@@ -1616,7 +1468,6 @@ esac
 # Reached only after the forge confirmed the merge landed: set -e exits on a
 # refused or failed merge above, and a queued forge merge exits without an
 # outcome while its existing poll remains armed.
-record_merge_proof
 outcome_rc=0
 fm_merge_outcome_report "$FM_HOME" "$STATE" "$ID" "$URL" self \
   "${FM_PR_MERGE_AUTHORITY:-}" || outcome_rc=$?
@@ -1630,11 +1481,3 @@ case "$outcome_rc" in
     printf 'actionable: merged %s but could not record the outcome for supervision\n' "$URL" >&2
     ;;
 esac
-if [ "$KEEP_BRANCH" = true ]; then
-  printf 'note: kept the remote head branch of %s: --keep-branch was passed\n' "$URL" >&2
-else
-  case "$PROVIDER" in
-    github) retire_github_head_branch || true ;;
-    gitlab) retire_gitlab_head_branch || true ;;
-  esac
-fi

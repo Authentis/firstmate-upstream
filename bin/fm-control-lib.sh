@@ -211,17 +211,6 @@ fm_control_interrupt_clear_key() {  # <harness>
   esac
 }
 
-# The key that deletes one composer row, used only to clear firstmate's own
-# unsent steering doorbell before an exit command. Claude deletes one wrapped
-# screen row per Ctrl+U (verified live on Claude Code 2.1.283). Other harnesses
-# print nothing, so a composer holding any text keeps refusing there.
-fm_control_composer_clear_key() {  # <harness>
-  case "${1-}" in
-    claude) printf 'C-u' ;;
-  esac
-  return 0
-}
-
 fm_control_interrupt_ack_source() {  # <harness>
   case "${1-}" in
     muse) printf 'muse-session-terminal' ;;

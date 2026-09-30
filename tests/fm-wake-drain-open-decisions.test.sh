@@ -215,71 +215,8 @@ test_over_long_decision_note_is_capped_with_a_marker() {
   pass "an over-long open decision is cut to its per-item budget with the shared truncation marker"
 }
 
-test_newer_stamped_decisions_surface_before_byte_budget_omits_old_ones() {
-  local dir state out i
-  dir=$(make_case newest-before-byte-cap)
-  state="$dir/state"
-  out="$dir/drain.out"
-
-  # The old task sorts first by pathname, which made a current drain consume its
-  # entire shared budget before it reached the genuinely newer ask below.
-  for i in $(seq -w 1 22); do
-    {
-      printf 'blocked [at=1700000000] [key=old-%s]: ' "$i"
-      awk 'BEGIN { while (i++ < 140) printf "o" }'
-      printf '\n'
-    } >> "$state/a-old.status"
-  done
-  {
-    printf 'needs-decision [at=1700000100] [key=newest]: '
-    awk 'BEGIN { while (i++ < 140) printf "n" }'
-    printf '\n'
-  } > "$state/z-new.status"
-
-  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" || fail "drain failed with decisions over the byte budget"
-
-  grep -F 'z-new [key=newest] needs-decision:' "$out" >/dev/null \
-    || fail "the newest stamped decision was omitted behind older decisions: $(cat "$out")"
-  grep -F '[age=' "$out" >/dev/null \
-    || fail "a stamped decision did not include its compact age hint: $(cat "$out")"
-  if grep -F 'a-old [key=old-22] blocked:' "$out" >/dev/null; then
-    fail "the oldest overflow decision printed instead of being omitted: $(cat "$out")"
-  fi
-  grep -F 'OPEN DECISIONS: 1 more omitted (byte cap)' "$out" >/dev/null \
-    || fail "the byte-cap omission summary changed: $(cat "$out")"
-
-  pass "newer stamped decisions surface before older items at the shared byte cap"
-}
-
-test_large_cached_status_log_does_not_slow_open_decision_presentation() {
-  local dir state out status elapsed
-  dir=$(make_case large-cached-log)
-  state="$dir/state"
-  out="$dir/drain.out"
-  status="$state/large.status"
-  printf 'blocked [at=1700000000] [key=old]: old question\n' > "$status"
-  awk 'BEGIN { for (i = 0; i < 6000; i++) print "working: routine filler" }' >> "$status"
-  printf 'needs-decision [at=1700000100] [key=new]: new question\n' >> "$status"
-
-  # Prime the production incremental cursor before timing the drain itself.
-  # A presentation that rescans this log for each open record takes seconds;
-  # the timestamp carried by the cursor keeps its steady-state drain bounded.
-  FM_STATE_OVERRIDE="$state" bash -c '. "$1"; status_open_decisions_incremental "$2" >/dev/null' _ \
-    "$ROOT/bin/fm-classify-lib.sh" "$status" || fail "failed to prime the incremental decision cursor"
-  SECONDS=0
-  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$out" || fail "drain failed on the large cached status log"
-  elapsed=$SECONDS
-
-  [ "$elapsed" -lt 3 ] || fail "large cached decision presentation took ${elapsed}s"
-  grep -F '[age=' "$out" | grep -F 'large [key=new] needs-decision: new question' >/dev/null \
-    || fail "the newer decision vanished from the large cached presentation: $(cat "$out")"
-  pass "a large cached status log keeps open-decision presentation under three seconds"
-}
-
 test_buried_decision_still_surfaces
 test_over_long_decision_note_is_capped_with_a_marker
-test_newer_stamped_decisions_surface_before_byte_budget_omits_old_ones
-test_large_cached_status_log_does_not_slow_open_decision_presentation
 test_explicit_resolution_closes_it
 test_later_unrelated_terminal_line_does_not_close_it
 test_reserved_key_namespace_is_owned_by_its_library

@@ -189,33 +189,6 @@ test_matrix_claude_bare_nbsp_row() {
   pass "matrix: claude's ❯+NBSP row reads empty on every profile in both locales (#1988)"
 }
 
-test_matrix_claude_focused_suggestion_ghost() {
-  # Claude Code draws its placeholder and rotating prompt suggestion as
-  # invert(text[0]) + dim(text.slice(1)) while the composer is focused (read
-  # from the Claude Code 2.1.283 bundle). A remote second mate sat idle with
-  # unread orders because this ghost-only row kept its reverse-video first
-  # letter through ghost stripping, read `pending`, and the doorbell was skipped.
-  local ghost rule screen typed completion
-  ghost='Firstmate instruction waiting: read and act on the netcup inbox'
-  rule="${ESC}[38;2;136;136;136m────────────────────────${ESC}[39m"
-  screen="transcript line"$'\n'"$rule"$'\n'"❯${NBSP}${ESC}[7mF${ESC}[27m${ESC}[2m${ghost#F}${ESC}[22m"$'\n'"$rule"$'\n'"  ? for shortcuts"
-  assert_screen "claude focused suggestion on herdr" empty "$CAPS_STYLED" "$screen" '' probe-absent
-  assert_screen "claude focused suggestion on zellij" empty "$CAPS_STYLED_NOID" "$screen"
-  assert_screen "claude focused suggestion on tmux" empty "$CAPS_TMUX" "$screen" 2 probe-absent
-  # A herdr re-serialization resets between cells; the shape must still strip.
-  screen="$rule"$'\n'"${ESC}[0m❯${NBSP}${ESC}[0m${ESC}[7mF${ESC}[0m${ESC}[2m${ghost#F}${ESC}[0m"$'\n'"$rule"
-  assert_screen "claude focused suggestion, reset-per-cell" empty "$CAPS_STYLED" "$screen" '' probe-absent
-  # Counter cases: real typed text stays pending, including the same words,
-  # a cursor parked on a typed character, and typed text plus a ghost tail.
-  typed="$rule"$'\n'"❯${NBSP}${ghost}"$'\n'"$rule"
-  assert_screen "claude typed suggestion words" pending "$CAPS_STYLED" "$typed" '' probe-absent
-  typed="$rule"$'\n'"❯${NBSP}${ESC}[7mF${ESC}[27mix the login bug"$'\n'"$rule"
-  assert_screen "claude cursor on a typed character" pending "$CAPS_STYLED" "$typed" '' probe-absent
-  completion="$rule"$'\n'"❯${NBSP}fix ${ESC}[7mt${ESC}[27m${ESC}[2mhe login bug${ESC}[22m"$'\n'"$rule"
-  assert_screen "claude typed text with a ghost tail" pending "$CAPS_STYLED" "$completion" '' probe-absent
-  pass "matrix: claude's focused suggestion ghost reads empty; real typed text stays pending"
-}
-
 test_matrix_claude_arrow_statusline_footer() {
   # Real claude 2.x on herdr (captured live 2026-09-20, herdr 0.8.0): the
   # composer is a bare `❯`+U+00A0 row between two solid rules, and the harness
@@ -608,13 +581,13 @@ test_matrix_codex_idle_starfield_furniture() {
 }
 
 test_matrix_pi_separated_needs_identity() {
-  # Real Pi: a blank row between two solid rules. The blank row alone is
+  # Real idle pi: a blank row between two solid rules. The blank row alone is
   # exactly what the strict rule refuses; only structure PLUS a live
-  # idle/done/working pi identity proves the composer (herdr's rule, now
+  # idle/done pi identity proves the composer (herdr's rule, now
   # fleet-wide; tmux supplies identity from its foreground-process probe).
-  local screen typed labelled pi_idle pi_working pi_busy pi_blocked none
+  local screen typed pi_idle pi_working pi_blocked none
   screen=$'transcript\n────────────────────────\n\n────────────────────────\n footer'
-  pi_idle=$(printf 'pi\tidle'); pi_working=$(printf 'pi\tworking'); pi_busy=$(printf 'pi\tbusy'); none=$(printf 'zsh\t')
+  pi_idle=$(printf 'pi\tidle'); pi_working=$(printf 'pi\tworking'); none=$(printf 'zsh\t')
   pi_blocked=$(printf 'pi\tblocked')
   assert_screen "pi idle with identity" empty "$CAPS_STYLED" "$screen" '' "$pi_idle"
   assert_screen "pi idle on tmux with identity" empty "$CAPS_TMUX" "$screen" 2 "$pi_idle"
@@ -624,24 +597,12 @@ test_matrix_pi_separated_needs_identity() {
     || fail "an identity-capable profile should request the lazy identity probe"
   # No identity capability (cmux/orca/zellij): the shape is unprovable.
   assert_screen "pi pair without identity capability" unknown "$CAPS_PLAIN" "$screen"
-  # A working Pi queues typed input in this structurally proven blank composer.
-  assert_screen "working pi queues in blank composer" empty "$CAPS_STYLED" "$screen" '' "$pi_working"
-  # tmux infers busy from the footer and cannot tell working from blocked.
-  assert_screen "footer-busy pi on tmux stays unknown" unknown "$CAPS_TMUX" "$screen" 2 "$pi_busy"
+  # A working pi cannot authorize injection into the blank region.
+  assert_screen "working pi defers" unknown "$CAPS_STYLED" "$screen" '' "$pi_working"
   # A pi parked on an interactive prompt reports `blocked`: it is waiting on a
   # human keystroke, so the blank region is a menu's, not a free composer's.
   # Typing there answers the prompt and the text is discarded (issue #2797).
   assert_screen "blocked pi defers" unknown "$CAPS_STYLED" "$screen" '' "$pi_blocked"
-  # Real Pi 0.85.1 labels a working turn's top rule with its spinner. That
-  # labelled rule is still the composer's top separator, but only a native
-  # `working` status admits it: tmux's footer probe reads this screen as idle.
-  labelled=$'transcript\n── ⠏ Working ───────────────\n\n────────────────────────\n footer'
-  assert_screen "labelled working rule with native working" empty "$CAPS_STYLED" "$labelled" '' "$pi_working"
-  assert_screen "labelled working rule with idle identity" unknown "$CAPS_STYLED" "$labelled" '' "$pi_idle"
-  assert_screen "labelled working rule on tmux" unknown "$CAPS_TMUX" "$labelled" 2 "$pi_idle"
-  assert_screen "labelled working rule blocked" unknown "$CAPS_STYLED" "$labelled" '' "$pi_blocked"
-  typed=$'── ⠏ Working ───────────────\nfix the flaky test\n────────────────────────'
-  assert_screen "labelled working rule typed" pending "$CAPS_STYLED" "$typed" '' "$pi_working"
   # The audit's live counterexample: a plain shell running sleep, cursor
   # parked on a blank line between two rules, NO pi process. The permissive
   # rule read this `empty`; identity+structure refuses it.
@@ -649,50 +610,13 @@ test_matrix_pi_separated_needs_identity() {
   assert_screen "absent identity cannot prove blank pi pair" unknown "$CAPS_TMUX" "$screen" 2 probe-absent
   typed=$'────────────────────────\nfix the flaky test\n────────────────────────'
   assert_screen "pi typed" pending "$CAPS_STYLED" "$typed" '' "$pi_idle"
-  assert_screen "working pi typed" pending "$CAPS_STYLED" "$typed" '' "$pi_working"
   typed=$'────────────────────────\n❯\n────────────────────────'
   assert_screen "pi lone-glyph draft with identity" pending "$CAPS_STYLED" "$typed" '' "$pi_idle"
   assert_screen "pi lone-glyph draft on tmux" pending "$CAPS_TMUX" "$typed" 1 "$pi_idle"
   assert_screen "lone glyph without identity capability" empty "$CAPS_STYLED_NOID" "$typed"
   assert_screen "lone glyph on plain backend" empty "$CAPS_PLAIN" "$typed"
   assert_screen "lone glyph with non-pi identity" empty "$CAPS_STYLED" "$typed" '' "$none"
-  pass "matrix: Pi's separated composer needs identity + structure; the blank row alone never proves it"
-}
-
-test_matrix_pi_lone_separator_footer() {
-  # A newer Pi release draws only ONE separator for a truly empty composer:
-  # the would-be second rule is replaced by its own status furniture (a
-  # cwd+branch line, then a resource line with unmistakable, unTYPEable
-  # tokens). Real idle capture, task fm-overlay-pi-composer-idle-unknown-0921
-  # (data/fm-overlay-pi-composer-idle-unknown-0921-capture.txt): unrelated
-  # transcript/queued-follow-up text above a single rule, then the footer -
-  # nothing a rule/blank/rule pair was ever going to match.
-  local screen typed pi_idle pi_working pi_blocked none stats branch
-  # shellcheck disable=SC2088 # literal captured row text, never expanded
-  branch='~/fm-secondmate-upstream-20260907 (main)'
-  stats='↑3.7M ↓544k R312M 48.2%/262k (auto)'
-  pi_idle=$(printf 'pi\tidle'); pi_working=$(printf 'pi\tworking')
-  pi_blocked=$(printf 'pi\tblocked'); none=$(printf 'zsh\t')
-  screen=$'queued follow-up text\nabove the rule\n────────────────────────\n'"$branch"$'\n'"$stats"
-  assert_screen "lone-separator footer idle" empty "$CAPS_STYLED" "$screen" '' "$pi_idle"
-  assert_screen "lone-separator footer without identity capability" unknown "$CAPS_STYLED_NOID" "$screen"
-  assert_screen "lone-separator footer blocked defers" unknown "$CAPS_STYLED" "$screen" '' "$pi_blocked"
-  assert_screen "lone-separator footer non-pi identity" unknown "$CAPS_STYLED" "$screen" '' "$none"
-  # A working Pi still queues in the collapsed blank composer.
-  assert_screen "lone-separator footer working" empty "$CAPS_STYLED" "$screen" '' "$pi_working"
-  # Typed text between the rule and the footer stays pending, never empty.
-  typed=$'transcript\n────────────────────────\nfix the flaky test\n'"$branch"$'\n'"$stats"
-  assert_screen "lone-separator footer with typed content" pending "$CAPS_STYLED" "$typed" '' "$pi_idle"
-  # The resource line alone, with no branch line, still proves the footer.
-  screen=$'transcript\n────────────────────────\n'"$stats"
-  assert_screen "lone-separator footer without a branch line" empty "$CAPS_STYLED" "$screen" '' "$pi_idle"
-  # A malformed or absent resource line proves nothing: no new pair, unknown.
-  screen=$'transcript\n────────────────────────\n'"$branch"
-  assert_screen "lone separator with only a branch line stays unknown" unknown "$CAPS_STYLED" "$screen" '' "$pi_idle"
-  # Content that overflows the bounded composer height still fails closed.
-  screen=$'────────────────────────\nline 1\nline 2\nline 3\nline 4\nline 5\nline 6\nline 7\nline 8\nline 9\n'"$branch"$'\n'"$stats"
-  assert_screen "lone-separator footer over the line bound stays unknown" unknown "$CAPS_STYLED" "$screen" '' "$pi_idle"
-  pass "matrix: a lone Pi separator plus its own resource footer proves an empty composer"
+  pass "matrix: pi's separated composer needs identity + structure; the blank row alone never proves it"
 }
 
 test_matrix_pi_dollar_status_footer_is_empty() {
@@ -712,9 +636,7 @@ test_matrix_pi_dollar_status_footer_is_empty() {
   [ "$(fm_composer_classify_screen "$CAPS_STYLED" "$dollar")" = need-identity ] \
     || fail "a dollar-first Pi footer must still request the lazy identity probe"
   assert_screen "dollar-first status without identity capability" unknown "$CAPS_PLAIN" "$dollar"
-  # Herdr's native status tells working from blocked, so a working Pi's
-  # dollar-first footer reads empty there, like its idle one.
-  assert_screen "working pi with dollar-first status on native status" empty \
+  assert_screen "working pi with dollar-first status defers" unknown \
     "$CAPS_STYLED" "$dollar" '' "$pi_working"
   assert_screen "non-pi identity with dollar-first status defers" unknown \
     "$CAPS_STYLED" "$dollar" '' "$none"
@@ -1046,7 +968,6 @@ test_idle_placeholder_is_empty
 test_idle_placeholder_case_mode_is_explicit
 test_real_text_is_pending
 test_matrix_claude_bare_nbsp_row
-test_matrix_claude_focused_suggestion_ghost
 test_matrix_claude_arrow_statusline_footer
 test_composer_footer_demotion_needs_a_proven_pair
 test_composer_footer_zone_is_shape_independent
@@ -1058,7 +979,6 @@ test_matrix_herdr_halfblock_rule_bounds_bare_wrap
 test_matrix_omp_status_row_bounds_bare_composer
 test_matrix_codex_idle_starfield_furniture
 test_matrix_pi_separated_needs_identity
-test_matrix_pi_lone_separator_footer
 test_matrix_pi_dollar_status_footer_is_empty
 test_matrix_opencode_leftbar_signals
 test_matrix_grok_titled_bottom_border

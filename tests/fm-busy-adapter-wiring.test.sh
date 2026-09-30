@@ -23,9 +23,7 @@ make_spawn_case() {  # <name> <harness> <id>
   home="$case_dir/home"
   proj="$case_dir/project"
   wt="$case_dir/wt"
-  fakebin=$(make_spawn_fakebin "$case_dir/fake" pi claude codex gemini)
-  # fm-spawn proves the opencode launch binary is on the verified 1.x line.
-  fm_fake_version_tool "$fakebin" opencode FM_FAKE_OPENCODE_VERSION 1.18.32
+  fakebin=$(make_spawn_fakebin "$case_dir/fake" pi opencode claude codex gemini)
   fm_test_spawn_home "$home" "$harness"
   fm_git_worktree "$proj" "$wt" "wt-$name"
   fm_test_spawn_brief "$home" "$id"

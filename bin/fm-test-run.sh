@@ -25,12 +25,6 @@
 #   fm-test-run.sh --list-lanes
 #   fm-test-run.sh --check-coverage
 #
-# Treehouse stand-in root check (no suite execution):
-#   fm-test-run.sh --treehouse-stand-in-check <dir>
-#                   exit 1 naming every pool created under <dir>/.treehouse.
-#                   bin/fm-test-isolation-proof.sh checks each worker's stand-in
-#                   root with it.
-#
 # Aggregation (no suite execution):
 #   fm-test-run.sh --aggregate-json <out.json> <lane.json> [more lane.json...]
 #
@@ -112,9 +106,9 @@
 #
 # Exit status is non-zero if any selected script exits non-zero, a configured
 # --fail-on-gate-skip token appears, the measured duration exceeds
-# --max-wall-ms, timing-artifact finalization fails, a script creates a pool in
-# its Treehouse stand-in root, or a concurrent worker violates its isolation
-# check. Other gate skips (first meaningful line matching ^skip:) remain successful and are counted as skipped_gate; each one
+# --max-wall-ms, timing-artifact finalization fails, or a concurrent worker
+# violates its isolation check. Other gate skips (first meaningful line
+# matching ^skip:) remain successful and are counted as skipped_gate; each one
 # is logged with its reason and recorded in the timing artifact.
 #
 # expected_gate_skip classes name why a family is allowed to skip: herdr (the
@@ -125,18 +119,6 @@
 # Every selected script runs isolated from the host's global and system Git
 # configuration, including one that sources no test helper of its own;
 # tests/git-config-helpers.sh owns that contract and its limits.
-#
-# Every selected script also runs with TREEHOUSE_ROOT pointed at a private,
-# initially empty stand-in for the user's real Treehouse root, and fails when
-# anything appears under the stand-in's .treehouse directory. A suite that drives
-# the real treehouse binary through its inherited environment therefore fails,
-# naming the pool it would otherwise have left in the user's real root, and
-# never reaches that root; such a suite gives its fixtures a private
-# TREEHOUSE_ROOT (herdr_private_treehouse_root in tests/herdr-test-safety.sh).
-# A treehouse call that does not inherit the suite's environment, such as one
-# typed into an already-running GUI multiplexer, is outside this check. The
-# real root is not compared before and after a suite, because on a shared host
-# another process's pools would be blamed on whichever suite was running.
 #
 # Family labels, the changed-file map, and production portable-shard composition
 # live in this script only (one owner). The proven-isolated candidate set remains
@@ -253,21 +235,6 @@ log() {
   printf 'fm-test-run: %s\n' "$*" >&2
 }
 
-# Print every pool created under a Treehouse stand-in root and return 1, or
-# return 0 when its .treehouse directory is absent or holds nothing but the
-# .gitignore Treehouse writes beside its pools.
-treehouse_stand_in_created() {  # <stand-in root>
-  local pool_root="$1/.treehouse" created
-  [ -d "$pool_root" ] || return 0
-  created=$(cd "$pool_root" && find . -mindepth 1 -maxdepth 1 ! -name .gitignore \
-    | sed 's|^\./||' | LC_ALL=C sort)
-  [ -n "$created" ] || return 0
-  printf '%s\n' "$created" | while IFS= read -r entry; do
-    printf '%s/%s\n' "$pool_root" "$entry"
-  done
-  return 1
-}
-
 now_iso() {
   date -u +%Y-%m-%dT%H:%M:%SZ
 }
@@ -358,8 +325,7 @@ family_for_basename() {
     fm-backend-herdr-prune-safety-e2e.test.sh|fm-backend-herdr-respawn-idem-e2e.test.sh|\
     fm-backend-herdr-focus-flash-e2e.test.sh|\
     fm-backend-herdr-stale-active-tab-e2e.test.sh|\
-    fm-backend-herdr-agent-exit-shell-e2e.test.sh|fm-teardown-herdr-restart-e2e.test.sh|\
-    fm-teardown-herdr-endpoint-only-e2e.test.sh|fm-control-herdr-exit-retire-e2e.test.sh|\
+    fm-backend-herdr-agent-exit-shell-e2e.test.sh|\
     fm-herdr-attached-viewer-live-e2e.test.sh|fm-herdr-session-cleanup-e2e.test.sh|\
     fm-backend-herdr-smoke.test.sh|fm-backend-herdr-workspace-per-home-e2e.test.sh|\
     fm-control-herdr-smoke.test.sh)
@@ -457,7 +423,6 @@ family_for_basename() {
     fm-extension-binding.test.sh|fm-gitignore-config.test.sh|\
     fm-no-mistakes-required.test.sh|fm-peek-remote.test.sh|\
     fm-pending-reply.test.sh|fm-pi-branch-extension.test.sh|\
-    fm-procevent-lifecycle.test.sh|fm-procevent-ownership.test.sh|\
     fm-procevent-quota.test.sh|fm-procevent-when.test.sh|fm-procevent.test.sh|\
     fm-live-gate.test.sh|\
     fm-project-origin.test.sh|fm-public-followup.test.sh|fm-quota-choose.test.sh|\
@@ -1620,8 +1585,6 @@ families_for_changed_path() {
     bin/fm-procevent.sh|bin/fm-procevent-lib.sh|bin/fm-procevent-extension-capture.pl)
       printf '%s\n' __script__:fm-extension-binding.test.sh
       printf '%s\n' __script__:fm-procevent.test.sh
-      printf '%s\n' __script__:fm-procevent-ownership.test.sh
-      printf '%s\n' __script__:fm-procevent-lifecycle.test.sh
       printf '%s\n' __script__:fm-procevent-when.test.sh
       printf '%s\n' __script__:fm-remote-reply.test.sh
       ;;
@@ -2070,15 +2033,6 @@ while [ "$#" -gt 0 ]; do
       LIST_LANES=1
       shift
       ;;
-    --treehouse-stand-in-check)
-      [ "$#" -gt 1 ] || die "--treehouse-stand-in-check requires a stand-in root"
-      if ! created=$(treehouse_stand_in_created "$2"); then
-        log "Treehouse pools created under the stand-in root $2:"
-        printf '%s\n' "$created" >&2
-        exit 1
-      fi
-      exit 0
-      ;;
     --check-coverage)
       CHECK_COVERAGE=1
       shift
@@ -2500,16 +2454,11 @@ run_script_bounded() {  # <script> <out> <stream> <id>
   # Declaring the variables local first keeps the helper's export scoped to this
   # call and its child script, so the runner's own environment is left as the
   # caller had it.
-  local GIT_CONFIG_GLOBAL GIT_CONFIG_NOSYSTEM TREEHOUSE_ROOT
+  local GIT_CONFIG_GLOBAL GIT_CONFIG_NOSYSTEM
   # shellcheck source=tests/git-config-helpers.sh
   . "$ROOT/tests/git-config-helpers.sh" || return
-  local rc created treehouse_stand_in="$out.treehouse-root"
+  local rc
   : "$id"
-  mkdir -p "$treehouse_stand_in" || return
-  # Physical and absolute, as a real root is, so a leaking suite fails on the
-  # pool it created rather than on a path spelling Treehouse does not use.
-  treehouse_stand_in=$(cd "$treehouse_stand_in" && pwd -P) || return
-  export TREEHOUSE_ROOT="$treehouse_stand_in"
   set +e
   if [ "$stream" -eq 1 ]; then
     if [ "$PER_SCRIPT_TIMEOUT_SECS" -gt 0 ]; then
@@ -2534,13 +2483,6 @@ run_script_bounded() {  # <script> <out> <stream> <id>
       "$script" "$PER_SCRIPT_TIMEOUT_SECS" >>"$out"
     [ "$stream" -eq 1 ] && tail -1 "$out"
   fi
-  if ! created=$(treehouse_stand_in_created "$treehouse_stand_in"); then
-    printf 'not ok - %s created Treehouse pools under its inherited root, which is the real user root outside this runner; give its fixtures a private TREEHOUSE_ROOT: %s\n' \
-      "$script" "$(printf '%s' "$created" | tr '\n' ' ')" >>"$out"
-    [ "$stream" -eq 1 ] && tail -1 "$out"
-    [ "$rc" -ne 0 ] || rc=1
-  fi
-  rm -rf "$treehouse_stand_in"
   return "$rc"
 }
 

@@ -380,12 +380,10 @@ The Orca close refuses under `--force` too.
 The step immediately after it removes the Orca worktree through the same CLI whose absence is the only thing that arm ever reports, so a forced continue would die there having removed nothing while claiming the records were already gone.
 The two child close sites inside forced secondmate cleanup also keep refusing: that path is only ever reached under `--force`, so honoring force there would delete the refusal rather than override it, and would contradict the adjacent Herdr child gate that stops forced cleanup for the same hazard.
 
-The retained record is durable across a session start.
-A task carrying a backlog transition writes its pending-close marker before the endpoint close, and the marker survives the refusal; the next `bin/fm-bootstrap.sh` finds the record still present, keeps both, and names the teardown rerun instead of replaying the close past the record.
-The Herdr confirmed-gone gate relies on the same retention.
-Before 2026-09-23 that replay removed the retained record, which left a surviving endpoint that no record named and no lifecycle owner could close.
-`tests/fm-teardown-endpoint-safety.test.sh` proves it with a real tmux window, and `tests/fm-teardown-herdr-restart-e2e.test.sh` with a real Herdr pane in an isolated lab.
-Verified 2026-09-23 on Herdr 0.9.0 with `bash tests/fm-teardown-herdr-restart-e2e.test.sh`: all three cases passed, and with the previous replay restored the session-start case failed with `BOOTSTRAP_INFO: closed the backlog item for herdr-restart-task after interrupted cleanup` while the lab pane stayed open.
+The retained record is this run's, not a durable guarantee.
+A task carrying a backlog transition writes its pending-close marker before the endpoint close, and the marker survives the refusal; the next `bin/fm-bootstrap.sh` replays it and removes the retained record.
+The pre-existing Herdr confirmed-gone gate has the identical property.
+The refusal message says so rather than promising a retention teardown does not own, so an operator reconciles the surviving endpoint instead of trusting the record to still be there later.
 
 Both directions are proven non-vacuous.
 Restoring the swallowed status makes the refusal case report `teardown <id> complete`, delete the endpoint record, and leave the window live.
@@ -393,15 +391,7 @@ Keeping the refusal but dropping the exact re-read makes an already-exited endpo
 Letting an unreadable inventory pass for absence makes the unreadable case complete and remove the record while the window is still there.
 Removing the `--force` arm makes the forced generic case refuse; honoring `--force` at the child sites makes forced secondmate cleanup continue past a child endpoint it could not close, and honoring it at the Orca site makes that forced cleanup abort on the missing CLI after announcing that it was continuing.
 Restoring `fm_backend_orca_kill`'s swallowed tool check makes the CLI-absent adapter case report success.
-Restoring the replay's record removal makes the refused-close case lose its record at session start while the window stays live.
-
-A finished task whose record must stay has only its pane closed by `bin/fm-teardown.sh <id> --endpoint-only`, and a completed scout whose record no longer names an isolated copy now finishes through ordinary cleanup.
-`tests/fm-teardown-herdr-endpoint-only-e2e.test.sh` proves both against real lab panes, and proves that a live agent, an open decision, uncommitted changes, and an unfinished validation run each keep the pane and every record.
-Verified 2026-09-23 on Herdr 0.9.1 with `bash tests/fm-teardown-herdr-endpoint-only-e2e.test.sh`: all eight cases passed, and against the previous teardown the scout case failed with `REFUSED: task scout-copy-gone has a missing, empty, or ambiguous worktree identity; preserving task state.` while its pane stayed open.
-
-`bin/fm-control.sh <id> exit` hands a stopped Herdr ship or scout's pane to that same `--endpoint-only` owner, so a closed agent's unused pane is gone after the supported exit.
-`tests/fm-control-herdr-exit-retire-e2e.test.sh` proves it against real lab panes, and proves that a live agent exit cannot prove stopped, uncommitted work, an unfinished validation run, and an open decision each keep the pane and every record.
-Verified 2026-09-23 on Herdr 0.9.1 with `bash tests/fm-control-herdr-exit-retire-e2e.test.sh`: all six cases passed, and against the previous `fm-control.sh` the first case failed with `not ok - a closed agent's pane is still open after exit: already-stopped ship-agent-closed harness=claude backend=herdr ...`.
+Dropping the retention-is-not-durable line makes the refusal claim a retention teardown does not own.
 
 ## Claude workspace trust
 
@@ -808,16 +798,6 @@ tests/fm-composer-codex-idle-live-e2e.test.sh
 
 The verification machine runs its fleet on Herdr and has no tmux installed, so on 2026-09-15 that guard reported `skip: live: tmux absent` there, and the Herdr capture above is this entry's live evidence.
 The guard also notes whether the starfield and the placeholder were actually drawn during its read, because codex need not animate them under every model or mode; a refresh on a tmux host should record that note beside the verdict rather than assume the starfield was exercised.
-
-### 2026-09-21 Pi lone-separator footer through Herdr
-
-A remote secondmate's idle Pi pane, captured live 2026-09-21 through Herdr's ANSI read (task fm-overlay-pi-composer-idle-unknown-0921, real capture preserved at `data/fm-overlay-pi-composer-idle-unknown-0921-capture.txt`), drew only ONE separator instead of the rule/blank/rule sandwich `_fm_composer_pi_verdict` required: unrelated transcript and queued-follow-up text above the rule, then directly below it a cwd+branch status line and a resource-usage status line (`↑<tokens> ↓<tokens> R<mem>M <pct>%/<ctx>K (<mode>)`), with no second rule anywhere in the pane.
-`_fm_composer_scan_screen`'s pairing state machine only ever completes a pair when it sees a SECOND separator, so a lone rule left `FM_COMPOSER_SCAN_PI_PAIR_FOUND=0` and every caller read the pane `unknown` forever - the defect behind `bin/fm-remote-secondmate-control.sh relaunch` refusing its `/quit` exit command even while herdr's own `agent get` reported the Pi idle.
-The fix teaches `_fm_composer_scan_screen` a fallback: when no ordinary pair was found and a lone separator exists, check whether the screen's own last row matches the resource line and (optionally) the row above it matches the branch line; if so, treat the footer's start as a synthetic closing separator, so the gap between the lone rule and the footer is scanned as the composer's content exactly as a real second rule's gap would be.
-The resource line's arrows and fixed `R<n>M`/`%/<n>K` tokens are not something a human composes by hand, so this is new positive structural proof, not a relaxation of the strict blank-row posture.
-
-`test_matrix_pi_lone_separator_footer` in `tests/fm-composer-lib.test.sh` pins the real capture's shape byte-for-byte (transcript above the rule, footer below it): idle proves `empty`, typed content between the rule and the footer stays `pending`, a blocked identity still defers to `unknown`, a missing identity capability or a non-pi identity stays `unknown`, a malformed footer (branch line with no resource line) proves nothing, and content past `FM_COMPOSER_PI_MAX_LINES` still fails closed.
-The installed local Pi on the verification machine (0.85.1) renders the classic two-rule shape in a plain tmux session and does not reproduce this footer variant outside its originating Herdr secondmate context, so the live matrix guard (`tests/fm-composer-matrix-live-e2e.test.sh`) still owes a refresh once a Pi release that renders this footer is reachable from an isolated tmux session; the real Herdr capture above is this entry's live evidence until then.
 
 ## Steering-inbox doorbell
 
@@ -1526,18 +1506,6 @@ Real captures verified these active distinctions:
 - Pi uses content between complete separator rows and requires exact native Pi identity.
 - Dim or faint suggestion text is ghost content, while normally styled text is pending input.
 - Grok dark truecolor placeholders are ghost content, while bright truecolor typed input remains pending.
-- Claude in a truecolor terminal draws a recognized typed slash command in the saturated accent `38;2;87;105;247`, dark (luminance about 116) but typed input rather than ghost content; verified 2026-09-26 on Claude Code 2.1.283 by capturing the raw terminal stream of Claude launched with Herdr's `TERM=xterm-256color`, `COLORTERM=truecolor`, `TERM_PROGRAM=ghostty` environment and typing `/exit`.
-- Claude draws its placeholder and prompt suggestion in a focused composer as a reverse-video first character followed by dim text, so that one-cell reverse run is ghost content; read 2026-09-27 from the Claude Code 2.1.283 bundle, where the placeholder renderer returns `l(t[0])+pe.dim(t.slice(1))` when the cursor is shown, focused, and the terminal is focused.
-  A focused live suggestion could not be made to render in a scratch tmux session or, on 2026-09-27, a Herdr 0.9.1 lab with a foreground viewer on that version, so the regressions in `tests/fm-composer-lib.test.sh` and `tests/fm-backend-herdr.test.sh` pin the bundle's shape rather than a pane capture.
-  The Herdr pre-send payload proof extracts the composer with the same cursor-cell strip as the empty verdict, so `/exit` and steers typed over that suggestion are sent rather than refused; a remote Herdr 0.9.1 capture of an idle second mate's pane the same day showed the unfocused form, an entirely dim suggestion with no reverse cell, which both read empty.
-  A scratch tmux Claude 2.1.283 launched with `CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=true` rendered that same unfocused dim form after one turn, and `/exit` typed over it read as the payload.
-- Claude on a CPU-starved host can draw typed input later than the Herdr proof's settle, so the pre-Enter proof re-reads a composer that is unreadable or shows only a leading part of the payload, and refuses a settled wrong shape on the read that shows it.
-  Evidence, 2026-09-27, Claude Code 2.1.283 on Herdr 0.9.1: every remote second mate restart failed before Enter while its host ran 8 cores at a load average near 47 with `/proc/pressure/cpu` `some avg300=55.48`; idle and busy captures of that pane read empty in both the classifier and the extractor; and the real `bin/fm-control.sh <id> exit` path, driven against the live pane through a proxy that forwarded only Herdr reads, passed every check up to the literal send.
-  `tests/fm-backend-herdr.test.sh` pins the late-drawn `/exit`, the bounded never-drawn refusal, and real typed text that is refused at once.
-- Claude deletes one wrapped composer row per Ctrl+U, and an agent that has not drawn a refused payload yet reads empty, so a clear that stops at the first empty read leaves every row but the last in the composer once the agent catches up.
-  Reproduced 2026-09-27 on Claude Code 2.1.283 in a Herdr 0.9.1 lab by sending SIGSTOP to a Claude launched with `exec` in its pane, sending a steering doorbell through `fm_backend_herdr_send_text_submit` with three proof reads, then SIGCONT: before the fix the composer kept the doorbell minus its last row, unsent; after it the composer read empty.
-  The same lab showed a leftover doorbell reads `pending` whether Claude is idle or busy, and a doorbell rung while Claude is busy becomes a queued message above an empty composer that Claude submits on its own at turn end or on Escape.
-  `tests/fm-backend-herdr.test.sh` pins the up-front presses for an undrawn payload, and `tests/fm-control-relaunch.test.sh` pins that exit clears only this task's exact doorbell and refuses any other text by name.
 - A bare shell prompt has no safe agent-composer container and is unknown.
 - Codex 0.154's idle braille starfield rows are composer furniture, with the dated Herdr evidence and refresh command in [Composer classification matrix](#composer-classification-matrix).
 
@@ -1765,34 +1733,6 @@ poll 8: {"agent_status":"working","session":".../2026-09-21T14-10-08-776Z_01a0c4
 ```
 
 The read that supplies the reference is `bin/backends/herdr.sh`'s `fm_backend_herdr_pane_agent_session_ref`, the per-harness rule is `bin/fm-control-lib.sh`'s `fm_control_relaunch_resume_flag`, and the launch argument is composed by `relaunch_resume_args` in `bin/fm-spawn.sh`; `docs/herdr-backend.md` "Agent status authority and relaunch" owns the contract. Nothing here changes `resume` as a control verb, and only a relaunch asks for it.
-
-### Agent auto-restore
-
-Measured 2026-09-27 on macOS arm64 against Herdr 0.9.1 (client protocol 22) and Claude Code 2.1.283, in isolated `fm-lab-` sessions (`bin/fm-herdr-lab.sh`).
-`herdr --default-config` documents the setting as `[session]` `resume_agents_on_restore`, default true, and the 0.9.1 binary reads its config from `HERDR_CONFIG_PATH` when set, else `$XDG_CONFIG_HOME/herdr/config.toml` (a broken file placed there is reported by `herdr config check`).
-Each run provisioned a lab session, ran `claude --permission-mode auto` in a pane until `agent get` reported a `herdr:claude` session reference, stopped the session with the lab helper's `stop`, and provisioned it again:
-
-```sh
-"$HERDR_LAB_HELPER" provision "$SES"
-"$HERDR_LAB_HELPER" run "$SES" pane run w1:p1 "claude --permission-mode auto"
-"$HERDR_LAB_HELPER" stop "$SES"; "$HERDR_LAB_HELPER" provision "$SES"
-"$HERDR_LAB_HELPER" run "$SES" pane read w1:p1 --source recent --lines 15
-```
-
-With no override, the restarted server typed the resume itself:
-
-```text
-lundi@M4-25 firstmate % claude --resume 850679f0-2288-4afe-8861-93e6e2bf5b4a
-```
-
-With `HERDR_CONFIG_PATH` naming a copy of the operator config plus `[session]` `resume_agents_on_restore = false` in the environment of both provisions, the same pane came back as a plain shell with nothing typed (`pane process-info` foreground `["-zsh"]`):
-
-```text
-lundi@M4-25 firstmate %
-```
-
-`herdr config check` exits 1 and prints `using defaults` for a file with a duplicate `[session]` table, which is why `fm_backend_herdr_server_config` validates its copy before using it.
-`docs/herdr-backend.md` "Agent auto-restore" owns the contract, and `tests/fm-backend-herdr.test.sh` pins the derived config.
 
 ### Away-mode transport
 

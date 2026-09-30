@@ -14,7 +14,7 @@ REMOTE="$TMP_ROOT/remote"
 FAKEBIN=$(fm_fakebin "$TMP_ROOT/fake")
 CLAIMS="$TMP_ROOT/claims"
 mkdir -p "$PARENT/data" "$PARENT/state" "$REMOTE/state" "$REMOTE/data/reply" "$CLAIMS"
-# shellcheck source=/dev/null
+# shellcheck source=bin/fm-remote-job-lib.sh
 . "$ROOT/bin/fm-remote-job-lib.sh"
 # The recorded worker pid is the serving child, not its restart supervisor, so
 # stopping that pid alone leaves the supervisor to respawn - the leak
@@ -58,12 +58,6 @@ entry=$2
 shift 2
 [ "$host" = remote-mac ] || exit 91
 [ "$entry" = fm-remote-entrypoint.sh ] || exit 92
-if [ "${FM_FAKE_SSH_HANG:-0}" = 1 ]; then
-  # An alive peer whose remote side never answers.
-  trap '' TERM
-  printf '%s\n' "$$" >> "$FM_FAKE_SSH_HANG_PIDS"
-  while :; do sleep 1; done
-fi
 exec "$FM_FAKE_REMOTE_ENTRYPOINT" "$@"
 SH
 chmod +x "$FAKEBIN/fake-ssh"
@@ -256,7 +250,7 @@ pass "later generations cannot invalidate an unacknowledged ingested result"
 # line reaches the parent stream, the new decision reaches the parent's
 # open-decision fold, the correlated line still settles its pending-reply record,
 # and the cursor advances so the channel cannot wedge on a line it once refused.
-# shellcheck source=/dev/null
+# shellcheck source=bin/fm-pending-reply-lib.sh
 . "$ROOT/bin/fm-pending-reply-lib.sh"
 PENDING_CORR=$(fm_pending_reply_create "$PARENT" "$PARENT/state" ios 'audit the release chain')
 [ -n "$PENDING_CORR" ] || fail "could not create the parent pending-reply record"
@@ -296,7 +290,7 @@ pass "the remote status and decision model mirrors and the cursor advances"
 
 # The newly raised decision must be indistinguishable from a local mate's, so the
 # shared fold - not this adapter - decides it is open.
-# shellcheck source=/dev/null
+# shellcheck source=bin/fm-classify-lib.sh
 . "$ROOT/bin/fm-classify-lib.sh"
 OPEN=$(status_open_decisions "$PARENT/state/ios.status")
 printf '%s' "$OPEN" | grep -q '^rough-cut-version	needs-decision	' \
@@ -924,29 +918,6 @@ caught_up=$(FM_STATE_OVERRIDE="$PARENT/state" bash -c '
 [ "$caught_up" -ge "$watermark_before" ] && [ "$caught_up" -le "$watermark_after" ] \
   || fail "the caught-up watermark ($caught_up) is outside the quiet window"
 pass "a quiet reply window publishes the caught-up watermark the reply guard reads"
-
-# A remote that accepts ssh but never answers must not wedge the source: the
-# delta read is bounded by its wait window plus the transport margin and ends
-# as unavailable transport (255), never as a quiet window or a delta.
-HANG_PIDS="$TMP_ROOT/hang.pids"
-: > "$HANG_PIDS"
-hang_started=$(date +%s)
-set +e
-remote_env env FM_REMOTE_REPLY_WAIT_SECONDS=1 FM_REMOTE_REPLY_TRANSPORT_MARGIN=2 FM_ON_TIMEOUT_GRACE=1 \
-  FM_FAKE_SSH_HANG=1 FM_FAKE_SSH_HANG_PIDS="$HANG_PIDS" "$ADAPTER" source ios > "$TMP_ROOT/hang-source.out" 2>&1
-hang_rc=$?
-set -e
-hang_elapsed=$(( $(date +%s) - hang_started ))
-[ "$hang_rc" -eq 255 ] || fail "a hung reply read did not end as unavailable transport (got $hang_rc): $(cat "$TMP_ROOT/hang-source.out")"
-[ "$hang_elapsed" -le 10 ] || fail "a hung reply read was not bounded near its 3s window (took ${hang_elapsed}s)"
-[ -s "$HANG_PIDS" ] || fail "the hanging fake ssh never started"
-for hang_pid in $(tr "\n" " " < "$HANG_PIDS"); do
-  if kill -0 "$hang_pid" 2>/dev/null; then
-    kill -KILL "$hang_pid" 2>/dev/null || true
-    fail "the bounded reply read left its ssh running (pid $hang_pid)"
-  fi
-done
-pass "a hung remote reply read is bounded and reported as unavailable transport"
 
 # The observed already-handled replay class: a lost cursor (an update or
 # convergence retire) makes the next armed source recapture the WHOLE remote

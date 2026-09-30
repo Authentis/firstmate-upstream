@@ -24,7 +24,7 @@
 # Output is one stable, parseable, token-tight line firstmate can read every
 # heartbeat:
 #
-#   state: <working|idle|parked|done|blocked|paused|stopped|failed|unknown> · source: <run-step|pane|status-log|endpoint|remote-endpoint|none> · <detail>
+#   state: <working|parked|done|blocked|paused|failed|unknown> · source: <run-step|pane|status-log|remote-endpoint|none> · <detail>
 #
 # Logic, in order:
 #   1. Resolve worktree + backend target + kind from state/<id>.meta. A meta
@@ -146,11 +146,8 @@
 #   4. No current run for this crew (pre-validation, uninitialized repository,
 #      proven historical head, or kind=scout): fall back to the recorded
 #      backend's pane busy state, then the resolved status declaration
-#      when its verb maps to a recognized run-state. An unverified Codex tmux
-#      busy verdict gets one bounded pane read: a busy surface reports working,
-#      an empty or draft composer reports idle, and a bare shell with no agent
-#      reports stopped. An unclassified live agent remains unknown. Decision-only
-#      events such as `resolved` never become current state or detail.
+#      when its verb maps to a recognized run-state. Decision-only events such as
+#      `resolved` never become current state or detail.
 #   5. Missing meta or torn-down worktree: report unknown · none. If no run is
 #      attributed to this crew, a dead endpoint also reports unknown · none rather
 #      than trusting a stale status log. On tmux and herdr, which own a
@@ -184,7 +181,7 @@ STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 . "$SCRIPT_DIR/fm-pr-lib.sh"
 # shellcheck source=bin/fm-timeout-lib.sh
 . "$SCRIPT_DIR/fm-timeout-lib.sh"
-# shellcheck source=/dev/null # Canonical lint root; following it here breaks the lint memory ceiling.
+# shellcheck source=bin/fm-dod-lib.sh
 . "$SCRIPT_DIR/fm-dod-lib.sh"
 
 ID=${1:-}
@@ -328,8 +325,7 @@ pane_readable() {  # <target>
 # crew_busy_verdict: the crew's semantic busy state from the one contract
 # owner (bin/fm-busy-lib.sh), as "<busy|idle|unknown> <source>". A converted
 # adapter answers from its own lifecycle record; Grok answers from its
-# isolated rendered-tail fallback; an unverified Codex tmux lane uses the
-# bounded delivery-pane classifier below; a herdr crew's native `busy` is accepted
+# isolated rendered-tail fallback; a herdr crew's native `busy` is accepted
 # when no record exists, but its native `idle` is NOT, because agent.get
 # reports generation state (idle while a crew blocks on its own long-running
 # foreground tool call) rather than turn state. The tail is captured
@@ -342,32 +338,6 @@ crew_busy_verdict() {  # <target>
   local tail40
   tail40=$(fm_backend_capture "$TASK_BACKEND" "$1" 40 "$EXPECTED_LABEL" 2>/dev/null) || tail40=''
   fm_busy_classify "$TASK_BACKEND" "$1" "$HARNESS" "$ID" "$STATE" "$tail40"
-}
-
-# codex_tmux_pane_verdict is a narrow current-state fallback for the interactive
-# Codex TUI while its lifecycle hooks remain unverified.
-# It reuses the bounded pane classifier that watcher delivery already uses.
-# This does not alter fm-busy-lib.sh's semantic busy-record contract for Codex
-# or any other harness or backend.
-codex_tmux_pane_verdict() {  # <target> -> busy|idle-empty|idle-draft|stopped|unknown
-  local busy_state composer_state agent_state
-  [ "$TASK_BACKEND" = tmux ] && case "$HARNESS" in codex*) : ;; *) return 1 ;; esac
-  busy_state=$(fm_pane_busy_state "$1" codex)
-  if [ "$busy_state" = busy ]; then
-    printf 'busy'
-    return
-  fi
-  composer_state=$(fm_tmux_composer_state "$1")
-  case "$composer_state" in
-    empty) printf 'idle-empty'; return ;;
-    pending) printf 'idle-draft'; return ;;
-  esac
-  agent_state=$(fm_backend_agent_state "$TASK_BACKEND" "$1")
-  if [ "$agent_state" = dead ]; then
-    printf 'stopped'
-  else
-    printf 'unknown'
-  fi
 }
 
 # --- no-mistakes run lookup (authoritative when a run matches this branch) --
@@ -1260,9 +1230,9 @@ fi
 # liveness, so a finished-but-pane-closed crew never reaches here. Down here there
 # is no run to consult, so only positive evidence that the target is gone may
 # read as death - a backend that failed to answer is unknown, never death, for
-# both classifier-backed backends (tmux and herdr). A recovery-grade positive
-# death reports stopped rather than trusting a possibly-stale status log as the
-# current state, while every uncertain verdict remains unknown.
+# both classifier-backed backends (tmux and herdr) - and every death-class
+# verdict reports unknown rather than trusting a possibly-stale status log as
+# the current state.
 [ -n "$BACKEND_TARGET" ] || emit unknown none "no backend target recorded"
 if ! pane_readable "$BACKEND_TARGET"; then
   # A failed probe is not itself evidence the pane is gone: the herdr CLI can
@@ -1299,10 +1269,10 @@ if ! pane_readable "$BACKEND_TARGET"; then
     tmux:alive|herdr:alive)
       ;;
     tmux:missing|herdr:missing)
-      emit stopped endpoint "backend target gone: $BACKEND_TARGET"
+      emit unknown none "backend target gone: $BACKEND_TARGET"
       ;;
     tmux:dead|herdr:dead)
-      emit stopped endpoint "backend target gone: $BACKEND_TARGET (agent gone, pane shell remains)"
+      emit unknown none "backend target gone: $BACKEND_TARGET (agent gone, pane shell remains)"
       ;;
     tmux:*|herdr:*)
       emit unknown none "backend unreachable ($TASK_BACKEND endpoint state: $AGENT_STATE)"
@@ -1323,16 +1293,7 @@ if [ "$KIND" != secondmate ]; then
   case "${BUSY_VERDICT%% *}" in
     busy) emit working pane "harness busy (${BUSY_VERDICT#* })" ;;
     idle) ;;
-    *)
-      CODEX_PANE_VERDICT=$(codex_tmux_pane_verdict "$BACKEND_TARGET" 2>/dev/null || true)
-      case "$CODEX_PANE_VERDICT" in
-        busy) emit working pane "harness busy (codex tmux pane)" ;;
-        idle-empty) emit idle pane "positively empty Codex composer" ;;
-        idle-draft) emit idle pane "ready Codex composer with unsubmitted draft" ;;
-        stopped) emit stopped pane "bare shell; Codex agent process absent" ;;
-        *) emit unknown pane "harness state unavailable ($BUSY_VERDICT)" ;;
-      esac
-      ;;
+    *) emit unknown pane "harness state unavailable ($BUSY_VERDICT)" ;;
   esac
 fi
 

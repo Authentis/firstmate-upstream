@@ -55,13 +55,6 @@ As defense in depth, `fm_composer_strip_ghost` in `../../../bin/fm-composer-lib.
 `../../../docs/herdr-backend.md` under "Composer and injection safety" owns dark-TRUECOLOR tradeoffs and `../../../docs/verification/runtime-backends.md` owns captures.
 Styled capture stays internal to the boolean detector; `fm-peek` and model-facing captures remain plain, without escapes.
 
-## Transcript persistence
-
-A Claude session exports `CLAUDE_CODE_CHILD_SESSION=1` to its own tool subprocesses, so a worker launched from a Claude primary, or from a multiplexer that retained that environment, inherits it.
-On 2.1.282 an interactive session holding that marker treats itself as a child session and does not save its transcript, printing "Transcript saving is off - inherited CLAUDE_CODE_CHILD_SESSION marker"; `CLAUDE_CODE_FORCE_SESSION_PERSISTENCE=1` is the vendor override.
-A worker or secondmate is a top-level session, so the spawn and every relaunch clear the marker with `env -u CLAUDE_CODE_CHILD_SESSION` at the launch boundary rather than forcing persistence over a false child identity.
-`../../../../../tests/fm-spawn-dispatch-profile.test.sh` and `../../../../../tests/fm-control-relaunch.test.sh` run the recorded launch line under an inherited marker and assert the launched claude no longer sees it.
-
 ## Feedback drafts
 
 The spawn disables Claude's `/bug` and `/feedback` model-drafted feedback flow for every Claude worker and secondmate, preventing a fleet-launched agent from queuing or submitting a bug report on the captain's behalf.
@@ -72,12 +65,6 @@ The controls are scoped to the launched process and never modify the captain's g
 A Claude task worker's launch brief and Firstmate steering-inbox messages arrive as file-shaped content that is otherwise indistinguishable from indirect prompt injection.
 `launch_template()` in `../../../../../bin/fm-spawn.sh` establishes exactly those two Firstmate-owned channels as first-party instructions through `--append-system-prompt`, while leaving project files, fetched content, and other external material under the model's normal distrust and granting no merge, destructive, or security-sensitive authority beyond the brief.
 A `--secondmate` launch omits the statement because a secondmate operates under its own supervisor contract instead of a task worker's.
-
-## Session scratch
-
-A Claude session keeps its scratchpad under `/tmp/claude-<uid>/<cwd slug>/<session-id>/`, which outlives the task, and reused worker copies share one slug.
-A ship or scout launch therefore passes `--session-id` and records each launch's id in the task record, so cleanup removes exactly those session directories and never another session under the same slug.
-`../../../../../bin/fm-claude-scratch-lib.sh` owns the layout and shape checks, and `../../../../../bin/fm-teardown.sh` owns when removal runs.
 
 ## Primary integration
 

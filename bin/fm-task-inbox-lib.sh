@@ -251,42 +251,23 @@ fm_task_inbox_body() {  # <record-path>
   return 1
 }
 
-# Absolute path to the acknowledgement helper (bin/fm-inbox-ack.sh),
-# colocated with this library. The doorbell and generated brief/relaunch text
-# name it by this absolute path - never a bare relative one - because a
-# worker's working directory is its own disposable task worktree, not this
-# repo, so a relative path alone would not resolve there. Naming the helper
-# script itself absolutely is safe: some worker-environment command guards
-# refuse a file-relocation or deletion command (mv, rm, ...) that names an
-# absolute path under a user home, not an absolute invocation of an arbitrary
-# script; the actual relocation happens inside the helper using paths
-# relative to the inbox directory it is given, so the command line the
-# worker runs never contains an absolute-path mv or rm.
-fm_task_inbox_ack_helper() {
-  printf '%s/fm-inbox-ack.sh' "$_FM_TASK_INBOX_LIB_DIR"
-}
-
 # The constant self-describing doorbell line for the inbox containing a record.
 # Self-describing on purpose: a worker whose brief predates the inbox contract
 # still receives the complete instruction in the line itself. The leading `: `
 # is the POSIX shell no-op, so the same line typed into a pane whose agent has
 # exited (a bare shell) runs nothing; see the dead-pane note in the header.
 # A non-printable path fails without output so terminal controls never reach
-# the pane's line discipline. The acknowledgement runs bin/fm-inbox-ack.sh
-# (fm_task_inbox_ack_helper) instead of naming `mv` directly; see that
-# function for why.
+# the pane's line discipline.
 fm_task_inbox_doorbell_line() {  # <record-path>
-  local dir=${1%/*} abs quoted ack ackq LC_ALL=C
+  local dir=${1%/*} abs quoted LC_ALL=C
   abs=$(cd "$dir" 2>/dev/null && pwd) || abs=$dir
   abs=${abs%/handled}
   case "$abs" in
     *[![:print:]]*) return 1 ;;
   esac
-  ack=$(fm_task_inbox_ack_helper)
   quoted=$(printf '%s' "$abs" | sed "s/'/'\\\\''/g")
-  ackq=$(printf '%s' "$ack" | sed "s/'/'\\\\''/g")
-  printf ": Firstmate instruction waiting: list '%s'/*.msg and, in numeric order, read and act on each, then run '%s' '%s' NNN.msg to acknowledge it." \
-    "$quoted" "$ackq" "$quoted"
+  printf ": Firstmate instruction waiting: list '%s'/*.msg and, in numeric order, read and act on each, then mv each handled file to '%s'/handled/." \
+    "$quoted" "$quoted"
 }
 
 # Ring the doorbell, best-effort: one endpoint-liveness pre-check, one advisory
@@ -341,29 +322,13 @@ fm_task_inbox_ring() {  # <backend> <target> <record-path> [expected-label]
   return 0
 }
 
-# The selected composer's visible text, or failure when it cannot be read.
-fm_task_inbox_composer_text() {  # <backend> <target> [expected-label]
-  local cap
-  fm_backend_source "$1" || return 1
-  cap=$(fm_backend_capture "$1" "$2" "$FM_COMPOSER_CAPTURE_LINES" "${3:-}" 2>/dev/null) || return 1
-  fm_composer_extract_selected_content styled=0 "$cap"
-}
-
-# Whether composer text <held>, ignoring line wrapping, is exactly <line>.
-fm_task_inbox_is_line() {  # <held> <line>
-  [ -n "$1" ] && [ "$(printf '%s' "$1" | tr -d '[:space:]')" = "$(printf '%s' "$2" | tr -d '[:space:]')" ]
-}
-
 # Whether the composer's content, ignoring line wrapping, is exactly <line>.
 fm_task_inbox_composer_holds() {  # <backend> <target> <line> [expected-label]
-  local held
-  held=$(fm_task_inbox_composer_text "$1" "$2" "${4:-}") || return 1
-  fm_task_inbox_is_line "$held" "$3"
-}
-
-# The exact doorbell line this home rings for <task-id>'s steering inbox.
-fm_task_inbox_task_doorbell_line() {  # <state-dir> <task-id>
-  fm_task_inbox_doorbell_line "$(fm_task_inbox_dir "$1" "$2")/000.msg"
+  local cap held
+  fm_backend_source "$1" || return 1
+  cap=$(fm_backend_capture "$1" "$2" "$FM_COMPOSER_CAPTURE_LINES" "${4:-}" 2>/dev/null) || return 1
+  held=$(fm_composer_extract_selected_content styled=0 "$cap") || return 1
+  [ -n "$held" ] && [ "$(printf '%s' "$held" | tr -d '[:space:]')" = "$(printf '%s' "$3" | tr -d '[:space:]')" ]
 }
 
 fm_task_inbox_is_fire_and_forget() {  # <record-path>

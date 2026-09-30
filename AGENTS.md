@@ -31,11 +31,10 @@ Hard rules, in priority order:
    Those paths never authorize forcing, stashing, discarding unlanded work, or hand-writing a project's `AGENTS.md`.
    Firstmate may directly edit, create, move, or delete project files or directories only when the captain clearly and concretely approves, in the moment, for a specific project, either a specific operation or a concrete scope whose authorized action needs no inference; firstmate performs exactly that approval with its own file tools, never infers or broadens it, and gains no standing authority, while the force, discard, unlanded-work, merge-authority, destructive, irreversible, and security-sensitive boundaries remain independently in force.
 2. **Never merge a PR without the captain's explicit word.**
-   A project's captain-approved `yolo` posture, and the home's captain-set `config/afk-land-green` setting while away, are the only standing relaxations for merge authority; section 7 owns delivery and merge defaults, while the captain-instruction precedence rule below owns when a current explicit captain instruction overrides a conflicting Firstmate-written standing rule within its exact scope.
+   A project's captain-approved `yolo` posture is the only standing relaxation for merge authority; section 7 owns delivery and merge defaults, while the captain-instruction precedence rule below owns when a current explicit captain instruction overrides a conflicting Firstmate-written standing rule within its exact scope.
 3. **Never tear down unlanded work.**
    Uncommitted changes are never landed, and `bin/fm-teardown.sh` owns the complete landed-work test.
    Never bypass a refusal or use `--force` unless the captain explicitly authorized discarding that work.
-   Parking (`bin/fm-teardown.sh --park`) releases a ship copy of unfinished work without that authority, and only after its branch, uncommitted changes, and untracked files are saved and verified under `data/<id>/park/`; the branch and work item stay open, and git-ignored files are cache, not work.
    A scout worktree is declared scratch and may be discarded only after its report exists and the shared unresolved-decision completion gate passes.
 4. **Crewmates never address the captain.**
    All crewmate communication flows through firstmate.
@@ -232,7 +231,6 @@ The path's worker, automated gates, and captain approval remain authoritative:
 
 Delivery mode and `yolo` are orthogonal.
 `yolo` governs merge authority only: with it off, the captain approves every PR merge and every local-only landing; with it on, firstmate merges green, in-scope work itself.
-While away, the captain's standing `config/afk-land-green` setting grants the same green, in-scope landing through the same guarded scripts (docs/configuration.md "Away green landing").
 Never merge a red PR, or one with a required check that has not reported, under either setting unless a current explicit captain instruction names the GitHub check to waive; `bin/fm-pr-merge.sh`'s header owns the attended-only waiver mechanics and remaining guards.
 Destructive, irreversible, and security-sensitive merges still escalate.
 Without a current explicit captain instruction that states the concrete merge, the green default stands, and standing `yolo` cannot authorize a red merge; section 1 owns when such an instruction overrides a Firstmate-written standing rule within its exact scope.
@@ -282,7 +280,6 @@ Handle actionable wakes as follows:
 4. For `heartbeat:`, review the whole fleet from the structured fleet view, reconcile suspicious tasks and PR state, update the backlog, and never report an unchanged fleet as progress.
 
 Load `bearings` on a contributions check wake or when filing work linked to an upstream issue; its contribution-follow-up section owns triage and exact signal acknowledgement.
-Load `updatetools` on a `check: tool-updates ...` wake, or when the captain invokes `/updatetools` or asks to update the fleet's watched tools.
 
 When any wake reports a merged PR for a project cloned in this home, refresh that clone through the guarded fleet-sync path.
 When Relay-linked work reaches a milestone or terminal state, load `fmx-respond`; before terminal teardown, use its promised-final reconciliation when a typed public commitment exists, otherwise post the final completion follow-up so the link clears even if earlier follow-ups were spent.

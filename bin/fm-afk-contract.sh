@@ -121,7 +121,7 @@
 # Sourceable: with the BASH_SOURCE guard, other scripts get the path, presence,
 # posture, and lock helpers (fm_afk_contract_path, fm_afk_contract_present,
 # fm_afk_contract_mode, fm_afk_contract_away_present,
-# fm_afk_contract_archive_dir, fm_afk_land_green_enabled,
+# fm_afk_contract_archive_dir,
 # fm_afk_contract_lock_hold, fm_afk_contract_lock_release) without running main.
 set -u
 
@@ -160,13 +160,6 @@ fm_afk_contract_archive_dir() {  # [state-dir]
 
 fm_afk_contract_present() {  # [state-dir]
   [ -f "$(fm_afk_contract_path "${1:-$FM_AFK_CONTRACT_STATE}")" ]
-}
-
-# The overlay's standing away-landing setting is live configuration, never
-# durable mandate content. Quiet remains attended, so callers must pair this
-# with fm_afk_contract_away_present when granting authority.
-fm_afk_land_green_enabled() {
-  [ -e "${FM_CONFIG_OVERRIDE:-$FM_HOME/config}/afk-land-green" ]
 }
 
 # The posture a record at <path> is (the header's AWAY OR QUIET): quiet only
@@ -403,9 +396,6 @@ fm_afk_contract_render_readback() {  # <path>
     printf '  expected return: %s\n' "$( [ "$expected" = - ] && printf 'not given' || printf '%s' "$expected")"
     printf '  spend cap: %s concurrent workers\n' "$spend"
     printf '  reach: hold-for-return only. %s\n' "$(fm_afk_contract_read_field "$path" reach_announced)"
-    if fm_afk_land_green_enabled; then
-      printf '  standing landing: on (config/afk-land-green) - green, in-scope work lands through the guarded merge scripts while you are away, local-only work included; destructive, irreversible, and security-sensitive changes still wait for you\n'
-    fi
   fi
   words=$(fm_afk_contract_read_words "$path"; rc=$?; printf x; exit "$rc") || return 1
   words=${words%x}

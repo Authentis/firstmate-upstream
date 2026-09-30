@@ -23,7 +23,6 @@ bin/                 helper scripts, committed; read each script's header before
 config/crew-harness  crewmate harness override; LOCAL, gitignored; absent or "default" = same as firstmate. Inherited as the literal file: a concrete primary adapter value also controls a secondmate home's own crewmates (section 4)
 config/claude-permission-mode  optional one-token permission posture for every Claude worker launch: absent or "bypass" keeps --dangerously-skip-permissions, "auto" launches with --permission-mode auto; LOCAL, gitignored; inherited by secondmate homes; see docs/configuration.md "Claude permission mode"
 config/claude-account config/pi-account  optional per-home worker account pin for Claude and Pi launches; LOCAL, gitignored, not inherited; absent keeps today's ambient account; present refuses a launch unless the pinned account resolves and is signed in (section 4 owns the refusal rule); see docs/configuration.md "Worker account pin"
-config/opencode-bin  optional absolute path of the verified opencode 1.x executable every opencode launch uses instead of PATH lookup; LOCAL, gitignored, not inherited; see docs/configuration.md "OpenCode binary"
 config/crew-dispatch.json  optional crewmate dispatch profiles; LOCAL, gitignored; firstmate-maintained but human-editable natural-language rules that choose a per-task harness/model/effort profile (section 4). Inherited by secondmate homes
 config/secondmate-harness  harness the PRIMARY uses to launch SECONDMATE agents, optionally followed by a model and effort token on the same line ("<harness> [<model>] [<effort>]"; section 4); LOCAL, gitignored; absent or "default" harness falls back to config/crew-harness then firstmate's own. The primary's own setting; NOT inherited into secondmate homes (secondmates do not spawn secondmates)
 config/backlog-backend  backlog backend override; LOCAL, gitignored; absent or "tasks-axi" = the configured tasks-axi backend, "manual" = force routine backlog updates to hand-editing; inherited by secondmate homes (section 10)
@@ -34,7 +33,6 @@ config/supervision-branch-model config/supervision-branch-effort  Pi supervision
 config/supervision-host  optional supervision-host engine setting: the host runs the supervision branch's contract on a headless engine beside a non-Pi primary, away and, on a Claude or Cursor primary, attended; absent runs it on a Claude primary and nowhere else; LOCAL, gitignored, not inherited; see docs/configuration.md "Supervision host"
 config/supervision-host-off  optional presence flag opting this home out of the supervision host on every primary; LOCAL, gitignored; inherited by secondmate homes under the primary-authoritative contract; see docs/configuration.md "Supervision host"
 config/startup-memory-budget     primary-authoritative per-home startup-memory budget; LOCAL, gitignored, materialized as 7,500 estimated tokens by locked primary bootstrap and inherited into secondmate homes; see docs/configuration.md "Startup memory budget"
-config/afk-land-green  optional presence flag: the captain's standing setting that away mode lands green, in-scope work (local-only included) through the guarded merge scripts instead of holding it for the return; LOCAL, gitignored, and not inherited; see docs/configuration.md "Away green landing"
 config/stow-pass-horizon  optional presence flag opting this home in to /stow's default-off pass-count decay horizon; LOCAL, gitignored, and not inherited; see docs/configuration.md "Stow pass horizon"
 config/herdr-presentation-spaces  optional "off" opt-out from, or "on" opt-in to, Herdr's default-on disposable single-task visual projection, which is unconfigured-default-on only at or above a Herdr version floor; LOCAL, gitignored; inherited by secondmate homes; see docs/herdr-backend.md "Presentation spaces"
 config/trace-context  optional presence flag enabling default-off native W3C trace-context propagation to spawned agents; LOCAL, gitignored; inherited by secondmate homes; see docs/configuration.md "Trace context propagation" and docs/trace-context.md
@@ -46,7 +44,6 @@ config/wedge-defer-parked-gate  optional presence flag opting this home into the
 config/cmux-socket-password  optional cmux control-socket password; LOCAL, gitignored; read fresh on every cmux CLI call and passed through without ever overriding an operator's own ambient CMUX_SOCKET_PASSWORD when absent (docs/cmux-backend.md "Setup")
 config/wedge-alarm  optional away-mode wedge-alarm active-alert directives; LOCAL, gitignored; absent means auto (macOS Notification Center when available); see docs/wedge-alarm.md
 config/watched-tools.json  optional list of the tools this home depends on, read by the update check armed with bin/fm-tool-update-check.sh; LOCAL, gitignored, firstmate-maintained but human-editable, and NOT inherited by secondmate homes; see docs/configuration.md "Watched tool updates"
-config/fleet-steward.json  optional verified ready-queue and low-capacity steward configuration; LOCAL, gitignored, firstmate-maintained, and NOT inherited by secondmate homes; see docs/configuration.md "Fleet steward"
 config/x-mode.env    generated Relay watcher cadence; LOCAL, gitignored; source before arming watcher when present
 data/                personal fleet records; LOCAL, gitignored as a whole
   backlog.md         task queue, dependencies, history
@@ -57,8 +54,6 @@ data/                personal fleet records; LOCAL, gitignored as a whole
   secondmates.md      local and remote secondmate routing table; firstmate-private, maintained by the secondmate seed helpers (section 6)
   <id>/brief.md      per-task crewmate brief, or per-secondmate charter brief when kind=secondmate
   <id>/report.md     scout task deliverable, written by the crewmate; survives teardown
-  <id>/decisions.md  durable copy of each firstmate decision that supersedes or disposes of a gate finding for this task, written by fm-send.sh --resolve-key alongside the closing status-log line; survives teardown, which removes the status log
-  <id>/merge-proof.md  durable proof of who merged this task's PR and against which verified head, written by fm-pr-merge.sh after the forge accepts the merge; survives teardown, which removes state/<id>.merge-authority and pr_head= in state/<id>.meta
 projects/            cloned repos; gitignored; read-only except under hard rule 1's concrete captain-approved project operation exception
 state/               runtime records and signals; gitignored
   <id>.status        append-only wake events, not current-state truth; bin/fm-classify-lib.sh owns their syntax
@@ -107,7 +102,6 @@ state/               runtime records and signals; gitignored
   x-poll.error x-poll.claim-error  generated Relay and offer-claim diagnostic dedupe markers
   .startup-network.*  status, report, per-step elapsed timings, inline-print claim, and lock for the deferred startup stage that runs network checks and the inactive-outcome scan off the digest's blocking path; bin/fm-startup-network.sh
   .wake-queue        durable queued wakes retained until post-handling acknowledgement: epoch<TAB>seq<TAB>kind<TAB>key<TAB>payload
-  .wake-queue.fold   sequence numbers of fold-class queued wakes, which never wake alone (bin/fm-wake-lib.sh "fold-class rows")
   .watcher-down      private generation-bound recovery state coupling watcher downtime, durable wake presentation, and post-handling acknowledgement; never touch
   .<id>.open-decisions-cursor  per-task byte cursor and folded open-decision set bounding the OPEN DECISIONS scan's cost to new status-log appends; written only by fm-classify-lib.sh's status_open_decisions_incremental, removed by teardown, safe to delete (forces one full re-fold)
   .<id>.home-appends  per-task ledger of byte ranges this home itself appended as bookkeeping closes, so a wake scan can tell its own growth from a foreign write instead of waking on it; presentation is unaffected, so both the signal annotation and UNREAD STATUS still print those lines; written only by fm-classify-lib.sh's status_home_appends_record; its sibling .<id>.home-appends.lock serializes that ledger's read-merge-write; both removed by teardown, safe to delete
@@ -122,7 +116,6 @@ state/               runtime records and signals; gitignored
   .hash-* .count-* .stale-* .stale-since-* .churn-since-* .paused-* .wedge-escalations-* .dead-reported-* .writing-* .waiting-* .seen-* .hb-surfaced-* .last-* .heartbeat-streak .secondmate-liveness-tick .secondmate-liveness-*.lock*   watcher internals; never touch
   .secondmate-relaunch-<id> .secondmate-relaunch-bound-<id>   durable relaunch history and parked-bound state; never touch (bin/fm-secondmate-liveness-lib.sh owns the ledger contract)
   .watch-triage.log  watcher's absorbed-wake debug log (size-capped); never relied on, safe to delete
-  .wake-measure.log .wake-open-decisions-presented.*  the drain's size-capped forward wake measurement and each actor's last-shown OPEN DECISIONS (bin/fm-wake-drain.sh); never relied on, safe to delete
   .last-watcher-beat watcher liveness beacon, touched every poll (including while absorbing benign wakes); guard scripts read it
   .subsuper-* .supervise-daemon.*   sub-supervisor internals; never touch
 .no-mistakes/        local validation state and evidence; gitignored

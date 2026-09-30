@@ -38,9 +38,6 @@
 #   - TMPDIR/TMP point only at that root so mktemp/fm_test_tmproot stay private
 #   - ambient FM_HOME / FM_*_OVERRIDE cleared so no shared home is reused
 #   - no global git config mutation (snapshot before/after)
-#   - TREEHOUSE_ROOT points at a private stand-in for the user's real Treehouse
-#     root, and a candidate that creates a pool there fails (bin/fm-test-run.sh
-#     owns that check and why it replaces a before/after real-root comparison)
 #   - no production sharding and no retry-until-green
 #
 # Markers (stdout):
@@ -141,8 +138,7 @@ exclusion_reason() {
     fm-backend-autodetect-smoke.test.sh|fm-backend-herdr-eventwait-smoke.test.sh|\
     fm-backend-herdr-presentation-e2e.test.sh|fm-backend-herdr-prune-safety-e2e.test.sh|\
     fm-backend-herdr-respawn-idem-e2e.test.sh|fm-backend-herdr-smoke.test.sh|\
-    fm-backend-herdr-agent-exit-shell-e2e.test.sh|fm-teardown-herdr-restart-e2e.test.sh|\
-    fm-teardown-herdr-endpoint-only-e2e.test.sh|fm-control-herdr-exit-retire-e2e.test.sh|\
+    fm-backend-herdr-agent-exit-shell-e2e.test.sh|\
     fm-backend-herdr-workspace-per-home-e2e.test.sh|fm-herdr-session-cleanup-e2e.test.sh)
       printf '%s\n' 'real Herdr-gated; Herdr lane is a later phase'
       ;;
@@ -428,10 +424,6 @@ wait_one_slot() {
   script=${CANDIDATES[$((idx - 1))]}
   rc=$(cat "$work/out/exit" 2>/dev/null || echo 1)
   duration=$(cat "$work/out/duration_ms" 2>/dev/null || echo 0)
-  if ! "$ROOT/bin/fm-test-run.sh" --treehouse-stand-in-check "$work/treehouse-root"; then
-    rc=1
-    log "isolation failure: $script created Treehouse pools under its inherited root"
-  fi
   if [ "$rc" -eq 0 ] && gate_skip=$(detect_gate_skip "$work/out/output"); then
     rc=1
     log "pool $POOL candidate gate-skipped without proving concurrency: $script: $gate_skip"
@@ -495,7 +487,7 @@ for script in "${CANDIDATES[@]}"; do
   idx=$((idx + 1))
   work="$PROOF_ROOT/w$idx"
   # Create then chmod: mkdir -m can still be umask-adjusted on some platforms.
-  mkdir -p "$work/tmp" "$work/out" "$work/treehouse-root"
+  mkdir -p "$work/tmp" "$work/out"
   chmod 0700 "$work" "$work/tmp" "$work/out" \
     || die "could not chmod 0700 worker roots under $work"
   mode=$(dir_mode "$work")
@@ -516,7 +508,6 @@ for script in "${CANDIDATES[@]}"; do
     set +e
     export TMPDIR="$work/tmp"
     export TMP="$work/tmp"
-    export TREEHOUSE_ROOT="$work/treehouse-root"
     # Clear ambient fleet overrides so candidates cannot share a live home.
     unset FM_HOME FM_STATE_OVERRIDE FM_DATA_OVERRIDE FM_ROOT_OVERRIDE \
       FM_PROJECTS_OVERRIDE FM_CONFIG_OVERRIDE FM_BACKEND 2>/dev/null || true

@@ -76,15 +76,11 @@
 #     bin/fm-branch-prompt.sh "Postures" owns how the branch judges the
 #     captain's away words before invoking one. The
 #     relocation grants nothing beyond what main could do attended: it only
-#     changes which actor may reach the guarded script's own gate. Landing
-#     local-only work has no record-side gate of its own, so it keeps refusing
-#     the branch in both postures unless the home carries the captain's
-#     standing config/afk-land-green flag (bin/fm-afk-contract.sh "STANDING
-#     LANDING"), in which case bin/fm-merge-local.sh opts in and holds the
-#     record lock through the fast-forward. Retiring a secondmate has no
-#     record-side gate either and is never relocated: it keeps refusing the
-#     branch in both postures. An
-#     archived, absent, unconfirmed, or unreadable record is absence: the
+#     changes which actor may reach the guarded script's own gate. An action
+#     that has no record-side gate of its own - landing local-only work or
+#     retiring a secondmate - is never relocated and keeps refusing the branch
+#     in both postures. An archived, absent, unconfirmed, or unreadable record
+#     is absence: the
 #     attended refusal, byte for byte. The record is validated immediately
 #     before the guarded script's first persistent side effect and the lock is
 #     not held across the operation, so a return's archive is never blocked by

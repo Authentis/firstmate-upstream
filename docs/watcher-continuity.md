@@ -219,7 +219,7 @@ If a durable row arrived after the announcement, the arm opens a fresh pending d
 
 ### Generation reuse
 
-An ordinary watcher close attempts to publish downtime, and every durable queue append except a fold-class one (`bin/fm-wake-lib.sh` "fold-class rows") publishes it.
+An ordinary watcher close attempts to publish downtime, and every durable queue append publishes it.
 A handling successor closing to resurface recovery preserves the existing marker instead.
 If EXIT cleanup cannot acquire the downtime-marker lock within its bound, it retains the stale singleton for the next arm to publish the missing downtime before clearing that lock (see [Grace, beacon, and stop signals](#grace-beacon-and-stop-signals)).
 A downtime republication of a pending episode reuses its generation.
@@ -237,8 +237,7 @@ An acknowledgement carries two separable facts:
 A generation mismatch therefore does not block consumption of rows through that sequence.
 It is a non-fatal result that names its own remedy: re-drain, then acknowledge the newer episode.
 
-The acknowledgement retires the marker only when no rows remain after sequence-bound consumption, other than fold-class rows.
-Recovery likewise counts only non-fold rows, so a folded row waits for the next real wake or its digest and never comes back alone as `check: rearm-resurface`.
+The acknowledgement retires the marker only when no rows remain after sequence-bound consumption.
 A concurrently appended wake has a higher sequence, remains queued, and keeps the episode pending for presentation.
 Consequently, a watcher close during handling republishes the same generation as pending and forces one recovery turn even when no queue row remains, while the outstanding generation-bound acknowledgement stays valid.
 An acknowledged episode does not freeze the generation, because the next downtime after it opens an episode of its own.

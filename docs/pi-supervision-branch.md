@@ -255,8 +255,7 @@ The guards are wired into these scripts:
 
 A relaunch through `fm-control` stays branch-legal recovery in both postures.
 Under the away-posture record, the PR merge, a fresh spawn, and a decision answer relocate to the branch behind each script's own gate.
-Local-only landing does only when the home carries the standing `config/afk-land-green` setting ("Postures" below).
-Second-mate retirement never does.
+Local-only landing and second-mate retirement never do ("Postures" below).
 
 ### Autonomy
 
@@ -602,10 +601,7 @@ Each relocated script keeps its own gate, enforcing exactly what a script can ch
 | `bin/fm-pr-merge.sh` | Merges any pull request green at its live head, synchronously, under the record lock, and refuses `--allow-red` and `--allow-missing` while away, so the green gate is absolute in this posture; which pull request the words meant is the branch's reading. |
 | `bin/fm-spawn.sh` | Dispatches only queued work whose blockers cleared - already queued, or filed by the branch because the words explicitly call for it; refuses a fresh ordinary spawn for either actor once the home holds as many ordinary task records as the record's spend cap (relaunches and secondmates exempt). |
 | `bin/fm-send.sh --resolve-key` | Answers a decision the words pre-answer, or one `ask-user-authority`'s judgment (carried verbatim in the branch prompt) lets firstmate decide. |
-| `bin/fm-merge-local.sh` | Relocated only when the home carries the captain's standing `config/afk-land-green` setting, and then holds the record lock from a fresh validation through its unchanged fast-forward gates. |
-
-That setting also lets the branch land green, in-scope work without the words naming it.
-The read-back carries a `standing landing: on` line while it is present, and `bin/fm-branch-prompt.sh` "Postures" owns what in scope means.
+| `bin/fm-merge-local.sh` | Never relocated. |
 
 The merge-authority record and the outcome row's summary are the audit trail.
 The return brief renders the words verbatim beside that account.
@@ -652,7 +648,7 @@ At that moment the branch reports any refusal instead of concluding there is "no
 - Prompt stability, including the landed-work cleanup instruction and the second-mate relay, signal-span, and stale-liveness rules.
 - Store append-only behavior, the captain cursor barrier, processed-marker sequence bounds and absent-marker safety, and captain-only recorded ages.
 - Leases, guards, and non-branch-home invariance.
-- The away relocation: only under a valid live record, never for local-only landing without the standing landing setting, queued-only branch dispatch rather than orphaned in-flight recovery, the spend cap for both actors and its lock-held recheck, and the attended guarded-action behavior restored by archive or an invalid record.
+- The away relocation: only under a valid live record, never for local-only landing, queued-only branch dispatch rather than orphaned in-flight recovery, the spend cap for both actors and its lock-held recheck, and the attended guarded-action behavior restored by archive or an invalid record.
 
 `tests/fm-afk-return.test.sh` covers the ordered cleanup-due section, its durable merge-marker requirement, and exclusion of both a done task without durable merge evidence and a persistent secondmate carrying that evidence.
 

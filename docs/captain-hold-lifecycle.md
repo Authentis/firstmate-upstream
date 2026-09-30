@@ -149,8 +149,7 @@ It remains on the appropriate Captain's Call or Charted Next decision surface in
 
 Teardown already stages a pending-close record before destructive cleanup.
 That record carries the retention intent as a `mode=retain` line.
-A cleanup interrupted after removing its task record therefore replays the retention at the next session start through the same record, validator, and lock as an ordinary close, and never closes the row.
-A cleanup interrupted before that keeps both records for a teardown rerun.
+An interrupted cleanup therefore replays the retention at the next session start through the same record, validator, and lock as an ordinary close, and never closes the row.
 
 If the captain answers before replay, `answer` validates that record and copies any supported retained pull request or report into the row before closing it.
 Replay then retires the record.
@@ -167,7 +166,6 @@ They are recorded for separate upstream work rather than representing defects in
 
 When an interrupted retention leaves such a relocated report in the validated pending-close record, `answer` skips only that known-unsupported row artifact and closes normally.
 The delivery then remains absent from Recently Landed instead of wedging the captain's answer.
-A cleanup or replay closing such a row leaves that link off the same way, so the close lands instead of failing on every attempt.
 
 A pending-close record that fails validation outright is a different case, and it still refuses the answer.
 The refusal names the record and the validation reason, so the captain can repair it rather than facing a bare failure.
@@ -299,19 +297,7 @@ A successful normal answer also retires any pending request, because an answered
 
 Every retirement is checked.
 If request removal fails after an answer, close, or note is already durable, the durable outcome stands, but the command fails and leaves the pending request visible for retry.
-No path here closes a captain call without the captain's words through `answer`, the board-requested evidence through `reconcile close`, or the direct firstmate ruling through `rule` below.
-
-## Firstmate ruling: evidence without board mediation
-
-A call can also be settled by durable evidence firstmate finds on its own - an OPEN DECISIONS reconciliation that turns up a moot call, for one - with no board-created request behind it, because the captain never selected Reconcile on a card for it.
-`reconcile close` refuses that call for exactly the reason it exists: it requires the pending request the board's Reconcile selection creates.
-`bin/fm-captain-hold.sh rule <task-id> --evidence-file <path>` is the direct completion path for that case: same evidentiary standard as `reconcile close` - a non-empty evidence file governs, never an assertion - reached without the board-request precondition, because the discovery here is firstmate's own.
-It writes a resolution record whose mode is `ruled` and whose body is the supplied EVIDENCE under a `Firstmate ruling:` label, distinct from both `Captain decision:` and `Reconciliation evidence:` so the record can never be mistaken for the captain's own word or for a board-mediated reconciliation.
-When the named task is still actively held for the captain, `rule` closes it exactly as `reconcile close` does.
-When the named task is already closed with no resolution record of any kind - captain-held or not - `rule` retroactively attaches the same truthful record instead of closing anything again, which is what lets a truthful ordinary task closure satisfy `verify`'s completion gate without being forced through `answer`'s captain-provenance record (the same gap `answer`'s retroactive `repaired` record leaves for a captain-held task closed out of band, but without fabricating captain words for evidence firstmate alone found).
-A task neither held for the captain nor already closed has nothing to rule on and is refused, exactly like `reconcile close` refuses a task with no captain call.
-An exact retry is idempotent; a different evidence text, or a task already closed under a different resolution mode, is refused rather than relabeled.
-`rule` needs no pending reconcile request, but retires one if present when it closes a still-held task, exactly as a normal answer would; it is never fed by the keyed-answer intake, because it is a direct, deliberately invoked command, not a channel-fed captain answer.
+No path here closes a captain call without either the captain's words through `answer` or the evidence through `reconcile close`.
 
 ## Card hygiene: a landed subject is not a live call
 
@@ -606,11 +592,6 @@ The captured-source coverage proves:
 - Chat reconcile text creates none.
 - The resulting board request authorizes evidence-backed closure.
 
-### Firstmate-ruling coverage
-
-The firstmate-ruling path is pinned alongside it: `rule` closes an actively held call with evidence and no pending board request - the exact case `reconcile close` refuses - recording a `ruled` resolution mode under a `Firstmate ruling:` label that is never mistaken for `Captain decision:` or `Reconciliation evidence:`; an identical retry is idempotent, a drifted evidence retry is refused, an unheld and unfinished task has nothing to rule on, and a resolution closed by `rule` cannot replay as a captain answer.
-It also proves the retroactive attestation: a captain-held task closed out of band with no resolution record, and an ordinary task that was never held for the captain at all, can both be ruled after the fact with the same truthful record, which is what lets `verify`'s completion gate accept a truthful ordinary closure instead of forcing it through `answer`'s captain-provenance record; and a secondmate home publishes a ruling's parent-channel resolution exactly once across an idempotent retry.
-
 ### Board suite
 
 The board's half is pinned in `tests/fm-bearings-board.test.sh`:
@@ -626,7 +607,7 @@ The board's half is pinned in `tests/fm-bearings-board.test.sh`:
 
 That suite drives its Lavish session through a protocol-shaped stub.
 `tests/fm-bearings-board-lavish-live-e2e.test.sh` is the default-on capability guard for the installed provider, and [`verification/process-event-sources.md`](verification/process-event-sources.md) owns the version-scoped evidence.
-[`verification/process-event-sources.md`](verification/process-event-sources.md) owns the process-event ownership and reclamation evidence exercised by `tests/fm-procevent.test.sh` and `tests/fm-procevent-ownership.test.sh`.
+[`verification/process-event-sources.md`](verification/process-event-sources.md) owns the process-event ownership and reclamation evidence exercised by `tests/fm-procevent.test.sh`.
 
 ### Classifier and projection suites
 
@@ -647,7 +628,7 @@ The exact commands and their summarized outputs are recorded in the shipping PR'
 To refresh this record, run:
 
 - The four suites above: `tests/fm-captain-hold-lifecycle.test.sh`, `tests/fm-classify-decision-key.test.sh`, `tests/fm-fleet-snapshot-view.test.sh`, and `tests/fm-bearings-snapshot.test.sh`.
-- `tests/fm-send-resolve-key.test.sh`, `tests/fm-bearings-board.test.sh`, and the three `tests/fm-procevent*.test.sh` runner suites.
+- `tests/fm-send-resolve-key.test.sh`, `tests/fm-bearings-board.test.sh`, and `tests/fm-procevent.test.sh`.
 - `bin/fm-lint.sh`.
 
 After a lavish-axi upgrade, run `FM_BEARINGS_LAVISH_LIVE=1 tests/fm-bearings-board-lavish-live-e2e.test.sh`.

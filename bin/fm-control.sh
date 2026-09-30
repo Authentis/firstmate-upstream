@@ -32,9 +32,8 @@
 #              an idle agent (Devin's revert picker) sends its later presses
 #              only after the first press rendered a running turn, and
 #              otherwise reports `cancel=not-running` having sent one press.
-#   exit       Stop the agent, preserving its worktree, every uncommitted
-#              change, and (apart from the Herdr hand-off below) its terminal
-#              endpoint. Interrupts first when the task reads
+#   exit       Stop the agent, preserving its terminal endpoint, worktree, and
+#              every uncommitted change. Interrupts first when the task reads
 #              busy, then submits the harness's exit command. Postcondition:
 #              the backend's recovery-grade classifier reports the agent gone.
 #              Already-stopped is success (idempotent). An endpoint that reads
@@ -52,11 +51,6 @@
 #              endpoint, so this verb cannot tell a destroyed window from one on
 #              a tmux server it cannot address, and it will not claim a stop it
 #              cannot see.
-#              Once a Herdr ship or scout reads stopped, exit hands its unused
-#              pane to bin/fm-teardown.sh --endpoint-only and prints
-#              `pane=retired` or `pane=kept` with that owner's reason, so a
-#              closed agent does not leave an idle shell behind; relaunch's own
-#              stop never does, because it reuses the endpoint.
 #   relaunch   Transactionally replace the running agent with a new one, in the
 #              SAME worktree - and the same endpoint whenever that endpoint
 #              still exists - on the same or a newly chosen
@@ -94,9 +88,9 @@
 #              running.
 #
 # Teardown and discard are NOT verbs here and never will be. `exit` stops an
-# agent and preserves everything else; removing a worktree, closing an
-# endpoint (including exit's Herdr pane hand-off), or discarding work stays
-# with bin/fm-teardown.sh, which owns the landed-work test.
+# agent and preserves everything else; removing a worktree, killing an
+# endpoint, or discarding work stays with bin/fm-teardown.sh, which owns the
+# landed-work test.
 #
 # `resume` is not a verb: it is not deterministic across the verified adapters
 # (bin/fm-control-lib.sh's header owns that reasoning). `relaunch` covers the
@@ -125,10 +119,7 @@
 #   - An ambiguous or unreadable endpoint state refuses; only a positively
 #     classified state acts.
 #   - A composer that visibly holds pending text refuses before an exit command
-#     is typed, naming that text, so existing text is preserved instead of
-#     being concatenated. The one exception is this task's own exact steering
-#     doorbell on a harness with a verified row-clear key (Claude), which is
-#     cleared and verified empty first (clear_own_doorbell).
+#     is typed, so existing text is preserved instead of being concatenated.
 #
 # Environment knobs (all bounded waits, seconds):
 #   FM_CONTROL_POLL              poll interval for postcondition waits (0.5)
@@ -185,10 +176,6 @@ DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 . "$SCRIPT_DIR/fm-wake-lib.sh"
 # shellcheck source=bin/fm-worker-account-lib.sh
 . "$SCRIPT_DIR/fm-worker-account-lib.sh"
-# shellcheck source=bin/fm-task-inbox-lib.sh
-. "$SCRIPT_DIR/fm-task-inbox-lib.sh"
-# shellcheck source=bin/fm-composer-lib.sh
-. "$SCRIPT_DIR/fm-composer-lib.sh"
 
 POLL=${FM_CONTROL_POLL:-0.5}
 SETTLE_WAIT=${FM_CONTROL_SETTLE_WAIT:-5}
@@ -549,7 +536,7 @@ verify_interrupt_running() {
     after=$(agent_state)
     [ "$after" = alive ] \
       || die "task $ID's agent is '$after' after its interrupt key; an interrupt must leave the agent running"
-    proof='agent-alive'
+    proof=agent-alive
   fi
   printf '%s' "$proof"
 }
@@ -565,38 +552,6 @@ retire_busy_incarnation() {
   if [ -f "$STATE/$ID.busy-gen" ]; then
     "$SCRIPT_DIR/fm-busy-event.sh" retire "$STATE" "$ID" --current-gen >/dev/null 2>&1 || true
   fi
-}
-
-# clear_own_doorbell: when the composer's pending text is exactly this task's
-# own steering doorbell - a ring whose Enter never landed - delete it with the
-# harness's row-clear key and wait until the composer reads empty. The doorbell
-# only names the durable inbox record, which stays unacknowledged and is still
-# delivered after a relaunch, so clearing it loses nothing. Any other text is
-# refused, naming it, because it may be someone's real unsent input.
-clear_own_doorbell() {  # <exit-command>
-  local cmd=$1 held line key presses i=0 elapsed=0 state
-  held=$(fm_task_inbox_composer_text "$BACKEND" "$T" "$LABEL") || held=
-  held=${held//[$'\r\n\t']/ }
-  line=$(fm_task_inbox_task_doorbell_line "$STATE" "$ID") || line=
-  key=$(fm_control_composer_clear_key "$HARNESS")
-  if [ -z "$line" ] || [ -z "$key" ] || ! fm_task_inbox_is_line "$held" "$line" \
-     || ! fm_control_backend_supports_key "$BACKEND" "$key"; then
-    die "task $ID's composer visibly holds pending text (\"${held:0:120}\"); refusing to type the $cmd exit command because it would concatenate onto that text. Clear or submit the pending text, then retry '$VERB'"
-  fi
-  presses=$(fm_composer_clear_presses "$line")
-  while [ "$i" -lt "$presses" ]; do
-    fm_backend_send_key "$BACKEND" "$T" "$key" "$LABEL" >/dev/null 2>&1 \
-      || die "task $ID's composer holds this task's own unsent steering doorbell, and clearing it failed; refusing to type the $cmd exit command"
-    i=$((i + 1))
-  done
-  while :; do
-    state=$(fm_backend_composer_state "$BACKEND" "$T" "$LABEL" 2>/dev/null) || state=unknown
-    [ "$state" = empty ] && return 0
-    awk -v e="$elapsed" -v t="$SETTLE_WAIT" 'BEGIN{exit !(e < t)}' || break
-    sleep "$POLL"
-    elapsed=$(awk -v e="$elapsed" -v p="$POLL" 'BEGIN{printf "%.3f", e + p}')
-  done
-  die "task $ID's composer held this task's own unsent steering doorbell, and after clearing it the composer reads '$state', not empty; refusing to type the $cmd exit command"
 }
 
 # do_exit: stop the running agent, preserving endpoint and worktree. Prints
@@ -673,7 +628,9 @@ do_exit() {
     || composer_state=unknown
   case "$composer_state" in
     empty) ;;
-    pending) clear_own_doorbell "$cmd" ;;
+    pending)
+      die "task $ID's composer visibly holds pending text; refusing to type the $cmd exit command because it would concatenate onto that text. Clear or submit the pending text, then retry '$VERB'"
+      ;;
     *)
       die "task $ID's composer state is '$composer_state', not proven empty; refusing to type the $cmd exit command because it could concatenate onto existing text. Clear the composer, then retry '$VERB'"
       ;;
@@ -695,30 +652,6 @@ do_exit() {
   # orphaned generation survives the agent that produced it.
   retire_busy_incarnation
   printf 'stopped'
-}
-
-# retire_stopped_pane <exit-result>: after the exit verb (never relaunch's
-# internal stop, which reuses the endpoint) proved a Herdr ship or scout's
-# agent gone, hand its now-unused pane to the one owner allowed to close it,
-# bin/fm-teardown.sh --endpoint-only. That owner re-proves the agent gone and
-# keeps the pane for an open decision, uncommitted work, or an unfinished
-# validation run, and keeps every record, copy, branch, and backlog item either
-# way. The stop already holds, so a kept pane is reported, never an exit
-# failure. The control lock is released first because teardown takes it.
-retire_stopped_pane() {
-  local out rc=0
-  case "$1" in stopped|already-stopped) ;; *) return 0 ;; esac
-  [ "$BACKEND" = herdr ] || return 0
-  case "$KIND" in ship|scout) ;; *) return 0 ;; esac
-  CONTROL_LOCK_HELD=0
-  fm_lock_release "$CONTROL_LOCK" || true
-  fm_lease_guard_release || true
-  out=$("$SCRIPT_DIR/fm-teardown.sh" "$ID" --endpoint-only 2>&1) || rc=$?
-  if [ "$rc" -eq 0 ]; then
-    echo "pane=retired $ID endpoint=$T"
-  else
-    echo "pane=kept $ID endpoint=$T: $(printf '%s' "$out" | tr '\n' ' ')"
-  fi
 }
 
 # --- transactional relaunch -------------------------------------------------
@@ -1016,9 +949,8 @@ record_note() {
         echo "uncommitted change are exactly as the previous worker left them."
         echo
         echo "First, check your instruction inbox: list $STATE/$ID.inbox/*.msg, act on"
-        echo "each message in numeric order, then acknowledge each handled file by running:"
-        echo "$SCRIPT_DIR/fm-inbox-ack.sh $STATE/$ID.inbox NNN.msg"
-        echo "A steer sent before the relaunch survives there."
+        echo "each message in numeric order, then mv each handled file into"
+        echo "$STATE/$ID.inbox/handled/. A steer sent before the relaunch survives there."
         echo
         printf '%s\n' "$NOTE"
       } >> "$RELAUNCH_BRIEF" \
@@ -1134,7 +1066,6 @@ case "$VERB" in
   exit)
     result=$(do_exit)
     echo "$result $ID harness=$HARNESS backend=$BACKEND endpoint=$T worktree=$WT"
-    retire_stopped_pane "$result"
     ;;
   relaunch)
     do_relaunch

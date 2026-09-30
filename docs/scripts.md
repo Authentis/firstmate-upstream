@@ -79,9 +79,7 @@ The shared no-mistakes gate lifecycle boundary is summarized in [architecture.md
 | `fm-review-diff.sh`      | Review a crewmate branch or resolved PR head against the authoritative base          |
 | `fm-marker-lib.sh`       | Compatibility entry point for the from-firstmate carrier owned by `fm-operational-input.sh` |
 | `fm-task-inbox-lib.sh`   | Single owner of durable steering-inbox records, acknowledgement, doorbells, and the delivery-attempt ladder |
-| `fm-inbox-ack.sh`        | Acknowledgement helper the doorbell and generated brief/relaunch text invoke by absolute path, moving a steering-inbox record into `handled/` via a relative `mv` so the command line never names an absolute-path relocation |
-| `fm-pending-reply-lib.sh` | Parent-owned secondmate pending-reply expectations, recovery, keyed escalation lifecycle, bounded per-poll tick, and settled-record archive |
-| `fm-pending-reply.sh`    | Owner command to list a task's pending-reply records and retire obsolete unsettled ones so they can never repost |
+| `fm-pending-reply-lib.sh` | Parent-owned secondmate pending-reply expectations, recovery, and keyed escalation lifecycle |
 | `fm-secondmate-report.sh` | Optional helper that resolves the parent channel itself and appends a correlated status or document-pointer report |
 | `fm-extension.mjs`       | Bind, inspect, verify, and strictly invoke trusted external process-event adapter packages |
 | `fm-extension-launch-barrier.mjs` | Publish one exact static core-owned invocation group before package code runs |
@@ -140,14 +138,14 @@ The shared no-mistakes gate lifecycle boundary is summarized in [architecture.md
 | `fm-pr-poll.sh`          | Provide the byte-static watcher program for validated pull-request, merge-request, and Gerrit-change poll sidecars |
 | `fm-contributions.sh`    | Observe owned publications, retain exact-head judgments, measure required actors, and wake on maintainer signals |
 | `fm-pr-check.sh`         | Record validated task `pr=` and `pr_head=` values, then atomically arm a static merge poll; refuses GitHub drafts and persistent secondmate records (see [architecture.md](architecture.md)) |
-| `fm-pr-merge.sh`         | Record PR metadata, merge a task's canonical full GitHub or GitLab URL, refuse a Gerrit change because firstmate never submits one, then refuse an outcome it cannot prove landed or queued, and delete a proven merge's same-repository remote head branch |
+| `fm-pr-merge.sh`         | Record PR metadata, merge a task's canonical full GitHub or GitLab URL, refuse a Gerrit change because firstmate never submits one, then refuse an outcome it cannot prove landed or queued |
 | `fm-pr-state.sh`         | Read-only: print one line per GitHub pull-request blocker it can see, reporting on checks that have reported rather than verdicting merge-readiness |
 | `fm-pr-reviewers.sh`     | Read-only: suggest reviewers from GitHub's own author mapping of recent commits on a pull request's changed files, never requesting one |
 | `fm-merge-outcome-lib.sh` | Publish a confirmed merge's durable, role-routed supervision outcome                 |
 | `fm-merge-authority-lib.sh` | Resolve merge authority at the gate, persist it against the accepted canonical PR, and identity-check its later poll consumption |
 | `fm-parent-channel-lib.sh` | Resolve a secondmate home's parent channel and append a captain-facing outcome line to it at most once |
 | `fm-promote.sh`          | Promote a scout task in place to a protected ship task with an explicit delivery mode, write the ship instructions carrying that mode's definition of done, and supersede the task's brief so a later relaunch cannot revive stale scout delivery text |
-| `fm-teardown.sh`         | Fail-closed teardown: return landed ship worktrees, retire proven-landed `preserve/`, `archive/`, and `work/*-baseline` refs, require completed scout deliverables, retire secondmate homes |
+| `fm-teardown.sh`         | Fail-closed teardown: return landed ship worktrees, require completed scout deliverables, retire secondmate homes |
 | `fm-harness.sh`          | Detect the running harness, resolve crew or secondmate harness, model, and effort, and validate the native-only `ultra` effort |
 | `fm-lock.sh`             | Per-home firstmate session lock                                                      |
 | `fm-x-lib.sh`            | Shared Relay config, relay, and reply-threading helpers                              |

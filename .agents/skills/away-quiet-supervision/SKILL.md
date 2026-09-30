@@ -20,5 +20,5 @@ These safety facts apply to both:
 - A marked message while away or quiet mode is active is internal escalation and does not exit that mode.
 - A message beginning `/afk` refreshes away mode; a message beginning `/quiet` refreshes quiet mode.
 - Any other unmarked message means the captain returned in away mode (load `/afk`, run the return owner, and do not process that message as ordinary work until its durable catch-up gate clears), or, in quiet mode, is simply answered as ordinary work with the flag and daemon left untouched until an explicit `/quiet off`.
-- Away and quiet mode never expand approval authority, beyond the captain's own standing `config/afk-land-green` setting for green, in-scope landings, for merges, ask-user findings, destructive actions, irreversible actions, or security-sensitive choices.
+- Away and quiet mode never expand approval authority for merges, ask-user findings, destructive actions, irreversible actions, or security-sensitive choices.
 - Bias ambiguous input toward exit because a present captain takes precedence.

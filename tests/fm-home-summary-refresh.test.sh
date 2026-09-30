@@ -46,13 +46,8 @@ command -v jq >/dev/null 2>&1 || { echo "skip: jq not found"; exit 0; }
 cat > "$FAKEBIN/tmux" <<'SH'
 #!/usr/bin/env bash
 case "${1:-}" in
-  display-message|capture-pane)
-    [ "${FM_TEST_TMUX_STOPPED:-0}" = 1 ] && exit 1
-    if [ "$1" = display-message ]; then printf '%%1\n'; else printf 'fixture pane\n> \n'; fi
-    ;;
-  list-windows)
-    # A successful empty inventory proves the recorded endpoint stopped.
-    ;;
+  display-message) printf '%%1\n' ;;
+  capture-pane) printf 'fixture pane\n> \n' ;;
 esac
 exit 0
 SH
@@ -166,63 +161,6 @@ jq -S 'del(.generated, .generated_epoch)' "$TMP_ROOT/fresh-summary.json" \
 cmp -s "$TMP_ROOT/published-normalized.json" "$TMP_ROOT/fresh-normalized.json" \
   || fail "the status-triggered ledger differed from the real fresh producer"
 pass "watcher-carried status append publishes the real home summary"
-
-# A positively stopped endpoint with preserved work is not an unavailable
-# child when the in-flight row is durably held for the captain. The same stopped
-# endpoint without that durable hold remains invalid, so stopped never hides a
-# worker that still needs recovery.
-printf 'preserved local branch work\n' > "$HOME_DIR/projects/task/preserved.txt"
-git -C "$HOME_DIR/projects/task" add preserved.txt
-git -C "$HOME_DIR/projects/task" -c user.name=fmtest -c user.email=fmtest@example.invalid \
-  commit -qm 'preserve stopped task work'
-cat > "$HOME_DIR/data/backlog.md" <<'EOF'
-## In flight
-- [ ] ledger-task - Publish the home ledger (repo: firstmate) (kind: ship) (hold: choose the next delivery) (hold-kind: captain) (since 2026-08-28)
-
-## Queued
-
-## Done
-EOF
-printf 'needs-decision [key=ledger-next]: choose the next delivery\n' > "$HOME_DIR/state/ledger-task.status"
-FM_TEST_TMUX_STOPPED=1 run_producer "$NOW_TWO" "$EPOCH_TWO" > "$TMP_ROOT/stopped-held-summary.json" \
-  || fail "stopped held summary production failed"
-jq -e '
-  .valid == true
-  and .state == "captain_decision"
-  and .invalidity == {kind:null,ids:[]}
-  and (.decisions_open | any(.key == "ledger-next"))
-  and (.endpoints | any(.id == "ledger-task" and .state == "stopped" and .source == "endpoint"))
-' "$TMP_ROOT/stopped-held-summary.json" >/dev/null \
-  || fail "a stopped captain-held task invalidated the home summary"
-cat > "$HOME_DIR/data/backlog.md" <<'EOF'
-## In flight
-- [ ] ledger-task - Publish the home ledger (repo: firstmate) (kind: ship) (since 2026-08-28)
-
-## Queued
-
-## Done
-EOF
-FM_TEST_TMUX_STOPPED=1 run_producer "$NOW_TWO" "$EPOCH_TWO" > "$TMP_ROOT/stopped-unheld-summary.json" \
-  || fail "stopped unheld summary production failed"
-jq -e '
-  .valid == false
-  and .state == "unknown"
-  and .invalidity == {kind:"child_current_unavailable",ids:["ledger-task"]}
-' "$TMP_ROOT/stopped-unheld-summary.json" >/dev/null \
-  || fail "a stopped task without a hold was hidden from recovery"
-printf 'blocked [key=ledger-blocker]: awaiting the fixed external dependency\n' > "$HOME_DIR/state/ledger-task.status"
-FM_TEST_TMUX_STOPPED=1 run_producer "$NOW_TWO" "$EPOCH_TWO" > "$TMP_ROOT/stopped-blocked-summary.json" \
-  || fail "stopped blocked summary production failed"
-jq -e '
-  .valid == true
-  and .state == "externally_held"
-  and .invalidity == {kind:null,ids:[]}
-  and (.holds | any(.id == "ledger-task" and .source == "child-state"))
-' "$TMP_ROOT/stopped-blocked-summary.json" >/dev/null \
-  || fail "a stopped task with an open blocker did not remain held"
-# Restore the ordinary active fixture the remaining publication checks cover.
-printf 'working: replacement summary is being computed\n' > "$HOME_DIR/state/ledger-task.status"
-pass "stopped captain-held work stays truthful while unheld work remains invalid"
 
 # A structured in-flight inventory above Linux MAX_ARG_STRLEN must remain
 # publishable through both fleet snapshot modes and the real home-summary writer.
@@ -792,86 +730,6 @@ jq -e '
 ' "$TMP_ROOT/stalled-summary.json" >/dev/null \
   || fail "an unreachable remote task was not reported as unknown"
 pass "producer skips remote per-task state probes"
-
-# A long-lived remote secondmate is the heaviest real input: its whole mirrored
-# status stream is folded locally, and that stream holds thousands of keyed
-# transitions and terminal reports with long notes while dozens of decisions
-# stay open. A live home of this shape made every refresh outlast its 60-second
-# deadline, so the ledger went stale while spawn, teardown, and session start
-# each waited out the full deadline. The home must publish its complete open
-# set inside a quarter of the default deadline, without probing the stalled
-# remote transport.
-MIRROR_HOME="$TMP_ROOT/mirror-home"
-mkdir -p "$MIRROR_HOME/state" "$MIRROR_HOME/data" "$MIRROR_HOME/config" \
-  "$MIRROR_HOME/projects"
-printf '# Seeded Firstmate home\n' > "$MIRROR_HOME/AGENTS.md"
-printf 'mirror\n' > "$MIRROR_HOME/.fm-secondmate-home"
-cat > "$MIRROR_HOME/data/backlog.md" <<'EOF'
-## In flight
-
-## Queued
-
-## Done
-EOF
-cat > "$MIRROR_HOME/data/secondmates.md" <<'EOF'
-- msm - mirrored test domain (host: remote-mac; root: /remote/root; home: /remote/home; scope: mirrored testing; projects: alpha; added 2026-08-02)
-EOF
-fm_write_meta "$MIRROR_HOME/state/msm.meta" \
-  "window=remote:msm" \
-  "endpoint_task_id=msm" \
-  "worktree=/remote/home/never-locally-present" \
-  "harness=claude" \
-  "kind=secondmate" \
-  "mode=secondmate" \
-  "home=/remote/home" \
-  "remote_host=remote-mac" \
-  "remote_root=/remote/root" \
-  "remote_backend=herdr" \
-  "remote_herdr_session=fm-remote" \
-  "remote_target=fm-remote:w1:p1"
-python3 - "$MIRROR_HOME/state/msm.status" "$TMP_ROOT/mirror-open-keys" <<'PY'
-import sys
-note = ("the secondmate re-read its charter, reconciled the routed request, "
-        "and reported the outcome with its evidence and next step ") * 6
-still_open = set()
-with open(sys.argv[1], "w") as handle:
-    for i in range(1800):
-        handle.write(f"done: corr={i:016x} {note}({i})\n")
-        if i % 3 == 0:
-            key = f"gate-{i // 3}"
-            verb = "needs-decision" if i % 2 else "blocked"
-            handle.write(f"{verb} [key={key}]: {note}({i})\n")
-            still_open.add(key)
-            if (i // 3) % 13:
-                handle.write(f"resolved [key={key}]: answered at {i}\n")
-                still_open.discard(key)
-with open(sys.argv[2], "w") as handle:
-    handle.write("\n".join(sorted(still_open)) + "\n")
-PY
-started=$(date +%s)
-PATH="$FAKEBIN:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$MIRROR_HOME" \
-  FM_SSH_BIN="$TMP_ROOT/sshbin/stalled-ssh" FM_TEST_SSH_CALLED="$TMP_ROOT/mirror-ssh.called" \
-  FM_SNAPSHOT_NOW="$NOW_ONE" FM_SNAPSHOT_NOW_EPOCH="$EPOCH_ONE" \
-  FM_HOME_SUMMARY_TIMEOUT=15 "$WRITER" --best-effort \
-  || fail "mirrored-secondmate publication changed the best-effort caller result"
-elapsed=$(( $(date +%s) - started ))
-[ -f "$MIRROR_HOME/state/home-summary.json" ] \
-  || fail "a home with a long mirrored secondmate stream did not publish within a 15-second deadline ($elapsed s): $(cat "$MIRROR_HOME/state/.home-summary-refresh.log" 2>/dev/null)"
-[ ! -e "$TMP_ROOT/mirror-ssh.called" ] \
-  || fail "publication probed the stalled remote transport"
-jq -e --arg home "$MIRROR_HOME" --rawfile keys "$TMP_ROOT/mirror-open-keys" '
-  ($keys | split("\n") | map(select(length > 0)) | sort) as $want
-  | .schema == "fm-secondmate-home-summary.v1"
-  and .home == $home
-  and .counts.decisions_open == ($want | length)
-  and (.decisions_open | length) > 0
-  and all(.decisions_open[]; .id == "msm" and (.key as $k | $want | index($k) != null))
-  and ((.decisions_open | length)
-       + ([.omitted[] | select(.surface == "decisions_open") | .count] | add // 0)) == ($want | length)
-  and any(.endpoints[]; .id == "msm" and .state == "unknown")
-' "$MIRROR_HOME/state/home-summary.json" >/dev/null \
-  || fail "the mirrored-secondmate ledger does not carry exactly its still-open decisions: $(jq -c '{counts, omitted, keys: [.decisions_open[] | .key]}' "$MIRROR_HOME/state/home-summary.json")"
-pass "publication stays bounded on a long mirrored secondmate stream (${elapsed}s)"
 
 # The watcher's beacon is what the rest of supervision reads as proof it is
 # alive. Publication is side-band, so no matter how long it takes, the beacon

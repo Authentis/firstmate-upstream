@@ -8,7 +8,7 @@ Start with the directory layout, then use the setting reference for the behavior
 | What you want to configure | Start here |
 | --- | --- |
 | Firstmate's code, private files, or project location | [FM_HOME](#fm_home) and [operational home layout](#operational-home-layout-and-state) |
-| Task windows and worker tools | [Runtime backend](#runtime-backend-configbackend--fm_backend), [harness support](#harness-support), and [OpenCode binary](#opencode-binary-configopencode-bin) |
+| Task windows and worker tools | [Runtime backend](#runtime-backend-configbackend--fm_backend) and [harness support](#harness-support) |
 | Worker permissions, accounts, or environment | [Claude permission mode](#claude-permission-mode-configclaude-permission-mode), [worker account pin](#worker-account-pin-configclaude-account-configpi-account), and [worker launch environment](#worker-launch-environment-configlaunch-env-allowlist) |
 | Backlog, preferences, and memory | [Backlog backend](#backlog-backend-taskstoml--configbacklog-backend), [captain preferences](#captain-preferences-datacaptainmd--datacaptain-sharedmd), and [startup memory budget](#startup-memory-budget-configstartup-memory-budget) |
 | Supervision and presentation | [Pi supervision branch](#pi-supervision-branch), [supervision host](#supervision-host-configsupervision-host), and [Calm preference](#calm-preference-configcalm) |
@@ -603,16 +603,6 @@ The flag is a home-local supervision-noise preference and is not inherited by se
 
 [`architecture.md`](architecture.md) owns the wait-evidence contract and which records may take the ladder away; `bin/fm-watch.sh`'s `wedge_wait_evidence` owns the exact derivation and its fail-closed boundaries.
 
-## Away green landing (config/afk-land-green)
-
-The optional local, gitignored `config/afk-land-green` presence flag is the captain's standing setting that away mode does not hold green, in-scope landings until the captain returns.
-While the away-posture record exists, the away session lands them through the guarded merge scripts even when the away words do not name them: `bin/fm-pr-merge.sh` for a pull request green at its live head, and `bin/fm-merge-local.sh` for a ready local-only branch.
-Every guard of those scripts is unchanged: green at the live head, no `--allow-red`, no asynchronous or queued merge while away, a clean fast-forward only, and no landing while a captain hold stands.
-Destructive, irreversible, and security-sensitive changes still wait for the captain, and the read-back shows a `standing landing: on` line while the flag is present.
-With the flag absent, local-only landing waits for the captain's return exactly as before.
-The flag is a home-local authority choice and is not inherited by secondmate homes.
-`bin/fm-afk-contract.sh` "STANDING LANDING" owns the mechanics and `bin/fm-branch-prompt.sh` "Postures" owns what in scope means.
-
 ## Gate defaults (.no-mistakes.yaml)
 
 The tracked `.no-mistakes.yaml` sets `test.evidence.store_in_repo: true` and pins `commands.lint` to `bin/fm-lint.sh`, the same owner CI invokes.
@@ -809,21 +799,6 @@ Its `remove` action excises only the marker-delimited Firstmate region and remov
 For Pi and pi-signed secondmate launches, `fm-spawn.sh` starts the selected executable with `-e` pointed at the secondmate home's own tracked `.pi/extensions/fm-primary-pi-watch.ts` and `.pi/extensions/fm-primary-turnend-guard.ts`, both already present from the secondmate home's git worktree.
 
 For omp secondmate launches, `fm-spawn.sh` passes no `-e` at all: omp auto-discovers the home's tracked `.omp/extensions/` with no trust gate, and naming a discovered file with `-e` as well loads it twice; every omp launch instead carries the tracked `.omp/fm-worker-overlay.yml` posture overlay through `--config`, which [`fm-spawn.sh --help`](../bin/fm-spawn.sh) owns.
-
-## OpenCode binary (config/opencode-bin)
-
-Every OpenCode worker, scout, and secondmate launch runs one absolute executable path, never the bare name `opencode`, because a worker pane's login shell can put a different CLI of that name first on its own PATH.
-The optional local, gitignored `config/opencode-bin` holds that path as one line.
-
-When the file is present, the launch uses exactly that path, which must be absolute and executable.
-When it is absent, `fm-spawn.sh` resolves `opencode` from its own environment's PATH to an absolute path and launches that.
-
-Either way, the spawn runs `<path> --version` before any pane exists and accepts only the verified 1.x line.
-A missing, relative, non-executable, or wrong-version path refuses the spawn and names this file as the fix; a configured path never falls back to PATH.
-
-The file is not inherited into secondmate homes, because the inherited set also reaches remote hosts, where a local path would be wrong.
-A local secondmate agent is launched from this home's file, while its own workers read the secondmate home's file or that home's PATH.
-A remote secondmate's workers are spawned on the remote host from its own home, so create the file there with the path as seen on that host.
 
 ## Claude permission mode (config/claude-permission-mode)
 
@@ -1364,12 +1339,6 @@ This section is the single owner of the canonical schema.
       "version_args": ["<optional args that make it print its version, default --version>"],
       "announce_pattern": "<optional extended regex matching the tool's own update announcement>",
       "announce_args": ["<optional args for the command that carries that announcement, default version_args>"],
-      "update_args": ["<optional args that make `command` apply its own update, e.g. [\"update\"]>"],
-      "npm_package": "<optional npm package that installs `command`, e.g. tasks-axi>",
-      "github_release": "<optional <owner>/<repo> whose latest GitHub release is the update source>",
-      "class": "<optional apply class: auto, quiet, or manual; default manual>",
-      "pin": "<optional highest version the applier may install, e.g. 1.2.3>",
-      "health_args": ["<optional args that must exit 0 after an update, e.g. [\"status\"]>"],
       "git": {
         "repo": "<optional absolute path to a local clone>",
         "remote": "<optional remote name, default origin>",
@@ -1392,12 +1361,6 @@ This section is the single owner of the canonical schema.
 - An omitted `branch` uses the remote's default branch, taken from the clone's own record of it and otherwise asked of the remote directly, so a `--single-branch` clone still resolves.
 
 Both probe kinds are read-only and bounded, and a probe that cannot answer is reported as a check failure rather than assumed current.
-`npm_package` is for a `command` tool that has no self-update command of its own and is installed from npm, such as `tasks-axi`, `quota-axi`, or `lavish-axi`.
-The check reports `update available` when `npm view <package> version` names a newer version than the copy `PATH` resolves, and an unreadable or unanswered registry read is a check failure.
-`github_release` is for a `command` tool with no announcement of its own, such as treehouse or herdr: the check asks `gh api repos/<owner>/<repo>/releases/latest` for the latest tag, read-only and bounded, and reports `update available` when that tag names a newer version than the copy `PATH` resolves; a missing `gh`, an unanswered read, or a tag with no version is a check failure, never assumed current.
-A `pin` still lets the check report a newer version, with `(pinned at <pin>)` appended, because the pin holds back the applier, not the news.
-`update_args`, `class`, and `health_args` are consumed only by the applier below; the check never reads them and never applies anything itself.
-A `command` entry sets at most one of `update_args` or `npm_package`, and one with neither is reported manual-only by the applier rather than guessed at; a `git` entry needs no extra field because its existing `repo`/`remote`/`branch` are enough to attempt a fast-forward pull.
 See [`docs/examples/watched-tools.json`](examples/watched-tools.json) for a starting point to copy into local `config/watched-tools.json`.
 
 **Arm, edit, and disarm**
@@ -1427,72 +1390,6 @@ Arm the check once per home with `bin/fm-tool-update-check.sh arm`.
 - The sweep must finish inside `FM_CHECK_TIMEOUT` (default 30), because a run the watcher kills prints nothing and records nothing and would then repeat that silence on every poll.
 - So a budget larger than that timeout allows is cut down to what fits instead of being refused, and the cut is reported in the report line.
 - A budget that is not a whole number from 1 to 120 is still refused outright.
-
-Detection is only half of it: [`bin/fm-tool-update.sh`](../bin/fm-tool-update.sh) is the applier, and a `check:` wake from the check is a report, never a trigger to run it.
-It requires an explicit action.
-`fm-tool-update.sh apply` applies updates on this host alone, and is the only form automation or a host's own schedule may use.
-`fm-tool-update.sh fleet` applies on this host and then on every host registered in `data/secondmates.md`, a local secondmate through its own copy of the script and a remote one through `bin/fm-on.sh`, because `config/watched-tools.json` is not inherited and each host watches and applies against its own copy; it runs only on an explicit human word naming those hosts, never from automation.
-A fleet run reaching a host whose copy predates apply classes applies every configured tool there, so update firstmate on that host first.
-
-Each tool's `class` decides when it may be applied, and an absent `class` is `manual`, so no existing config starts applying on its own.
-One pass applies exactly one class: `apply` applies `auto` tools, and `apply --class quiet` applies `quiet` tools, for a host's own quiet-window step.
-A tool of the other class is reported `held`, and a `manual` tool is never applied by the script at all.
-A tool already at or past its `pin` is held; an `npm_package` tool whose published version is past its pin is installed at exactly the pin; and a pinned `update_args` tool is always held, because its own update command cannot be told a target version.
-
-Before each update the applier appends one line to `data/tool-updates/<YYYY-MM-DD>.md` naming the previous version and the resolved binary path, or the npm `package@version`, or a git tool's previous HEAD, so a rollback is one command; an `update_args` tool's resolved binary is also copied to `data/tool-updates/backup/` first.
-When that record cannot be written, the update is not attempted.
-After an update that moved the version, the health check requires the tool to answer its version probe and, when `health_args` is set, those args to exit 0 within `FM_TOOL_HEALTH_SECS` (default 30, 1 to 300).
-A failed health check rolls back: an `npm_package` tool reinstalls the recorded version, an `update_args` tool gets its saved binary copied back, and the restored copy must report the previous version.
-A rollback that cannot be done or does not verify is reported `ROLLBACK IMPOSSIBLE` in the failed line and in the record; a git tool is never rolled back, because that would mean a reset.
-Every tool is verified, never assumed: a command tool is asked its own version before and after its `update_args` run, and an unchanged version after a clean exit is reported failed rather than done, because that is the PATH-skew shape this check exists to catch.
-An `npm_package` tool is updated with `npm install -g <package>@latest`, the same command bootstrap installs it with, only when `npm view <package> version` names a newer version than the resolved copy; afterward the resolved copy must report that published version, or the update is reported failed.
-A git tool's own HEAD is its verification, advanced only with `git pull --ff-only`.
-No path ever passes `--force`: a command tool's or npm's nonzero exit, an unreadable published version, or git's own refusal on a dirty or diverged tree, is read as that tool's authoritative refusal and reported skipped, never retried or worked around.
-Each host prints one line per tool (`done`, `skipped`, `failed`, `manual`, `unreachable`, or `held`) and one `host-summary:` line; a fleet run adds one final `fleet-summary:` line summing every host.
-`FM_TOOL_UPDATE_PROBE_SECS` (default 5) bounds each version probe and `FM_TOOL_APPLY_SECS` (default 180, 1 to 1800) bounds one update or git-pull attempt.
-
-## Fleet steward (config/fleet-steward.json)
-
-`config/fleet-steward.json` is an optional local, gitignored configuration for one home's verified ready queue and persistent low-capacity wake.
-It is firstmate-maintained, human-editable, and not inherited by secondmate homes because every home owns its capacity source and project checkout.
-This section is the single owner of the canonical schema.
-[`bin/fm-fleet-steward.sh`](../bin/fm-fleet-steward.sh) owns refresh, check, registration, timer, and exemption mechanics, plus the config-independent park trigger and 14-day parked-work review.
-
-```json
-{
-  "schema": "fm-fleet-steward.v1",
-  "project_path": "/absolute/path/to/project",
-  "repository": "owner/repository",
-  "capacity_log": "/absolute/path/to/lane-reaper.log",
-  "exclusions": [
-    {
-      "id": "bead-id",
-      "kind": "captain",
-      "reason": "awaiting a captain-owned choice"
-    },
-    {
-      "id": "another-bead-id",
-      "kind": "deferred",
-      "reason": "explicitly deferred until a named prerequisite"
-    }
-  ]
-}
-```
-
-`project_path` names the absolute project checkout whose `br ready` and `origin/main` state are verified.
-`repository` is the GitHub `owner/repository` read through `gh-axi` for merged pull request verification.
-`capacity_log` names the absolute lane-reaper log containing the latest productive and uncertain counts.
-`exclusions` is the authoritative explicit registry for captain-held and deferred bead ids, so the refresher never infers those states from prose.
-Every exclusion has a non-empty reason and a `kind` of `captain` or `deferred`.
-
-Run `bin/fm-fleet-steward.sh arm` once in the owning home after creating the configuration.
-Arming registers `fleet-steward` as an authenticated custom check in that exact home and enables the persistent `next-up-refresh.timer`, which refreshes after one minute and then every thirty minutes.
-The generated `next-up-refresh.service` carries a single `Environment=PATH=...` line copied from the arming shell's own `PATH`, because a user systemd unit does not otherwise inherit the login `PATH` and the scheduled refresh would then fail to find tools such as `br` that only resolve through login-shell `PATH` entries.
-The check emits only after a fresh, certain capacity sample stays below six productive lanes for at least fifteen minutes while `data/next-up.md` contains a verified ready row.
-The wake names `action=finish-then-refill`, whose handling procedure is owned by the agent-only `fleet-steward` skill.
-`data/next-up.md` is generated selection input rather than a second backlog, and a failed refresh preserves its last known-good bytes without authorizing dispatch from stale data.
-A failed refresh also writes a durable failure record, which the registered check surfaces once per new failure as a `fleet-steward: refresh failed ...` wake, so a broken scheduled refresh is never mistaken for a healthy but empty ready queue.
-Run `bin/fm-fleet-steward.sh disarm` to retire the check and timer for that home.
 
 ## Mail plane (.env)
 
@@ -2357,7 +2254,6 @@ FM_PROC_ROOT_OVERRIDE=   # alternate /proc root for Linux process-identity reads
 FM_BACKEND=             # optional runtime backend override for new spawns; tmux/herdr/zellij/orca/cmux support ship/scout spawns, codex-app is not accepted
 FM_TRACE_CONTEXT=       # optional trace-context override; see "Trace context propagation"
 FM_TASK_ID=             # internal task-worker marker fm-spawn.sh exports into ship and scout panes, never set by hand; bin/fm-test-run.sh refuses to execute in the repository primary checkout while it is set
-FM_WORKER_COPY=         # internal isolated-worker-copy marker fm-spawn.sh sets to 1 only in ship and scout panes, for machine-local safety hooks
 HERDR_SESSION=default  # herdr-only: named session for normal backend ops; not enough for destructive cleanup (docs/herdr-backend.md)
 FM_BACKEND_HERDR_SUBMIT_POLLS=6  # herdr-only: agent-state samples spread across each Enter attempt's budget when confirming a submit (docs/herdr-backend.md "Current transport behavior")
 FM_BACKEND_HERDR_SUBMIT_MIN_SLEEP=0.6  # herdr-only: minimum per-Enter confirmation budget before polling agent-state after an idle baseline
@@ -2459,8 +2355,6 @@ FM_PAUSE_RESURFACE_SECS=14400      # four hours between bounded rechecks of a de
 FM_SECONDMATE_WAKE_STALL_SECS=180  # minimum interval with no change of the oldest actionable foreign wake-queue row (it advances as the mate drains, and a queue reprovisioned under the same task id starts a fresh interval at whatever sequence it restarts) before an endpoint-recorded local secondmate produces one durable parent wake-loop-stall notification for that no-progress episode; a mate that is provably inside an active turn (an exact busy verdict) does not escalate until that same no-progress interval reaches FM_BUSY_TURN_MAX_SECS above; a mate whose busy class is exactly idle, whose agent is alive, and whose composer is not pending is rung once so its own home can drain, and the parent notification is withheld until that same row stays frozen for another stall interval; unknown or ring-unsafe panes keep the parent alarm; declared external-wait pause rows are excluded, and zero or invalid values use 180
 FM_SECONDMATE_LIVENESS_SECS=60   # seconds between watcher probes of each registered secondmate's recorded endpoint through bin/fm-secondmate-liveness-lib.sh, which relaunches only a positively `dead` or `missing` endpoint through the ordinary guarded fm-spawn.sh --secondmate path and emits exactly one check wake per relaunch; zero or invalid values use 60
 FM_SECONDMATE_LIVENESS_TIMEOUT=120   # seconds bounding one watcher-driven relaunch, so a wedged spawn cannot stall the poll; zero or invalid values use 120
-FM_SECONDMATE_PROBE_TIMEOUT=30   # seconds bounding each remote call a liveness probe makes, in the watcher tick and the session-start sweep alike, so a host that accepts ssh but never answers reads as unreachable with its route preserved instead of stopping the watcher; zero or invalid values use 30
-FM_SECONDMATE_SYNC_TIMEOUT=60   # seconds bounding each remote call of startup secondmate convergence (tracked-file sync and inherited-material push), so one hung host is reported unconverged without spending the whole startup network budget; zero or invalid values use 60
 FM_SECONDMATE_LIVENESS_MAX_ATTEMPTS=3   # automatic relaunch attempts allowed per mate inside the window before the watcher parks auto-relaunch behind state/.secondmate-relaunch-bound-<id> and escalates once; a later live probe clears the marker and restores the full attempt budget (the ledger keeps its history behind a `rearmed` row); zero or invalid values use 3
 FM_SECONDMATE_LIVENESS_WINDOW_SECS=3600   # window the relaunch bound counts state/.secondmate-relaunch-<id> attempt lines over; the file is also the durable per-mate relaunch record; zero or invalid values use 3600
 FM_WEDGE_DEMAND_INSPECT_COUNT=3    # consecutive provably-working stale escalations on the same unchanged pane before demand-deep-inspection is added
@@ -2469,7 +2363,7 @@ FM_WORKTREE_WRITE_MAXDEPTH=6       # depth that same probe walks below the recor
 FM_WORKTREE_WRITE_TIMEOUT=10       # wall-clock seconds that one walk may take, so a worktree on a hung mount cannot stall the watcher poll that started it; hitting the bound reads as no write evidence, which leaves the escalation schedule exactly as it was; a value that is not a positive integer falls back to the default
 FM_WATCH_TRIAGE_LOG_MAX_BYTES=262144   # size cap for the watcher's absorbed-wake debug log
 FM_FLEET_SYNC_BOOTSTRAP_TIMEOUT=     # optional seconds allowed for bootstrap's best-effort clone refresh; unset/blank defaults to max(20, 5 + 3 * origin-backed-project-count)
-FM_FLEET_PRUNE=1        # set to 0 to skip pruning local branches whose upstream is gone, or that have no upstream, no live task record, and content proven on origin/<default>
+FM_FLEET_PRUNE=1        # set to 0 to skip pruning local branches whose upstream is gone
 FM_STALE_WORKTREE_LOCK_AGE_SECS=30       # min mtime age before fm-teardown.sh treats a leftover worktree git index.lock as provably stale
 FM_TREEHOUSE_RETURN_LOCK_RETRIES=3        # retries after a treehouse return fails on the transient git index.lock signature
 FM_TREEHOUSE_RETURN_LOCK_RETRY_WAIT_SECS=1 # seconds fm-teardown.sh waits before each retry after that signature
@@ -2480,10 +2374,8 @@ FM_FLEET_SYNC_PACKED_REFS_LOCK_AGE_SECS=30       # min mtime age before fm-fleet
 FM_BUSY_REGEX=          # optional override for rendered delivery guards and Grok's isolated task-state fallback; converted worker state ignores it
 FM_COMPOSER_IDLE_RE=    # optional fleet-wide idle-placeholder regex override (bin/fm-composer-lib.sh); a match alone does not prove emptiness because shape-specific position and ANSI de-emphasis safety gates still apply
 FM_COMPOSER_CAPTURE_LINES=20   # fleet-wide bound for tail-capture composer reads; it no longer bounds the adapter composer state/content reads on tmux or herdr, which supply their bounded visible pane instead, while the cmux, orca, and Zellij adapters use this small window so stale scrollback banners stay out of the candidate set; it still bounds the shared inbox composer read (bin/fm-task-inbox-lib.sh) on every backend, and on herdr it also floors how many Ctrl+U presses a refused leftover may take
-FM_COMPOSER_BELOW_MENU_LINES=20   # fleet-wide: extra rows a read taken after typing adds for a completion menu drawn under the composer (Claude's inline-renderer slash-command menu); widens Herdr's pre-Enter payload proof window
 FM_COMPOSER_PI_MAX_LINES=8     # fleet-wide: maximum rows admitted between Pi's identity-corroborated separator pair; taller or ambiguous candidates stay unknown
 FM_COMPOSER_GHOST_LUMA_MAX=128   # fleet-wide: max perceived luminance (0.299R+0.587G+0.114B, 0-255) for a TRUECOLOR foreground to count as de-emphasised ghost/placeholder text and be stripped; dim/faint (SGR 2) is stripped regardless. Assumes a dark terminal theme (bin/fm-composer-lib.sh's fm_composer_strip_ghost, used by styled tmux, herdr, and Zellij reads)
-FM_COMPOSER_GHOST_CHROMA_MIN=64 # fleet-wide: a dark TRUECOLOR foreground whose chroma (max channel minus min channel) reaches this is a saturated accent, such as Claude's slash-command blue, and is kept as typed text; only muted near-grey dark runs are ghost (bin/fm-composer-lib.sh's fm_composer_strip_ghost)
 GROK_HOME=              # optional Grok config home for firstmate's global grok turn-end hook; defaults to ~/.grok
 FM_SEND_RETRIES=3       # fm-send typed-plane Enter-retry attempts after typing the line once; agy typed targets use a longer per-harness default owned by bin/fm-send.sh
 FM_SEND_SLEEP=0.4       # seconds between fm-send typed-plane submit checks
@@ -2495,7 +2387,6 @@ FM_SUPERVISOR_TARGET=              # optional supervisor pane target override; t
 FM_INJECT_SKIP=heartbeat           # |-prefixes force-self-handled bypassing classification; empty disables
 FM_ESCALATE_BATCH_SECS=90          # buffer window for batched escalation digests; 0 = flush immediately
 FM_MAX_DEFER_SECS=300              # max buffered escalation age before retry plus wedge alarm; 0 disables
-FM_STATUS_FIRST_SCAN_MAX_BYTES=65536  # a status log with no usable daemon read position is classified from at most this many trailing bytes
 FM_WEDGE_ALARM_CHANNEL=            # override config/wedge-alarm with one active-alert directive for the wedge alarm; off|auto|osascript|herdr|command:<cmd>; absent = auto (macOS -> an OS notification)
 FM_WEDGE_ALARM_EXEC=              # notifier seam: route every channel (osascript, herdr, command:) through this command as `<cmd> <channel> <summary>`; "discard" fires nothing; unset in production; the daemon defaults it to "discard" when sourced so no test posts a real notification (docs/wedge-alarm.md)
 FM_WEDGE_ALARM_TIMEOUT_SECS=10    # maximum seconds for each osascript, herdr, override, or command: notifier before its watchdog terminates it and continues to the next channel; invalid or zero values use 10

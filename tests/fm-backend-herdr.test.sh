@@ -61,9 +61,6 @@ if [ "${1:-}" = status ] && [ "${2:-}" = --json ] && [ "${FM_HERDR_SCRIPT_STATUS
   printf '{"client":{"version":"0.7.1","protocol":14},"server":{"running":true}}\n'
   exit 0
 fi
-if [ "${1:-}" = config ] && [ "${2:-}" = check ]; then
-  exit 0
-fi
 if [ "${1:-}" = terminal ] && [ "${2:-}" = title ] && [ "${3:-}" = clear ]; then
   reason=${FM_FAKE_HERDR_FOREGROUND_REASON:-no_foreground_client}
   printf '{"result":{"reason":"%s"}}\n' "$reason"
@@ -145,13 +142,9 @@ case "${1:-}" in
       printf '{"server":{"running":false}}\n'
     fi
     ;;
-  config)
-    # `config check` validates the file HERDR_CONFIG_PATH names.
-    [ "${FM_HERDR_CONFIG_CHECK_FAIL:-0}" != 1 ] || { echo "config: issues found" >&2; exit 1; }
-    ;;
   server)
     {
-      for name in FM_HOME FM_ROOT_OVERRIDE FM_STATE_OVERRIDE FM_DATA_OVERRIDE FM_PROJECTS_OVERRIDE FM_CONFIG_OVERRIDE CURSOR_AGENT CURSOR_INVOKED_AS CLAUDECODE PI_CODING_AGENT FM_PI_HARNESS GROK_AGENT FM_SUPERVISION_MODEL FM_HERDR_SENTINEL HERDR_SESSION HERDR_CONFIG_PATH; do
+      for name in FM_HOME FM_ROOT_OVERRIDE FM_STATE_OVERRIDE FM_DATA_OVERRIDE FM_PROJECTS_OVERRIDE FM_CONFIG_OVERRIDE CURSOR_AGENT CURSOR_INVOKED_AS CLAUDECODE PI_CODING_AGENT FM_PI_HARNESS GROK_AGENT FM_SUPERVISION_MODEL FM_HERDR_SENTINEL HERDR_SESSION; do
         eval 'value=${'"$name"'-<unset>}'
         printf '%s=%s\n' "$name" "$value"
       done
@@ -1201,7 +1194,7 @@ test_server_ensure_scrubs_home_and_harness_identity() {
   dir="$TMP_ROOT/server-env"; mkdir -p "$dir"; log="$dir/env"; marker="$dir/running"
   fb=$(make_herdr_server_env_fakebin "$dir")
   PATH="$fb:$PATH" FM_HERDR_SERVER_ENV_LOG="$log" FM_HERDR_SERVER_MARKER="$marker" FM_HERDR_SENTINEL=kept \
-    FM_HOME=/tmp/wrong-home FM_ROOT_OVERRIDE=/tmp/wrong-root FM_STATE_OVERRIDE="$dir/state" \
+    FM_HOME=/tmp/wrong-home FM_ROOT_OVERRIDE=/tmp/wrong-root FM_STATE_OVERRIDE=/tmp/wrong-state \
     FM_DATA_OVERRIDE=/tmp/wrong-data FM_PROJECTS_OVERRIDE=/tmp/wrong-projects FM_CONFIG_OVERRIDE=/tmp/wrong-config \
     CURSOR_AGENT=1 CURSOR_INVOKED_AS=cursor-agent CLAUDECODE=1 PI_CODING_AGENT=true FM_PI_HARNESS=pi-signed GROK_AGENT=1 FM_SUPERVISION_MODEL=autoarm \
     bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_server_ensure fmtest' "$ROOT"
@@ -1215,51 +1208,6 @@ test_server_ensure_scrubs_home_and_harness_identity() {
   assert_contains "$output" "HERDR_SESSION=fmtest" "server_ensure lost explicit Herdr session routing"
   assert_contains "$output" "args=server --session fmtest" "server_ensure lost the trailing Herdr session flag"
   pass "fm_backend_herdr_server_ensure: scrubs home and harness identity without disturbing unrelated environment or session routing"
-}
-
-# server_start_config <dir> <operator-config|-> [extra env...]: start a server
-# through the env-recording fake with the operator config at <dir>/xdg and
-# echo the HERDR_CONFIG_PATH the long-lived server received.
-# shellcheck disable=SC2016
-server_start_config() {
-  local dir=$1 src=$2 fb
-  shift 2
-  mkdir -p "$dir/xdg/herdr"
-  [ "$src" = - ] || printf '%s' "$src" > "$dir/xdg/herdr/config.toml"
-  fb=$(make_herdr_server_env_fakebin "$dir")
-  env PATH="$fb:$PATH" FM_HERDR_SERVER_ENV_LOG="$dir/env" FM_HERDR_SERVER_MARKER="$dir/running" \
-    FM_STATE_OVERRIDE="$dir/state" XDG_CONFIG_HOME="$dir/xdg" "$@" \
-    bash -c 'unset HERDR_CONFIG_PATH; . "$0/bin/backends/herdr.sh"; fm_backend_herdr_server_ensure fmtest' "$ROOT" \
-    2>"$dir/stderr" || fail "server_ensure should start the server ($(cat "$dir/stderr"))"
-  sed -n 's/^HERDR_CONFIG_PATH=//p' "$dir/env"
-}
-
-test_server_ensure_turns_off_herdr_agent_restore() {
-  local dir cfg body
-  dir="$TMP_ROOT/server-restore-table"
-  cfg=$(server_start_config "$dir" $'onboarding = false\n[session]\n# note\nresume_agents_on_restore = true\n\n[ui]\nsidebar_width = 30\n')
-  [ "$cfg" = "$dir/state/herdr-server-fmtest.toml" ] || fail "server_ensure should start the server on the derived config, got '$cfg'"
-  body=$(cat "$cfg")
-  [ "$(grep -c 'resume_agents_on_restore' "$cfg")" = 1 ] || fail "the derived config must carry exactly one restore key: $body"
-  assert_contains "$body" $'[session]\nresume_agents_on_restore = false\n# note' "the restore key must be forced off inside the operator's own [session] table"
-  assert_contains "$body" $'[ui]\nsidebar_width = 30' "the derived config dropped the operator's other settings"
-  assert_contains "$body" "onboarding = false" "the derived config dropped the operator's root settings"
-
-  dir="$TMP_ROOT/server-restore-none"
-  cfg=$(server_start_config "$dir" $'[ui]\nsidebar_width = 30\n')
-  body=$(cat "$cfg")
-  assert_contains "$body" $'sidebar_width = 30\n\n[session]\nresume_agents_on_restore = false' "a config without a [session] table should gain one with restore off"
-
-  dir="$TMP_ROOT/server-restore-absent"
-  cfg=$(server_start_config "$dir" -)
-  [ "$(cat "$cfg")" = $'[session]\nresume_agents_on_restore = false' ] || fail "with no operator config the derived config should only turn restore off, got '$(cat "$cfg")'"
-
-  dir="$TMP_ROOT/server-restore-invalid"
-  cfg=$(server_start_config "$dir" $'[session]\n' FM_HERDR_CONFIG_CHECK_FAIL=1)
-  [ "$cfg" = "<unset>" ] || fail "a derived config Herdr rejects must not reach the server, got '$cfg'"
-  assert_contains "$(cat "$dir/stderr")" "did not validate" "a rejected derived config should warn"
-  [ -z "$(ls -A "$dir/state")" ] || fail "a rejected derived config should leave nothing behind: $(ls -A "$dir/state")"
-  pass "fm_backend_herdr_server_ensure: starts the server with Herdr agent auto-restore forced off in a copy of the operator's config, and falls back unchanged when Herdr rejects the copy"
 }
 
 test_container_ensure_reuses_existing_workspace() {
@@ -3730,7 +3678,6 @@ test_list_live_scoped_to_this_homes_workspace_only() {
 # --- target parsing, key normalization ---------------------------------------
 
 test_parse_target() {
-  # shellcheck source=/dev/null
   ( . "$ROOT/bin/backends/herdr.sh"
     fm_backend_herdr_parse_target "default:w1:p2" || exit 1
     [ "$FM_BACKEND_HERDR_SESSION" = default ] || { echo "session mismatch: $FM_BACKEND_HERDR_SESSION" >&2; exit 1; }
@@ -3740,7 +3687,6 @@ test_parse_target() {
 }
 
 test_normalize_key() {
-  # shellcheck source=/dev/null
   ( . "$ROOT/bin/backends/herdr.sh"
     [ "$(fm_backend_herdr_normalize_key Enter)" = enter ] || exit 1
     [ "$(fm_backend_herdr_normalize_key Escape)" = escape ] || exit 1
@@ -4084,34 +4030,9 @@ test_composer_state_pi_incomplete_separator_below_stale_generic_is_unknown() {
   pass "fm_backend_herdr_composer_state: an incomplete lower Pi separator cannot inherit a stale empty row"
 }
 
-test_composer_state_pi_separator_working_is_empty() {
-  local dir log resp fb out
-  dir="$TMP_ROOT/composer-pi-separated-working"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
-  printf '─────────────────────────────────────────────────────\n\n─────────────────────────────────────────────────────\n' > "$resp/1.out"
-  printf '{"result":{"agent":{"agent":"pi","agent_status":"working"}}}\n' > "$resp/2.out"
-  fb=$(make_herdr_fakebin "$dir")
-  out=$( PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" \
-    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_composer_state lab:w1:p2' "$ROOT" )
-  [ "$out" = empty ] || fail "a working native Pi separator composer should read empty, got '$out'"
-  pass "fm_backend_herdr_composer_state: lazy Pi working identity admits a blank separator composer"
-}
-
-test_composer_state_pi_labelled_working_rule_is_empty() {
-  # Real Pi 0.85.1 while working: the top composer rule carries its spinner.
-  local dir log resp fb out
-  dir="$TMP_ROOT/composer-pi-labelled-working"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
-  printf ' Elapsed 9.0s\n\n\n── ⠏ Working ──────────────────────────────────────────\n\n─────────────────────────────────────────────────────\n/private/tmp/cwd\n' > "$resp/1.out"
-  printf '{"result":{"agent":{"agent":"pi","agent_status":"working"}}}\n' > "$resp/2.out"
-  fb=$(make_herdr_fakebin "$dir")
-  out=$( PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" \
-    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_composer_state lab:w1:p2' "$ROOT" )
-  [ "$out" = empty ] || fail "a working native Pi under its labelled spinner rule should read empty, got '$out'"
-  pass "fm_backend_herdr_composer_state: native working Pi admits its labelled spinner rule as the composer top"
-}
-
 test_composer_state_pi_separator_requires_safe_native_identity() {
   local dir log resp fb out status case_id idx=0
-  for case_id in non-pi unreadable over-tall; do
+  for case_id in working non-pi unreadable over-tall; do
     dir="$TMP_ROOT/composer-pi-separated-$case_id"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
     if [ "$case_id" = over-tall ]; then
       {
@@ -4123,6 +4044,7 @@ test_composer_state_pi_separator_requires_safe_native_identity() {
       printf '─────────────────────────────────────────────────────\n\n─────────────────────────────────────────────────────\n' > "$resp/1.out"
     fi
     case "$case_id" in
+      working) printf '{"result":{"agent":{"agent":"pi","agent_status":"working"}}}\n' > "$resp/2.out" ;;
       non-pi) printf '{"result":{"agent":{"agent":"shell","agent_status":"idle"}}}\n' > "$resp/2.out" ;;
       unreadable) printf '1\n' > "$resp/2.exit" ;;
       over-tall) printf '{"result":{"agent":{"agent":"pi","agent_status":"idle"}}}\n' > "$resp/2.out" ;;
@@ -4132,7 +4054,7 @@ test_composer_state_pi_separator_requires_safe_native_identity() {
       bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_composer_state lab:w1:p2' "$ROOT" )
     [ "$out" = unknown ] || fail "unsafe Pi separator case '$case_id' must remain unknown, got '$out'"
   done
-  pass "fm_backend_herdr_composer_state: Pi separators reject non-Pi, unreadable, and over-tall targets"
+  pass "fm_backend_herdr_composer_state: Pi separators never authorize working, non-Pi, unreadable, or over-tall targets"
 }
 
 # --- composer_state: unbordered (bare) composer rows -------------------------
@@ -4845,17 +4767,8 @@ herdr_long_payload() {  # <middle-length>
   awk -v n="$1" 'BEGIN { printf "HEAD"; for (i = 0; i < n; i++) printf "m"; printf "TAIL" }'
 }
 
-# Counts Ctrl+U keys, not calls: the clear batches its first presses into one
-# send-keys call.
 herdr_ctrl_u_count() {  # <log>
-  grep $'\x1f''pane'$'\x1f''send-keys'$'\x1f''w1:p2'$'\x1f' "$1" \
-    | tr '\037' '\n' | grep -c '^ctrl+u$'
-}
-
-# herdr_clear_floor: the Ctrl+U presses a refused send owes <text> before any
-# read may call the composer cleared.
-herdr_clear_floor() {  # <text>
-  bash -c '. "$0/bin/fm-composer-lib.sh"; fm_composer_clear_presses "$1"' "$ROOT" "$1"
+  grep -c $'\x1f''pane'$'\x1f''send-keys'$'\x1f''w1:p2'$'\x1f''ctrl+u' "$1"
 }
 
 # herdr_wrapped_composer: a Claude composer holding <text> wrapped at <width>
@@ -4917,252 +4830,6 @@ test_send_text_submit_long_literal_submits_when_composer_holds_every_byte() {
   pass "fm_backend_herdr_send_text_submit: a 1500-character payload a Claude composer still holds is submitted whole"
 }
 
-# Claude in a truecolor terminal (its Herdr launch shape) draws a recognized
-# slash command in a dark saturated blue, 38;2;87;105;247 (verified live), so
-# the payload proof must read that styled `/exit` as the typed payload rather
-# than as ghost text. Reading it as ghost left every lifecycle exit on an idle
-# Claude pane refused before Enter with send-failed.
-test_send_text_submit_claude_exit_command_in_accent_colour_is_submitted() {
-  local dir log resp fb out enter_count
-  dir="$TMP_ROOT/submit-claude-exit-accent"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
-  printf '{"result":{"agent":{"agent_status":"idle"}}}\n' > "$resp/2.out"
-  printf '{"result":{"agent":{"agent_status":"working"}}}\n' > "$resp/4.out"
-  herdr_submit_claude_prefix "$resp" /exit
-  printf '\033[39m\xe2\x9d\xaf\xc2\xa0\033[38;2;87;105;247m/exit\033[39m\n' > "$resp/4.out"
-  fb=$(make_herdr_fakebin "$dir")
-  out=$( PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" FM_BACKEND_HERDR_SUBMIT_POLLS=1 \
-    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_send_text_submit default:w1:p2 /exit 3 0.01 0.01' "$ROOT" )
-  [ "$out" = empty ] || fail "a Claude composer showing /exit in its accent colour should confirm delivery, got '$out'"
-  enter_count=$(grep -c $'\x1f''pane'$'\x1f''send-keys'$'\x1f''w1:p2'$'\x1f''enter' "$log")
-  [ "$enter_count" -eq 1 ] || fail "the proven /exit should be submitted once, sent $enter_count Enter(s)"
-  [ "$(herdr_ctrl_u_count "$log")" -eq 0 ] || fail "a proven /exit must not be cleared"
-  pass "fm_backend_herdr_send_text_submit: a Claude /exit drawn in its saturated accent colour is proven and submitted"
-}
-
-# A CPU-starved host (the remote second mate's: 8 cores, load near 50) can take
-# longer than the settle to draw typed input, so the first read after the send
-# still shows the idle composer. Rules close over the prompt row, and Herdr
-# re-serializes every run after a reset, as in the captured pane. That read is
-# a composer still drawing the payload, not a refusal: reading it once refused
-# every lifecycle exit on that host with send-failed.
-herdr_idle_claude_composer() {  # <resp-file> [typed-text]
-  local rule='\033[0m\033[38;2;136;136;136m────────────────────────\033[0m\r\n'
-  {
-    printf 'transcript line\r\n'
-    printf '%b' "$rule"
-    if [ -n "${2:-}" ]; then
-      printf '\033[0m\033[39m\xe2\x9d\xaf\xc2\xa0\033[0m\033[38;2;87;105;247m%s\033[0m\r\n' "$2"
-    else
-      printf '\033[0m\033[38;2;153;153;153m\xe2\x9d\xaf\xc2\xa0\033[0m\r\n'
-    fi
-    printf '%b' "$rule"
-  } > "$1"
-}
-
-test_send_text_submit_claude_exit_drawn_late_is_submitted() {
-  local dir log resp fb out enter_count
-  dir="$TMP_ROOT/submit-claude-exit-late"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
-  printf '{"result":{"agent":{"agent":"claude","agent_status":"idle"}}}\n' > "$resp/1.out"
-  herdr_idle_claude_composer "$resp/2.out"
-  herdr_idle_claude_composer "$resp/4.out"
-  herdr_idle_claude_composer "$resp/5.out" /ex
-  herdr_idle_claude_composer "$resp/6.out" /exit
-  printf '{"result":{"agent":{"agent_status":"idle"}}}\n' > "$resp/7.out"
-  printf '{"result":{"agent":{"agent_status":"working"}}}\n' > "$resp/9.out"
-  fb=$(make_herdr_fakebin "$dir")
-  out=$( PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" FM_BACKEND_HERDR_SUBMIT_POLLS=1 \
-    FM_BACKEND_HERDR_PROOF_POLL=0.01 \
-    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_send_text_submit default:w1:p2 /exit 3 0.01 0.01' "$ROOT" )
-  [ "$out" = empty ] || fail "a /exit the composer draws after the settle should be proven and submitted, got '$out'"
-  [ "$(grep -c $'\x1f''pane'$'\x1f''read' "$log")" -eq 4 ] || fail "the proof should re-read the still-drawing composer until it shows /exit"
-  enter_count=$(grep -c $'\x1f''pane'$'\x1f''send-keys'$'\x1f''w1:p2'$'\x1f''enter' "$log")
-  [ "$enter_count" -eq 1 ] || fail "the late-drawn /exit should be submitted once, sent $enter_count Enter(s)"
-  [ "$(herdr_ctrl_u_count "$log")" -eq 0 ] || fail "a late-drawn /exit must not be cleared"
-  pass "fm_backend_herdr_send_text_submit: a /exit a loaded Claude draws after the settle is re-read, proven, and submitted"
-}
-
-# The wait is bounded: a composer that never draws the payload is cleared and
-# refused after FM_BACKEND_HERDR_PROOF_READS reads, never submitted.
-test_send_text_submit_claude_payload_never_drawn_refuses_send() {
-  local dir log resp fb out
-  dir="$TMP_ROOT/submit-claude-exit-never"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
-  printf '{"result":{"agent":{"agent":"claude","agent_status":"idle"}}}\n' > "$resp/1.out"
-  herdr_idle_claude_composer "$resp/2.out"
-  herdr_idle_claude_composer "$resp/4.out"
-  herdr_idle_claude_composer "$resp/5.out"
-  herdr_idle_claude_composer "$resp/6.out"
-  herdr_idle_claude_composer "$resp/8.out"
-  fb=$(make_herdr_fakebin "$dir")
-  out=$( PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" FM_BACKEND_HERDR_SUBMIT_POLLS=1 \
-    FM_BACKEND_HERDR_PROOF_READS=3 FM_BACKEND_HERDR_PROOF_POLL=0.01 \
-    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_send_text_submit default:w1:p2 /exit 3 0.01 0.01' "$ROOT" 2>"$dir/stderr" )
-  [ "$out" = send-failed ] || fail "a payload the composer never draws should refuse the send, got '$out'"
-  assert_contains "$(cat "$dir/stderr")" 'herdr send to default:w1:p2 refused before Enter: the composer never showed the typed text, so it was cleared (composer showed: "")' \
-    "a refused send must say why on stderr, since a remote lifecycle caller keeps only its output"
-  [ "$(grep -c $'\x1f''pane'$'\x1f''send-keys'$'\x1f''w1:p2'$'\x1f''enter' "$log")" -eq 0 ] || fail "an unproven payload must not be submitted"
-  [ "$(herdr_ctrl_u_count "$log")" -eq 1 ] || fail "the refused send should be cleared once, sent $(herdr_ctrl_u_count "$log")"
-  pass "fm_backend_herdr_send_text_submit: a payload the composer never draws is refused after a bounded number of reads"
-}
-
-# Counter case: real typed text the payload landed after is a settled wrong
-# shape, not a composer still drawing, so it is refused on the first read.
-test_send_text_submit_claude_payload_after_real_text_refuses_at_once() {
-  local dir log resp fb out
-  dir="$TMP_ROOT/submit-claude-exit-after-text"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
-  printf '{"result":{"agent":{"agent":"claude","agent_status":"idle"}}}\n' > "$resp/1.out"
-  herdr_idle_claude_composer "$resp/2.out"
-  herdr_idle_claude_composer "$resp/4.out" 'fix the login bug/exit'
-  herdr_idle_claude_composer "$resp/6.out"
-  fb=$(make_herdr_fakebin "$dir")
-  out=$( PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" FM_BACKEND_HERDR_SUBMIT_POLLS=1 \
-    FM_BACKEND_HERDR_PROOF_POLL=0.01 \
-    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_send_text_submit default:w1:p2 /exit 3 0.01 0.01' "$ROOT" 2>"$dir/stderr" )
-  [ "$out" = send-failed ] || fail "real typed text before the payload must refuse the send, got '$out'"
-  assert_contains "$(cat "$dir/stderr")" 'never showed the typed text, so it was cleared (composer showed: "fix the login bug/exit")' \
-    "a refused send must name what the composer showed instead of the payload"
-  [ "$(grep -c $'\x1f''pane'$'\x1f''read' "$log")" -eq 3 ] || fail "a settled wrong composer must be refused on its first post-send read, not re-read"
-  [ "$(grep -c $'\x1f''pane'$'\x1f''send-keys'$'\x1f''w1:p2'$'\x1f''enter' "$log")" -eq 0 ] || fail "real text plus the payload must not be submitted"
-  pass "fm_backend_herdr_send_text_submit: real typed text in front of the payload is refused on the first read, never waited on"
-}
-
-# Claude draws its prompt suggestion as a reverse-video first cell plus dim
-# text while its pane is focused, between two rules, and Herdr re-serializes
-# each run after a reset (the shape of a remote second mate's idle composer).
-# The composer verdict already read that composer empty, so the pre-send proof
-# must agree: keeping the reverse-video letter refused every lifecycle exit
-# with send-failed before anything was typed.
-herdr_focused_suggestion_screen() {  # <resp-file> <first-cell> <rest> <rest-sgr>
-  local rule='\033[0m\033[38;2;136;136;136m────────────────────────\033[0m\n'
-  {
-    printf 'transcript line\n'
-    printf '%b' "$rule"
-    printf '\xe2\x9d\xaf\xc2\xa0\033[0m\033[7m%s\033[0m\033[%sm%s\033[0m\n' "$2" "$4" "$3"
-    printf '%b' "$rule"
-  } > "$1"
-}
-
-test_send_text_submit_claude_exit_over_focused_suggestion_is_submitted() {
-  local dir log resp fb out enter_count
-  dir="$TMP_ROOT/submit-claude-exit-suggestion"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
-  printf '{"result":{"agent":{"agent_status":"idle"}}}\n' > "$resp/2.out"
-  printf '{"result":{"agent":{"agent_status":"working"}}}\n' > "$resp/4.out"
-  herdr_submit_claude_prefix "$resp" /exit
-  herdr_focused_suggestion_screen "$resp/2.out" F 'irstmate instruction waiting: list the netcup inbox and act on each' 2
-  printf '\033[39m\xe2\x9d\xaf\xc2\xa0\033[38;2;87;105;247m/exit\033[39m\n' > "$resp/4.out"
-  fb=$(make_herdr_fakebin "$dir")
-  out=$( PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" FM_BACKEND_HERDR_SUBMIT_POLLS=1 \
-    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_send_text_submit default:w1:p2 /exit 3 0.01 0.01' "$ROOT" )
-  [ "$out" = empty ] || fail "a Claude composer holding only its focused suggestion should accept /exit, got '$out'"
-  assert_contains "$(cat "$log")" $'\x1f''pane'$'\x1f''send-text'$'\x1f''w1:p2'$'\x1f''/exit' "the /exit command was never typed"
-  enter_count=$(grep -c $'\x1f''pane'$'\x1f''send-keys'$'\x1f''w1:p2'$'\x1f''enter' "$log")
-  [ "$enter_count" -eq 1 ] || fail "the proven /exit should be submitted once, sent $enter_count Enter(s)"
-  pass "fm_backend_herdr_send_text_submit: /exit typed over Claude's focused suggestion ghost is proven and submitted"
-}
-
-# herdr_inline_claude_screen: a Claude Code 2.1.283 pane on its default
-# (inline) renderer in the dark theme, as captured live on Herdr 0.9.1 with one
-# background shell and eight monitors running. <below> is a footer hint - the
-# idle footer then carries it on the right, as in the captain's panes - or
-# `menu`, the slash-command menu the inline renderer draws UNDER the composer
-# once `/` is typed: ten entries of up to two rows each, which replace the
-# footer. [typed] is the composer's text, in the typed-command colour.
-herdr_inline_claude_screen() {  # <resp-file> <ctrl-y|new-task|new-task-large|menu> [typed]
-  local rule dim='\033[0m\033[38;2;153;153;153m' i
-  rule='\033[0m\033[38;2;136;136;136m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\033[0m\r\n'
-  {
-    printf '\xe2\x8f\xba ok\r\n\r\n'
-    printf '\xe2\x9c\xbb Cooked for 11s \xc2\xb7 done 3:51 PM \xc2\xb7 1 shell, 8 monitors still running\r\n\r\n'
-    printf '%b' "$rule"
-    if [ -n "${3:-}" ]; then
-      printf '\xe2\x9d\xaf\xc2\xa0\033[0m\033[38;2;177;185;249m%s\033[0m\r\n' "$3"
-    else
-      printf '\xe2\x9d\xaf\xc2\xa0\033[0m\033[2mcheck on the background monitors\033[0m\r\n'
-    fi
-    printf '%b' "$rule"
-    if [ "$2" = menu ]; then
-      printf '  \033[0m\033[38;2;177;185;249m/\033[0m\033[1m\033[38;2;177;185;249mexit\033[0m\033[38;2;177;185;249m                                          Exit the CLI\033[0m\r\n'
-      printf '  %b/context                                       Visualize current context usage as a colored grid\033[0m\r\n' "$dim"
-      for ((i = 1; i <= 8; i++)); do
-        printf '  %b/skill-%s                                       Use this skill whenever the user asks for item %s of the\033[0m\r\n' "$dim" "$i" "$i"
-        printf '                                                 %bfleet, including its report, its review, and its follow-up w\xe2\x80\xa6\033[0m\r\n' "$dim"
-      done
-    else
-      printf '  \033[0m\033[38;2;255;193;7m\xe2\x8f\xb5\xe2\x8f\xb5 auto mode on\033[0m%b \xc2\xb7 \033[0m\033[38;2;0;204;204m1 shell, 8 monitors\033[0m%b \xc2\xb7 \xe2\x86\x90 for agents \xc2\xb7 \xe2\x86\x93 to manage    ' "$dim" "$dim"
-      case "$2" in
-        ctrl-y) printf 'Ctrl+Y to paste deleted text\033[0m\r\n' ;;
-        new-task) printf 'new task? \033[0m\033[38;2;177;185;249m/clear\033[0m%b to save \033[0m\033[38;2;177;185;249m192k tokens\033[0m\r\n' "$dim" ;;
-        new-task-large) printf 'new task? \033[0m\033[38;2;177;185;249m/clear\033[0m%b to save \033[0m\033[38;2;177;185;249m269.8k tokens\033[0m\r\n' "$dim" ;;
-      esac
-    fi
-  } > "$1"
-}
-
-# An idle Claude composer reads empty under every footer the captain's refused
-# panes showed: auto mode with shell and monitor counts, the kill-ring hint a
-# Ctrl+U clear leaves, and the idle new-task hint. Real text under the same
-# footers is still pending.
-test_composer_state_claude_inline_footer_hints_read_empty() {
-  local dir log resp fb out footer typed want
-  for footer in ctrl-y new-task new-task-large; do
-    for typed in '' 'half-typed draft'; do
-      want=empty
-      [ -z "$typed" ] || want=pending
-      dir="$TMP_ROOT/composer-claude-inline-$footer-$want"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
-      herdr_inline_claude_screen "$resp/1.out" "$footer" "$typed"
-      printf '{"result":{"agent":{"agent":"claude","agent_status":"idle"}}}\n' > "$resp/2.out"
-      fb=$(make_herdr_fakebin "$dir")
-      out=$( PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" \
-        bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_composer_state default:w1:p2' "$ROOT" )
-      [ "$out" = "$want" ] || fail "a Claude composer holding '$typed' under the '$footer' footer should read $want, got '$out'"
-    done
-  done
-  pass "fm_backend_herdr_composer_state: an idle inline Claude composer reads empty under its auto-mode, Ctrl+Y, and new-task footers"
-}
-
-# The captain's refused exits: on the inline renderer a typed `/exit` opens a
-# 20-row command menu under the composer, and a proof window sized for the
-# five typed characters held only menu rows, so every read was `<unreadable>`
-# and the exit was refused before Enter. The proof now reads past the menu.
-test_send_text_submit_claude_exit_over_inline_command_menu_is_submitted() {
-  local dir log resp fb out enter_count footer
-  for footer in ctrl-y new-task new-task-large; do
-    dir="$TMP_ROOT/submit-claude-exit-inline-menu-$footer"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
-    printf '{"result":{"agent":{"agent_status":"idle"}}}\n' > "$resp/2.out"
-    printf '{"result":{"agent":{"agent_status":"working"}}}\n' > "$resp/4.out"
-    herdr_submit_claude_prefix "$resp" /exit
-    herdr_inline_claude_screen "$resp/2.out" "$footer"
-    herdr_inline_claude_screen "$resp/4.out" menu /exit
-    fb=$(make_herdr_fakebin "$dir")
-    out=$( PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" FM_BACKEND_HERDR_SUBMIT_POLLS=1 \
-      bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_send_text_submit default:w1:p2 /exit 3 0.01 0.01' "$ROOT" 2>"$dir/stderr" )
-    [ "$out" = empty ] || fail "/exit typed into an idle inline Claude composer under the '$footer' footer should be proven and submitted, got '$out' ($(cat "$dir/stderr"))"
-    enter_count=$(grep -c $'\x1f''pane'$'\x1f''send-keys'$'\x1f''w1:p2'$'\x1f''enter' "$log")
-    [ "$enter_count" -eq 1 ] || fail "the proven /exit should be submitted once, sent $enter_count Enter(s)"
-    [ "$(herdr_ctrl_u_count "$log")" -eq 0 ] || fail "a proven /exit must not be cleared"
-  done
-  pass "fm_backend_herdr_send_text_submit: /exit is proven through the command menu the inline Claude renderer draws under its composer"
-}
-
-# Counter case: the cursor parked on the first letter of real typed text draws
-# the same reverse-video cell, but the text after it is not de-emphasised, so
-# the composer is not empty and nothing may be typed onto it.
-test_send_text_submit_claude_real_text_under_cursor_refuses_send() {
-  local dir log resp fb out
-  dir="$TMP_ROOT/submit-claude-real-text-cursor"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
-  herdr_submit_claude_prefix "$resp" /exit
-  herdr_focused_suggestion_screen "$resp/2.out" f 'ix the login bug' 0
-  fb=$(make_herdr_fakebin "$dir")
-  out=$( PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" FM_BACKEND_HERDR_SUBMIT_POLLS=1 \
-    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_send_text_submit default:w1:p2 /exit 3 0.01 0.01' "$ROOT" 2>"$dir/stderr" )
-  [ "$out" = send-failed ] || fail "real typed text under Claude's cursor must refuse the send, got '$out'"
-  assert_contains "$(cat "$dir/stderr")" 'refused before Enter: the composer was not empty before typing (composer showed: "fix the login bug")' \
-    "a send refused before typing must name the text the composer already held"
-  case "$(cat "$log")" in
-    *$'\x1f''send-text'$'\x1f'*) fail "nothing may be typed onto a composer holding real text" ;;
-  esac
-  pass "fm_backend_herdr_send_text_submit: real typed text under Claude's cursor cell still refuses the send"
-}
-
 test_send_text_submit_refuses_enter_when_composer_holds_only_the_suffix() {
   local dir log resp fb out enter_count text suffix
   dir="$TMP_ROOT/submit-long-suffix"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
@@ -5178,8 +4845,7 @@ test_send_text_submit_refuses_enter_when_composer_holds_only_the_suffix() {
   [ "$out" = send-failed ] || fail "a composer holding only the payload suffix, cleared back to empty, should report send-failed, got '$out'"
   enter_count=$(grep -c $'\x1f''pane'$'\x1f''send-keys'$'\x1f''w1:p2'$'\x1f''enter' "$log")
   [ "$enter_count" -eq 0 ] || fail "a suffix must not be submitted, sent $enter_count Enter(s)"
-  [ "$(herdr_ctrl_u_count "$log")" -eq "$(herdr_clear_floor "$text")" ] \
-    || fail "the refused suffix should get one Ctrl+U per row the payload can fill, sent $(herdr_ctrl_u_count "$log")"
+  [ "$(herdr_ctrl_u_count "$log")" -eq 1 ] || fail "the refused suffix should be cleared with one Ctrl+U, sent $(herdr_ctrl_u_count "$log")"
   [ "$(grep -c $'\x1f''agent'$'\x1f''get' "$log")" -eq 1 ] || fail "a refused suffix must not be confirmed by a later working status"
   pass "fm_backend_herdr_send_text_submit: a long payload whose Claude composer kept only the tail is not submitted, is cleared, and reports send-failed"
 }
@@ -5206,57 +4872,22 @@ test_send_text_submit_refused_suffix_that_will_not_clear_is_unknown() {
 }
 
 test_send_text_submit_clears_a_wrapped_suffix_one_row_per_press() {
-  local dir log resp fb out enter_count text suffix floor
+  local dir log resp fb out enter_count text suffix drop
   dir="$TMP_ROOT/submit-long-suffix-wrapped"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
   text=$(herdr_long_payload 1492)
   suffix=${text: -480}
-  floor=$(herdr_clear_floor "$text")
   herdr_submit_claude_prefix "$resp" "$text"
-  herdr_wrapped_composer "$suffix" 96 0 > "$resp/4.out"
-  # The up-front presses land while the agent is still catching up, so the
-  # first read after them shows two rows left; each later press removes one.
-  herdr_wrapped_composer "$suffix" 96 3 > "$resp/6.out"
-  herdr_wrapped_composer "$suffix" 96 4 > "$resp/8.out"
-  herdr_wrapped_composer "$suffix" 96 5 > "$resp/10.out"
+  for drop in 0 1 2 3 4 5; do
+    herdr_wrapped_composer "$suffix" 96 "$drop" > "$resp/$((4 + 2 * drop)).out"
+  done
   fb=$(make_herdr_fakebin "$dir")
   out=$( PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" FM_BACKEND_HERDR_SUBMIT_POLLS=1 \
     bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_send_text_submit default:w1:p2 "$1" 3 0.01 0.01' "$ROOT" "$text" )
   [ "$out" = send-failed ] || fail "a refused suffix wrapped over five rows, cleared row by row, should report send-failed, got '$out'"
   enter_count=$(grep -c $'\x1f''pane'$'\x1f''send-keys'$'\x1f''w1:p2'$'\x1f''enter' "$log")
   [ "$enter_count" -eq 0 ] || fail "a suffix must not be submitted, sent $enter_count Enter(s)"
-  [ "$(herdr_ctrl_u_count "$log")" -eq $((floor + 2)) ] \
-    || fail "rows still shown after the up-front presses should each take one more Ctrl+U, sent $(herdr_ctrl_u_count "$log") after a floor of $floor"
-  pass "fm_backend_herdr_send_text_submit: rows a refused wrapped suffix still shows after the up-front presses are cleared one per Ctrl+U"
-}
-
-# A CPU-starved agent may not have drawn a refused payload at all when the
-# clear starts, so its composer reads empty while every typed byte is still
-# queued ahead of the Ctrl+U presses. Stopping at that empty read sent one
-# press, and the agent then drew the whole doorbell and deleted only its last
-# row, leaving the rest unsent in the composer (reproduced live by pausing a
-# Claude 2.1.283 agent in a Herdr 0.9.1 lab). Every row the payload can fill
-# must be pressed before any read may call the composer cleared.
-test_send_text_submit_undrawn_refused_payload_gets_every_row_pressed() {
-  local dir log resp fb out text floor n
-  dir="$TMP_ROOT/submit-undrawn-doorbell"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
-  text=": Firstmate instruction waiting: list '/home/crew/firstmate/state/netcup.inbox'/*.msg and, in numeric order, read and act on each, then run '/home/crew/firstmate/bin/fm-inbox-ack.sh' '/home/crew/firstmate/state/netcup.inbox' NNN.msg to acknowledge it."
-  floor=$(herdr_clear_floor "$text")
-  [ "$floor" -ge 5 ] || fail "the doorbell fixture should fill several composer rows, floor was $floor"
-  printf '{"result":{"agent":{"agent":"claude","agent_status":"idle"}}}\n' > "$resp/1.out"
-  for n in 2 4 5 6 8; do
-    herdr_idle_claude_composer "$resp/$n.out"
-  done
-  fb=$(make_herdr_fakebin "$dir")
-  out=$( PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" FM_BACKEND_HERDR_SUBMIT_POLLS=1 \
-    FM_BACKEND_HERDR_PROOF_READS=3 FM_BACKEND_HERDR_PROOF_POLL=0.01 \
-    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_send_text_submit default:w1:p2 "$1" 3 0.01 0.01' "$ROOT" "$text" 2>"$dir/stderr" )
-  [ "$out" = send-failed ] || fail "an undrawn payload should refuse the send, got '$out'"
-  [ "$(grep -c $'\x1f''pane'$'\x1f''send-keys'$'\x1f''w1:p2'$'\x1f''enter' "$log")" -eq 0 ] || fail "an unproven payload must not be submitted"
-  [ "$(herdr_ctrl_u_count "$log")" -eq "$floor" ] \
-    || fail "an undrawn payload that reads empty must still get all $floor Ctrl+U presses, sent $(herdr_ctrl_u_count "$log")"
-  [ "$(grep -c $'\x1f''pane'$'\x1f''read' "$log")" -eq 5 ] \
-    || fail "the clear should read the composer once, only after all its up-front presses"
-  pass "fm_backend_herdr_send_text_submit: a refused payload the agent has not drawn yet still gets one Ctrl+U per row it can fill before the clear is trusted"
+  [ "$(herdr_ctrl_u_count "$log")" -eq 5 ] || fail "a five-row wrapped suffix should take five Ctrl+U presses, sent $(herdr_ctrl_u_count "$log")"
+  pass "fm_backend_herdr_send_text_submit: a refused 480-character suffix wrapped over five rows is cleared one row per Ctrl+U and reports send-failed"
 }
 
 test_send_text_submit_refused_suffix_then_clean_retry_submits_only_the_message() {
@@ -5366,7 +4997,7 @@ test_send_text_submit_refuses_marked_digest_missing_its_head() {
   [ "$out" = send-failed ] || fail "a marked digest whose composer kept only the tail should report send-failed, got '$out'"
   enter_count=$(grep -c $'\x1f''pane'$'\x1f''send-keys'$'\x1f''w1:p2'$'\x1f''enter' "$log")
   [ "$enter_count" -eq 0 ] || fail "a marked digest tail must not be submitted, sent $enter_count Enter(s)"
-  [ "$(herdr_ctrl_u_count "$log")" -eq "$(herdr_clear_floor "$text")" ] || fail "the refused marked digest tail should be cleared"
+  [ "$(herdr_ctrl_u_count "$log")" -eq 1 ] || fail "the refused marked digest tail should be cleared"
   pass "fm_backend_herdr_send_text_submit: dropping U+2063 does not let a marked digest missing its head be submitted"
 }
 
@@ -5462,7 +5093,7 @@ test_send_text_submit_refuses_placeholder_followed_by_a_literal_remainder() {
   [ "$out" = send-failed ] || fail "a paste placeholder followed by a literal remainder should report send-failed, got '$out'"
   enter_count=$(grep -c $'\x1f''pane'$'\x1f''send-keys'$'\x1f''w1:p2'$'\x1f''enter' "$log")
   [ "$enter_count" -eq 0 ] || fail "a placeholder plus remainder must not be submitted, sent $enter_count Enter(s)"
-  [ "$(herdr_ctrl_u_count "$log")" -eq "$(herdr_clear_floor "$text")" ] || fail "the refused placeholder and remainder should be cleared"
+  [ "$(herdr_ctrl_u_count "$log")" -eq 1 ] || fail "the refused placeholder and remainder should be cleared"
   pass "fm_backend_herdr_send_text_submit: a paste placeholder followed by a literal remainder is not submitted and is cleared"
 }
 
@@ -6157,7 +5788,6 @@ test_workspace_ensure_other_home_ignores_the_launcher_identity
 test_container_ensure_refuses_an_ambiguous_home_label
 test_container_ensure_starts_server_and_workspace
 test_server_ensure_scrubs_home_and_harness_identity
-test_server_ensure_turns_off_herdr_agent_restore
 test_container_ensure_reuses_existing_workspace
 test_container_ensure_creates_with_no_focus_flag
 test_container_ensure_uses_secondmate_home_label
@@ -6265,8 +5895,6 @@ test_composer_state_pi_separator_idle_is_empty
 test_composer_state_pi_dollar_status_footer_is_empty
 test_composer_state_pi_separator_real_text_is_pending
 test_composer_state_pi_incomplete_separator_below_stale_generic_is_unknown
-test_composer_state_pi_separator_working_is_empty
-test_composer_state_pi_labelled_working_rule_is_empty
 test_composer_state_pi_separator_requires_safe_native_identity
 test_composer_state_claude_unbordered_prompt_is_empty
 test_composer_state_claude_unbordered_prompt_is_pending
@@ -6307,18 +5935,9 @@ test_send_text_submit_send_failed
 test_send_text_submit_unknown_on_capture_failure
 test_send_text_submit_unknown_on_composer_capture_failure
 test_send_text_submit_long_literal_submits_when_composer_holds_every_byte
-test_send_text_submit_claude_exit_command_in_accent_colour_is_submitted
-test_send_text_submit_claude_exit_drawn_late_is_submitted
-test_send_text_submit_claude_payload_never_drawn_refuses_send
-test_send_text_submit_claude_payload_after_real_text_refuses_at_once
-test_send_text_submit_claude_exit_over_focused_suggestion_is_submitted
-test_composer_state_claude_inline_footer_hints_read_empty
-test_send_text_submit_claude_exit_over_inline_command_menu_is_submitted
-test_send_text_submit_claude_real_text_under_cursor_refuses_send
 test_send_text_submit_refuses_enter_when_composer_holds_only_the_suffix
 test_send_text_submit_refused_suffix_that_will_not_clear_is_unknown
 test_send_text_submit_clears_a_wrapped_suffix_one_row_per_press
-test_send_text_submit_undrawn_refused_payload_gets_every_row_pressed
 test_send_text_submit_refused_suffix_then_clean_retry_submits_only_the_message
 test_send_text_submit_claude_refuses_to_type_into_a_nonempty_composer
 test_send_text_submit_refuses_suffix_when_transcript_still_shows_the_head

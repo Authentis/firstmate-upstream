@@ -33,11 +33,11 @@ set -u
 
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
-# shellcheck source=/dev/null
+# shellcheck source=bin/fm-pending-reply-lib.sh
 . "$ROOT/bin/fm-pending-reply-lib.sh"
-# shellcheck source=/dev/null
+# shellcheck source=bin/fm-marker-lib.sh
 . "$ROOT/bin/fm-marker-lib.sh"
-# shellcheck source=/dev/null
+# shellcheck source=bin/fm-task-inbox-lib.sh
 . "$ROOT/bin/fm-task-inbox-lib.sh"
 
 SEND="$ROOT/bin/fm-send.sh"

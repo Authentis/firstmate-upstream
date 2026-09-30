@@ -70,8 +70,7 @@
 #   separated  - pi: content rows between two solid horizontal `─` rules, no
 #                glyph and no side border. Provable only with a live agent
 #                identity reporting an idle/done pi (herdr `agent
-#                get`; the tmux foreground-process probe), or a working pi
-#                from a native status (herdr only), because a blank
+#                get`; the tmux foreground-process probe), because a blank
 #                region between two transcript rules is otherwise exactly the
 #                strict rule's unidentifiable blank row.
 #                A separated pair that closes over a bare AGENT-GLYPH row is a
@@ -242,15 +241,7 @@ fm_composer_normalize_trim_var() {  # <varname>
 #   - dark/muted TRUECOLOR foreground runs (SGR 38;2;r;g;b or the colon form
 #     38:2::r:g:b) whose perceived luminance (0.299R + 0.587G + 0.114B) is below
 #     FM_COMPOSER_GHOST_LUMA_MAX (default 128): how grok renders its placeholder
-#     and hint text. Only a MUTED dark colour is de-emphasis: a run whose
-#     chroma (max channel minus min channel) reaches FM_COMPOSER_GHOST_CHROMA_MIN
-#     (default 64) is a saturated accent and is kept. Claude in a truecolor
-#     terminal draws a recognized slash command such as `/exit` in
-#     38;2;87;105;247 (luminance ~115.8, chroma 160; verified, Claude Code
-#     under Herdr), so a luminance-only test stripped the typed command itself
-#     and every lifecycle exit's payload proof refused to press Enter. Every
-#     verified ghost colour is a near-grey (chroma under 30).
-#     A reset (SGR 0), a default-foreground (SGR 39), any base
+#     and hint text. A reset (SGR 0), a default-foreground (SGR 39), any base
 #     foreground colour (30-37 / 90-97), or a lighter 38;2 foreground ends the
 #     dark-foreground run. This assumes a DARK terminal theme, the firstmate
 #     fleet reality, where real typed input is bright and only de-emphasised UI
@@ -264,29 +255,12 @@ fm_composer_normalize_trim_var() {  # <varname>
 # the tightest margin over the 128 default in the fleet. Above ~150 that glyph is
 # stripped as ghost text, which is why the bare-glyph fallback below must also
 # recognise every agent glyph from the UNSTRIPPED plain row.
-#   - with the optional `cursor-cell` argument only (passed for rows inside a
-#     proven container: a box, or a glyph row a separator pair closes over), the
-#     CURSOR CELL drawn over a
-#     ghost's first character: a one-character reverse-video (SGR 7) run
-#     immediately followed by a de-emphasised run. Claude Code draws its
-#     placeholder and rotating prompt suggestion as invert(text[0]) +
-#     dim(text.slice(1)) whenever the composer is focused (verified in the
-#     Claude Code 2.1.283 bundle), so without this a ghost-only composer kept its
-#     first letter, read `pending`, and fm_task_inbox_ring skipped the doorbell.
-#     A longer reverse run, or one followed by normal text (the cursor parked on
-#     a real typed character), is kept. The mode is opt-in because a BARE row
-#     proves no container: cursor-agent's mid-turn bare row draws the same cell
-#     over a dim placeholder beside a dim busy token, and its herdr delivery
-#     confirmation depends on that row staying `pending`.
 # The dim/faint and dark-foreground states are tracked together as "de-emphasis";
 # codes are processed left to right within a sequence, so "ESC[0;2m" reads as dim.
 # LC_ALL=C makes awk walk bytes, so multibyte glyphs (e.g. ❯) and de-emphasised
 # runs alike pass through or drop intact without locale-dependent classes.
-fm_composer_strip_ghost() {  # [cursor-cell]
-  local cursorcell=0
-  [ "${1:-}" != cursor-cell ] || cursorcell=1
-  LC_ALL=C awk -v lumamax="${FM_COMPOSER_GHOST_LUMA_MAX:-128}" -v cursorcell="$cursorcell" \
-    -v chromamin="${FM_COMPOSER_GHOST_CHROMA_MIN:-64}" '
+fm_composer_strip_ghost() {
+  LC_ALL=C awk -v lumamax="${FM_COMPOSER_GHOST_LUMA_MAX:-128}" '
     function sgr_code(v, b) {
       b = v
       sub(/:.*/, "", b)
@@ -303,35 +277,23 @@ fm_composer_strip_ghost() {  # [cursor-cell]
       if (code == "2") return p + 4
       return p + 1
     }
-    # rgb_is_muted_dark: 1 when a truecolor foreground is below lumamax AND
-    # its chroma is below chromamin, i.e. a dark near-grey; 0 otherwise.
-    function rgb_is_muted_dark(r, g, b,   hi, lo) {
-      if ((299*r + 587*g + 114*b) / 1000 >= lumamax) return 0
-      hi = r; if (g > hi) hi = g; if (b > hi) hi = b
-      lo = r; if (g < lo) lo = g; if (b < lo) lo = b
-      return (hi - lo < chromamin) ? 1 : 0
-    }
     # fg38_is_dark: 1 when the SGR 38 foreground starting at param p is a
-    # TRUECOLOR (38;2 / 38:2) muted dark colour; 0 otherwise (a 38;5 palette
-    # colour, a bright or saturated truecolor, or a malformed run).
-    function fg38_is_dark(a, p, k,   spec, nf, f, r, g, b) {
+    # TRUECOLOR (38;2 / 38:2) whose luminance is below lumamax; 0 otherwise
+    # (a 38;5 palette colour, a bright truecolor, or a malformed run).
+    function fg38_is_dark(a, p, k, lumamax,   spec, nf, f, r, g, b) {
       spec = a[p]
       if (index(spec, ":") > 0) {           # colon form: whole colour in a[p]
         nf = split(spec, f, ":")
         if (f[2] != "2" || nf < 5) return 0
         r = f[nf - 2] + 0; g = f[nf - 1] + 0; b = f[nf] + 0
-        return rgb_is_muted_dark(r, g, b)
+        return ((299*r + 587*g + 114*b) / 1000 < lumamax) ? 1 : 0
       }
       if (p + 1 > k || a[p + 1] != "2" || p + 4 > k) return 0
       r = a[p + 2] + 0; g = a[p + 3] + 0; b = a[p + 4] + 0
-      return rgb_is_muted_dark(r, g, b)
-    }
-    BEGIN {
-      for (cb = 128; cb < 192; cb++) contbytes = contbytes sprintf("%c", cb)
+      return ((299*r + 587*g + 114*b) / 1000 < lumamax) ? 1 : 0
     }
     {
-      line = $0; out = ""; dim = 0; darkfg = 0; rev = 0; pend = ""; pendn = 0
-      n = length(line); i = 1
+      line = $0; out = ""; dim = 0; darkfg = 0; n = length(line); i = 1
       while (i <= n) {
         c = substr(line, i, 1)
         if (c == "\033") {            # ESC: consume a CSI ... final-byte sequence
@@ -349,14 +311,12 @@ fm_composer_strip_ghost() {  # [cursor-cell]
               for (p = 1; p <= k; p++) {
                 v = a[p]; code = sgr_code(v)
                 if (code == "38") {
-                  darkfg = fg38_is_dark(a, p, k)
+                  darkfg = fg38_is_dark(a, p, k, lumamax)
                   p = skip_color_payload(a, p, k)
                 } else if (code == "48" || code == "58") {
                   p = skip_color_payload(a, p, k)
                 } else if (code == "2") dim = 1
-                else if (code == "7") rev = 1
-                else if (code == "27") rev = 0
-                else if (code == "0") { dim = 0; darkfg = 0; rev = 0 }
+                else if (code == "0") { dim = 0; darkfg = 0 }
                 else if (code == "22") dim = 0
                 else if (code == "39") darkfg = 0
                 else if (code + 0 >= 30 && code + 0 <= 37) darkfg = 0
@@ -367,21 +327,10 @@ fm_composer_strip_ghost() {  # [cursor-cell]
           }
           i = i + 1; continue          # lone/other ESC: drop the ESC byte only
         }
-        if (dim == 0 && darkfg == 0) {   # keep only non-de-emphasised bytes
-          if (rev && cursorcell) {       # hold a reverse-video run until we see what follows it
-            pend = pend c
-            if (index(contbytes, c) == 0) pendn++
-          } else {
-            if (pend != "") { out = out pend; pend = ""; pendn = 0 }
-            out = out c
-          }
-        } else if (pend != "") {         # de-emphasis directly after a reverse run
-          if (pendn != 1) out = out pend  # only a one-cell run is the ghost cursor cell
-          pend = ""; pendn = 0
-        }
+        if (dim == 0 && darkfg == 0) out = out c   # keep only non-de-emphasised bytes
         i++
       }
-      print out pend
+      print out
     }
   '
 }
@@ -605,35 +554,6 @@ fm_composer_strip_braille() {
 # also uses this value as the minimum Ctrl+U clear budget after a refused proof.
 FM_COMPOSER_CAPTURE_LINES=${FM_COMPOSER_CAPTURE_LINES:-20}
 
-# The rows a completion menu can draw BELOW a composer that holds typed text,
-# which the bottom-anchored window above does not budget for. Claude Code's
-# default (inline) renderer opens its slash-command menu under the composer's
-# bottom rule as soon as `/` is typed - up to ten entries, each up to two rows -
-# while the fullscreen renderer draws it above (verified 2026-09-27, Claude
-# Code 2.1.283 on Herdr 0.9.1, `tui` default, dark theme: a typed `/exit` put
-# 20 menu rows under the rule, so a 20-row read held no composer at all and
-# every lifecycle exit's payload proof read `<unreadable>`). Only a read taken
-# after typing needs it; an idle composer has no menu open.
-FM_COMPOSER_BELOW_MENU_LINES=${FM_COMPOSER_BELOW_MENU_LINES:-20}
-
-# fm_composer_clear_presses: how many line-clear presses (Ctrl+U) remove
-# <text> from a composer before any read may call it cleared. Live Claude
-# deletes one wrapped screen row per press, so this is the rows <text> can fill
-# in a composer at least FM_COMPOSER_CLEAR_MIN_COLUMNS wide, plus one per
-# embedded newline. A read that looks empty after fewer presses is not proof:
-# an agent that has not drawn its input yet (a CPU-starved host) reads empty
-# while the text is still queued ahead of the presses, and stopping there left
-# every row but the last of a firstmate doorbell unsent in a Claude composer
-# (reproduced 2026-09-27 on Claude Code 2.1.283 in a Herdr 0.9.1 lab by pausing
-# the agent). Extra presses on an empty composer delete nothing.
-FM_COMPOSER_CLEAR_MIN_COLUMNS=${FM_COMPOSER_CLEAR_MIN_COLUMNS:-36}
-fm_composer_clear_presses() {  # <text>
-  local text=$1 cols=$FM_COMPOSER_CLEAR_MIN_COLUMNS newlines
-  case "$cols" in ''|*[!0-9]*|0) cols=36 ;; esac
-  newlines=${text//[!$'\n']/}
-  printf '%s' $(( (${#text} + cols - 1) / cols + ${#newlines} ))
-}
-
 # Pi allows a multi-line composer between its horizontal separators. Bound the
 # structural candidate so two unrelated transcript rules with an arbitrarily
 # large region between them can never be promoted into a composer.
@@ -645,27 +565,6 @@ FM_COMPOSER_PI_MAX_LINES=${FM_COMPOSER_PI_MAX_LINES:-8}
 # Grok install since; may need to change if a future Grok release renders a
 # different overhang or scales it with title/model-name length.
 FM_COMPOSER_GROK_TITLE_OVERHANG=3
-
-# A newer Pi release (captured live 2026-09-21, task
-# fm-overlay-pi-composer-idle-unknown-0921, data/fm-overlay-pi-composer-idle-
-# unknown-0921-capture.txt) draws only ONE separator for a truly empty
-# composer instead of the rule/blank/rule sandwich the rest of this file
-# assumes: the would-be second rule is replaced by two status rows pinned to
-# the pane's own bottom - a cwd+branch line, then a resource line
-# (`↑<tokens> ↓<tokens> R<mem>M <pct>%/<ctx>K (<mode>)`). Without
-# recognizing that shape, `_fm_composer_scan_screen` never sees a pair (only
-# one separator was ever drawn) and every caller reads the pane `unknown`
-# forever, which is exactly what blocked `bin/fm-remote-secondmate-control.sh
-# relaunch`'s `/quit` proof even while herdr's own `agent get` reported the
-# Pi idle. The resource line's arrows and fixed `R<n>M`/`%/<n>K` tokens are
-# not something a human composes by hand, so requiring it (branch line
-# optional, resource line mandatory) as the tail of the screen is genuine
-# NEW structural proof, not a relaxation of the existing blank-row rule: it
-# replaces the missing second rule with an equally positive marker rather
-# than trusting an unidentified blank region. See the trailing-footer
-# fallback in `_fm_composer_scan_screen` below.
-FM_COMPOSER_PI_FOOTER_STATS_RE_DEFAULT='^↑[0-9]+(\.[0-9]+)?[[:alpha:]]?[[:space:]]+↓[0-9]+(\.[0-9]+)?[[:alpha:]]?[[:space:]]+R[0-9]+M[[:space:]]+[0-9]+(\.[0-9]+)?%/[0-9]+[[:alpha:]][[:space:]]+\([[:alpha:]]+\)$'
-FM_COMPOSER_PI_FOOTER_BRANCH_RE_DEFAULT='^[~/][^()[:space:]]*[[:space:]]\([^()[:space:]][^()]*\)$'
 
 # 0 when <content> is exactly one glyph drawn from <glyph-list>.
 _fm_composer_is_prompt_glyph() {  # <content> <glyph-list>
@@ -852,23 +751,10 @@ fm_composer_classify_content() {  # <bordered> <content> [idle_re] [idle_case] [
 
 # _fm_composer_pi_separator_row: a solid pi separator - nothing but `─`, at
 # least 8 columns wide. The width floor is a literal substring test so it is
-# byte-exact in every locale. A working pi (0.85.1) labels its top rule with
-# its spinner, `── ⠏ Working ───…`; that labelled rule is the same separator,
-# flagged through FM_COMPOSER_PI_ROW_LABELLED so the verdict can demand a
-# native `working` status for it.
+# byte-exact in every locale.
 _fm_composer_pi_separator_row() {  # <trimmed-row>
-  local row=$1 spinner
-  FM_COMPOSER_PI_ROW_LABELLED=0
+  local row=$1
   [ -n "$row" ] || return 1
-  case "$row" in
-    '── '?*' Working '*)
-      spinner=${row#── }
-      spinner=${spinner%% Working *}
-      case "$spinner" in *[[:space:]]*|*─*) return 1 ;; esac
-      row=${row#*' Working '}
-      FM_COMPOSER_PI_ROW_LABELLED=1
-      ;;
-  esac
   [ -z "${row//─/}" ] || return 1
   case "$row" in
     *────────*) return 0 ;;
@@ -901,7 +787,6 @@ _fm_composer_scan_screen() {  # <plain-screen> <cursor-or-empty> [extract-wrap]
   FM_COMPOSER_SCAN_PI_OPEN=-1
   FM_COMPOSER_SCAN_PI_CLOSE=-1
   FM_COMPOSER_SCAN_PI_LAST_SEPARATOR=-1
-  FM_COMPOSER_SCAN_PI_OPEN_LABELLED=0
   # The glyph PROOF of each envelope: the first row strictly inside it whose
   # content leads with an agent prompt glyph once its side borders are
   # stripped, and that glyph. This is what tells a composer container from a
@@ -913,7 +798,7 @@ _fm_composer_scan_screen() {  # <plain-screen> <cursor-or-empty> [extract-wrap]
   FM_COMPOSER_SCAN_PI_GLYPH=
   FM_COMPOSER_SCAN_LEFTBAR_GLYPH_ROW=-1
   FM_COMPOSER_SCAN_LEFTBAR_GLYPH=
-  local leftbar_start=-1 pi_open=-1 pi_open_labelled=0 pi_lines=0 pi_max
+  local leftbar_start=-1 pi_open=-1 pi_lines=0 pi_max
   local probe row_glyph row_glyph_row
   local box_glyph_row=-1 box_glyph='' pi_glyph_row=-1 pi_glyph=''
   pi_max=$FM_COMPOSER_PI_MAX_LINES
@@ -965,7 +850,6 @@ _fm_composer_scan_screen() {  # <plain-screen> <cursor-or-empty> [extract-wrap]
         FM_COMPOSER_SCAN_PI_PAIR_FOUND=1
         FM_COMPOSER_SCAN_PI_OPEN=$pi_open
         FM_COMPOSER_SCAN_PI_CLOSE=$row
-        FM_COMPOSER_SCAN_PI_OPEN_LABELLED=$pi_open_labelled
         if [ "$pi_lines" -le "$pi_max" ]; then
           FM_COMPOSER_SCAN_PI_PAIR_VALID=1
         else
@@ -975,7 +859,6 @@ _fm_composer_scan_screen() {  # <plain-screen> <cursor-or-empty> [extract-wrap]
         FM_COMPOSER_SCAN_PI_GLYPH=$pi_glyph
       fi
       pi_open=$row
-      pi_open_labelled=$FM_COMPOSER_PI_ROW_LABELLED
       pi_lines=0
       pi_glyph_row=-1
       pi_glyph=''
@@ -1141,49 +1024,6 @@ _fm_composer_scan_screen() {  # <plain-screen> <cursor-or-empty> [extract-wrap]
   done <<EOF
 $pane
 EOF
-  # Trailing Pi footer fallback (see FM_COMPOSER_PI_FOOTER_STATS_RE_DEFAULT
-  # above): only when the ordinary rule/blank/rule pairing above found no
-  # pair at all, and only a LONE separator exists to anchor it, so a normal
-  # two-rule pair and every non-pi candidate above are completely untouched.
-  # The footer's resource line is required as the screen's own LAST row and
-  # its optional branch line as the row directly above that, so nothing can
-  # hide below the footer and nothing between the rule and the footer goes
-  # unexamined: closing on the footer's first row makes that gap the
-  # composer's content region, scanned by _fm_composer_classify_pi_rows
-  # exactly as a real second rule's content region would be.
-  if [ "$FM_COMPOSER_SCAN_PI_PAIR_FOUND" != 1 ] && [ "$FM_COMPOSER_SCAN_PI_LAST_SEPARATOR" -ge 0 ]; then
-    local pf_last=$((row - 1)) pf_close=-1 pf_row pf_trimmed pf_lines
-    local pf_stats_re=${FM_COMPOSER_PI_FOOTER_STATS_RE:-$FM_COMPOSER_PI_FOOTER_STATS_RE_DEFAULT}
-    local pf_branch_re=${FM_COMPOSER_PI_FOOTER_BRANCH_RE:-$FM_COMPOSER_PI_FOOTER_BRANCH_RE_DEFAULT}
-    if [ "$pf_last" -gt "$FM_COMPOSER_SCAN_PI_LAST_SEPARATOR" ]; then
-      pf_row=$(_fm_composer_screen_row "$pf_last" "$pane")
-      pf_trimmed=$pf_row
-      fm_composer_normalize_trim_var pf_trimmed
-      if printf '%s' "$pf_trimmed" | grep -qE "$pf_stats_re"; then
-        pf_close=$pf_last
-        if [ "$pf_last" -gt $((FM_COMPOSER_SCAN_PI_LAST_SEPARATOR + 1)) ]; then
-          pf_row=$(_fm_composer_screen_row "$((pf_last - 1))" "$pane")
-          pf_trimmed=$pf_row
-          fm_composer_normalize_trim_var pf_trimmed
-          if printf '%s' "$pf_trimmed" | grep -qE "$pf_branch_re"; then
-            pf_close=$((pf_last - 1))
-          fi
-        fi
-      fi
-    fi
-    if [ "$pf_close" -ge 0 ]; then
-      FM_COMPOSER_SCAN_PI_PAIR_FOUND=1
-      FM_COMPOSER_SCAN_PI_OPEN=$FM_COMPOSER_SCAN_PI_LAST_SEPARATOR
-      FM_COMPOSER_SCAN_PI_CLOSE=$pf_close
-      FM_COMPOSER_SCAN_PI_OPEN_LABELLED=$pi_open_labelled
-      pf_lines=$((pf_close - FM_COMPOSER_SCAN_PI_LAST_SEPARATOR - 1))
-      if [ "$pf_lines" -ge 0 ] && [ "$pf_lines" -le "$pi_max" ]; then
-        FM_COMPOSER_SCAN_PI_PAIR_VALID=1
-      else
-        FM_COMPOSER_SCAN_PI_PAIR_VALID=0
-      fi
-    fi
-  fi
   if [ -n "$cy" ] && [ "$top" -ge 0 ] && [ "$top" -lt "$cy" ]; then
     FM_COMPOSER_SCAN_UNSAFE=1
   fi
@@ -1286,12 +1126,11 @@ _fm_composer_screen_row() {  # <n> <screen>
 
 # _fm_composer_row_content: extract the classification content of one raw row:
 # ghost-strip when styled, plain otherwise, normalize-trim, and strip one
-# matching pair of side border glyphs. [cursor-cell] is passed through to
-# fm_composer_strip_ghost, only for rows inside a proven composer container.
-_fm_composer_row_content() {  # <raw-row> <styled> [cursor-cell] -> content on stdout
+# matching pair of side border glyphs.
+_fm_composer_row_content() {  # <raw-row> <styled> -> content on stdout
   local raw=$1 styled=$2 stripped
   if [ "$styled" = 1 ]; then
-    stripped=$(printf '%s\n' "$raw" | fm_composer_strip_ghost "${3:-}")
+    stripped=$(printf '%s\n' "$raw" | fm_composer_strip_ghost)
   else
     stripped=$(printf '%s\n' "$raw" | fm_composer_strip_ansi)
   fi
@@ -1316,7 +1155,7 @@ _fm_composer_classify_rows() {  # <screen> <styled> <ambiguous> <first-row> <las
   row=$first
   while [ "$row" -le "$last" ]; do
     raw=$(_fm_composer_screen_row "$row" "$screen")
-    content=$(_fm_composer_row_content "$raw" "$styled" cursor-cell)
+    content=$(_fm_composer_row_content "$raw" "$styled")
     plain=$(_fm_composer_row_content "$raw" 0)
     state=$(fm_composer_classify_content 1 "$content" \
       "${FM_COMPOSER_IDLE_RE:-$FM_COMPOSER_IDLE_RE_DEFAULT}" insensitive "$plain" 1 "$styled")
@@ -1340,12 +1179,10 @@ _fm_composer_classify_rows() {  # <screen> <styled> <ambiguous> <first-row> <las
 # the styled=0 degradation: without styling, trailing text after the glyph may
 # be the harness's own idle suggestion (claude's rotating dim hint, codex's
 # `Use /skills ...`), so it must read `unknown` rather than a false `pending`.
-# [cursor-cell] is passed only for a glyph row a separator pair closes over
-# (claude 2.x), the one bare shape whose container is proven.
-_fm_composer_classify_bare_row() {  # <screen> <styled> <row> [cursor-cell]
+_fm_composer_classify_bare_row() {  # <screen> <styled> <row>
   local screen=$1 styled=$2 row=$3 raw content plain state
   raw=$(_fm_composer_screen_row "$row" "$screen")
-  content=$(_fm_composer_row_content "$raw" "$styled" "${4:-}")
+  content=$(_fm_composer_row_content "$raw" "$styled")
   plain=$(_fm_composer_row_content "$raw" 0)
   _fm_composer_bare_row_strip_furniture_var content
   _fm_composer_bare_row_strip_furniture_var plain
@@ -1699,26 +1536,9 @@ _fm_composer_select_cursorless() {
   [ -n "$FM_COMPOSER_SELECTED_KIND" ]
 }
 
-# _fm_composer_separators_close_over: 0 when the last scan's separator pair
-# closes over <row>, the one proof that a bare glyph row is a real composer
-# container (claude 2.x). The classifier and the payload extractor both read it
-# here, so the cursor-cell ghost strip cannot drift between the empty verdict
-# and the pre-send proof that relies on it.
-_fm_composer_separators_close_over() {  # <row>
-  [ "$FM_COMPOSER_SCAN_PI_PAIR_FOUND" = 1 ] \
-    && [ "$1" -gt "$FM_COMPOSER_SCAN_PI_OPEN" ] \
-    && [ "$1" -lt "$FM_COMPOSER_SCAN_PI_CLOSE" ]
-}
-
-# fm_composer_extract_selected_content: the selected composer's visible text,
-# with the same ghost stripping the classifier applies, including the
-# cursor-cell strip inside a proven container (box rows, or a single bare row
-# a separator pair closes over). A pre-send proof that kept Claude's focused
-# suggestion cursor cell read a composer the classifier calls empty as
-# holding one letter and refused every send into it.
 fm_composer_extract_selected_content() {  # <caps> <screen>
   local caps=$1 screen=$2 styled=0 kv plain row raw content glyph joined='' footer_re prompt_row=-1
-  local leading_blank=1 placeholder_position=0 prompt_is_shell=0 cursorcell=
+  local leading_blank=1 placeholder_position=0 prompt_is_shell=0
   footer_re=${FM_COMPOSER_LEFTBAR_FOOTER_RE:-$FM_COMPOSER_LEFTBAR_FOOTER_RE_DEFAULT}
   while IFS= read -r kv; do
     [ "$kv" = styled=1 ] && styled=1
@@ -1728,19 +1548,10 @@ EOF
   plain=$(printf '%s\n' "$screen" | fm_composer_strip_ansi)
   _fm_composer_scan_screen "$plain" '' 1
   _fm_composer_select_cursorless "$plain" || return 1
-  case "$FM_COMPOSER_SELECTED_KIND" in
-    box) cursorcell='cursor-cell' ;;
-    bare)
-      if [ "$FM_COMPOSER_SELECTED_LAST" -eq "$FM_COMPOSER_SELECTED_FIRST" ] \
-         && _fm_composer_separators_close_over "$FM_COMPOSER_SELECTED_FIRST"; then
-        cursorcell='cursor-cell'
-      fi
-      ;;
-  esac
   row=$FM_COMPOSER_SELECTED_FIRST
   while [ "$row" -le "$FM_COMPOSER_SELECTED_LAST" ]; do
     raw=$(_fm_composer_screen_row "$row" "$screen")
-    content=$(_fm_composer_row_content "$raw" "$styled" "$cursorcell")
+    content=$(_fm_composer_row_content "$raw" "$styled")
     placeholder_position=0
     case "$FM_COMPOSER_SELECTED_KIND" in
       bare)
@@ -1837,7 +1648,9 @@ EOF
       return 0
     fi
     if [ "$FM_COMPOSER_SCAN_BARE_ROW" -ge 0 ] && [ "$cy" -eq "$FM_COMPOSER_SCAN_BARE_ROW" ]; then
-      if _fm_composer_separators_close_over "$cy"; then
+      if [ "$FM_COMPOSER_SCAN_PI_PAIR_FOUND" = 1 ] \
+         && [ "$cy" -gt "$FM_COMPOSER_SCAN_PI_OPEN" ] \
+         && [ "$cy" -lt "$FM_COMPOSER_SCAN_PI_CLOSE" ]; then
         _fm_composer_classify_bare_pi_overlap "$screen" "$styled" "$has_identity" "$identity" "$cy"
       else
         _fm_composer_classify_bare_row "$screen" "$styled" "$cy"
@@ -1890,7 +1703,9 @@ EOF
       if [ "$FM_COMPOSER_SELECTED_LAST" -gt "$FM_COMPOSER_SELECTED_FIRST" ]; then
         _fm_composer_classify_bare_wrap "$screen" "$styled" \
           "$FM_COMPOSER_SELECTED_FIRST" "$FM_COMPOSER_SELECTED_LAST"
-      elif _fm_composer_separators_close_over "$FM_COMPOSER_SELECTED_FIRST"; then
+      elif [ "$FM_COMPOSER_SCAN_PI_PAIR_FOUND" = 1 ] \
+         && [ "$FM_COMPOSER_SELECTED_FIRST" -gt "$FM_COMPOSER_SCAN_PI_OPEN" ] \
+         && [ "$FM_COMPOSER_SELECTED_FIRST" -lt "$FM_COMPOSER_SCAN_PI_CLOSE" ]; then
         _fm_composer_classify_bare_pi_overlap "$screen" "$styled" "$has_identity" "$identity" \
           "$FM_COMPOSER_SELECTED_FIRST"
       else
@@ -1970,7 +1785,7 @@ _fm_composer_classify_pi_rows() {  # <screen> <styled>
 _fm_composer_classify_bare_pi_overlap() {  # <screen> <styled> <has-identity> <identity> <bare-row>
   local screen=$1 styled=$2 has_identity=$3 identity=$4 row=$5 agent
   if [ "$has_identity" != 1 ]; then
-    _fm_composer_classify_bare_row "$screen" "$styled" "$row" cursor-cell
+    _fm_composer_classify_bare_row "$screen" "$styled" "$row"
     return 0
   fi
   if [ -z "$identity" ]; then
@@ -1978,14 +1793,14 @@ _fm_composer_classify_bare_pi_overlap() {  # <screen> <styled> <has-identity> <i
     return 0
   fi
   if [ "$identity" = probe-absent ]; then
-    _fm_composer_classify_bare_row "$screen" "$styled" "$row" cursor-cell
+    _fm_composer_classify_bare_row "$screen" "$styled" "$row"
     return 0
   fi
   agent=${identity%%$'\t'*}
   if [ "$agent" = pi ]; then
     _fm_composer_pi_verdict "$screen" "$styled" "$has_identity" "$identity"
   else
-    _fm_composer_classify_bare_row "$screen" "$styled" "$row" cursor-cell
+    _fm_composer_classify_bare_row "$screen" "$styled" "$row"
   fi
 }
 
@@ -1993,17 +1808,11 @@ _fm_composer_classify_bare_pi_overlap() {  # <screen> <styled> <has-identity> <i
 # rule, now fleet-wide). A missing identity capability keeps the shape
 # unknown; an unfetched identity on an identity-capable backend asks the
 # adapter to probe (lazily) and re-call. Proven input remains pending for every
-# live pi state, while idle/done pi proves an empty composer on every
-# identity backend. A working pi proves it only when the status is native
-# (herdr `agent get`), because a native-status backend also reports `blocked`:
-# a working Pi queues typed input in its blank composer. A footer-inferred
-# status (tmux) cannot distinguish working from blocked and reports `busy`,
-# which stays unknown. A working pi's spinner-labelled top rule is admitted
-# only under that native `working` status. A blocked pi is parked on an interactive prompt waiting for a human
-# keystroke: its menu is drawn above the separator pair, so the composer region
-# looks free while the keys would answer the prompt instead of composing (issue
-# #2797). Structure cannot disprove that, so a blocked pi defers rather than
-# claiming empty.
+# live pi state, while only an idle/done pi proves an empty composer. A blocked
+# pi is parked on an interactive prompt waiting for a human keystroke: its menu
+# is drawn above the separator pair, so the composer region looks free while the
+# keys would answer the prompt instead of composing (issue #2797). Structure
+# cannot disprove that, so a blocked pi defers rather than claiming empty.
 _fm_composer_pi_verdict() {  # <screen> <styled> <has_identity> <identity>
   local screen=$1 styled=$2 has_identity=$3 identity=$4 agent agent_status state
   if [ "$has_identity" != 1 ]; then
@@ -2029,12 +1838,8 @@ _fm_composer_pi_verdict() {  # <screen> <styled> <has_identity> <identity>
     printf 'pending'
     return 0
   fi
-  if [ "$FM_COMPOSER_SCAN_PI_OPEN_LABELLED" = 1 ] && [ "$agent_status" != working ]; then
-    printf 'unknown'
-    return 0
-  fi
   case "$agent_status" in
-    idle|done|working) printf 'empty' ;;
+    idle|done) printf 'empty' ;;
     *) printf 'unknown' ;;
   esac
 }

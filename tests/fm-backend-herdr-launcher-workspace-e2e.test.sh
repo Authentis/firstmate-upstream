@@ -47,7 +47,6 @@ command -v treehouse >/dev/null 2>&1 || { echo "skip: treehouse not found (requi
 herdr_forget_inherited_pane
 
 TMP_ROOT=$(mktemp -d "$(cd "${TMPDIR:-/tmp}" && pwd -P)/fm-herdr-launcher-e2e.XXXXXX")
-herdr_private_treehouse_root "$TMP_ROOT"
 HERDR_LAB_HELPER="$ROOT/bin/fm-herdr-lab.sh"
 HERDR_LAB_SESSION=$("$HERDR_LAB_HELPER" name fm-herdr-launcher-ws) || {
   rm -rf "$TMP_ROOT"
@@ -148,10 +147,8 @@ spawn_from_launcher() {
 record_worktree() {  # <meta>
   local wt
   wt=$(grep '^worktree=' "$1" 2>/dev/null | cut -d= -f2-)
-  [ -n "$wt" ] || return 0
-  WORKTREES+=("$wt")
-  herdr_worktree_in_private_treehouse_root "$wt" \
-    || fail "spawn acquired its worktree outside the private Treehouse root: $wt"
+  [ -n "$wt" ] && WORKTREES+=("$wt")
+  return 0
 }
 
 LAB_SOCKET=$(lab session list --json 2>/dev/null \

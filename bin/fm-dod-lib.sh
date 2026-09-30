@@ -6,10 +6,10 @@
 # receives. Both paths must hand the worker the same contract: a promoted
 # no-mistakes worker that never received the ask-user escalation rule or the
 # `--yes` ban is the exact delivery hole this single owner exists to close.
-# fm_dod_block <no-mistakes|direct-PR|local-only> <task-id> [branch] <data-dir>
-# [<forge>] prints the block on stdout with no trailing blank line. The caller
-# validates the mode; an unknown mode is refused rather than silently rendered
-# as the pipeline contract. An empty branch argument selects the default below.
+# fm_dod_block <no-mistakes|direct-PR|local-only> <task-id> [branch] [<forge>]
+# prints the block on stdout with no trailing blank line. The caller validates the
+# mode; an unknown mode is refused rather than silently rendered as the pipeline
+# contract.
 # The optional third argument is the task's full ship-branch name (a project's
 # registered prefix may replace the legacy `fm/` one); it defaults to `fm/<task-id>`
 # and is the immutable task branch rendered in every delivery contract.
@@ -95,10 +95,6 @@
 # ordinary ship brief and the durable contract written during scout promotion.
 # It takes the same optional trailing forge argument, because the rule that keeps
 # a worker off a remote is exactly the rule that changes when the forge does.
-# fm_dod_worker_conduct_lines owns the two mode-independent worker-conduct
-# sentences every Definition of done block renders: a worker never
-# dispositions its own validation gate finding, and a worker never runs a
-# command needing a confirmation it cannot answer without saying so first.
 
 # shellcheck source=bin/fm-pr-lib.sh
 . "$(d=${BASH_SOURCE[0]%/*}; [ "$d" != "${BASH_SOURCE[0]}" ] || d=.; cd "${d:-/}" && pwd)/fm-pr-lib.sh"
@@ -154,13 +150,13 @@ fm_ship_rule_one() {  # <no-mistakes|direct-PR|local-only> <task-id> [branch] [<
   fi
   case "$mode" in
     direct-PR)
-      printf '%s\n' "1. Never push to the default branch (push only your \`$branch\` branch). Never merge a PR. Never push a \`preserve/\`, \`archive/\`, or \`work/*-baseline\` safety ref to any remote unless the task needs it there; keep it local."
+      printf '%s\n' "1. Never push to the default branch (push only your \`$branch\` branch). Never merge a PR."
       ;;
     local-only)
       printf '%s\n' "1. Never push to any remote and never open a PR. Work only on your \`$branch\` branch; firstmate handles the merge into local \`main\`."
       ;;
     no-mistakes)
-      printf '%s\n' "1. Never push to the default branch. Never merge a PR. Never push a \`preserve/\`, \`archive/\`, or \`work/*-baseline\` safety ref to any remote unless the task needs it there; keep it local."
+      printf '%s\n' '1. Never push to the default branch. Never merge a PR.'
       ;;
     *)
       echo "error: fm_ship_rule_one: unknown delivery mode '$mode'" >&2
@@ -276,29 +272,6 @@ fm_ask_user_escalation_block() {  # <data-dir> <task-id>
    For a no-mistakes ask-user gate specifically, escalate all ask-user findings as one event plus one snapshot file, using that same shape even when the gate holds only a single ask-user finding: write only the ask-user findings, verbatim and unparaphrased (id, severity, file, line, description, authority), to \`$data/$id/nm-<run>-findings.txt\`, then report the gate with
    \`needs-decision [at=<epoch>] [key=nm-<run>-<step>]: ask-user findings=<id1>,<id2>,... file=$data/$id/nm-<run>-findings.txt\`
    naming every ask-user finding id from that gate. The status line only points at the file; it never restates or summarizes a finding's content.
-   Also append the finding-retention ledger contract below for every finding in that same snapshot, so an ask-user finding a later round drops from its gate still survives here.
-EOF
-}
-
-# The one owner of the finding-retention ledger contract a no-mistakes worker
-# hand-appends to (workers on a project other than firstmate have no firstmate
-# bin/ on PATH, so this is plain file appends, never a script invocation).
-# bin/fm-nm-findings-lib.sh's header is the one owner of the ledger's exact
-# JSONL event shapes and fold rule; this block only tells the worker when to
-# append and never restates that format.
-fm_nm_findings_retention_block() {  # <data-dir> <task-id>
-  local data=$1 id=$2
-  cat <<EOF
-Every no-mistakes gate that presents findings - review, document, lint, or any other step, not only an ask-user gate - is a finding-retention checkpoint. Before responding to it, append one line per currently presented finding to \`$data/$id/nm-findings-ledger.jsonl\` (create it if absent; never rewrite or delete an existing line), shaped \`{"round":<n>,"step":"<step>","finding":<the finding object exactly as the gate reported it, unedited>}\`.
-After responding, append one more line for every finding your response actually disposed of, shaped \`{"round":<n>,"step":"<step>","finding_id":"<id>","disposition":"fixed"|"skipped-closed"|"deferred","deferred_owner":"<owner>","deferred_id":"<external-id>"}\` (only "deferred" carries deferred_owner/deferred_id, and never "deferred" without both). A finding you did not select this round gets no disposition line: it stays open in the ledger, and you must list it again, unedited, the next time any gate presents it.
-Before your final \`done:\` line, fold that ledger yourself - bin/fm-nm-findings-lib.sh's header is the one owner of the exact fold rule: the latest disposition per finding id wins, and a finding with no disposition line is open - and state the closed, deferred (with owner/id), and still-open ids in your \`done:\` summary. Never report every finding addressed while the ledger still holds an open one.
-EOF
-}
-
-fm_dod_worker_conduct_lines() {
-  cat <<'EOF'
-A worker never approves, skips, or otherwise dispositions its own validation gate finding, no matter how confident it is - even when the cause is obvious - and routes every one to firstmate instead.
-A worker never runs a command that requires a confirmation it is not positioned to answer, and where one is unavoidable it says so to firstmate BEFORE running it, not after.
 EOF
 }
 
@@ -365,8 +338,8 @@ There is no pull request, no \`gh-axi\` call, and no forge CI result to report: 
 EOF
 }
 
-fm_dod_block() {  # <mode> <task-id> [branch] <data-dir> [<forge>]
-  local mode=$1 id=$2 data=$4 forge=${5:-none}
+fm_dod_block() {  # <mode> <task-id> [branch] [<forge>]
+  local mode=$1 id=$2 forge=${4:-none}
   local branch=${3:-fm/$id}
   fm_forge_valid_for_mode "$forge" "$mode" fm_dod_block || return 1
   case "$mode:$forge" in
@@ -375,9 +348,6 @@ fm_dod_block() {  # <mode> <task-id> [branch] <data-dir> [<forge>]
 # Definition of done
 Delivery contract: mode=direct-PR forge=gerrit shape=squash
 Ship branch: $branch
-EOF
-      fm_dod_worker_conduct_lines
-      cat <<EOF
 This task ships **direct-PR** to a Gerrit review server: you publish the change yourself, without the no-mistakes pipeline.
 Gerrit has no pull requests, so there is nothing to open; publishing creates the change.
 The task is complete only when committed on your branch.
@@ -393,9 +363,6 @@ EOF
 # Definition of done
 Delivery contract: mode=no-mistakes forge=gerrit shape=squash
 Ship branch: $branch
-EOF
-      fm_dod_worker_conduct_lines
-      cat <<EOF
 This project's review server is Gerrit: it has no pull requests and no forge CI the pipeline can watch, so **no-mistakes runs here as a review pass that ends at a ready branch**, and you then publish that branch as one change.
 Pass \`--skip push,pr,ci\` on every \`no-mistakes axi run\` for this task, and skip nothing else: \`review\`, \`test\`, \`document\`, and \`lint\` are the whole point of the run.
 Those three are the only steps that reach a forge, and skipping them is a supported outcome, not a degraded one.
@@ -406,10 +373,6 @@ That first \`done:\` is the handoff that starts the pipeline; it is not a reques
 
 EOF
       fm_nm_driving_block "$forge"
-      cat <<EOF
-
-EOF
-      fm_nm_findings_retention_block "$data" "$id"
       cat <<EOF
 
 Because \`push\` is skipped, the pipeline's fixes DO NOT arrive in your checkout: each fix round commits onto a branch inside no-mistakes' own local gate repository, and with no push nothing carries those commits back to you.
@@ -432,9 +395,6 @@ EOF
 # Definition of done
 Delivery contract: mode=direct-PR
 Ship branch: $branch
-EOF
-      fm_dod_worker_conduct_lines
-      cat <<EOF
 This task ships **direct-PR**: you raise the PR yourself, without the no-mistakes pipeline.
 The task is complete only when committed on your branch.
 When it is implemented and committed, push your branch and open a PR with \`gh-axi\` that is ready for review, not a draft.
@@ -451,9 +411,6 @@ EOF
 # Definition of done
 Delivery contract: mode=local-only
 Ship branch: $branch
-EOF
-      fm_dod_worker_conduct_lines
-      cat <<EOF
 This task ships **local-only**: no remote, no PR, no pipeline.
 The task is complete only when committed on your branch \`$branch\`. Do NOT push, do NOT open a PR, do NOT merge.
 A \`done:\` is accepted when the named head is on this project's shared local branch, not only on a detached copy; the check tests that head, not merely that a branch moved.
@@ -467,9 +424,6 @@ EOF
 # Definition of done
 Delivery contract: mode=no-mistakes
 Ship branch: $branch
-EOF
-      fm_dod_worker_conduct_lines
-      cat <<EOF
 The task is complete only when committed on your branch.
 When you believe it is complete, append \`done [at=<epoch>]: {summary}\` to the status file and stop.
 Firstmate will then instruct you to run /no-mistakes to validate and ship a PR.
@@ -477,10 +431,6 @@ That first \`done:\` is the handoff that starts the pipeline, which owns the pus
 
 EOF
       fm_nm_driving_block "$forge"
-      cat <<EOF
-
-EOF
-      fm_nm_findings_retention_block "$data" "$id"
       cat <<EOF
 
 After /no-mistakes reports CI green (the CI-ready return point - do not wait for it to keep monitoring in the background until merge), read the PR back from the forge and confirm it is not a draft (\`gh-axi pr view <number>\` must print \`draft: no\`, where <number> is the PR number from your PR URL); if it is a draft, mark it ready with \`gh-axi pr ready <number>\`.

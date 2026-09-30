@@ -1054,8 +1054,9 @@ STALL_JOB_GROUP=
 pass "an ousted worker in shutdown leaves the replacement quarantine untouched"
 
 # An idle worker must not busy-poll its queue: between passes it sleeps one
-# second, and it refreshes the heartbeat every five seconds.
-# Every external command the worker runs by name goes through a
+# second, so its only steady cost is that sleep and the once-a-second heartbeat
+# plus the periodic sweep, which the 2-second stage reap age pulls in to every
+# 2 seconds. Every external command the worker runs by name goes through a
 # counting shim, which makes the exec rate observable without privileges.
 QUIET_HOME="$TMP_ROOT/quiet-account"
 QUIET_STATE="$TMP_ROOT/quiet-state"
@@ -1102,7 +1103,7 @@ quiet_measure() { # <label> <max-sleeps>
   sleeps=$(grep -cx sleep "$QUIET_EXEC_LOG" || true)
   [ "$sleeps" -le "$2" ] \
     || fail "$1 kept polling with sleep ($sleeps sleeps in 4s)"
-  [ "$execs" -le 24 ] \
+  [ "$execs" -le 80 ] \
     || fail "$1 ran $execs commands in 4s; expected only heartbeats and sweeps"$'\n'"$(sort "$QUIET_EXEC_LOG" | uniq -c)"
 }
 # fm_remote_job_probe must keep reading an idle worker as ready: its heartbeat
@@ -1114,7 +1115,7 @@ quiet_heartbeat_stays_fresh() { # <state> <account-home> <label>
       || fail "the probe read the live $3 worker as unready"
     mtime=$(fm_remote_job_path_mtime "$1/worker.ready") || fail "the $3 worker heartbeat vanished"
     age=$(( $(date +%s) - mtime ))
-    [ "$age" -le 6 ] || fail "the $3 worker heartbeat went ${age}s stale"
+    [ "$age" -le 3 ] || fail "the $3 worker heartbeat went ${age}s stale"
     sleep 0.5
   done
 }
@@ -1147,7 +1148,7 @@ quiet_stop() { # <pid>
 quiet_wait_ready "$QUIET_STATE" idle-rate
 quiet_settle 3
 quiet_measure "an idle worker" 6
-pass "an idle worker limits filesystem churn between queue passes"
+pass "an idle worker sleeps out a second between passes instead of busy-polling"
 
 quiet_heartbeat_stays_fresh "$QUIET_STATE" "$QUIET_HOME" idle
 pass "an idle worker keeps its readiness heartbeat fresh between passes"
@@ -1222,55 +1223,5 @@ RESTART_SUPERVISOR_PID=
 assert_grep "remote job worker exited 3 times; stopping the supervisor" "$TMP_ROOT/restart-supervisor.err" \
   "the restart guard did not explain why it stopped"
 pass "barely healthy worker failures remain bounded by the restart guard"
-
-# A Linux serving child must leave when its restart supervisor disappears,
-# rather than polling after being reparented.
-ORPHAN_HOME="$TMP_ROOT/orphan-account"
-ORPHAN_STATE="$TMP_ROOT/orphan-state"
-mkdir -p "$ORPHAN_HOME"
-HOME="$ORPHAN_HOME" FM_ROOT_OVERRIDE="$REMOTE_ROOT" FM_REMOTE_JOB_STATE_ROOT="$ORPHAN_STATE" \
-  FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux "$REMOTE_ROOT/bin/fm-remote-job-worker.sh" \
-  > "$TMP_ROOT/orphan-supervisor.out" 2> "$TMP_ROOT/orphan-supervisor.err" &
-ORPHAN_SUPERVISOR_PID=$!
-for _ in $(seq 1 300); do
-  [ -f "$ORPHAN_STATE/worker.pid" ] && break
-  sleep 0.05
-done
-ORPHAN_SERVE_PID=$(cat "$ORPHAN_STATE/worker.pid" 2>/dev/null || true)
-case "$ORPHAN_SERVE_PID" in ''|*[!0-9]*) fail "the Linux supervisor did not publish its serving child" ;; esac
-kill -KILL "$ORPHAN_SUPERVISOR_PID"
-wait "$ORPHAN_SUPERVISOR_PID" 2>/dev/null || true
-for _ in $(seq 1 300); do
-  [ ! -f "$ORPHAN_STATE/worker.pid" ] && break
-  sleep 0.05
-done
-assert_absent "$ORPHAN_STATE/worker.pid" "a serve kept its worker identity after its supervisor died"
-pass "a serve exits when its Linux supervisor disappears"
-
-# Expiry is operator-driven. Old terminal or malformed records may be removed,
-# while queued, running, and claimed records stay out of both modes.
-EXPIRE_HOME="$TMP_ROOT/expire-account"
-EXPIRE_STATE="$TMP_ROOT/expire-state"
-EXPIRE="$ROOT/bin/fm-remote-job-expire.sh"
-mkdir -p "$EXPIRE_HOME" "$EXPIRE_STATE/jobs/job-done" "$EXPIRE_STATE/jobs/job-empty" \
-  "$EXPIRE_STATE/jobs/job-queued" "$EXPIRE_STATE/jobs/job-running" "$EXPIRE_STATE/jobs/job-claimed/.claim"
-printf 'done\n' > "$EXPIRE_STATE/jobs/job-done/state"
-printf 'queued\n' > "$EXPIRE_STATE/jobs/job-queued/state"
-printf 'running\n' > "$EXPIRE_STATE/jobs/job-running/state"
-printf 'done\n' > "$EXPIRE_STATE/jobs/job-claimed/state"
-touch -t 202001010000 "$EXPIRE_STATE/jobs"/job-*
-EXPIRE_DRY_RUN=$(HOME="$EXPIRE_HOME" FM_REMOTE_JOB_STATE_ROOT="$EXPIRE_STATE" "$EXPIRE" --dry-run --older-than 60)
-assert_contains "$EXPIRE_DRY_RUN" 'job-done' "expiry dry-run omitted an old completed record"
-assert_contains "$EXPIRE_DRY_RUN" 'job-empty' "expiry dry-run omitted an old incomplete record with no pending work"
-assert_not_contains "$EXPIRE_DRY_RUN" 'job-queued' "expiry dry-run selected queued work"
-assert_not_contains "$EXPIRE_DRY_RUN" 'job-running' "expiry dry-run selected running work"
-assert_not_contains "$EXPIRE_DRY_RUN" 'job-claimed' "expiry dry-run selected a claimed record"
-HOME="$EXPIRE_HOME" FM_REMOTE_JOB_STATE_ROOT="$EXPIRE_STATE" "$EXPIRE" --apply --older-than 60 > /dev/null
-assert_absent "$EXPIRE_STATE/jobs/job-done" "expiry apply left an eligible completed record"
-assert_absent "$EXPIRE_STATE/jobs/job-empty" "expiry apply left an eligible incomplete record"
-assert_present "$EXPIRE_STATE/jobs/job-queued" "expiry apply removed queued work"
-assert_present "$EXPIRE_STATE/jobs/job-running" "expiry apply removed running work"
-assert_present "$EXPIRE_STATE/jobs/job-claimed" "expiry apply removed a claimed record"
-pass "explicit remote job expiry selects only records with no pending work"
 
 echo "ALL TESTS PASSED"

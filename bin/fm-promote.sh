@@ -44,11 +44,11 @@ FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 
-# shellcheck source=/dev/null # Canonical lint root; following it here breaks the lint memory ceiling.
+# shellcheck source=bin/fm-dod-lib.sh
 . "$SCRIPT_DIR/fm-dod-lib.sh"
 # shellcheck source=bin/fm-pr-lib.sh
 . "$SCRIPT_DIR/fm-pr-lib.sh"
-# shellcheck source=/dev/null # Canonical lint root; following it here breaks the lint memory ceiling.
+# shellcheck source=bin/fm-wake-lib.sh
 . "$SCRIPT_DIR/fm-wake-lib.sh"
 # shellcheck source=bin/fm-tasks-axi-lib.sh
 . "$SCRIPT_DIR/fm-tasks-axi-lib.sh"
@@ -260,7 +260,7 @@ EOF
     printf '%s\n' "$PROMOTION_ASK_USER_BLOCK"
   fi
   printf '\n'
-  fm_dod_block "$MODE" "$ID" "$BRANCH" "$DATA" "$FORGE"
+  fm_dod_block "$MODE" "$ID" "$BRANCH" "$FORGE"
 }
 mkdir -p "$DATA/$ID"
 [ ! -d "$INSTRUCTIONS" ] || { echo "error: ship instructions path is a directory: $INSTRUCTIONS" >&2; exit 1; }

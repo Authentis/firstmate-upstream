@@ -212,19 +212,14 @@ case "${1:-}" in
     # A successful but empty inventory: it omits the crew's window, so absence
     # is proved by the answer rather than by an addressed call failing. Only
     # reached once display-message has already failed.
-    [ -z "${FM_FAKE_TMUX_WINDOW_NAME:-}" ] || printf '%s\n' "$FM_FAKE_TMUX_WINDOW_NAME"
     ;;
   display-message)
     [ "${FM_FAKE_TMUX_MISSING:-0}" = 1 ] && exit 1
-    case "${*: -1}" in
-      '#{cursor_y}') printf '%s\n' "${FM_FAKE_CURSOR_Y:-1}" ;;
-      '#{pane_current_command}') printf '%s\n' "${FM_FAKE_TMUX_CURRENT_COMMAND:-}" ;;
-      *) printf '%%1\n' ;;
-    esac ;;
+    printf '%%1\n' ;;
   capture-pane)
     [ "${FM_FAKE_TMUX_MISSING:-0}" = 1 ] && exit 1
     if [ "${FM_FAKE_BUSY:-0}" = 1 ]; then printf 'work in progress\n%s\n' "${FM_FAKE_BUSY_TEXT:-esc to interrupt}"
-    else printf '%s\n' "${FM_FAKE_PANE_TEXT:-all quiet}"; fi ;;
+    else printf 'all quiet\n> \n'; fi ;;
 esac
 exit 0
 SH
@@ -330,12 +325,8 @@ reset_fakes() {
   FM_FAKE_RUNS_LIST=""
   FM_FAKE_BUSY=0
   FM_FAKE_BUSY_TEXT=
-  FM_FAKE_CURSOR_Y=1
-  FM_FAKE_PANE_TEXT=
   FM_FAKE_TMUX_MISSING=0
   FM_FAKE_TMUX_UNREADABLE=0
-  FM_FAKE_TMUX_WINDOW_NAME=
-  FM_FAKE_TMUX_CURRENT_COMMAND=
   FM_FAKE_HERDR_BUSY=0
   FM_FAKE_HERDR_MISSING=0
   FM_FAKE_HERDR_READ_FAIL=0
@@ -361,8 +352,7 @@ reset_fakes() {
   FM_FAKE_GERRIT_READ_FAIL=0
   FM_FAKE_GERRIT_READ_LOG=
   unset FM_FAKE_PR_47_STATE FM_FAKE_PR_47_MERGED FM_FAKE_PR_48_STATE FM_FAKE_PR_48_MERGED
-  export FM_FAKE_AXI_STATUS FM_FAKE_AXI_STATUS_RUN FM_FAKE_RUNS_LIST FM_FAKE_BUSY FM_FAKE_BUSY_TEXT FM_FAKE_CURSOR_Y FM_FAKE_PANE_TEXT FM_FAKE_TMUX_MISSING FM_FAKE_TMUX_UNREADABLE
-  export FM_FAKE_TMUX_WINDOW_NAME FM_FAKE_TMUX_CURRENT_COMMAND
+  export FM_FAKE_AXI_STATUS FM_FAKE_AXI_STATUS_RUN FM_FAKE_RUNS_LIST FM_FAKE_BUSY FM_FAKE_BUSY_TEXT FM_FAKE_TMUX_MISSING FM_FAKE_TMUX_UNREADABLE
   export FM_FAKE_HERDR_BUSY FM_FAKE_HERDR_MISSING FM_FAKE_HERDR_READ_FAIL FM_FAKE_HERDR_HUSK FM_FAKE_HERDR_AGENT_STATUS FM_FAKE_HERDR_PROCESS FM_FAKE_HERDR_SHELL_PID FM_FAKE_CI_LOGS
   export FM_FAKE_DAEMON_DOWN FM_FAKE_DAEMON_TIMEOUT FM_FAKE_DAEMON_PROBE_LOG FM_FAKE_AXI_HOME
   export FM_FAKE_AXI_HOME_ERROR FM_FAKE_AXI_STATUS_RUN_ERROR FM_FAKE_AXI_STATUS_ERROR
@@ -2532,59 +2522,6 @@ test_no_run_footer_text_alone_is_not_working() {
   pass "a converted adapter never reads working from rendered footer text"
 }
 
-# Codex has no verified lifecycle writer yet, but a live tmux pane has the
-# same bounded rendered activity signal the watcher already uses for delivery.
-# Its dedicated fallback must classify both an active turn and an idle prompt.
-test_no_run_codex_tmux_pane_reads_working_and_idle() {
-  reset_fakes
-  local d out
-  d=$(new_case codex-tmux-pane)
-  make_repo_on_branch "$d/wt" fm/feat-codex-pane
-  make_fakebin "$d" >/dev/null
-  fm_write_meta "$d/state/feat-codex-pane.meta" "window=fm:fm-feat-codex-pane" \
-    "worktree=$d/wt" "kind=ship" "harness=codex"
-  FM_FAKE_AXI_STATUS=""
-  FM_FAKE_RUNS_LIST=""
-  FM_FAKE_BUSY=1
-  out=$(run_crew_state "$d" feat-codex-pane)
-  assert_contains "$out" "state: working" "a live Codex tmux turn reads working"
-  assert_contains "$out" "codex tmux pane" "the Codex pane fallback identifies its source"
-
-  FM_FAKE_BUSY=0
-  FM_FAKE_CURSOR_Y=2
-  FM_FAKE_PANE_TEXT=$'previous response\n\n›\n\n  gpt-5.5 xhigh · Context 100% left'
-  printf 'needs-decision: choose a route\n' > "$d/state/feat-codex-pane.status"
-  out=$(run_crew_state "$d" feat-codex-pane)
-  assert_contains "$out" "state: idle" "an idle Codex prompt overrides a decision-only status log"
-  assert_contains "$out" "source: pane" "the idle Codex prompt reports pane evidence"
-  assert_contains "$out" "positively empty Codex composer" "the idle result names its positive evidence"
-  assert_not_contains "$out" "state: parked" "a decision-only status log cannot override positive idle evidence"
-  assert_not_contains "$out" "codex-unverified" "a readable Codex pane is never left unclassified"
-
-  FM_FAKE_PANE_TEXT=$'previous response\n\n› draft not submitted\n\n  gpt-5.5 xhigh · Context 100% left · Ready'
-  out=$(run_crew_state "$d" feat-codex-pane)
-  assert_contains "$out" "state: idle" "a ready Codex composer containing a draft reads idle"
-  assert_contains "$out" "source: pane" "the drafted idle Codex prompt reports pane evidence"
-  assert_not_contains "$out" "codex-unverified" "a ready Codex draft is never left unclassified"
-
-  for pane in 'fatal: authentication failed' 'Select an option to continue' '$'; do
-    FM_FAKE_PANE_TEXT=$pane
-    out=$(run_crew_state "$d" feat-codex-pane)
-    assert_contains "$out" "state: unknown" "a Codex pane without a proven composer stays unknown"
-    assert_not_contains "$out" "state: parked" "an ambiguous Codex pane cannot expose a stale status state"
-  done
-
-  FM_FAKE_TMUX_WINDOW_NAME=fm-feat-codex-pane
-  FM_FAKE_TMUX_CURRENT_COMMAND=zsh
-  FM_FAKE_PANE_TEXT='$'
-  out=$(run_crew_state "$d" feat-codex-pane)
-  assert_contains "$out" "state: stopped" "a bare-shell Codex pane reads stopped"
-  assert_contains "$out" "source: pane" "the bare-shell verdict reports pane evidence"
-  assert_contains "$out" "bare shell; Codex agent process absent" "the stopped result names its positive evidence"
-  assert_not_contains "$out" "state: unknown" "a proven agent-free shell is not unclassified"
-  pass "Codex tmux panes classify active and idle states without lifecycle hooks"
-}
-
 # Grok keeps its isolated temporary rendered-tail fallback until its structured
 # lifecycle is live-verified, so a grok crew still reads working from its own
 # verified signature.
@@ -2704,8 +2641,7 @@ test_no_run_herdr_stale_registration_over_shell_reads_agent_gone() {
   FM_FAKE_HERDR_AGENT_STATUS=idle
   FM_FAKE_HERDR_PROCESS=shell
   local out; out=$(run_crew_state "$d" feat-herdr-stale)
-  assert_contains "$out" "state: stopped" "a stale registration over a shell-only pane is positively stopped"
-  assert_contains "$out" "source: endpoint" "a stale registration exposes recovery-grade endpoint evidence"
+  assert_contains "$out" "state: unknown" "a stale registration over a shell-only pane is not a live state"
   assert_contains "$out" "backend target gone" "a stale registration over a shell-only pane must read as positive agent-gone evidence"
   assert_contains "$out" "agent gone, pane shell remains" "the agent-gone reason must name the remaining shell"
   assert_not_contains "$out" "backend unreachable" "a readable shell-only pane is not unreachable"
@@ -2754,8 +2690,7 @@ test_no_run_herdr_husk_dead_still_reads_gone() {
   FM_FAKE_HERDR_READ_FAIL=1
   FM_FAKE_HERDR_HUSK=1
   local out; out=$(run_crew_state "$d" feat-herdr-husk)
-  assert_contains "$out" "state: stopped" "a husk pane has a positively stopped current state"
-  assert_contains "$out" "source: endpoint" "a husk pane exposes recovery-grade endpoint evidence"
+  assert_contains "$out" "state: unknown" "a husk pane has no live current state"
   assert_contains "$out" "backend target gone" "a husk pane keeps its gone-class death evidence"
   assert_contains "$out" "agent gone, pane shell remains" "the husk verdict names what actually died"
   assert_not_contains "$out" "backend unreachable" "a husk pane is not an unreachable backend"
@@ -3087,8 +3022,8 @@ test_dead_window_ignores_stale_status_log() {
   FM_FAKE_RUNS_LIST=""
   FM_FAKE_TMUX_MISSING=1
   local out; out=$(run_crew_state "$d" feat-dead)
-  assert_contains "$out" "state: stopped" "dead window -> stopped"
-  assert_contains "$out" "source: endpoint" "dead window -> recovery-grade endpoint source"
+  assert_contains "$out" "state: unknown" "dead window -> unknown"
+  assert_contains "$out" "source: none" "dead window -> none source"
   assert_not_contains "$out" "source: status-log" "dead window does not reuse stale log"
   assert_contains "$out" "backend target gone" "an inventory that omits the window is positive death evidence"
   pass "dead window ignores stale status log"
@@ -5646,7 +5581,6 @@ test_moved_remote_branch_without_named_head_is_blocked
 test_no_run_busy_pane
 test_no_run_launch_prompt_parked_is_not_working
 test_no_run_footer_text_alone_is_not_working
-test_no_run_codex_tmux_pane_reads_working_and_idle
 test_no_run_grok_uses_isolated_fallback
 test_no_run_herdr_unknown_uses_backend_capture
 test_no_run_herdr_cli_failure_reads_unreachable_not_gone

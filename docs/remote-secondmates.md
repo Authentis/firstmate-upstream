@@ -492,7 +492,6 @@ Its recovery request rings the doorbell again when it is enqueued.
 
 `fm-peek.sh` and `fm-crew-state.sh` route remote-secondmate reads to the endpoint's host instead of consulting local worktree or backend state.
 An unreachable or unreadable remote read is unknown, not evidence that the endpoint is dead.
-A host can also accept SSH and then never answer, for example when its remote side waits on a lock that never frees; keepalives cannot end that call, so every supervision, startup, and reply-source remote call carries a wall-clock bound through `bin/fm-on.sh`'s `FM_ON_TIMEOUT`, and an expired bound is the same unknown 255 outcome.
 
 ### Replies and the parent channel
 
@@ -569,8 +568,6 @@ A remote reply reaches the primary only through this asynchronous mirror.
 Because of that, the primary treats a missing correlated report as a missed report only once the mirror has been read through the end of the remote log after that turn ended.
 A remote mate that did answer is therefore never asked to repost while its answer is still in flight.
 A genuinely missing answer still gets exactly one repost once the mirror is known to be current.
-While a mate stays unavailable, its waiting requests cost the watcher no per-poll work.
-The owner can retire requests that have become obsolete with `bin/fm-pending-reply.sh retire`, so repairing the mirror later cannot release a burst of stale reposts.
 
 The [process-to-event operating contract](configuration.md#process-to-event-sources-stateprocevent) owns automatic application, one-announcement replay deduplication, and the unhandled fallback path.
 

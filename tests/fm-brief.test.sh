@@ -221,30 +221,6 @@ test_ship_modes_generate_clean_briefs() {
   pass "fm-brief.sh: no-mistakes/direct-PR/local-only briefs generate cleanly"
 }
 
-# The two worker-conduct sentences (never disposition your own gate finding,
-# never run an unanswerable confirmation silently) are mode-independent: they
-# must render into every ship mode's Definition of done, not only no-mistakes,
-# because the workers that break these rules are the ones who have not been
-# corrected yet, on whatever mode they happen to be dispatched on.
-test_dod_worker_conduct_sentences_render_in_every_mode() {
-  local home id mode brief
-  home="$TMP_ROOT/worker-conduct-home"
-  write_registry "$home"
-
-  for id_mode in "brief-conduct-a1:no-mistakes" "brief-conduct-a2:direct-PR" "brief-conduct-a3:local-only"; do
-    id=${id_mode%%:*}
-    mode=${id_mode##*:}
-    FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --mode "$mode" >/dev/null 2>&1
-    brief="$home/data/$id/brief.md"
-    assert_present "$brief" "$id: brief was not scaffolded"
-    assert_grep "A worker never approves, skips, or otherwise dispositions its own validation gate finding, no matter how confident it is - even when the cause is obvious - and routes every one to firstmate instead." "$brief" \
-      "$id ($mode): Definition of done must forbid a worker from dispositioning its own gate finding"
-    assert_grep "A worker never runs a command that requires a confirmation it is not positioned to answer, and where one is unavoidable it says so to firstmate BEFORE running it, not after." "$brief" \
-      "$id ($mode): Definition of done must forbid running an unanswerable confirmation without saying so first"
-  done
-  pass "fm-brief.sh: Definition of done teaches both worker-conduct sentences in every ship mode"
-}
-
 # A ship task's delivery mode is firstmate's per-task decision, so a missing or
 # unusable value must stop the scaffold instead of silently defaulting. The
 # no-mistakes-prod-only row is the conditional registry policy: it is never a task
@@ -506,61 +482,6 @@ test_ask_user_escalation_format() {
   done
 
   pass "fm-brief.sh: no-mistakes ask-user findings use one event plus a verbatim snapshot"
-}
-
-test_finding_retention_ledger_contract() {
-  local home id brief other_id other_brief mode
-
-  home="$TMP_ROOT/finding-retention-home"
-  mkdir -p "$home/data"
-  id="brief-finding-retention-e1"
-  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --mode no-mistakes >/dev/null 2>&1
-  brief="$home/data/$id/brief.md"
-  assert_present "$brief" "brief was not scaffolded"
-
-  # The no-mistakes DOD must render the finding-retention ledger contract:
-  # every gate that presents findings is a retention checkpoint, the ledger
-  # lives under this task's own data directory, unselected findings stay
-  # open rather than disappearing, and the final done: line must reflect the
-  # ledger rather than claim everything addressed by omission.
-  assert_grep "Every no-mistakes gate that presents findings" "$brief" \
-    "no-mistakes DOD lost the finding-retention checkpoint contract"
-  assert_grep "$home/data/$id/nm-findings-ledger.jsonl" "$brief" \
-    "no-mistakes DOD must point the retention ledger at this task's own data directory"
-  assert_grep "never rewrite or delete an existing line" "$brief" \
-    "no-mistakes DOD must require the ledger to stay append-only"
-  # shellcheck disable=SC2016  # single quotes are deliberate: the JSON shape must stay literal
-  assert_grep '"disposition":"fixed"|"skipped-closed"|"deferred"' "$brief" \
-    "no-mistakes DOD must render the exact disposition vocabulary"
-  assert_grep "never \"deferred\" without both" "$brief" \
-    "no-mistakes DOD must require both an owner and an external id for a defer"
-  assert_grep "A finding you did not select this round gets no disposition line: it stays open in the ledger" "$brief" \
-    "no-mistakes DOD must state that an unselected finding stays open rather than vanishing"
-  assert_grep "Never report every finding addressed while the ledger still holds an open one." "$brief" \
-    "no-mistakes DOD must forbid an all-addressed claim by omission"
-  assert_grep "bin/fm-nm-findings-lib.sh's header is the one owner of the exact fold rule" "$brief" \
-    "no-mistakes DOD must point at the ledger's one format owner instead of restating the fold rule"
-
-  # The ask-user escalation block (rule 6) must also point into the same
-  # ledger contract rather than treating ask-user findings as exempt from it.
-  assert_grep "Also append the finding-retention ledger contract below for every finding in that same snapshot" "$brief" \
-    "ship rule 6 must fold ask-user findings into the same retention ledger contract"
-
-  other_id="brief-no-finding-retention-scout"
-  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$other_id" some-proj --scout >/dev/null 2>&1
-  other_brief="$home/data/$other_id/brief.md"
-  assert_no_grep "nm-findings-ledger.jsonl" "$other_brief" \
-    "scout brief received a no-mistakes-only retention ledger contract"
-
-  for mode in direct-PR local-only; do
-    other_id="brief-no-finding-retention-$(printf '%s' "$mode" | tr '[:upper:]' '[:lower:]')"
-    FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$other_id" some-proj --mode "$mode" >/dev/null 2>&1
-    other_brief="$home/data/$other_id/brief.md"
-    assert_no_grep "nm-findings-ledger.jsonl" "$other_brief" \
-      "$mode brief received a no-mistakes-only retention ledger contract"
-  done
-
-  pass "fm-brief.sh: no-mistakes DOD renders the finding-retention ledger contract"
 }
 
 # The project-memory section bounds crewmate edits of a project's AGENTS.md or
@@ -1042,33 +963,6 @@ test_scout_and_secondmate_load_decision_hold_policy() {
   pass "fm-brief.sh: investigation and visual-review completions load the shared decision policy"
 }
 
-# Removing a scout's worktree discards its files and detached commits, but refs
-# it creates live in the shared repository and survive, so the scout scaffold
-# must scope its discard promise and warn about refs; ship briefs make neither claim.
-test_scout_scaffold_warns_that_refs_survive_teardown() {
-  local home scout ship
-  home="$TMP_ROOT/ref-persistence-home"
-  mkdir -p "$home/data"
-  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" ref-scout some-proj --scout >/dev/null 2>&1
-  scout="$home/data/ref-scout/brief.md"
-  assert_grep "Branches, tags, stashes, and fetched refs are not: they live in the project's shared repository and survive teardown" "$scout" \
-    "scout brief did not warn that refs survive teardown"
-  assert_grep "separate scratch clone" "$scout" \
-    "scout brief did not name a safe scratch location for comparisons"
-  assert_grep "and that scratch clone." "$scout" \
-    "scout brief outside-worktree rule did not allow the scratch clone"
-  if grep -F "discarded at teardown" "$scout" | grep -vF "on the detached HEAD" | grep -q .; then
-    fail "scout brief promises an unconditional discard at teardown"
-  fi
-  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" ref-ship some-proj --mode local-only >/dev/null 2>&1
-  ship="$home/data/ref-ship/brief.md"
-  assert_no_grep "survive teardown" "$ship" \
-    "ship brief unexpectedly received the scout ref warning"
-  assert_no_grep "discarded at teardown" "$ship" \
-    "ship brief unexpectedly received the scout discard promise"
-  pass "fm-brief.sh: scout scaffold scopes its discard promise and warns that refs survive teardown"
-}
-
 # A scout brief offers the Lavish review loop for every compatible board version,
 # including older builds that use the legacy reply path.
 test_scout_lavish_line_follows_presentation_floor() {
@@ -1432,60 +1326,10 @@ test_crewmate_scaffolds_forbid_pool_administration() {
   pass "fm-brief.sh: every crewmate scaffold forbids administering the shared worktree pool"
 }
 
-# A --resume brief checks out the parked branch (or fetches it from the saved
-# bundle) and asserts the saved head instead of creating a fresh branch, and
-# refuses before writing anything when the park receipt cannot back it.
-test_resume_brief_checks_out_the_parked_branch() {
-  local home id brief park head out rc
-  home="$TMP_ROOT/resume-home"
-  id="brief-resume-p1"
-  park="$home/data/$id/park"
-  mkdir -p "$park"
-  head=0123456789abcdef0123456789abcdef01234567
-  printf '%s\n' "branch=fm/$id" "head=$head" bundle=branch.bundle \
-    uncommitted_patch=uncommitted.patch untracked_tar=none > "$park/receipt"
-  : > "$park/branch.bundle"
-  : > "$park/uncommitted.patch"
-
-  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --mode local-only --resume >/dev/null 2>&1 \
-    || fail "resume: scaffolding a resume brief failed"
-  brief="$home/data/$id/brief.md"
-  # shellcheck disable=SC2016  # literal backticks around commands must stay unexpanded
-  assert_no_grep "\`git checkout -b fm/$id --\`" "$brief" "resume: the brief still creates a fresh branch"
-  # shellcheck disable=SC2016
-  assert_grep "\`git checkout fm/$id --\`" "$brief" "resume: the brief does not check out the kept branch"
-  assert_grep "refs/heads/fm/$id:refs/heads/fm/$id" "$brief" "resume: the brief does not fetch a missing branch from the bundle"
-  assert_grep "$park/branch.bundle" "$brief" "resume: the brief does not name the saved bundle"
-  assert_grep "prints anything but \`$head\`" "$brief" "resume: the brief does not assert the saved head"
-  assert_grep "git apply --binary '$park/uncommitted.patch'" "$brief" "resume: the brief does not restore the saved patch"
-  assert_no_grep "tar -xf" "$brief" "resume: the brief restores an untracked archive the park never saved"
-  assert_grep "is never resumed: validate again from scratch on your new head" "$brief" \
-    "resume: the brief does not require a fresh validation of the resumed head"
-
-  out=$(FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "brief-resume-p2" some-proj --mode local-only --resume 2>&1); rc=$?
-  [ "$rc" -ne 0 ] || fail "resume: a brief with no park receipt was scaffolded"
-  assert_absent "$home/data/brief-resume-p2/brief.md" "resume: a refused resume still wrote a brief"
-  printf '%s\n' "$out" | grep -Fq "park receipt" || fail "resume: the refusal does not name the receipt: $out"
-
-  mkdir -p "$home/data/$id-b/park"
-  printf '%s\n' "branch=fm/$id-b" "head=$head" bundle=none uncommitted_patch=none untracked_tar=none \
-    > "$home/data/$id-b/park/receipt"
-  out=$(FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id-b" some-proj --mode local-only --resume --branch-prefix fix/ 2>&1); rc=$?
-  [ "$rc" -ne 0 ] || fail "resume: a receipt for another branch name was accepted"
-  printf '%s\n' "$out" | grep -Fq "names branch 'fm/$id-b'" || fail "resume: the branch mismatch refusal is unclear: $out"
-  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id-b" some-proj --mode local-only --resume >/dev/null 2>&1 \
-    || fail "resume: a bundle-less park did not scaffold"
-  # shellcheck disable=SC2016
-  assert_grep "\`git checkout -b fm/$id-b $head --\`" "$home/data/$id-b/brief.md" \
-    "resume: a park with no bundle does not recreate the branch at the saved head"
-  pass "fm-brief.sh --resume checks out the parked branch at its saved head and refuses without a matching receipt"
-}
-
 test_script_parses
 test_no_heredoc_in_command_substitution
 test_help_includes_entire_header
 test_ship_modes_generate_clean_briefs
-test_dod_worker_conduct_sentences_render_in_every_mode
 test_ship_mode_is_required_and_closed_set
 test_ship_mode_is_explicit_not_registry
 test_delivery_flags_are_refused_where_they_do_not_apply
@@ -1494,7 +1338,6 @@ test_no_mistakes_dod_wording
 test_no_mistakes_dod_green_detection
 test_pr_based_dod_requires_non_draft
 test_ask_user_escalation_format
-test_finding_retention_ledger_contract
 test_ship_project_memory_wording
 test_herdr_lab_contract_is_explicit_and_complete
 test_herdr_lab_contract_quotes_foreign_firstmate_path
@@ -1508,7 +1351,6 @@ test_pause_verb_override_renders_all_brief_scaffolds
 test_ship_and_scout_teach_validation_round_pause
 test_scout_and_secondmate_load_decision_hold_policy
 test_scout_and_secondmate_scaffold
-test_scout_scaffold_warns_that_refs_survive_teardown
 test_scout_lavish_line_follows_presentation_floor
 test_home_brief_include_is_appended_last
 test_ship_branch_prefix_defaults_to_legacy_fm
@@ -1518,4 +1360,3 @@ test_branch_prefix_is_refused_where_it_does_not_apply
 test_branch_prefix_value_is_validated
 test_branch_prefix_command_is_shell_safe
 test_crewmate_scaffolds_forbid_pool_administration
-test_resume_brief_checks_out_the_parked_branch

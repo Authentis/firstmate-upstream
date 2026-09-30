@@ -32,26 +32,11 @@ SH
   chmod +x "$fakebin/$tool"
 }
 
-# A stand-in opencode that answers --version like the real CLI; the reported
-# version comes from the environment at spawn time so a case can stage the
-# verified 1.x line or a different major under the same name.
-make_spawn_opencode_probe() {  # <path> [version-var]
-  mkdir -p "$(dirname "$1")"
-  fm_fake_version_tool "$(dirname "$1")" "$(basename "$1")" "${2:-FM_FAKE_OPENCODE_VERSION}" 1.18.32
-}
-
 make_spawn_fakebin() {
   local dir=$1 fakebin
   fakebin=$(fm_test_make_spawn_fakebin "$dir")
   cat > "$fakebin/timeout" <<'SH'
 #!/usr/bin/env bash
-while [ "$#" -gt 0 ]; do
-  case "$1" in
-  -k | -s) shift 2 ;;
-  -*) shift ;;
-  *) break ;;
-  esac
-done
 shift
 exec "$@"
 SH
@@ -66,7 +51,6 @@ SH
   chmod +x "$fakebin/timeout" "$fakebin/cursor-agent"
   make_spawn_pi_probe "$fakebin" pi
   make_spawn_pi_probe "$fakebin" pi-signed
-  make_spawn_opencode_probe "$fakebin/opencode"
   printf '%s\n' "$fakebin"
 }
 
@@ -122,7 +106,6 @@ run_spawn() {
     FM_FAKE_PI_VERSION="${FM_TEST_PI_VERSION:-0.84.0}" \
     FM_FAKE_CURSOR_MODELS="${FM_TEST_CURSOR_MODELS:-}" \
     FM_FAKE_CURSOR_LIST_STATUS="${FM_TEST_CURSOR_LIST_STATUS:-0}" \
-    FM_FAKE_OPENCODE_VERSION="${FM_TEST_OPENCODE_VERSION:-1.18.32}" \
     GROK_HOME="$home/grok-home" \
     fm_test_run_spawn "$home" "$wt" "$fakebin" "$@"
 }
@@ -260,33 +243,6 @@ test_non_cursor_launch_clears_inherited_cursor_markers() {
   assert_contains "$launch" "env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI" \
     "non-cursor launch must clear both inherited Cursor identity markers"
   pass "non-cursor launches clear inherited Cursor identity markers"
-}
-
-# A Claude worker is a top-level session: an inherited child-session marker
-# would turn its transcript saving off. Execute the recorded launch line against
-# a stand-in claude that reports what it inherited.
-test_claude_launch_clears_inherited_child_session_marker() {
-  local rec id out status launch
-  id=profile-claude-child-marker-z1c
-  rec=$(make_spawn_case profile-claude-child-marker claude "$id")
-  read_case_record "$rec"
-
-  out=$(CLAUDE_CODE_CHILD_SESSION=1 \
-    run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
-  status=$?
-  expect_code 0 "$status" "claude spawn under a child-session marker should succeed"$'\n'"$out"
-  launch=$(cat "$LAUNCH_LOG")
-  mkdir -p "$CASE_DIR/claudebin"
-  cat > "$CASE_DIR/claudebin/claude" <<SH
-#!/usr/bin/env bash
-printf 'child=%s\\n' "\${CLAUDE_CODE_CHILD_SESSION-unset}" > '$CASE_DIR/claude-env'
-SH
-  chmod +x "$CASE_DIR/claudebin/claude"
-  (cd "$WT_DIR" && CLAUDE_CODE_CHILD_SESSION=1 PATH="$CASE_DIR/claudebin:$PATH" bash -c "$launch") \
-    || fail "the recorded launch line should run"$'\n'"$launch"
-  [ "$(cat "$CASE_DIR/claude-env" 2>/dev/null)" = "child=unset" ] \
-    || fail "the spawned claude must not inherit CLAUDE_CODE_CHILD_SESSION, got: $(cat "$CASE_DIR/claude-env" 2>/dev/null)"
-  pass "claude launches clear an inherited child-session marker so transcripts persist"
 }
 
 test_relative_home_overrides_launch_with_absolute_cross_process_paths() {
@@ -797,7 +753,7 @@ test_opencode_threads_model_and_effort_variant() {
   # the launch already writes, keyed to the resolved model on the default
   # build agent, never as a launch flag.
   assert_contains "$launch" \
-    "OPENCODE_CONFIG_CONTENT='{\"permission\":{\"*\":\"allow\"},\"agent\":{\"build\":{\"model\":\"anthropic/claude-sonnet-4-5\",\"variant\":\"high\"}}}' '$FAKEBIN_DIR/opencode' --model 'anthropic/claude-sonnet-4-5' --prompt" \
+    "OPENCODE_CONFIG_CONTENT='{\"permission\":{\"*\":\"allow\"},\"agent\":{\"build\":{\"model\":\"anthropic/claude-sonnet-4-5\",\"variant\":\"high\"}}}' opencode --model 'anthropic/claude-sonnet-4-5' --prompt" \
     "opencode launch did not write the effort as the build agent's variant in its config"
   assert_not_contains "$launch" "--effort" "opencode launch must not pass unsupported --effort"
   assert_not_contains "$launch" "--variant" "opencode launch must not pass run-only --variant"
@@ -817,7 +773,7 @@ test_opencode_without_effort_keeps_launch_config_unchanged() {
   assert_meta_profile "$HOME_DIR/state/$id.meta" opencode anthropic/claude-sonnet-4-5 default
   launch=$(cat "$LAUNCH_LOG")
   assert_contains "$launch" \
-    "OPENCODE_CONFIG_CONTENT='{\"permission\":{\"*\":\"allow\"}}' '$FAKEBIN_DIR/opencode' --model 'anthropic/claude-sonnet-4-5' --prompt" \
+    "OPENCODE_CONFIG_CONTENT='{\"permission\":{\"*\":\"allow\"}}' opencode --model 'anthropic/claude-sonnet-4-5' --prompt" \
     "opencode launch without effort must keep the permission-only config byte-identical"
   assert_not_contains "$launch" '"variant"' "opencode launch without effort must not write a variant"
   pass "opencode without an effort keeps its launch config unchanged"
@@ -835,7 +791,7 @@ test_opencode_emits_variant_for_openai_family_effort() {
   assert_meta_profile "$HOME_DIR/state/$id.meta" opencode openai/gpt-5.6-sol xhigh
   launch=$(cat "$LAUNCH_LOG")
   assert_contains "$launch" \
-    "OPENCODE_CONFIG_CONTENT='{\"permission\":{\"*\":\"allow\"},\"agent\":{\"build\":{\"model\":\"openai/gpt-5.6-sol\",\"variant\":\"xhigh\"}}}' '$FAKEBIN_DIR/opencode' --model 'openai/gpt-5.6-sol' --prompt" \
+    "OPENCODE_CONFIG_CONTENT='{\"permission\":{\"*\":\"allow\"},\"agent\":{\"build\":{\"model\":\"openai/gpt-5.6-sol\",\"variant\":\"xhigh\"}}}' opencode --model 'openai/gpt-5.6-sol' --prompt" \
     "opencode launch did not write the openai family effort as the build agent's variant"
   pass "opencode emits the variant for an effort the openai family exposes"
 }
@@ -852,101 +808,10 @@ test_opencode_omits_variant_when_model_family_lacks_effort() {
   assert_meta_profile "$HOME_DIR/state/$id.meta" opencode anthropic/claude-sonnet-4-5 medium
   launch=$(cat "$LAUNCH_LOG")
   assert_contains "$launch" \
-    "OPENCODE_CONFIG_CONTENT='{\"permission\":{\"*\":\"allow\"}}' '$FAKEBIN_DIR/opencode' --model 'anthropic/claude-sonnet-4-5' --prompt" \
+    "OPENCODE_CONFIG_CONTENT='{\"permission\":{\"*\":\"allow\"}}' opencode --model 'anthropic/claude-sonnet-4-5' --prompt" \
     "opencode must keep the permission-only config when the model family lacks the effort"
   assert_not_contains "$launch" '"variant"' "opencode must omit the variant when the model family lacks the effort"
   pass "opencode omits the variant for an effort outside the model family's list"
-}
-
-# The pane's login shell can put a different CLI named opencode first on its
-# own PATH, so every opencode launch names one absolute, version-checked path.
-assert_opencode_refused() {  # <out> <status> <id> <expected-text> <label>
-  expect_code 1 "$2" "$5 should refuse the spawn"
-  assert_contains "$1" "$4" "$5 refusal did not name the actionable requirement"
-  assert_absent "$HOME_DIR/state/$3.meta" "$5 refusal wrote task metadata"
-  [ ! -s "$LAUNCH_LOG" ] || fail "$5 refusal typed a launch command"
-}
-
-test_opencode_unconfigured_launches_by_absolute_path() {
-  local rec id out status launch
-  id=opencode-abs-path-z7e
-  rec=$(make_spawn_case opencode-abs-path opencode "$id")
-  read_case_record "$rec"
-
-  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
-  status=$?
-  expect_code 0 "$status" "unconfigured opencode spawn should succeed"
-  launch=$(cat "$LAUNCH_LOG")
-  assert_contains "$launch" "}}' '$FAKEBIN_DIR/opencode' --prompt" \
-    "unconfigured opencode launch did not use the spawner's resolved absolute path"
-  assert_not_contains "$launch" "}}' opencode " "opencode launch must never name the bare command"
-  pass "unconfigured opencode resolves the spawner's PATH to an absolute launch path"
-}
-
-test_opencode_unconfigured_wrong_major_refuses() {
-  local rec id out status
-  id=opencode-wrong-major-z7f
-  rec=$(make_spawn_case opencode-wrong-major opencode "$id")
-  read_case_record "$rec"
-
-  out=$(FM_TEST_OPENCODE_VERSION=2.0.16 run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
-  status=$?
-  assert_opencode_refused "$out" "$status" "$id" "is version 2.0.16" "an opencode 2.x on PATH"
-  assert_contains "$out" "config/opencode-bin" "wrong-major refusal did not name the config file fix"
-  pass "an unconfigured opencode outside the verified major refuses with the config fix"
-}
-
-test_opencode_configured_path_wins_over_path_shadowing() {
-  local rec id out status launch pinned
-  id=opencode-pinned-z7g
-  rec=$(make_spawn_case opencode-pinned opencode "$id")
-  read_case_record "$rec"
-  pinned="$CASE_DIR/nvm bin/opencode"
-  make_spawn_opencode_probe "$pinned" FM_FAKE_PINNED_OPENCODE_VERSION
-  printf '%s\n' "$pinned" > "$HOME_DIR/config/opencode-bin"
-
-  # The PATH copy reports the incompatible 2.x line; the pinned one is 1.x.
-  out=$(FM_TEST_OPENCODE_VERSION=2.0.16 run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --model anthropic/claude-sonnet-4-5)
-  status=$?
-  expect_code 0 "$status" "configured opencode spawn should succeed despite a 2.x on PATH"
-  launch=$(cat "$LAUNCH_LOG")
-  assert_contains "$launch" "}}' '$pinned' --model 'anthropic/claude-sonnet-4-5' --prompt" \
-    "configured opencode launch did not use the pinned absolute path"
-  assert_not_contains "$launch" "$FAKEBIN_DIR/opencode" "configured opencode launch used the PATH-shadowing binary"
-  pass "config/opencode-bin pins the launch path and ignores a PATH-shadowing opencode"
-}
-
-test_opencode_configured_bad_path_refuses() {
-  local rec id out status case_name value expected
-  while IFS='|' read -r case_name value expected; do
-    id="opencode-bad-$case_name"
-    rec=$(make_spawn_case "opencode-bad-$case_name" opencode "$id")
-    read_case_record "$rec"
-    case "$value" in
-    NONEXEC)
-      value="$CASE_DIR/opencode-nonexec"
-      printf '#!/bin/sh\n' > "$value"
-      chmod -x "$value"
-      ;;
-    MISSING) value="$CASE_DIR/absent/opencode" ;;
-    WRONGMAJOR)
-      value="$CASE_DIR/v2/opencode"
-      make_spawn_opencode_probe "$value" FM_FAKE_PINNED_OPENCODE_VERSION
-      ;;
-    esac
-    printf '%s\n' "$value" > "$HOME_DIR/config/opencode-bin"
-    : > "$LAUNCH_LOG"
-    out=$(FM_FAKE_PINNED_OPENCODE_VERSION=2.0.16 run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
-    status=$?
-    assert_opencode_refused "$out" "$status" "$id" "$expected" "config/opencode-bin $case_name"
-    assert_not_contains "$out" "spawned $id" "config/opencode-bin $case_name fell back to PATH"
-  done <<'EOF'
-relative|bin/opencode|is not absolute
-missing|MISSING|is not an executable file
-nonexec|NONEXEC|is not an executable file
-wrongmajor|WRONGMAJOR|is version 2.0.16
-EOF
-  pass "a relative, missing, non-executable, or wrong-major config/opencode-bin refuses without falling back to PATH"
 }
 
 test_native_effort_validator_keeps_axes_separate() {
@@ -1208,7 +1073,7 @@ test_claude_forwards_firstmate_config_dir_when_set() {
   status=$?
   expect_code 0 "$status" "claude spawn with CLAUDE_CONFIG_DIR set should succeed"
   launch=$(cat "$LAUNCH_LOG")
-  assert_contains "$launch" "CLAUDE_CONFIG_DIR='$CASE_DIR/claude-work' env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI env -u CLAUDE_CODE_CHILD_SESSION CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_SEND_FEEDBACK=0 claude --dangerously-skip-permissions $(claude_worker_add_dirs "$HOME_DIR" "$id")--settings '{\"feedbackDrafts\":\"off\",\"attribution\":{\"commit\":\"\",\"pr\":\"\",\"sessionUrl\":false}}'" \
+  assert_contains "$launch" "CLAUDE_CONFIG_DIR='$CASE_DIR/claude-work' env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_SEND_FEEDBACK=0 claude --dangerously-skip-permissions $(claude_worker_add_dirs "$HOME_DIR" "$id")--settings '{\"feedbackDrafts\":\"off\",\"attribution\":{\"commit\":\"\",\"pr\":\"\",\"sessionUrl\":false}}'" \
     "claude launch did not forward firstmate's CLAUDE_CONFIG_DIR to the crewmate pane"
   pass "claude forwards firstmate's CLAUDE_CONFIG_DIR so the crewmate uses the same credential store"
 }
@@ -1348,48 +1213,6 @@ test_claude_secondmate_launch_omits_task_control_channel_authority() {
   pass "a persistent claude secondmate keeps its supervisor contract without a task-worker authority overlay"
 }
 
-test_claude_task_launch_records_its_session_id() {
-  local rec id out status launch session meta
-  id=profile-claude-session-id-z25
-  rec=$(make_spawn_case profile-claude-session-id claude "$id")
-  read_case_record "$rec"
-
-  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
-  status=$?
-  expect_code 0 "$status" "claude crewmate spawn should succeed"$'\n'"$out"
-  meta="$HOME_DIR/state/$id.meta"
-  [ "$(grep -c '^claude_session_ids=' "$meta")" = 1 ] || fail "claude task record does not carry exactly one claude_session_ids= line"
-  session=$(sed -n 's/^claude_session_ids=//p' "$meta")
-  printf '%s' "$session" | grep -Eq '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' \
-    || fail "recorded Claude session id is not one lowercase UUID: $session"
-  launch=$(cat "$LAUNCH_LOG")
-  assert_contains "$launch" "--session-id $session " "claude launch did not use the recorded session id"
-  pass "a claude task launch records the session id it passes to Claude"
-}
-
-test_claude_secondmate_and_other_harness_record_no_session_id() {
-  local rec id sm out status
-  id=profile-secondmate-session-id-z26
-  rec=$(make_spawn_case profile-secondmate-session-id claude "$id")
-  read_case_record "$rec"
-  sm="$CASE_DIR/secondmate-home"
-  make_seeded_secondmate_home "$sm" "$id"
-  out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$sm" --secondmate)
-  status=$?
-  expect_code 0 "$status" "secondmate claude spawn should succeed"$'\n'"$out"
-  assert_not_contains "$(cat "$LAUNCH_LOG")" "--session-id" "persistent secondmate launch received a pinned session id"
-  assert_no_grep '^claude_session_ids=' "$HOME_DIR/state/$id.meta" "secondmate record carries a Claude session id"
-
-  id=profile-codex-session-id-z27
-  rec=$(make_spawn_case profile-codex-session-id codex "$id")
-  read_case_record "$rec"
-  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
-  status=$?
-  expect_code 0 "$status" "codex crewmate spawn should succeed"$'\n'"$out"
-  assert_no_grep '^claude_session_ids=' "$HOME_DIR/state/$id.meta" "codex record carries a Claude session id"
-  pass "a secondmate or non-claude launch records no Claude session id"
-}
-
 test_claude_long_launch_is_delivered_intact() {
   local rec id out status launch expected
   id=profile-claude-long-launch-z24
@@ -1513,7 +1336,7 @@ test_active_dispatch_profile_does_not_block_secondmate_launch() {
 # fake backend records delivery, while real shells exercise the env boundary.
 # No developer environment or credential values are inspected by these probes.
 test_launch_environment_allowlist() {
-  local setting rec id out status probe result expected launch value pane_shell pane_path pane_log
+  local setting rec id out status probe result expected launch value pane_shell pane_path
   # shellcheck disable=SC2016
   value='synthetic value; $(touch SHOULD_NOT_EXIST) `false` "quoted"'
   for setting in absent missing-config enabled empty; do
@@ -1525,22 +1348,17 @@ test_launch_environment_allowlist() {
       enabled) printf '# Synthetic credential name\nFM_TEST_ALLOWED\nFM_TEST_EMPTY\nFM_TEST_UNSET\n' > "$HOME_DIR/config/launch-env-allowlist" ;;
       empty) : > "$HOME_DIR/config/launch-env-allowlist" ;;
     esac
-    pane_log="$CASE_DIR/pane.log"
-    : > "$pane_log"
     probe="$CASE_DIR/probe.sh"
     cat > "$probe" <<'SH'
 #!/bin/sh
 printf '%s\n' "${FM_TEST_AMBIENT_SENTINEL-unset}" "${FM_TEST_ALLOWED-unset}" \
-  "${FM_TEST_EMPTY-unset}" "${FM_TEST_UNSET-unset}" "${FM_WORKER_COPY-unset}" \
-  "$HOME" "$PATH" "$TERM" "$TMUX" "$GOTMPDIR"
+  "${FM_TEST_EMPTY-unset}" "${FM_TEST_UNSET-unset}" "$HOME" "$PATH" "$TERM" "$TMUX" "$GOTMPDIR"
 SH
-    out=$(FM_FAKE_PANE_LOG="$pane_log" FM_TEST_AMBIENT_SENTINEL=synthetic-unrelated \
+    out=$(FM_TEST_AMBIENT_SENTINEL=synthetic-unrelated \
       run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" \
       "$id" "$PROJ_DIR" --harness "/bin/sh '$probe'")
     status=$?
     expect_code 0 "$status" "allowlist=$setting spawn should succeed: $out"
-    grep -Fx 'export FM_WORKER_COPY=1' "$pane_log" >/dev/null \
-      || fail "allowlist=$setting ship spawn did not mark its isolated worker copy"
     launch=$(cat "$LAUNCH_LOG")
     for pane_shell in /bin/sh /bin/bash /bin/zsh; do
       [ -x "$pane_shell" ] || continue
@@ -1550,12 +1368,12 @@ SH
         || fail "could not read $pane_shell startup PATH"
       result=$(env -i HOME="$HOME_DIR/user-home" PATH=/usr/bin:/bin TERM=xterm \
       TMUX=synthetic-pane GOTMPDIR=/synthetic/gotmp \
-      FM_WORKER_COPY=1 FM_TEST_AMBIENT_SENTINEL=synthetic-unrelated FM_TEST_ALLOWED="$value" FM_TEST_EMPTY='' \
+      FM_TEST_AMBIENT_SENTINEL=synthetic-unrelated FM_TEST_ALLOWED="$value" FM_TEST_EMPTY='' \
       "$pane_shell" -c "$launch") || fail "allowlist=$setting emitted launch failed in $pane_shell"
       case "$setting" in
-        absent|missing-config) expected=$(printf '%s\n' synthetic-unrelated "$value" '' unset 1) ;;
-        enabled) expected=$(printf '%s\n' unset "$value" '' unset 1) ;;
-        empty) expected=$(printf '%s\n' unset unset unset unset 1) ;;
+        absent|missing-config) expected=$(printf '%s\n' synthetic-unrelated "$value" '' unset) ;;
+        enabled) expected=$(printf '%s\n' unset "$value" '' unset) ;;
+        empty) expected=$(printf '%s\n' unset unset unset unset) ;;
       esac
       expected="$expected"$'\n'"$HOME_DIR/user-home"$'\n'"$pane_path"$'\nxterm\nsynthetic-pane\n/synthetic/gotmp'
       [ "$result" = "$expected" ] || fail "allowlist=$setting worker environment mismatch: $result"
@@ -1631,15 +1449,14 @@ test_launch_environment_inherited_by_secondmate() {
     || fail "secondmate did not inherit the launch environment contract"
   cat > "$FAKEBIN_DIR/codex" <<'SH'
 #!/bin/sh
-printf '%s\n' "${FM_TEST_AMBIENT_SENTINEL-unset}" "$FM_TEST_ALLOWED" "$FM_HOME" "${FM_STATE_OVERRIDE-unset}" \
-  "${FM_WORKER_COPY-unset}"
+printf '%s\n' "${FM_TEST_AMBIENT_SENTINEL-unset}" "$FM_TEST_ALLOWED" "$FM_HOME" "${FM_STATE_OVERRIDE-unset}"
 SH
   chmod +x "$FAKEBIN_DIR/codex"
   result=$(env -i HOME="$HOME_DIR/user-home" PATH="$FAKEBIN_DIR:$PATH" \
     FM_TEST_AMBIENT_SENTINEL=synthetic-unrelated FM_TEST_ALLOWED=synthetic-provider \
     /bin/sh -c "$(cat "$LAUNCH_LOG")") || fail "secondmate's emitted command failed"
-  [ "$result" = "unset"$'\nsynthetic-provider\n'"$sm"$'\n\nunset' ] \
-    || fail "secondmate's environment lost filtering, explicit home assignments, or worker-copy scope: $result"
+  [ "$result" = "unset"$'\nsynthetic-provider\n'"$sm" ] \
+    || fail "secondmate's environment lost filtering or explicit home assignments: $result"
   # Exercise the same inheritance owner used by local and remote transfers;
   # removal must restore absence downstream as well as copying an opt-in.
   (
@@ -1860,13 +1677,12 @@ claude_worker_add_dirs() {  # <home> <id>
 }
 
 claude_expected_launch() {  # <launch> <home> <id> <permission-flag>
-  local doorbell quoted session
-  session=$(sed -n 's/^claude_session_ids=//p' "$2/state/$3.meta")
+  local doorbell quoted
   doorbell=$(claude_launch_brief_arg "$1")
   [ "$(printf '%s' "$doorbell" | "$ROOT/bin/fm-operational-input.sh" doorbell-kind)" = launch-brief ] \
     || doorbell="not a launch-brief doorbell"
   quoted="'$(printf '%s' "$doorbell" | sed "s/'/'\\\\''/g")'"
-  printf '%s' "export COMPACT_ADVISER_DISABLE=1; $(ai_trailer_hooks_prefix "$2" "$3")env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI env -u CLAUDE_CODE_CHILD_SESSION CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_SEND_FEEDBACK=0 claude $4 $(claude_worker_add_dirs "$2" "$3")--settings '{\"feedbackDrafts\":\"off\",\"attribution\":{\"commit\":\"\",\"pr\":\"\",\"sessionUrl\":false}}' $CLAUDE_CONTROL_CHANNEL_FLAG --session-id $session $quoted"
+  printf '%s' "export COMPACT_ADVISER_DISABLE=1; $(ai_trailer_hooks_prefix "$2" "$3")env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_SEND_FEEDBACK=0 claude $4 $(claude_worker_add_dirs "$2" "$3")--settings '{\"feedbackDrafts\":\"off\",\"attribution\":{\"commit\":\"\",\"pr\":\"\",\"sessionUrl\":false}}' $CLAUDE_CONTROL_CHANNEL_FLAG $quoted"
 }
 
 test_claude_permission_mode_bypass_matches_absent_launch() {
@@ -1999,7 +1815,6 @@ test_claude_launch_brief_publishes_record_doorbell
 test_claude_secondmate_launch_brief_publishes_into_its_own_home
 test_claude_spawn_refuses_when_the_brief_record_cannot_publish
 test_non_cursor_launch_clears_inherited_cursor_markers
-test_claude_launch_clears_inherited_child_session_marker
 test_relative_home_overrides_launch_with_absolute_cross_process_paths
 test_home_defaults_preserve_absolute_or_resolve_relative_paths
 test_absolute_override_spelling_is_preserved_in_launch_paths
@@ -2026,10 +1841,6 @@ test_opencode_threads_model_and_effort_variant
 test_opencode_without_effort_keeps_launch_config_unchanged
 test_opencode_emits_variant_for_openai_family_effort
 test_opencode_omits_variant_when_model_family_lacks_effort
-test_opencode_unconfigured_launches_by_absolute_path
-test_opencode_unconfigured_wrong_major_refuses
-test_opencode_configured_path_wins_over_path_shadowing
-test_opencode_configured_bad_path_refuses
 test_native_effort_validator_keeps_axes_separate
 test_native_pi_ultra_is_explicit_and_model_scoped
 test_batch_preserves_native_ultra
@@ -2053,8 +1864,6 @@ test_non_claude_harness_ignores_claude_permission_mode
 test_non_claude_harness_ignores_config_dir
 test_claude_task_launch_carries_control_channel_authority
 test_claude_secondmate_launch_omits_task_control_channel_authority
-test_claude_task_launch_records_its_session_id
-test_claude_secondmate_and_other_harness_record_no_session_id
 test_claude_long_launch_is_delivered_intact
 test_claude_crewmate_launch_carries_the_attribution_policy
 test_keep_ai_trailers_omits_attribution_settings_and_strip_hooks

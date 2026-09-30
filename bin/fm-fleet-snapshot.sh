@@ -42,30 +42,6 @@
 #     hold_age_days is the hold's age when computable, else null.
 #     Aging is a projection safety net only: the durable deferral remains
 #     re-holding with --until.
-#   steward_exemptions[]: validated local state/steward-exemptions.json entries,
-#     each projected with an active boolean. An entry is active only while its
-#     review dates include today, its parked, paused, blocked, stopped, unknown,
-#     done, or failed state and detail match, and one bound hold identity or
-#     decision key matches the exact durable steward row. Only that matching row
-#     is removed from steward flags; a state or detail change, expiry, identity
-#     change, distinct decision key, missing binding for the row's identity
-#     class, or malformed entry never suppresses it.
-#     A child with no In flight backlog row is settled, and leaves both the
-#     unowned-current and unavailable-child invalidities, only while an entry's
-#     dates, state, and detail match it exactly and its evidence is not live:
-#     done, failed, or stopped, or unknown with its copy gone and its worker
-#     probed as exited. Ambiguous, unreadable, or live unowned children still
-#     invalidate the summary.
-#     A held unavailable child (HELD_UNAVAILABLE_JQ_DEFS: a declared In flight
-#     hold whose state is unknown with its copy gone and its worker probed as
-#     exited, plus an in-date entry bound to that exact child-state
-#     observation) leaves child_current_unavailable and marks its entry active,
-#     while its backlog hold row and open decisions stay visible, because the
-#     backlog hold's identity takes precedence over the child-state identity
-#     the steward writer binds. The state-side file's schema is
-#     fm-steward-exemptions.v1 and each entry names task_id, reason, set_by,
-#     reviewed_date, expires_on, state, detail, and optionally hold_identity and
-#     decision_keys.
 #     Renderers keep every non-live bucket out of the default Captain's Call,
 #     project it as a Charted Next gate stating why, and disclose it in
 #     omitted[]; --all-decisions reveals every captain hold available within the
@@ -92,26 +68,6 @@
 #     endpoint.agent_alive is populated for local secondmates only, where it is
 #     useful return-channel supervision data; remote secondmates use "unknown"
 #     without a probe, and other tasks use "not_checked".
-#     capacity: {class,occupied,worker,declared_hold} is this task's worker-slot
-#     accounting, the single owner of what counts as occupied capacity.
-#     worker is "alive", "exited", "unknown", or "not_checked": a parked,
-#     paused, blocked, idle, or unknown local ship or scout gets one recovery-grade agent
-#     probe (fm_backend_agent_state), a stopped one is already exited, and every
-#     other row is not probed. declared_hold is true only when the task's
-#     structured In flight backlog row carries a hold kind and reason.
-#     class is "productive" for working (occupied); "terminal" for done or
-#     failed and "secondmate" for secondmate homes (not occupied); for parked,
-#     paused, blocked, idle, or stopped, "live_worker" when the worker is alive
-#     (occupied), "parked_preserved" when it exited and the hold is declared
-#     (not occupied, record and copy still preserved and visible),
-#     "exited_undeclared" when it exited without a declared hold (occupied until
-#     recovered or declared), and "uncertain" otherwise; a held unavailable
-#     child (see steward_exemptions[]) is "parked_preserved", and every other
-#     unknown or unreadable state is "uncertain" and stays occupied.
-#   capacity: {occupied,classes,rows[]} - fleet worker-slot totals over
-#     tasks[].capacity: occupied is the count of occupied rows, classes maps
-#     each present class to its row count, and rows[] lists every task's id,
-#     state, and capacity fields.
 #   scout_reports[]: present data/<id>/report.md pointers.
 #   main_inventory: {valid,reason,orphan_in_flight[],unstructured_current_count} -
 #     main-home current-inventory checks shared with secondmate_home_summary_json
@@ -274,75 +230,6 @@ esac
 # shellcheck source=bin/fm-merge-authority-lib.sh
 . "$SCRIPT_DIR/fm-merge-authority-lib.sh"
 
-# The one owner of a held unavailable child: a task whose structured In flight
-# row declares a hold kind and reason, whose current state is unknown with its
-# copy gone and its worker probed as exited, and which carries an in-date
-# exemption bound to that exact child-state observation. The steward writer
-# binds child-state identity while the backlog hold takes identity precedence,
-# so this exact evidence, not an identity match, settles the accounting.
-# shellcheck disable=SC2016
-HELD_UNAVAILABLE_JQ_DEFS='
-def held_unavailable_exempt($task; $work; $exemptions; $today):
-  ($task.current_state // {}) as $current
-  | $task.kind != "secondmate"
-    and $work != null and $work.structured == true and $work.state == "in_flight"
-    and $work.hold_reason != null and $work.hold_kind != null
-    and $current.state == "unknown"
-    and ($current.detail | type) == "string"
-    and $task.paths.worktree.present == false
-    and $task.capacity.worker == "exited"
-    and any($exemptions[];
-            .task_id == $task.id
-            and .state == $current.state and .detail == $current.detail
-            and .reviewed_date <= $today and $today <= .expires_on
-            and .hold_identity == {source:"child-state",kind:null,reason:$current.detail});
-'
-
-steward_exemptions_json() {  # <file> -> validated exemption entries or []
-  local file=$1 captured
-  [ -f "$file" ] && [ ! -L "$file" ] || { printf '[]\n'; return 0; }
-  captured=$(LC_ALL=C head -c 65537 "$file") || { printf '[]\n'; return 0; }
-  [ "$(printf '%s' "$captured" | wc -c | tr -d ' ')" -le 65536 ] || { printf '[]\n'; return 0; }
-  printf '%s' "$captured" | jq -c '
-    def valid_date:
-      test("^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
-      and (split("-") | map(tonumber)) as $parts
-      | $parts[0] as $year
-      | $parts[1] as $month
-      | $parts[2] as $day
-      | ($year % 4 == 0 and ($year % 100 != 0 or $year % 400 == 0)) as $leap
-      | ($month >= 1 and $month <= 12
-         and $day >= 1
-         and $day <= ([31, (if $leap then 29 else 28 end), 31, 30, 31, 30,
-                        31, 31, 30, 31, 30, 31][$month - 1]));
-    if type == "object" and .schema == "fm-steward-exemptions.v1"
-       and (.exemptions | type) == "array" then
-      [.exemptions[]
-       | select(type == "object"
-                and (.task_id | type) == "string" and (.task_id | length) > 0
-                and (.reason | type) == "string" and (.reason | length) > 0
-                and (.set_by | type) == "string" and (.set_by | length) > 0
-                and (.reviewed_date | type) == "string"
-                and (.expires_on | type) == "string"
-                and (.state | type) == "string"
-                and (.detail | type) == "string" and (.detail | length) > 0)
-       | select(.reviewed_date | valid_date)
-       | select(.expires_on | valid_date)
-       | select((has("decision_keys") | not)
-                or ((.decision_keys | type) == "array"
-                    and all(.decision_keys[]; type == "string" and length > 0)))
-       | select((has("hold_identity") | not)
-                or ((.hold_identity | type) == "object"
-                    and (.hold_identity.source == "backlog" or .hold_identity.source == "child-state")
-                    and ((.hold_identity.kind | type) == "string" or .hold_identity.kind == null)
-                    and (.hold_identity.reason | type) == "string"
-                    and (.hold_identity.reason | length) > 0))
-       | select(.state == "parked" or .state == "paused" or .state == "blocked"
-                or .state == "stopped" or .state == "unknown"
-                or .state == "done" or .state == "failed")]
-    else [] end' 2>/dev/null || printf '[]\n'
-}
-
 usage() {
   cat <<'EOF'
 usage: fm-fleet-snapshot.sh --json
@@ -362,9 +249,6 @@ inventory contradictions or unavailable child state invalid.
 kind=secondmate meta records are not child inventory for unowned_current or
 terminal_in_flight; they never have backlog rows.
 Its invalidity object names the normalized failure kind and affected ids.
-Validated state/steward-exemptions.json entries remain declared in the summary;
-only an active exact identity, state, detail, and date match suppresses its bound
-steward row.
 Actionable tasks-axi captain holds appear as decisions_open and stay visible in
 queued with hold_reason, hold_kind, hold_until,
 hold_bucket, hold_age_days, and plural blocker fields for downstream
@@ -412,12 +296,6 @@ case "${1:---json}" in
 esac
 
 command -v jq >/dev/null 2>&1 || { echo "fm-fleet-snapshot: jq not found" >&2; exit 1; }
-
-# True only when every stage of the pipeline just run succeeded.
-pipeline_ok() {  # "${PIPESTATUS[@]}"
-  local rc
-  for rc in "$@"; do [ "$rc" -eq 0 ] || return 1; done
-}
 
 bool_json() {
   if [ "$1" = 1 ]; then printf 'true'; else printf 'false'; fi
@@ -753,7 +631,6 @@ prefetch_task_observations() {  # <meta> <id>
   local meta=$1 id=$2 remote_host current_file endpoint_file current_pid='' current_rc=0
   local status_log status_capture report_path report_capture
   local kind backend target endpoint_exists=null agent_alive=not_checked generation_current=1
-  local capacity_worker=not_checked observed_state
   remote_host=$(meta_value "$meta" remote_host)
   current_file="$SNAPSHOT_TASK_DIR/$id.json"
   endpoint_file="$SNAPSHOT_TASK_DIR/$id.endpoint"
@@ -795,23 +672,6 @@ prefetch_task_observations() {  # <meta> <id>
   fi
 
   [ -z "$current_pid" ] || wait "$current_pid" || current_rc=1
-  # Capacity evidence: whether a non-working ship or scout still has a live
-  # worker. crew-state reports a gate-parked run as parked whether or not its
-  # agent survives, so only this recovery-grade probe separates a live parked
-  # worker from a preserved record whose worker exited.
-  if [ -n "$current_pid" ] && [ "$kind" != secondmate ] && [ -n "$target" ]; then
-    observed_state=$(jq -r '.state // "unknown"' "$current_file" 2>/dev/null || printf unknown)
-    case "$observed_state" in
-      stopped) capacity_worker=exited ;;
-      parked|paused|blocked|idle|unknown)
-        case "$(fm_backend_agent_state "$backend" "$target" 2>/dev/null || true)" in
-          alive) capacity_worker=alive ;;
-          dead|missing) capacity_worker=exited ;;
-          *) capacity_worker=unknown ;;
-        esac
-        ;;
-    esac
-  fi
   # All mutable observations must belong to the metadata generation captured in
   # the manifest. If teardown/relaunch raced any read, discard the whole sample.
   if ! snapshot_task_generation_is_current "$meta" "$id"; then
@@ -820,10 +680,8 @@ prefetch_task_observations() {  # <meta> <id>
       > "$current_file" || current_rc=1
     endpoint_exists=null
     agent_alive=unknown
-    capacity_worker=not_checked
   fi
-  printf 'endpoint_exists=%s\nagent_alive=%s\ncapacity_worker=%s\n' \
-    "$endpoint_exists" "$agent_alive" "$capacity_worker" > "$endpoint_file" || current_rc=1
+  printf 'endpoint_exists=%s\nagent_alive=%s\n' "$endpoint_exists" "$agent_alive" > "$endpoint_file" || current_rc=1
   return "$current_rc"
 }
 
@@ -884,14 +742,10 @@ prefetch_task_current_states() {
 task_json_lines() {
   local meta original_meta id kind harness mode yolo project worktree home projects spawn_gen backend target status_log report_path
   local remote_host remote_root current_file endpoint_file observation_line index=0
-  local pr pr_source event_json current_json endpoint_exists agent_alive capacity_worker meta_json status_json report_json worktree_json home_json
+  local pr pr_source event_json current_json endpoint_exists agent_alive meta_json status_json report_json worktree_json home_json
   local last_event_raw current_state current_source pending_decision blocked_event report_present=0 pr_from_status
-  local open_decisions_tsv open_decisions_json records
+  local open_decisions_tsv open_decisions_json
 
-  # Records collect in a file, not a pipeline, so any per-task failure below
-  # fails the whole task snapshot instead of silently dropping that task.
-  records="$SNAPSHOT_TASK_DIR/records.jsonl"
-  : > "$records" || return 1
   while [ "$index" -lt "$SNAPSHOT_TASK_META_COUNT" ]; do
     meta=${SNAPSHOT_TASK_METAS[index]}
     index=$((index + 1))
@@ -975,13 +829,11 @@ task_json_lines() {
 
     endpoint_exists=null
     agent_alive=not_checked
-    capacity_worker=not_checked
     endpoint_file="$SNAPSHOT_TASK_DIR/$id.endpoint"
     while IFS= read -r observation_line || [ -n "$observation_line" ]; do
       case "$observation_line" in
         endpoint_exists=*) endpoint_exists=${observation_line#*=} ;;
         agent_alive=*) agent_alive=${observation_line#*=} ;;
-        capacity_worker=*) capacity_worker=${observation_line#*=} ;;
       esac
     done < "$endpoint_file" || {
       snapshot_task_cleanup
@@ -1020,7 +872,6 @@ task_json_lines() {
       --arg pr_source "$pr_source" \
       --arg pr_head "$(meta_value "$meta" pr_head)" \
       --arg agent_alive "$agent_alive" \
-      --arg capacity_worker "$capacity_worker" \
       --arg observed_at "$SNAPSHOT_NOW" \
       --arg last_event_raw "$last_event_raw" \
       --argjson current_state "$current_json" \
@@ -1059,7 +910,6 @@ task_json_lines() {
                   elif $agent_alive == "alive" or $agent_alive == "dead" then $agent_alive
                   else "unknown" end),
           observed_at:$observed_at,freshness:"fresh"},
-        capacity:{worker:$capacity_worker},
         pr:{url:($pr | if . == "" then null else . end),source:$pr_source,head:($pr_head | if . == "" then null else . end)},
         hints:{
           pending_decision:$pending_decision,
@@ -1078,9 +928,8 @@ task_json_lines() {
              steer:"bin/fm-send.sh fm-\($id) \u0027<instruction>\u0027",
              return_channel_note:null}
           end)
-      }' >> "$records" || return 1
-  done
-  jq -s 'sort_by(.id)' "$records"
+      }'
+  done | jq -s 'sort_by(.id)'
 }
 
 # Main-home current-inventory validity: same orphan / unstructured-current checks
@@ -1120,7 +969,6 @@ main_inventory_json() {  # <backlog-json-file> <tasks-json-file>
 secondmate_home_summary_json() {  # <backlog-json-file> <tasks-json-file>
   jq -n \
     --arg generated "$SNAPSHOT_NOW" \
-    --arg today "$SNAPSHOT_TODAY" \
     --argjson generated_epoch "$SNAPSHOT_EPOCH" \
     --arg home "$FM_HOME" \
     --argjson child_n "$FM_SNAPSHOT_SECONDMATE_CHILDREN" \
@@ -1128,11 +976,9 @@ secondmate_home_summary_json() {  # <backlog-json-file> <tasks-json-file>
     --argjson decisions_n "$FM_SNAPSHOT_SECONDMATE_DECISIONS" \
     --argjson landed_n "$FM_SNAPSHOT_SECONDMATE_LANDED_PER_HOME" \
     --slurpfile backlog "$1" \
-    --slurpfile tasks "$2" --slurpfile contributions "$CONTRIBUTIONS_JSON_FILE" \
-    --slurpfile steward_exemptions "$STEWARD_EXEMPTIONS_JSON_FILE" "$FM_LANDED_JQ_DEFS$HELD_UNAVAILABLE_JQ_DEFS"'
+    --slurpfile tasks "$2" --slurpfile contributions "$CONTRIBUTIONS_JSON_FILE" "$FM_LANDED_JQ_DEFS"'
     ($backlog[0]) as $backlog
     | ($tasks[0]) as $tasks
-    | ($steward_exemptions[0]) as $steward_exemptions
     | def trunc($n):
       tostring | gsub("\\s+"; " ")
       | if length > $n then .[:$n] + "…" else . end;
@@ -1146,15 +992,6 @@ secondmate_home_summary_json() {  # <backlog-json-file> <tasks-json-file>
       | sort_by((.value | filed_epoch) as $epoch
           | if $epoch == null then [1, 0, .key] else [0, -$epoch, .key] end)
       | map(.value);
-    def steward_exemption_matches($entry; $exemption):
-      $exemption._eligible == true
-      and $exemption.task_id == $entry.id
-      and (if $entry._identity_class == "hold" then
-             ($exemption.hold_identity | type) == "object"
-             and $exemption.hold_identity == $entry._hold_identity
-           elif $entry._identity_class == "decision" then
-             (($exemption.decision_keys // []) | index($entry.key)) != null
-           else false end);
     ([ $backlog.records[]?
        | select((.state == "in_flight" or .state == "queued") and (.structured | not)) ]) as $unstructured_current
     | ([ $backlog.records[]? | select(.state == "in_flight" and .structured) ]) as $owned_in_flight
@@ -1170,45 +1007,7 @@ secondmate_home_summary_json() {  # <backlog-json-file> <tasks-json-file>
             reason:(.hold_reason | trunc(160)),
             hold_until:(.hold_until // null),
             hold_bucket:(.hold_bucket // null),
-            hold_age_days:(.hold_age_days // null),source:"backlog",
-            _hold_identity:{source:"backlog",kind:(.hold_kind // null),reason:.hold_reason}} ]) as $captain_holds_all
-    | ([ $queued_all[]
-         | select((.unresolved_blocker_ids | length) > 0 or (.hold_reason != null and .hold_kind != null))
-         | {id,_identity_class:"hold",_hold_identity:{source:"backlog",kind:(.hold_kind // null),reason:(.hold_reason // .blocked_reason // "blocked")}} ]
-       + [ $owned_in_flight[] as $work
-           | $tasks[]
-           | select(.id == $work.id and
-                    (.current_state.state == "parked" or .current_state.state == "paused"
-                     or .current_state.state == "blocked" or .current_state.state == "unknown"
-                     or .current_state.state == "stopped"))
-           | select(($work.hold_reason != null and $work.hold_kind != null) | not)
-           | {id,_identity_class:"hold",_hold_identity:{source:"child-state",kind:null,reason:(.current_state.detail // .current_state.state)}} ]
-       + [ $tasks[] as $task
-           | ($task.hints.open_decisions // [])[]
-           | {id:$task.id,key,_identity_class:"decision"} ]) as $durable_steward_rows
-    | ([ $steward_exemptions[] as $exemption
-         | ([ $tasks[] | select(.id == $exemption.task_id) | .current_state ] | first) as $current_state
-         | ($exemption + {_eligible:($current_state != null
-                                      and $current_state.state == $exemption.state
-                                      and $current_state.detail == $exemption.detail
-                                      and $exemption.reviewed_date <= $today
-                                      and $today <= $exemption.expires_on)}) as $candidate
-         | ([ $tasks[] | select(.id == $exemption.task_id) ] | first) as $task
-         | ([ $owned_in_flight[] | select(.id == $exemption.task_id) ] | first) as $work
-         | $candidate + {active:(any($durable_steward_rows[];
-                                     steward_exemption_matches(.; $candidate))
-                                 or ($task != null
-                                     and held_unavailable_exempt($task; $work; [$candidate]; $today)))} ]) as $declared_exemptions
-    | ([ $tasks[]
-         | select(.kind != "secondmate")
-         | select(.id as $id | [$owned_in_flight[].id] | index($id) | not)
-         | select(.current_state.state == "done" or .current_state.state == "failed"
-                  or .current_state.state == "stopped"
-                  or (.current_state.state == "unknown"
-                      and .paths.worktree.present == false
-                      and .capacity.worker == "exited"))
-         | select(.id as $id | any($declared_exemptions[]; .task_id == $id and ._eligible))
-         | .id ]) as $settled_unowned_ids
+            hold_age_days:(.hold_age_days // null),source:"backlog"} ]) as $captain_holds_all
     | ([ $backlog.records[]? | select(landed_record)
          | {id:(.id | trunc(120)),title:(.title | trunc(120)),
             kind:((.kind // null) | if . == null then null else trunc(40) end),
@@ -1217,37 +1016,14 @@ secondmate_home_summary_json() {  # <backlog-json-file> <tasks-json-file>
             report_path:((.report_path // null) | if . == null then null else trunc(500) end),
             local_note:((.local_note // null) | if . == null then null else trunc(120) end),completion} ]
        | sort_by([(.completion.date // ""), .id]) | reverse) as $landed_all
-    | ([ $owned_in_flight[] as $work
-         | $tasks[]
-         | select(.kind != "secondmate" and .id == $work.id and .current_state.state == "stopped")
-         | select(($work.hold_reason != null and $work.hold_kind != null)
-                  or .hints.blocked_event == true)
-         | .id ]) as $held_stopped_ids
-    | ([ $tasks[]
-         | select(.id as $id | $settled_unowned_ids | index($id) | not)
-         | select(.current_state.state == "unknown"
-                  or (.current_state.state == "stopped" and (.id as $id | $held_stopped_ids | index($id) | not)))
-         | select(. as $task
-                  | any($durable_steward_rows[];
-                        . as $entry
-                        | $entry.id == $task.id
-                          and $entry._identity_class == "hold"
-                          and any($declared_exemptions[];
-                                  steward_exemption_matches($entry; .)))
-                    | not)
-         | select(. as $task
-                  | held_unavailable_exempt($task;
-                                            ([ $owned_in_flight[] | select(.id == $task.id) ] | first);
-                                            $steward_exemptions; $today)
-                    | not) ]) as $unknown_children
+    | ([ $tasks[] | select(.current_state.state == "unknown") ]) as $unknown_children
     | ([ $owned_in_flight[]
          | select(.requires_child_metadata)
          | select(.id as $id | [$tasks[].id] | index($id) | not) ]) as $orphan_in_flight
     | ([ $tasks[]
          | select(.kind != "secondmate")
          | select(.id as $id | [$owned_in_flight[].id] | index($id) | not)
-         | select(.id as $id | $settled_unowned_ids | index($id) | not)
-         | {id,state:(if .current_state.state == "stopped" then "unknown" else .current_state.state end)} ]) as $unowned_children
+         | {id,state:.current_state.state} ]) as $unowned_children
     | ([ $owned_in_flight[] as $work
          | $tasks[]
          | select(.kind != "secondmate")
@@ -1282,48 +1058,23 @@ secondmate_home_summary_json() {  # <backlog-json-file> <tasks-json-file>
             name:(($work.title // null) | if . == null then null else trunc(70) end),
             source:.current_state.source,
             doing:((.current_state.detail // "") | trunc(120))} ]) as $active_all
-    | (($captain_holds_all
-        | map(._identity_class = "hold")
-        | map(select(. as $entry
-                     | any($declared_exemptions[];
-                           steward_exemption_matches($entry; .))
-                       | not))
-        | map(del(._identity_class, ._hold_identity)))
+    | ($captain_holds_all
        + ([ $tasks[] as $t | ($t.hints.open_decisions // [])[]
-            | {id:$t.id,key,verb,summary:(.summary | trunc(160)),reason:null,source:"status",
-               _identity_class:"decision"} ]
-          | map(select(. as $entry
-                       | any($declared_exemptions[];
-                             steward_exemption_matches($entry; .))
-                         | not))
-          | map(del(._identity_class)))) as $decisions_all
+            | {id:$t.id,key,verb,summary:(.summary | trunc(160)),reason:null,source:"status"} ])) as $decisions_all
     | ([ $queued_all[]
          | select((.unresolved_blocker_ids | length) > 0 or (.hold_reason != null and .hold_kind != null))
          | {id:(.id | trunc(120)),title:(.title | trunc(90)),
             blocked_by:((.unresolved_blocker_ids | join(",")) | if . == "" then null else trunc(120) end),
             blocked_by_ids:(.blocked_by_ids | map(trunc(120))),
             unresolved_blocker_ids:(.unresolved_blocker_ids | map(trunc(120))),
-            reason:((.hold_reason // .blocked_reason // "blocked") | trunc(120)),source:"backlog",
-            _identity_class:"hold",
-            _hold_identity:{source:"backlog",kind:(.hold_kind // null),reason:(.hold_reason // .blocked_reason // "blocked")}} ]
+            reason:((.hold_reason // .blocked_reason // "blocked") | trunc(120)),source:"backlog"} ]
        + [ $owned_in_flight[] as $work
            | $tasks[]
-           | select(.id == $work.id and
-                    (.current_state.state == "parked" or .current_state.state == "paused"
-                     or .current_state.state == "blocked"
-                     or (.current_state.state == "stopped" and .hints.blocked_event == true)))
+           | select(.id == $work.id and (.current_state.state == "parked" or .current_state.state == "paused" or .current_state.state == "blocked"))
            | select(($work.hold_reason != null and $work.hold_kind != null) | not)
            | {id,title:((.backlog.title // .id) | trunc(90)),blocked_by:null,
               blocked_by_ids:[],unresolved_blocker_ids:[],
-              reason:((.current_state.detail // .current_state.state) | trunc(120)),source:"child-state",
-              _identity_class:"hold",
-              _hold_identity:{source:"child-state",kind:null,reason:(.current_state.detail // .current_state.state)}} ]) as $holds_unfiltered
-    | ($holds_unfiltered
-       | map(select(. as $entry
-                    | any($declared_exemptions[];
-                          steward_exemption_matches($entry; .))
-                      | not))
-       | map(del(._identity_class, ._hold_identity))) as $holds_all
+              reason:((.current_state.detail // .current_state.state) | trunc(120)),source:"child-state"} ]) as $holds_all
     | ($backlog.present == true
        and ($unstructured_current | length) == 0
        and ($unknown_children | length) == 0
@@ -1360,9 +1111,6 @@ secondmate_home_summary_json() {  # <backlog-json-file> <tasks-json-file>
         active_children:$active_all[:$child_n],
         decisions_open:$decisions_all[:$decisions_n],
         holds:$holds_all[:$queued_n],
-        steward_exemptions:($declared_exemptions | map({task_id,reason,set_by,reviewed_date,expires_on,state,detail,
-                                                        hold_identity:(.hold_identity // null),
-                                                        decision_keys:(.decision_keys // []),active})),
         queued:([$queued_all[] | {id:(.id | trunc(120)),title:(.title | trunc(120)),
           blocked_by:((.blocked_by // null) | if . == null then null else trunc(120) end),
           blocked_by_ids:((.blocked_by_ids // []) | map(trunc(120))),
@@ -2219,10 +1967,9 @@ scout_report_lines() {
     | sort \
     | while IFS= read -r report; do
       id=$(basename "$(dirname "$report")")
-      jq -n --arg id "$id" --arg path "$report" '{id:$id,path:$path}' || exit 1
+      jq -n --arg id "$id" --arg path "$report" '{id:$id,path:$path}'
     done \
     | jq -s 'sort_by(.id)'
-  pipeline_ok "${PIPESTATUS[@]}"
 }
 
 BACKLOG_JSON=$(backlog_json) || { echo "fm-fleet-snapshot: backlog read failed" >&2; exit 1; }
@@ -2237,49 +1984,39 @@ contribution_tasks_json() {
     fi
     jq -n --arg id "$id" --arg kind "$(meta_value "$meta" kind)" \
       --arg url "$(meta_value "$meta" pr)" --arg head "$(meta_value "$meta" pr_head)" \
-      --arg merge_authority "$merge_authority" '{id:$id,kind:$kind,pr:{url:$url,head:$head},merge_authority:$merge_authority}' || exit 1
+      --arg merge_authority "$merge_authority" '{id:$id,kind:$kind,pr:{url:$url,head:$head},merge_authority:$merge_authority}'
   done | jq -s .
-  pipeline_ok "${PIPESTATUS[@]}"
 }
-
-# Unbounded JSON (backlog, tasks) reaches jq through these private files, never
-# argv: a large backlog or fleet exceeds the OS argument limit (E2BIG).
-JSON_TRANSPORT_DIR=$(umask 077; mktemp -d "${TMPDIR:-/tmp}/fm-fleet-snapshot.XXXXXX") \
-  || { echo "fm-fleet-snapshot: temporary transport directory creation failed" >&2; exit 1; }
-contribution_input_json() {  # <output-file>
-  contribution_tasks_json > "$JSON_TRANSPORT_DIR/contribution-tasks.json" \
-    || { echo "fm-fleet-snapshot: contribution task read failed" >&2; return 1; }
-  jq -n --slurpfile backlog "$BACKLOG_JSON_FILE" --slurpfile tasks "$JSON_TRANSPORT_DIR/contribution-tasks.json" \
-    '{backlog:$backlog[0],tasks:$tasks[0]}' > "$1" \
-    || { echo "fm-fleet-snapshot: contribution input composition failed" >&2; return 1; }
-}
-BACKLOG_JSON_FILE="$JSON_TRANSPORT_DIR/backlog.json"
-printf '%s\n' "$BACKLOG_JSON" > "$BACKLOG_JSON_FILE" \
-  || { echo "fm-fleet-snapshot: temporary backlog file write failed" >&2; exit 1; }
 
 if [ "$OUTPUT_MODE" = contribution-input ]; then
   # Reuse the canonical backlog parser, without observing workers or other homes.
-  contribution_input_json "$JSON_TRANSPORT_DIR/contribution-input.json" || exit 1
-  cat -- "$JSON_TRANSPORT_DIR/contribution-input.json" \
-    || { echo "fm-fleet-snapshot: contribution input write failed" >&2; exit 1; }
+  contribution_tasks=$(contribution_tasks_json) || { echo "fm-fleet-snapshot: contribution task read failed" >&2; exit 1; }
+  jq -n --argjson backlog "$BACKLOG_JSON" --argjson tasks "$contribution_tasks" '{backlog:$backlog,tasks:$tasks}'
   exit 0
 fi
 prefetch_task_current_states || { echo "fm-fleet-snapshot: task observation failed" >&2; exit 1; }
 TASKS_JSON=$(task_json_lines) || { echo "fm-fleet-snapshot: task snapshot failed" >&2; exit 1; }
 
+JSON_TRANSPORT_DIR=$(mktemp -d "${TMPDIR:-/tmp}/fm-fleet-snapshot.XXXXXX") \
+  || { echo "fm-fleet-snapshot: temporary transport directory creation failed" >&2; exit 1; }
+BACKLOG_JSON_FILE="$JSON_TRANSPORT_DIR/backlog.json"
 TASKS_JSON_FILE="$JSON_TRANSPORT_DIR/tasks.json"
 MAIN_INVENTORY_JSON_FILE="$JSON_TRANSPORT_DIR/main-inventory.json"
 SCOUT_REPORTS_JSON_FILE="$JSON_TRANSPORT_DIR/scout-reports.json"
 SECONDMATE_CURRENT_JSON_FILE="$JSON_TRANSPORT_DIR/secondmate-current.json"
 SECONDMATE_LANDED_JSON_FILE="$JSON_TRANSPORT_DIR/secondmate-landed.json"
-STEWARD_EXEMPTIONS_JSON_FILE="$JSON_TRANSPORT_DIR/steward-exemptions.json"
+printf '%s\n' "$BACKLOG_JSON" > "$BACKLOG_JSON_FILE" \
+  || { echo "fm-fleet-snapshot: temporary backlog file write failed" >&2; exit 1; }
 printf '%s\n' "$TASKS_JSON" > "$TASKS_JSON_FILE" \
   || { echo "fm-fleet-snapshot: temporary task file write failed" >&2; exit 1; }
-steward_exemptions_json "$STATE/steward-exemptions.json" > "$STEWARD_EXEMPTIONS_JSON_FILE" \
-  || { echo "fm-fleet-snapshot: steward exemption read failed" >&2; exit 1; }
 
 CONTRIBUTIONS_JSON_FILE="$JSON_TRANSPORT_DIR/contributions.json"
-contribution_input_json "$JSON_TRANSPORT_DIR/contribution-input.json" || exit 1
+CONTRIBUTION_TASKS_JSON=$(contribution_tasks_json) \
+  || { echo "fm-fleet-snapshot: contribution task read failed" >&2; exit 1; }
+printf '%s\n' "$CONTRIBUTION_TASKS_JSON" > "$JSON_TRANSPORT_DIR/contribution-tasks.json" \
+  || { echo "fm-fleet-snapshot: contribution task staging failed" >&2; exit 1; }
+jq -n --slurpfile backlog "$BACKLOG_JSON_FILE" --slurpfile tasks "$JSON_TRANSPORT_DIR/contribution-tasks.json" \
+  '{backlog:$backlog[0],tasks:$tasks[0]}' > "$JSON_TRANSPORT_DIR/contribution-input.json"
 FM_CONTRIBUTIONS_NOW="$SNAPSHOT_NOW" "$SCRIPT_DIR/fm-contributions.sh" snapshot \
   "$JSON_TRANSPORT_DIR/contribution-input.json" > "$CONTRIBUTIONS_JSON_FILE" \
   || { echo "fm-fleet-snapshot: contribution coverage unavailable" >&2; exit 1; }
@@ -2314,9 +2051,7 @@ jq -n \
   --slurpfile scout_reports "$SCOUT_REPORTS_JSON_FILE" \
   --slurpfile secondmate_current "$SECONDMATE_CURRENT_JSON_FILE" \
   --slurpfile secondmate_landed "$SECONDMATE_LANDED_JSON_FILE" \
-  --slurpfile steward_exemptions "$STEWARD_EXEMPTIONS_JSON_FILE" \
-  --arg today "$SNAPSHOT_TODAY" \
-  "$HELD_UNAVAILABLE_JQ_DEFS"'($backlog[0]) as $backlog
+  '($backlog[0]) as $backlog
    | ($tasks[0]) as $tasks
    | ($main_inventory[0]) as $main_inventory
    | ($scout_reports[0]) as $scout_reports
@@ -2325,37 +2060,13 @@ jq -n \
    | def backlog_by_id($id): ($backlog.records[]? | select(.structured == true and .id == $id) | .) // null;
    def task_by_id($id): ($tasks[]? | select(.id == $id) | .) // null;
    def report_kind($id): (task_by_id($id).kind // backlog_by_id($id).kind // "scout");
-   def capacity_of($task; $work):
-     ($task.current_state.state // "unknown") as $state
-     | ($task.capacity.worker // "not_checked") as $worker
-     | ($work != null and $work.state == "in_flight"
-        and $work.hold_reason != null and $work.hold_kind != null) as $declared
-     | (if $task.kind == "secondmate" then {class:"secondmate",occupied:false}
-        elif $state == "working" then {class:"productive",occupied:true}
-        elif $state == "done" or $state == "failed" then {class:"terminal",occupied:false}
-        elif ($state == "parked" or $state == "paused" or $state == "blocked"
-              or $state == "idle" or $state == "stopped") then
-          (if $worker == "alive" then {class:"live_worker",occupied:true}
-           elif $worker == "exited" and $declared then {class:"parked_preserved",occupied:false}
-           elif $worker == "exited" then {class:"exited_undeclared",occupied:true}
-           else {class:"uncertain",occupied:true} end)
-        elif held_unavailable_exempt($task; $work; $steward_exemptions[0]; $today) then
-          {class:"parked_preserved",occupied:false}
-        else {class:"uncertain",occupied:true} end)
-     + {worker:$worker,declared_hold:$declared};
-   ($tasks | map(. + {backlog:backlog_by_id(.id)}) | map(.capacity = capacity_of(.; .backlog))) as $tasks
-   | {
+   {
      schema:"fm-fleet-snapshot.v1",
      generated:$generated,
      fm_home:$fm_home,
      roots:{fm_root:$fm_root,state:$state,data:$data,config:$config,projects:$projects},
      backlog:$backlog,
-     tasks:$tasks,
-     capacity:{
-       occupied:([$tasks[] | select(.capacity.occupied)] | length),
-       classes:(reduce $tasks[] as $task ({}; .[$task.capacity.class] += 1)),
-       rows:[$tasks[] | {id,state:.current_state.state} + .capacity]
-     },
+     tasks:($tasks | map(. + {backlog:backlog_by_id(.id)})),
      main_inventory:$main_inventory,
      contributions:$contributions[0],
      scout_reports:($scout_reports | map(. + {kind:report_kind(.id)})),
@@ -2364,5 +2075,4 @@ jq -n \
      secondmate_guidance:{
        note:"For kind=secondmate, bearings selects validated structured state from that registered home; parent events and bounded terminal evidence are fallback-only supplements and never current-state authority."
      }
-   }' \
-  || { echo "fm-fleet-snapshot: snapshot composition failed" >&2; exit 1; }
+   }'

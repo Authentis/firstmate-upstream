@@ -19,9 +19,6 @@
 # record being removed, the intended transition is recorded in
 # state/<id>.backlog-close first, so a process killed between the halves leaves
 # the next session start enough to finish it; a landed close removes that record.
-# A run that stops while the task record still exists - a refused endpoint
-# close included - leaves both records for a rerun: session start never removes
-# a present record, because it alone names the endpoint that may survive.
 # A close that fails is fatal and loud, preserves its pending-close record, and
 # is retried by the next session start. The transition is skipped on a
 # config/backlog-backend=manual home and in a markdown home that keeps no
@@ -47,9 +44,7 @@
 # REFUSES if the worktree holds work that has not LANDED, because cleanup
 # hard-resets/removes the worktree and kills its processes. Work has landed when it is
 # reachable from any remote-tracking branch (a fork counts as a remote, so
-# upstream-contribution PRs pushed to a fork satisfy this in any mode) other than
-# the no-mistakes validation mirror (refs/remotes/no-mistakes/*, a local copy the
-# pipeline pushes to before anything reaches a real remote), OR - for a
+# upstream-contribution PRs pushed to a fork satisfy this in any mode), OR - for a
 # normal ship task whose commits are not so reachable - when its PR is merged and
 # GitHub reports a PR head that contains the current local work, or its content is
 # already present in the up-to-date default branch. This recognizes the common
@@ -71,9 +66,6 @@
 # A gh lookup error falls back to the content check; if that is also inconclusive,
 # teardown refuses rather than risk discarding unlanded work.
 # Uncommitted changes are never landed.
-# Those same proofs also retire preserve/*, archive/*, and work/*-baseline refs,
-# locally and on origin, after the task branch; retire_proven_retirement_refs
-# owns that rule and keeps and counts every ref it cannot prove landed.
 # local-only projects additionally accept work merged into the local default
 # branch (firstmate performs that merge after configured approval) as a fallback
 # for the common case where there is no remote at all.
@@ -181,62 +173,7 @@
 # leased home releases its durable treehouse lease so the pool slot is freed,
 # never left leased forever. If the treehouse return fails, teardown leaves the
 # leased home and state in place instead of hiding a still-held lease.
-# A scout record whose worktree= line is gone entirely - its copy was already
-# removed, typically after its pool slot was legitimately reused and the stale
-# path reconciled out of the record - names no copy to inspect or return, so
-# ordinary cleanup proceeds without one; the report and completion gate still
-# apply. The same record of any other kind still refuses: only --endpoint-only
-# below may close its pane.
-# --endpoint-only is the one path for a finished task whose record must stay -
-# committed work not yet landed, a copy under unresolved custody, or a copy
-# already gone - but whose idle pane should not. It closes only that task's
-# exact Herdr pane under the same session lock and gone-confirmation as a full
-# cleanup, and keeps the task record, isolated copy, branch, backlog item,
-# status, and checks exactly as they were, so an ordinary teardown still
-# finishes the task later and bin/fm-control.sh relaunch can still reclaim it
-# into a fresh pane. It refuses, changing nothing, unless the pane's agent has
-# exited (a live or unreadable agent may be mid-work or kept for reuse), and
-# while the task has an open decision or blocker, uncommitted or uninspectable
-# changes in its copy, or an unfinished validation run on its branch. It is
-# Herdr-only because only Herdr proves a pane gone and reclaims into a fresh
-# one; an already-gone pane is idempotent success. It never takes --force or
-# --legacy-record, and never applies to a secondmate.
-# --park is the ending for a ship task whose work is unfinished and whose worker
-# is gone: it releases the isolated copy without losing anything. It refuses,
-# changing nothing, unless the recorded endpoint reads dead or missing (the same
-# recovery-grade probe --legacy-record uses). When the task's committed work is
-# already content-present in the up-to-date default branch and its copy is clean,
-# there is nothing to park and the ordinary landed-work teardown runs instead.
-# Otherwise it first saves the work under data/<id>/park/ - a bundle of the
-# recorded branch beyond the default branch, the copy's uncommitted diff, its
-# untracked files, a copy of the status log, a receipt, and SHA256SUMS - and
-# verifies each piece before any destructive step. Git-ignored files are cache,
-# not work: they are listed with their total size, never saved. A prior park
-# directory is kept beside the new one. Cleanup then runs the ordinary steps -
-# run abort (for park, the task's own run is stopped even mid-step, since a
-# resumed worker always validates afresh), process reap, endpoint close, slot
-# return, claim release -
-# but keeps the branch ref, retires no safety refs, pushes nothing, and returns
-# the backlog item to Queued (never closes it, and keeps any hold) with one park
-# note naming the branch, the saved commit, and the park directory; the brief
-# moves into that directory so bin/fm-brief.sh --resume can scaffold the next
-# worker from the receipt. A record whose copy has vanished parks from the
-# branch ref alone and drops its own orphaned slot claim by path. Park is
-# Treehouse-and-ship only and never combines with --force or --endpoint-only.
-# Claude session scratch: for a ship or scout task whose record carries
-# claude_session_ids= (bin/fm-spawn.sh records one id per Claude launch),
-# cleanup removes exactly those session directories under this user's
-# /tmp/claude-<uid>/<worktree slug>/, after the endpoint is closed and, for
-# --park, only after the park bundle is saved and verified (a refused park
-# removes nothing). bin/fm-claude-scratch-lib.sh owns the layout and shape
-# checks. The path is derived from the recorded id and worktree, never from a
-# slug glob, because reused copies share one slug. A missing identity, or an id
-# or path that does not match, is skipped with a one-line note; an absent
-# directory is silent. Other harnesses, a secondmate, and --endpoint-only are
-# untouched.
 # Usage: fm-teardown.sh <task-id> [--force] [--legacy-record]
-#        fm-teardown.sh <task-id> --endpoint-only
-#        fm-teardown.sh <task-id> --park [--legacy-record]
 #   --force skips ordinary-task dirty and landed-work checks, skips scout report
 #   checks, and discards secondmate child work for kind=secondmate. Only use it
 #   when the captain has explicitly said to discard the work.
@@ -410,29 +347,27 @@ done
 unset _teardown_source
 # shellcheck source=bin/fm-tasks-axi-lib.sh
 . "$SCRIPT_DIR/fm-tasks-axi-lib.sh"
-# shellcheck source=/dev/null # Canonical lint root; following it here breaks the lint memory ceiling.
+# shellcheck source=bin/fm-backlog-transition-lib.sh
 . "$SCRIPT_DIR/fm-backlog-transition-lib.sh"
-# shellcheck source=/dev/null # Canonical lint root; following it here breaks the lint memory ceiling.
+# shellcheck source=bin/fm-backend.sh
 . "$SCRIPT_DIR/fm-backend.sh"
 # shellcheck source=bin/fm-control-lib.sh
 . "$SCRIPT_DIR/fm-control-lib.sh"
 # shellcheck source=bin/fm-lock-lib.sh
 . "$SCRIPT_DIR/fm-lock-lib.sh"
-# shellcheck source=/dev/null # Canonical lint root; following it here breaks the lint memory ceiling.
+# shellcheck source=bin/fm-classify-lib.sh
 . "$SCRIPT_DIR/fm-classify-lib.sh"
 # shellcheck source=bin/fm-gate-refuse-lib.sh
 . "$SCRIPT_DIR/fm-gate-refuse-lib.sh"
 # shellcheck source=bin/fm-pr-lib.sh
 . "$SCRIPT_DIR/fm-pr-lib.sh"
-# shellcheck source=/dev/null # Canonical lint root; following it here breaks the lint memory ceiling.
+# shellcheck source=bin/fm-public-followup-lib.sh
 . "$SCRIPT_DIR/fm-public-followup-lib.sh"
 # shellcheck source=bin/fm-secondmate-registry-lib.sh
 . "$SCRIPT_DIR/fm-secondmate-registry-lib.sh"
-# shellcheck source=bin/fm-claude-scratch-lib.sh
-. "$SCRIPT_DIR/fm-claude-scratch-lib.sh"
 # shellcheck source=bin/fm-secondmate-parent-lib.sh
 . "$SCRIPT_DIR/fm-secondmate-parent-lib.sh"
-# shellcheck source=/dev/null # Canonical lint root; following it here breaks the lint memory ceiling.
+# shellcheck source=bin/fm-pending-reply-lib.sh
 . "$SCRIPT_DIR/fm-pending-reply-lib.sh"
 # shellcheck source=bin/fm-nm-run-lib.sh
 . "$SCRIPT_DIR/fm-nm-run-lib.sh"
@@ -443,15 +378,11 @@ fi
 ID=$1
 FORCE=
 LEGACY_RECORD_GIVEN=0
-ENDPOINT_ONLY=0
-PARK=0
 shift
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --force) FORCE=--force ;;
     --legacy-record) LEGACY_RECORD_GIVEN=1 ;;
-    --endpoint-only) ENDPOINT_ONLY=1 ;;
-    --park) PARK=1 ;;
     *)
       echo "error: invalid teardown request" >&2
       exit 2
@@ -459,19 +390,11 @@ while [ "$#" -gt 0 ]; do
   esac
   shift
 done
-if [ "$ENDPOINT_ONLY" = 1 ] && { [ -n "$FORCE" ] || [ "$LEGACY_RECORD_GIVEN" = 1 ]; }; then
-  echo "error: --endpoint-only closes only a task's endpoint and cannot be combined with --force or --legacy-record" >&2
-  exit 2
-fi
-if [ "$PARK" = 1 ] && { [ -n "$FORCE" ] || [ "$ENDPOINT_ONLY" = 1 ]; }; then
-  echo "error: --park saves unfinished work before releasing its copy and cannot be combined with --force or --endpoint-only" >&2
-  exit 2
-fi
 fm_backlog_directory_present "$STATE" "state directory" || {
   echo "error: teardown refused: $FM_BACKLOG_TRANSITION_ERROR" >&2
   exit 1
 }
-# shellcheck source=/dev/null # Canonical lint root; following it here breaks the lint memory ceiling.
+# shellcheck source=bin/fm-wake-lib.sh
 . "$SCRIPT_DIR/fm-wake-lib.sh"
 # Supervision lease guard: post-landing cleanup is overlap territory between
 # the two Pi supervision actors; refuse while the OTHER actor holds this
@@ -589,14 +512,6 @@ fm_backlog_record_present "$META" "task record" "$STATE" || {
 }
 TEARDOWN_META_KIND=$(fm_meta_get "$META" kind)
 [ -n "$TEARDOWN_META_KIND" ] || TEARDOWN_META_KIND=ship
-if [ "$ENDPOINT_ONLY" = 1 ] && [ "$TEARDOWN_META_KIND" = secondmate ]; then
-  echo "REFUSED: --endpoint-only does not apply to secondmate $ID, whose endpoint is its persistent home's supervisor; nothing was changed." >&2
-  exit 1
-fi
-if [ "$PARK" = 1 ] && [ "$TEARDOWN_META_KIND" != ship ]; then
-  echo "REFUSED: --park applies only to ship tasks; a scout's copy is declared scratch and a secondmate is retired, not parked. Nothing was changed." >&2
-  exit 1
-fi
 # Retiring a persistent secondmate is main's alone in both postures; the kind
 # is read under the metadata lock (role partition: bin/fm-lease-lib.sh).
 [ "$TEARDOWN_META_KIND" != secondmate ] || fm_lease_forbid_branch "secondmate retirement (fm-teardown)"
@@ -1188,37 +1103,14 @@ fi
 # A windowless record names no endpoint: the shared validator would refuse it
 # (and must keep refusing it for control/kill callers), so teardown skips the
 # validator rather than probing or closing an ambient current window.
-# A record whose worktree= line is gone entirely names no copy to inspect or
-# return: the copy was already removed, typically after its pool slot was
-# legitimately reused and the stale path reconciled out of the record. The
-# shared validator must keep refusing that for control and kill callers, so
-# teardown validates every other endpoint identity field as if a copy were
-# named, and only where nothing that copy held is at stake: a scout, whose copy
-# is declared scratch and whose report and completion gate still apply below,
-# and --endpoint-only, which touches nothing but the endpoint. An empty or
-# duplicated worktree= line is not this shape and still refuses.
 WT=$(fm_meta_get "$META" worktree)
 PROJ=$(fm_meta_get "$META" project)
 T_ORCA=
-TEARDOWN_ENDPOINT_META=$META
-if [ "$TEARDOWN_WINDOWLESS" != 1 ] \
-   && { [ "$TEARDOWN_META_KIND" = scout ] || [ "$ENDPOINT_ONLY" = 1 ]; } \
-   && [ "$(fm_backend_of_meta "$META")" != orca ] \
-   && ! LC_ALL=C grep -q '^worktree=' "$META" 2>/dev/null; then
-  TEARDOWN_ENDPOINT_META=$(umask 077; mktemp "${TMPDIR:-/tmp}/fm-teardown-endpoint.XXXXXX") || exit 1
-  { cat "$META" && printf '\nworktree=gone:fm-%s\n' "$ID"; } > "$TEARDOWN_ENDPOINT_META" \
-    || { rm -f "$TEARDOWN_ENDPOINT_META"; exit 1; }
-fi
 if [ "$TEARDOWN_WINDOWLESS" = 1 ]; then
   BACKEND=tmux
   T=
 else
-  TEARDOWN_ENDPOINT_VALID=1
-  fm_backend_validate_task_endpoint "$TEARDOWN_ENDPOINT_META" "$ID" || TEARDOWN_ENDPOINT_VALID=0
-  [ "$TEARDOWN_ENDPOINT_META" = "$META" ] || rm -f "$TEARDOWN_ENDPOINT_META"
-  [ "$TEARDOWN_ENDPOINT_VALID" = 1 ] || exit 1
-  [ "$TEARDOWN_ENDPOINT_META" = "$META" ] \
-    || echo "teardown: task $ID's record names no isolated copy (already removed), so no copy is inspected or returned" >&2
+  fm_backend_validate_task_endpoint "$META" "$ID" || exit 1
   BACKEND=$FM_BACKEND_VALIDATED_BACKEND
   T=$FM_BACKEND_VALIDATED_TARGET
   [ "$BACKEND" != orca ] || T_ORCA=$T
@@ -1235,10 +1127,6 @@ PR_URL=$(grep '^pr=' "$META" | tail -1 | cut -d= -f2- || true)
 # tasktmp is recorded by fm-spawn for tasks that set up a per-task temp root
 # (/tmp/fm-<id>/); absent for tasks spawned before that change, so tolerate empty.
 TASK_TMP=$(grep '^tasktmp=' "$META" | cut -d= -f2- || true)
-# Claude session scratch (script header): resolve the worktree's real path now,
-# while the copy still exists, so the slug matches the one Claude derived.
-CLAUDE_SESSION_IDS=$(fm_meta_get "$META" claude_session_ids)
-CLAUDE_SCRATCH_CWD=$(cd "$WT" 2>/dev/null && pwd -P) || CLAUDE_SCRATCH_CWD=$WT
 BUSY_GEN=$(fm_meta_get "$META" busy_gen)
 if [ -z "$BUSY_GEN" ]; then
   BUSY_GEN=$(cat "$STATE/$ID.busy-gen" 2>/dev/null || true)
@@ -1439,33 +1327,6 @@ elif [ "$FORCE" != "--force" ] && fm_pf_relay_active "$FM_HOME"; then
   PUBLIC_FOLLOWUP_RELAY_ACTIVE=1
 fi
 
-# Remove each recorded Claude session's scratch directory (script header).
-remove_claude_session_scratch() {
-  local id dir rc ids
-  [ "$KIND" != secondmate ] || return 0
-  if [ -z "$CLAUDE_SESSION_IDS" ]; then
-    [ "$(fm_meta_get "$META" harness)" != claude ] \
-      || echo "teardown: task $ID recorded no Claude session id, so its Claude scratch is left for the system temp cleaner" >&2
-    return 0
-  fi
-  read -r -a ids <<<"$CLAUDE_SESSION_IDS"
-  for id in "${ids[@]}"; do
-    rc=0
-    dir=$(fm_claude_scratch_resolve "$CLAUDE_SCRATCH_CWD" "$id") || rc=$?
-    case "$rc" in
-      0)
-        if rm -rf -- "$dir"; then
-          echo "teardown: removed task $ID's Claude session scratch $dir" >&2
-        else
-          echo "warning: could not fully remove task $ID's Claude session scratch $dir" >&2
-        fi
-        ;;
-      2) ;;
-      *) echo "teardown: skipped task $ID's Claude session scratch: $dir" >&2 ;;
-    esac
-  done
-}
-
 default_branch() {
   local ref branch
   ref=$(git -C "$PROJ" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null || true)
@@ -1636,11 +1497,6 @@ patch_id_for_commit() {
     | awk 'NR == 1 { print $1 }'
 }
 
-# The remote-tracking refs that count as "on a remote": every remote except the
-# no-mistakes validation mirror, which is a local copy and never proves work saved
-# or landed. Use as `--not "${REAL_REMOTES[@]}"`.
-REAL_REMOTES=(--exclude='no-mistakes/*' --remotes)
-
 unpushed_patches_are_in_pr_head() {
   local pr_head=$1 current base pr_patch_ids commit patch_id unpushed
   current=$(git -C "$WT" rev-parse --verify HEAD 2>/dev/null) || return 1
@@ -1654,7 +1510,7 @@ unpushed_patches_are_in_pr_head() {
       | sort -u
   ) || return 1
   [ -n "$pr_patch_ids" ] || return 1
-  unpushed=$(git -C "$WT" log --format=%H HEAD --not "${REAL_REMOTES[@]}" -- 2>/dev/null) || return 1
+  unpushed=$(git -C "$WT" log --format=%H HEAD --not --remotes -- 2>/dev/null) || return 1
   [ -n "$unpushed" ] || return 1
   while IFS= read -r commit; do
     [ -n "$commit" ] || continue
@@ -1671,7 +1527,6 @@ EOF
 # for both the PR state and head. Returns non-zero when the PR is not merged, the
 # current work is not contained in the PR head, no PR is found, or any gh error
 # occurs - the caller then falls back to the content check.
-TEARDOWN_MERGED_PR_HEAD=
 pr_is_merged() {
   local branch=$1 target view state remainder head resolved_url current landed=0
   if [ -n "$PR_URL" ]; then
@@ -1700,7 +1555,6 @@ pr_is_merged() {
     landed=1
   fi
   [ "$landed" = 1 ] || return 1
-  TEARDOWN_MERGED_PR_HEAD=$head
   if [ -z "$PR_URL" ]; then
     [ -n "$resolved_url" ] || return 1
     PR_URL=$resolved_url
@@ -1716,38 +1570,25 @@ pr_is_merged() {
 # "added". Returns non-zero when inconclusive (no default ref, or a merge conflict),
 # so the caller refuses rather than guesses.
 content_in_default() {
-  local ref
-  ref=$(fresh_default_ref) || return 1
-  commit_content_in "$ref" HEAD
-}
-
-# Echo the up-to-date default branch ref: origin's, fetched first, or the local
-# default branch when there is no origin. Non-zero when neither can be read.
-fresh_default_ref() {
-  local name
+  local name ref default_tree merged_tree
   name=$(default_branch) || return 1
   if git -C "$WT" remote get-url origin >/dev/null 2>&1; then
     git -C "$WT" fetch --quiet origin "+refs/heads/$name:refs/remotes/origin/$name" >/dev/null 2>&1 || return 1
-    echo "refs/remotes/origin/$name"
+    ref="refs/remotes/origin/$name"
   elif git -C "$WT" rev-parse --quiet --verify "refs/heads/$name" >/dev/null 2>&1; then
-    echo "refs/heads/$name"
+    ref="refs/heads/$name"
   else
     return 1
   fi
-}
-
-# Does <ref> already contain everything <commit> introduces? See content_in_default.
-commit_content_in() {  # <ref> <commit>
-  local ref=$1 commit=$2 default_tree merged_tree
   default_tree=$(git -C "$WT" rev-parse --quiet --verify "$ref^{tree}" 2>/dev/null) || return 1
   [ -n "$default_tree" ] || return 1
-  merged_tree=$(git -C "$WT" merge-tree --write-tree "$ref" "$commit" 2>/dev/null) || return 1
+  merged_tree=$(git -C "$WT" merge-tree --write-tree "$ref" HEAD 2>/dev/null) || return 1
   merged_tree=$(printf '%s\n' "$merged_tree" | head -1)
   [ "$merged_tree" = "$default_tree" ]
 }
 
 # Has the worktree's committed work actually LANDED, though its commits are not
-# reachable from any real remote (REAL_REMOTES)? True when a merged PR proves the
+# reachable from any remote-tracking branch? True when a merged PR proves the
 # current local work is contained in the PR head, OR the content is already in the
 # default branch (fallback, which also covers the no-PR and gh-error paths). False
 # only for genuinely unlanded work.
@@ -1764,10 +1605,6 @@ BACKLOG_DONE_ARGS=()
 backlog_done_args() {
   local data_relative
   BACKLOG_DONE_ARGS=()
-  if [ "$PARK" = 1 ]; then
-    BACKLOG_DONE_ARGS=(--note "$PARK_NOTE")
-    return 0
-  fi
   case "$KIND" in
     scout)
       data_relative=$(fm_backlog_data_relative "$DATA") || return 1
@@ -1801,11 +1638,7 @@ backlog_refresh_reminder() {
   else
     backlog_display="${DATA%/}/backlog.md"
   fi
-  if [ "$BACKLOG_CLOSED" = 1 ] && [ "$PARK" = 1 ]; then
-    printf '%s\n' "Backlog: $ID is back in Queued in $backlog_display with its park note ($PARK_NOTE); any hold it had is unchanged. Resume it with bin/fm-brief.sh $ID <repo> --mode <mode> --resume, then the ordinary spawn."
-  elif [ "$PARK" = 1 ]; then
-    printf '%s\n' "Backlog: $ID was parked ($BACKLOG_SKIP_REASON). Update $backlog_display - move $ID back to Queued with the note: $PARK_NOTE"
-  elif [ "$BACKLOG_CLOSED" = 1 ] && [ "$BACKLOG_TRANSITION" = retain ]; then
+  if [ "$BACKLOG_CLOSED" = 1 ] && [ "$BACKLOG_TRANSITION" = retain ]; then
     printf '%s\n' "Backlog: $ID stays open in $backlog_display, still held for the captain with its deliverable recorded. Relay the question and close it only with bin/fm-captain-hold.sh answer."
   elif [ "$BACKLOG_CLOSED" = 1 ]; then
     printf '%s\n' "Backlog: $ID is closed in $backlog_display. Run bin/fm-tasks-axi.sh ready for dependency-cleared candidates, check date gates, and dispatch only work whose blockers are gone and date is due."
@@ -2046,7 +1879,7 @@ validate_worktree_teardown_safety() {
   fi
   dirty=$(printf '%s\n' "$dirty_raw" | grep -vE '^\?\? (\.claude/|\.fm-(grok|kimi)-turnend$)' | head -1 || true)
 
-  if ! unpushed_raw=$(git -C "$WT" log --oneline HEAD --not "${REAL_REMOTES[@]}" -- 2>/dev/null); then
+  if ! unpushed_raw=$(git -C "$WT" log --oneline HEAD --not --remotes -- 2>/dev/null); then
     if worktree_safety_blocked_by_lock "commits not on a remote"; then
       return "$TEARDOWN_WORKTREE_SAFETY_LOCK_BLOCKED"
     fi
@@ -2092,138 +1925,6 @@ validate_worktree_teardown_safety() {
       return 1
     fi
   fi
-  TEARDOWN_HEAD_WORK_PROVEN=1
-}
-
-# The task's own branch is named by its durable record - the branch= that spawn
-# and promotion record (a project's registered prefix plus the task id), else
-# fm/<task-id> for a record that predates it, exactly as bin/fm-merge-local.sh
-# lands it - never by whatever the copy has checked out at cleanup time. A copy
-# left detached at its landed tip therefore still retires its branch, while a
-# branch the copy merely has checked out under another name is detached and kept.
-TASK_BRANCH=$(meta_value "$META" branch 2>/dev/null || true)
-if [ -z "$TASK_BRANCH" ] || ! git check-ref-format --branch "$TASK_BRANCH" >/dev/null 2>&1; then
-  TASK_BRANCH="fm/$ID"
-fi
-TEARDOWN_HEAD_WORK_PROVEN=0
-
-# Delete TASK_BRANCH from worktree $1 only when nothing it holds can be lost:
-# it is checked out in this copy (the landed-work gate above inspected exactly
-# that tip, or --force or a scout's declared scratch authorized discarding it),
-# or its tip is contained in this copy's gate-proven HEAD, in a remote-tracking
-# branch other than the validation mirror (REAL_REMOTES), in the local default
-# branch, or in the merged PR head this teardown proved, or its content is
-# already on the up-to-date default branch (commit_content_in, which recognizes a
-# squash-landed branch the copy no longer holds). A branch that proves none of these is
-# unlanded or mismatched work and is kept, even under --force, because the
-# copy no longer holds it. Every kept branch and every git failure is reported.
-retire_task_branch() {  # <worktree>
-  local wt=$1 ref="refs/heads/$TASK_BRANCH" tip current head unreached default default_ref out
-  tip=$(git -C "$wt" rev-parse --quiet --verify "$ref^{commit}" 2>/dev/null) || tip=
-  current=$(git -C "$wt" symbolic-ref --quiet HEAD 2>/dev/null) || current=
-  if [ -n "$current" ] && [ "$current" != "$ref" ]; then
-    if out=$(git -C "$wt" checkout --detach -q 2>&1); then
-      echo "warning: kept branch ${current#refs/heads/} checked out in $wt; it is not this task's recorded branch $TASK_BRANCH" >&2
-    else
-      echo "warning: could not detach $wt from branch ${current#refs/heads/}: $out" >&2
-    fi
-  fi
-  [ -n "$tip" ] || return 0
-  if [ "$current" = "$ref" ]; then
-    if ! out=$(git -C "$wt" checkout --detach -q 2>&1); then
-      echo "warning: could not delete task branch $TASK_BRANCH: detaching $wt failed: $out" >&2
-      return 0
-    fi
-  else
-    head=$(git -C "$wt" rev-parse --quiet --verify 'HEAD^{commit}' 2>/dev/null) || head=
-    if [ "$TEARDOWN_HEAD_WORK_PROVEN" = 1 ] && [ -n "$head" ] \
-       && git -C "$wt" merge-base --is-ancestor "$tip" "$head" 2>/dev/null; then
-      :
-    elif unreached=$(git -C "$wt" rev-list -n 1 "$tip" --not "${REAL_REMOTES[@]}" -- 2>/dev/null) \
-       && [ -z "$unreached" ]; then
-      :
-    elif default=$(default_branch) \
-       && git -C "$wt" merge-base --is-ancestor "$tip" "refs/heads/$default" 2>/dev/null; then
-      :
-    elif [ -n "$TEARDOWN_MERGED_PR_HEAD" ] \
-       && git -C "$wt" merge-base --is-ancestor "$tip" "$TEARDOWN_MERGED_PR_HEAD" 2>/dev/null; then
-      :
-    elif default_ref=$(fresh_default_ref) \
-       && { git -C "$wt" merge-base --is-ancestor "$tip" "$default_ref" 2>/dev/null \
-            || commit_content_in "$default_ref" "$tip"; }; then
-      :
-    else
-      echo "warning: kept task branch $TASK_BRANCH at $tip: its commits are not proven landed (not in this copy's landed work, any remote other than the validation mirror, the default branch, or the merged PR); inspect it before deleting it by hand" >&2
-      return 0
-    fi
-  fi
-  if ! out=$(git -C "$wt" branch -D -- "$TASK_BRANCH" 2>&1); then
-    echo "warning: could not delete task branch $TASK_BRANCH: $out" >&2
-  fi
-}
-
-# Retirement refs: preserve/*, archive/*, and work/*-baseline branches are
-# safety copies a worker or operator makes around risky history work, and they
-# must not outlive their purpose locally or on origin. Each one, local or
-# origin's (as last fetched), is deleted once the landed-work test's own proofs
-# show its content is on the default branch: its tip is contained in the
-# up-to-date default branch, its content already is there (commit_content_in),
-# or its tip is contained in the merged PR head this teardown proved. An
-# unproven ref is kept and counted. A local branch checked out anywhere is kept
-# by git itself; origin's copy is deleted only while it still points at the
-# proven tip (--force-with-lease). Failures are reported, never fatal.
-retire_proven_retirement_refs() {  # <worktree>
-  local wt=$1 refs default_ref refname tip name kept=0 proven out
-  refs=$(git -C "$wt" for-each-ref --format='%(refname) %(objectname)' \
-    refs/heads/preserve refs/heads/archive refs/heads/work \
-    refs/remotes/origin/preserve refs/remotes/origin/archive refs/remotes/origin/work 2>/dev/null) || return 0
-  [ -n "$refs" ] || return 0
-  if ! default_ref=$(fresh_default_ref); then
-    echo "warning: kept preserve/, archive/, and work/*-baseline refs: the default branch could not be read to prove them landed" >&2
-    return 0
-  fi
-  while read -r refname tip; do
-    [ -n "$refname" ] || continue
-    case "$refname" in
-      refs/heads/work/*|refs/remotes/origin/work/*)
-        case "$refname" in *-baseline) ;; *) continue ;; esac
-        ;;
-    esac
-    proven=0
-    if git -C "$wt" merge-base --is-ancestor "$tip" "$default_ref" 2>/dev/null \
-       || commit_content_in "$default_ref" "$tip"; then
-      proven=1
-    elif [ -n "$TEARDOWN_MERGED_PR_HEAD" ] \
-       && git -C "$wt" merge-base --is-ancestor "$tip" "$TEARDOWN_MERGED_PR_HEAD" 2>/dev/null; then
-      proven=1
-    fi
-    if [ "$proven" != 1 ]; then
-      kept=$((kept + 1))
-      continue
-    fi
-    case "$refname" in
-      refs/heads/*)
-        name=${refname#refs/heads/}
-        if out=$(git -C "$wt" branch -D -- "$name" 2>&1); then
-          echo "retired landed branch $name"
-        else
-          echo "warning: could not retire landed branch $name: $out" >&2
-        fi
-        ;;
-      refs/remotes/origin/*)
-        name=${refname#refs/remotes/origin/}
-        if out=$(git -C "$wt" push --quiet "--force-with-lease=refs/heads/$name:$tip" origin ":refs/heads/$name" 2>&1); then
-          echo "retired landed remote branch origin/$name"
-        else
-          echo "warning: could not retire landed remote branch origin/$name: $out" >&2
-        fi
-        ;;
-    esac
-  done <<EOF
-$refs
-EOF
-  [ "$kept" -eq 0 ] \
-    || echo "note: kept $kept preserve/, archive/, or work/*-baseline ref(s) whose content is not proven on the default branch" >&2
 }
 
 # Fix 1 (see script header): does the active-or-most-recent no-mistakes run in
@@ -2256,11 +1957,8 @@ task_status_is_own_parked_run() {  # <worktree> <axi-status-output>
   [ -z "$outcome" ] || return 1
   status=$(fm_nm_strip_quotes "$(fm_nm_field "$out" status)")
   [ -n "$status" ] || return 1
-  # Park stops the task's own run even mid-step: nobody will answer it, and a
-  # resumed worker always validates its new head afresh.
   case "$status" in
-    completed|failed|cancelled|passed|checks-passed) return 1 ;;
-    running|fixing|ci) [ "$PARK" = 1 ] || return 1 ;;
+    completed|failed|cancelled|passed|checks-passed|running|fixing|ci) return 1 ;;
   esac
   if ! fm_nm_head_matches_worktree "$wt" "$run_head"; then
     # The strict object-local rule rejected this run head. That rejection is
@@ -2279,10 +1977,6 @@ task_status_is_own_parked_run() {  # <worktree> <axi-status-output>
     [ -z "$(fm_nm_resolve_commit "$wt" "$run_head")" ] || return 1
     ledger=$(fm_nm_run "$wt" "$NM_TEARDOWN_TIMEOUT" runs --limit "$NM_TEARDOWN_RUNS_LIMIT")
     [ "$(fm_nm_runs_status_for_worktree "$wt" "$branch" "$ledger" "$run_head")" = running ] || return 1
-  fi
-  if [ "$PARK" = 1 ]; then
-    TASK_RUN_ID=$run_id
-    return 0
   fi
   awaiting=$(printf '%s\n' "$out" | grep -E '^[[:space:]]*awaiting_agent:' | head -1 || true)
   has_gate=$(printf '%s\n' "$out" | grep -Eq '^[[:space:]]*gate:[[:space:]]*' && echo 1 || echo 0)
@@ -2334,11 +2028,7 @@ conclude_task_no_mistakes_run() {  # <worktree>
   command -v no-mistakes >/dev/null 2>&1 || return 0
   task_run_is_own_parked_run "$wt" || return 0
   run_id=$TASK_RUN_ID
-  if [ "$PARK" = 1 ]; then
-    echo "teardown: stopping no-mistakes run $run_id for $ID before parking it; a resumed worker validates its new head afresh" >&2
-  else
-    echo "teardown: no-mistakes run for $ID is parked at a gate; aborting before the worker is removed" >&2
-  fi
+  echo "teardown: no-mistakes run for $ID is parked at a gate; aborting before the worker is removed" >&2
   # Accepted best-effort residual: abort supports run-id targeting but no atomic
   # live-state condition; fully closing the resume race needs upstream compare-and-cancel.
   fm_nm_run_checked "$wt" "$NM_TEARDOWN_TIMEOUT" axi abort --run "$run_id" >/dev/null 2>&1 || true
@@ -3366,7 +3056,7 @@ teardown_herdr_require_prerequisites() {  # <task-id>
     fi
   done
   if ! declare -F fm_lock_try_acquire >/dev/null 2>&1; then
-    # shellcheck source=/dev/null # Canonical lint root; following it here breaks the lint memory ceiling.
+    # shellcheck source=bin/fm-wake-lib.sh
     . "$SCRIPT_DIR/fm-wake-lib.sh"
   fi
   if ! declare -F fm_lock_try_acquire >/dev/null 2>&1 \
@@ -3483,10 +3173,10 @@ preflight_firstmate_home_herdr_children() {  # <home>
 # than override it, and would contradict the adjacent Herdr child gate that
 # stops forced cleanup for this same hazard.
 #
-# The retention is durable: a task carrying a backlog transition already wrote
-# its pending-close marker, and the next session start keeps a record it finds
-# still present rather than replaying the close past it
-# (fm_backlog_close_marker_replay), so a rerun finishes this cleanup.
+# What is retained is this run's records, not a durable guarantee: a task
+# carrying a backlog transition already wrote its pending-close marker, and the
+# next session start replays that marker and removes the retained record. The
+# message says so rather than promising a retention teardown does not own.
 endpoint_close_refusal() {  # <subject> <backend> <target> <honors-force>
   local subject=$1 backend=$2 target=$3 honors_force=$4
   echo "error: the $backend endpoint $target for $subject could not be closed, so it may still be live." >&2
@@ -3495,76 +3185,11 @@ endpoint_close_refusal() {  # <subject> <backend> <target> <honors-force>
     return 0
   fi
   echo "error: stopping this cleanup without removing the task's records, so the record naming $target is still here to reconcile from." >&2
-  echo "error: the retained record survives a session start, which keeps it and any pending close for this rerun instead of replaying the close past it." >&2
+  echo "error: that retention is not durable across a session start: if this task carries a backlog transition, the next session replays its pending close and removes the retained record, so reconcile the surviving endpoint yourself rather than trusting the retention." >&2
   if [ "$honors_force" = 1 ]; then
     echo "error: rerun teardown once the close can succeed, or rerun with --force to discard this task's records deliberately." >&2
   fi
   return 1
-}
-
-# Close this task's exact Herdr pane under the session presentation lock the
-# preflight (teardown_herdr_preflight_target) already took, retiring the
-# presentation journal only when it correlates with that pane and the close is
-# confirmed. Returns 1, having changed no durable task record, unless the pane
-# is confirmed gone: a refused, skipped, or failed close must never erase a live
-# task's endpoint identity, so the caller stops before any removal and a rerun
-# retries the locked close. Only a structured not-found proves the pane gone;
-# unknown presence, missing or malformed endpoint identity, and missing
-# confirmation machinery all refuse.
-teardown_close_herdr_endpoint() {
-  local journal="$STATE/$ID.herdr-presentation" candidate=0 session='' workspace='' pane=''
-  if [ -e "$journal" ] || [ -L "$journal" ]; then
-    fm_backend_source herdr || true
-    session=$(meta_value "$META" herdr_session)
-    workspace=$(meta_value "$META" herdr_workspace_id)
-    pane=$(meta_value "$META" herdr_pane_id)
-    if [ -n "$session" ] && [ -n "$workspace" ] && [ -n "$pane" ] \
-       && [ "$T" = "$session:$pane" ] \
-       && fm_backend_herdr_projection_endpoint_matches_journal \
-         "$session" "$workspace" "$journal" "$ID"; then
-      candidate=1
-    fi
-  fi
-  if [ "$candidate" = 1 ]; then
-    # The presentation lock was acquired before any destructive step; a
-    # contended lock already refused this teardown while everything was intact.
-    if teardown_herdr_session_lock_held "$session"; then
-      # stderr is deliberately NOT discarded here. This is the highest-frequency
-      # projected-close call site, and the helper's only stderr output is a real
-      # warning - unverifiable workspace.move support, a refused focus-unsafe
-      # close, an unconfirmed repositioned-workspace removal, or a failed exact
-      # restore.
-      # Swallowing them left a wrong active workspace with no operator-visible
-      # signal at all. The close stays non-fatal exactly as before: the presence
-      # gate below is what decides whether any durable record may be removed.
-      fm_backend_herdr_projection_close_pane_focus_preserving "$session" "$pane" || true
-    else
-      echo "warning: herdr presentation focus lock unavailable; refusing a concurrent focus-unsafe pane close" >&2
-    fi
-    if [ "$(fm_backend_herdr_pane_agent_state "$session" "$pane")" = dead ]; then
-      rm -f "$journal"
-    else
-      echo "warning: exact herdr task-pane close could not be confirmed for $ID; retaining the presentation journal and attempting no workspace cleanup" >&2
-    fi
-  else
-    if teardown_herdr_session_lock_held "$TEARDOWN_HERDR_SESSION"; then
-      fm_backend_herdr_kill_serialized "$TEARDOWN_HERDR_SESSION" "$TEARDOWN_HERDR_PANE" 2>/dev/null || true
-    else
-      echo "warning: herdr session presentation lock path is unavailable; skipping the pane close rather than closing unlocked" >&2
-    fi
-    if [ -e "$journal" ] || [ -L "$journal" ]; then
-      echo "warning: herdr presentation journal for $ID remains quarantined; no workspace cleanup was attempted" >&2
-    fi
-  fi
-  fm_backend_source herdr || true
-  if ! declare -F fm_backend_herdr_endpoint_confirmed_gone >/dev/null 2>&1; then
-    echo "error: herdr endpoint confirmation is unavailable for $ID; retaining every durable task record" >&2
-    return 1
-  fi
-  if ! fm_backend_herdr_endpoint_confirmed_gone "$T"; then
-    echo "error: herdr pane $T for $ID is not confirmed gone after its close was refused, skipped, or failed; retaining every durable task record - rerun teardown once the close can run under the session lock" >&2
-    return 1
-  fi
 }
 
 cleanup_firstmate_home_children() {
@@ -3698,337 +3323,6 @@ remove_secondmate_registry_entry() {
   return "$rc"
 }
 
-# --endpoint-only: close a finished task's Herdr pane while its record must stay
-# (see the script header). Every retention check reads state and changes
-# nothing; the only mutation is teardown_close_herdr_endpoint's locked close.
-teardown_endpoint_only() {
-  local agent open status_file branch out run_branch outcome dirty
-  if [ "$BACKEND" != herdr ]; then
-    echo "REFUSED: --endpoint-only closes only Herdr panes, whose absence can be proven and whose task can still be relaunched into a fresh pane; task $ID's endpoint is on $BACKEND. Nothing was changed." >&2
-    return 1
-  fi
-  teardown_herdr_require_prerequisites "$ID" || return 1
-  agent=$(fm_backend_agent_state herdr "$T")
-  case "$agent" in
-    dead) ;;
-    missing)
-      if fm_backend_herdr_endpoint_confirmed_gone "$T"; then
-        echo "teardown: task $ID's Herdr pane $T is already gone; its record, copy, branch, and backlog item are unchanged"
-        return 0
-      fi
-      echo "REFUSED: task $ID's Herdr pane $T is unreachable but not proven gone; nothing was changed." >&2
-      return 1
-      ;;
-    *)
-      echo "REFUSED: task $ID's Herdr pane $T still reads '$agent', not a pane whose agent has exited; a running agent may be mid-work or kept for reuse, so nothing was changed. Stop it first with bin/fm-control.sh $ID exit if it is truly finished." >&2
-      return 1
-      ;;
-  esac
-  status_file="$STATE/$ID.status"
-  open=$(status_open_decisions "$status_file" "$KIND")
-  if [ -n "$open" ]; then
-    echo "REFUSED: task $ID still has an open decision or blocker, so its pane is kept for the answer; nothing was changed:" >&2
-    printf '%s\n' "$open" | cut -f1,2 >&2
-    return 1
-  fi
-  if [ -n "$WT" ] && [ -d "$WT" ]; then
-    if ! dirty=$(git -C "$WT" status --porcelain 2>/dev/null); then
-      echo "REFUSED: task $ID's isolated copy $WT cannot be inspected for uncommitted changes; nothing was changed." >&2
-      return 1
-    fi
-    if [ -n "$dirty" ]; then
-      echo "REFUSED: task $ID's isolated copy $WT has uncommitted changes, which are not yet preserved in any commit; nothing was changed." >&2
-      return 1
-    fi
-    if [ "$KIND" = ship ] && command -v no-mistakes >/dev/null 2>&1 \
-       && branch=$(git -C "$WT" symbolic-ref --quiet --short HEAD 2>/dev/null) \
-       && [ -n "$branch" ]; then
-      out=$(fm_nm_run "$WT" "$NM_TEARDOWN_TIMEOUT" axi status)
-      run_branch=$(fm_nm_strip_quotes "$(fm_nm_field "$out" branch)")
-      outcome=$(fm_nm_strip_quotes "$(fm_nm_field "$out" outcome)")
-      if [ -n "$(fm_nm_strip_quotes "$(fm_nm_field "$out" id)")" ] \
-         && [ "$run_branch" = "$branch" ] && [ -z "$outcome" ]; then
-        echo "REFUSED: task $ID's validation run on $branch has not finished, so its pane is kept; nothing was changed." >&2
-        return 1
-      fi
-    fi
-  fi
-  teardown_herdr_preflight_target "$T" "$ID" || return 1
-  fm_backend_herdr_parse_target "$T" || return 1
-  TEARDOWN_HERDR_SESSION=$FM_BACKEND_HERDR_SESSION
-  TEARDOWN_HERDR_PANE=$FM_BACKEND_HERDR_PANE
-  teardown_close_herdr_endpoint || return 1
-  echo "teardown: closed task $ID's Herdr pane $T; its record, isolated copy, branch, and backlog item are unchanged"
-}
-
-# --park (see the script header). teardown_park_prepare decides whether there is
-# anything to park and, when there is, saves and verifies it under
-# data/<id>/park/ before any destructive step. No git command here changes the
-# project's work - the only ref it moves is the origin default-branch refresh
-# the landed-work gate performs too - and every file it writes lands under $DATA.
-PARK_NOTE=
-PARK_DIR=
-PARK_LANDED=0
-
-park_refuse() {
-  echo "REFUSED: cannot park task $ID: $*. Nothing was changed." >&2
-  return 1
-}
-
-park_sha256() {  # <file>
-  if command -v shasum >/dev/null 2>&1; then
-    shasum -a 256 "$1" | awk '{print $1}'
-  elif command -v sha256sum >/dev/null 2>&1; then
-    sha256sum "$1" | awk '{print $1}'
-  else
-    return 1
-  fi
-}
-
-# NUL-separated untracked paths of copy $1 that are work: the same Firstmate
-# hook leftovers the landed-work gate ignores are not saved.
-park_untracked_list() {  # <copy>
-  git -C "$1" ls-files -z --others --exclude-standard -- \
-    | perl -0 -ne 'print unless m{\A(?:\.claude/|\.fm-(?:grok|kimi)-turnend\0\z|\.opencode/plugins/fm-(?:turn-end|busy-state)\.js\0\z)}'
-}
-
-# Choose the commit to save, test whether it already landed, and save into
-# <stage>. Sets PARK_LANDED=1 when there is nothing to park; otherwise fills
-# <stage> and sets PARK_SAVED_HEAD. Returns non-zero after printing a refusal.
-PARK_SAVED_HEAD=
-teardown_park_save() {  # <stage>
-  local stage=$1 copy='' repo base_ref base branch_tip head='' current='' saved='' clean=1
-  local changed=0 untracked=0 listed ahead bundle=none patch=none tarball=none
-  local ignored=0 ignored_kb=0 run_id=none out open_count=0 f sum
-  if teardown_owns_worktree && [ -n "$WT" ] && [ -d "$WT" ]; then
-    inspectable_git_worktree "$WT" || { park_refuse "its copy $WT cannot be inspected"; return 1; }
-    copy=$WT
-  fi
-  if [ -n "$copy" ]; then
-    repo=$copy
-  elif [ -n "$PROJ" ] && git -C "$PROJ" rev-parse --git-dir >/dev/null 2>&1; then
-    repo=$PROJ
-  else
-    park_refuse "neither its copy nor its project clone ${PROJ:-<missing>} can be read"
-    return 1
-  fi
-  # fresh_default_ref and commit_content_in read the repository named by $WT.
-  local WT=$repo
-  base_ref=$(fresh_default_ref) || { park_refuse "the up-to-date default branch of ${PROJ:-its project} cannot be read"; return 1; }
-  base=$(git -C "$repo" rev-parse --verify --quiet "$base_ref^{commit}") \
-    || { park_refuse "the default branch $base_ref cannot be resolved"; return 1; }
-  branch_tip=$(git -C "$repo" rev-parse --quiet --verify "refs/heads/$TASK_BRANCH^{commit}" 2>/dev/null) || branch_tip=
-  if [ -n "$copy" ]; then
-    head=$(git -C "$copy" rev-parse --verify --quiet 'HEAD^{commit}') \
-      || { park_refuse "its copy $copy has no readable HEAD"; return 1; }
-    current=$(git -C "$copy" symbolic-ref --quiet HEAD 2>/dev/null) || current=
-    if [ -n "$current" ] && [ "$current" != "refs/heads/$TASK_BRANCH" ]; then
-      park_refuse "its copy has branch ${current#refs/heads/} checked out, not its recorded branch $TASK_BRANCH"
-      return 1
-    fi
-    out=$(git -C "$copy" diff --name-only HEAD --) \
-      || { park_refuse "its copy $copy cannot be inspected for uncommitted changes"; return 1; }
-    [ -z "$out" ] || changed=$(printf '%s\n' "$out" | wc -l | tr -d ' ')
-    park_untracked_list "$copy" > "$stage/.untracked.list0" \
-      || { park_refuse "its copy $copy cannot be inspected for untracked files"; return 1; }
-    untracked=$(tr -cd '\000' < "$stage/.untracked.list0" | wc -c | tr -d ' ')
-    [ "$changed" = 0 ] && [ "$untracked" = 0 ] || clean=0
-    if [ "$head" = "$branch_tip" ]; then
-      saved=$head
-    elif [ "$clean" = 1 ] && [ -n "$branch_tip" ] \
-       && git -C "$repo" merge-base --is-ancestor "$head" "$branch_tip" 2>/dev/null; then
-      saved=$branch_tip
-    elif git -C "$repo" merge-base --is-ancestor "$head" "$base" 2>/dev/null \
-       && { [ -z "$branch_tip" ] || [ "$clean" = 1 ]; }; then
-      saved=${branch_tip:-$head}
-    elif [ "$clean" = 0 ]; then
-      park_refuse "its copy holds uncommitted changes on $head, which is not the tip of its recorded branch $TASK_BRANCH${branch_tip:+ ($branch_tip)}"
-      return 1
-    else
-      park_refuse "its copy's HEAD $head holds commits its recorded branch $TASK_BRANCH${branch_tip:+ ($branch_tip)} does not"
-      return 1
-    fi
-  else
-    saved=$branch_tip
-    if [ -z "$saved" ]; then
-      park_refuse "its copy is gone and its recorded branch $TASK_BRANCH does not exist, so there is nothing to save or resume from"
-      return 1
-    fi
-  fi
-  if [ "$clean" = 1 ] \
-     && { git -C "$repo" merge-base --is-ancestor "$saved" "$base" 2>/dev/null \
-          || commit_content_in "$base" "$saved"; }; then
-    PARK_LANDED=1
-    return 0
-  fi
-
-  ahead=$(git -C "$repo" rev-list --count "$base..$saved") \
-    || { park_refuse "cannot count $TASK_BRANCH's commits beyond $base_ref"; return 1; }
-  if [ "$ahead" -gt 0 ]; then
-    bundle=branch.bundle
-    if ! { git -C "$repo" bundle create "$stage/$bundle" "refs/heads/$TASK_BRANCH" --not "$base" >/dev/null 2>&1 \
-        && git -C "$repo" bundle verify "$stage/$bundle" >/dev/null 2>&1 \
-        && git -C "$repo" bundle list-heads "$stage/$bundle" 2>/dev/null | grep -qxF "$saved refs/heads/$TASK_BRANCH"; }; then
-      park_refuse "a verified bundle of $TASK_BRANCH at $saved could not be written"
-      return 1
-    fi
-  fi
-  if [ "$changed" != 0 ]; then
-    patch=uncommitted.patch
-    if ! { git -C "$copy" diff --binary HEAD -- > "$stage/$patch" \
-        && [ -s "$stage/$patch" ] \
-        && git -C "$copy" apply --check -R --binary "$stage/$patch" >/dev/null 2>&1; }; then
-      park_refuse "a verified patch of its copy's uncommitted changes could not be written"
-      return 1
-    fi
-  fi
-  if [ "$untracked" != 0 ]; then
-    tarball=untracked.tar
-    tr '\000' '\n' < "$stage/.untracked.list0" > "$stage/untracked.list"
-    if ! { ( cd "$copy" && tar -cf "$stage/$tarball" --null -T "$stage/.untracked.list0" ) >/dev/null 2>&1 \
-        && listed=$(tar -tf "$stage/$tarball" 2>/dev/null | wc -l | tr -d ' ') \
-        && [ "$listed" = "$untracked" ]; }; then
-      park_refuse "a verified archive of its copy's $untracked untracked files could not be written"
-      return 1
-    fi
-  fi
-  rm -f "$stage/.untracked.list0"
-  if [ -n "$copy" ]; then
-    git -C "$copy" ls-files -z --others --ignored --exclude-standard --directory -- > "$stage/.ignored.list0" \
-      || { park_refuse "its copy's ignored files cannot be listed"; return 1; }
-    ignored=$(tr -cd '\000' < "$stage/.ignored.list0" | wc -c | tr -d ' ')
-    if [ "$ignored" != 0 ]; then
-      tr '\000' '\n' < "$stage/.ignored.list0" > "$stage/ignored.list"
-      ignored_kb=$(cd "$copy" && perl -0 -pe 's{\A}{./}' "$stage/.ignored.list0" \
-        | xargs -0 du -sk 2>/dev/null | awk '{ kb += $1 } END { print kb + 0 }') || ignored_kb=unknown
-    fi
-    rm -f "$stage/.ignored.list0"
-    if [ -n "$current" ] && command -v no-mistakes >/dev/null 2>&1; then
-      out=$(fm_nm_run "$copy" "$NM_TEARDOWN_TIMEOUT" axi status 2>/dev/null) || out=
-      if [ "$(fm_nm_strip_quotes "$(fm_nm_field "$out" branch)")" = "$TASK_BRANCH" ]; then
-        run_id=$(fm_nm_strip_quotes "$(fm_nm_field "$out" id)")
-        [ -n "$run_id" ] || run_id=none
-      fi
-    fi
-  fi
-  if [ -f "$STATE/$ID.status" ] && [ ! -L "$STATE/$ID.status" ]; then
-    cp "$STATE/$ID.status" "$stage/status.log" \
-      || { park_refuse "its status log could not be copied"; return 1; }
-    open_count=$(status_open_decisions "$STATE/$ID.status" "$KIND" | grep -c . || true)
-  fi
-  {
-    printf 'task=%s\n' "$ID"
-    printf 'project=%s\n' "$PROJ"
-    printf 'mode=%s\n' "$MODE"
-    printf 'worktree=%s\n' "$COPY_RECORDED"
-    if [ -n "$copy" ]; then printf 'copy=present\n'; else printf 'copy=gone\n'; fi
-    printf 'branch=%s\n' "$TASK_BRANCH"
-    if [ -n "$branch_tip" ]; then printf 'branch_ref=kept\n'; else printf 'branch_ref=absent\n'; fi
-    printf 'head=%s\n' "$saved"
-    printf 'base_ref=%s\n' "$base_ref"
-    printf 'base=%s\n' "$base"
-    printf 'commits_ahead=%s\n' "$ahead"
-    printf 'bundle=%s\n' "$bundle"
-    printf 'uncommitted_patch=%s\n' "$patch"
-    printf 'changed_files=%s\n' "$changed"
-    printf 'untracked_tar=%s\n' "$tarball"
-    printf 'untracked_files=%s\n' "$untracked"
-    printf 'ignored_paths=%s\n' "$ignored"
-    printf 'ignored_kb=%s\n' "$ignored_kb"
-    printf 'ignored_saved=no\n'
-    printf 'validation_run=%s\n' "$run_id"
-    printf 'open_decisions=%s\n' "$open_count"
-    printf 'parked_at=%s\n' "$(date +%s)"
-  } > "$stage/receipt" || { park_refuse "its receipt could not be written"; return 1; }
-  : > "$stage/SHA256SUMS" || { park_refuse "its checksums could not be written"; return 1; }
-  for f in "$stage"/*; do
-    [ "${f##*/}" != SHA256SUMS ] || continue
-    sum=$(park_sha256 "$f") && [ -n "$sum" ] \
-      || { park_refuse "no sha256 tool could checksum ${f##*/}"; return 1; }
-    printf '%s  %s\n' "$sum" "${f##*/}" >> "$stage/SHA256SUMS"
-  done
-  PARK_SAVED_HEAD=$saved
-}
-
-teardown_park_prepare() {
-  local agent stage final prior data_rel
-  if [ "$BACKEND" = orca ]; then
-    park_refuse "park releases Treehouse copies only, and this task's copy is Orca-managed"
-    return 1
-  fi
-  if [ "$TEARDOWN_WINDOWLESS" = 1 ]; then
-    agent=missing
-  else
-    agent=$(fm_backend_agent_state "$BACKEND" "$T")
-  fi
-  case "$agent" in
-    dead|missing) ;;
-    *)
-      park_refuse "its worker endpoint $T reads '$agent', not gone; park never takes a copy from a worker that may still be using it (stop it first with bin/fm-control.sh $ID exit)"
-      return 1
-      ;;
-  esac
-  COPY_RECORDED=$WT
-  # A copy that vanished holds no Treehouse slot lock from the start of this
-  # run, but its orphaned claim is still released below: take the project lock
-  # that serializes slot allocation before touching it.
-  if teardown_owns_worktree && [ -n "$WT" ] && [ ! -e "$WT" ] \
-     && [ -f "$(dirname "$(dirname "$WT")")/treehouse-state.json" ] \
-     && [ "$TREEHOUSE_PROJECT_LOCK_HELD" != 1 ] && [ -d "$PROJ" ]; then
-    TREEHOUSE_PROJECT_LOCK=$(fm_treehouse_project_lock_path "$PROJ") \
-      || { park_refuse "the shared Treehouse project lock for $PROJ cannot be resolved"; return 1; }
-    fm_lock_try_acquire "$TREEHOUSE_PROJECT_LOCK" \
-      || { park_refuse "another Treehouse slot allocation or return is in progress for $PROJ"; return 1; }
-    TREEHOUSE_PROJECT_LOCK_HELD=1
-  fi
-  if ! { mkdir -p "$DATA/$ID" && stage=$(mktemp -d "$DATA/$ID/.park-staging.XXXXXX"); }; then
-    park_refuse "a staging directory under $DATA/$ID could not be created"
-    return 1
-  fi
-  if ! teardown_park_save "$stage"; then
-    rm -rf "$stage"
-    return 1
-  fi
-  if [ "$PARK_LANDED" = 1 ]; then
-    rm -rf "$stage"
-    echo "teardown: task $ID's committed work is already in the default branch and its copy is clean, so there is nothing to park; running the ordinary cleanup instead" >&2
-    PARK=0
-    return 0
-  fi
-  final="$DATA/$ID/park"
-  prior=
-  if [ -e "$final" ] || [ -L "$final" ]; then
-    prior="$DATA/$ID/park.$(date -u +%Y%m%dT%H%M%SZ).$$"
-    mv "$final" "$prior" \
-      || { rm -rf "$stage"; park_refuse "the earlier park directory $final could not be kept aside"; return 1; }
-    echo "teardown: kept the earlier park of $ID at $prior" >&2
-  fi
-  if ! mv "$stage" "$final"; then
-    rm -rf "$stage"
-    [ -z "$prior" ] || mv "$prior" "$final" || echo "warning: the earlier park of $ID stays at $prior" >&2
-    park_refuse "the saved work could not be moved into $final"
-    return 1
-  fi
-  PARK_DIR=$final
-  data_rel=$(fm_backlog_data_relative "$DATA" 2>/dev/null) || data_rel=$DATA
-  PARK_NOTE=$(fm_backlog_park_note "$TASK_BRANCH" "$PARK_SAVED_HEAD" "$data_rel/$ID/park/")
-  TEARDOWN_BACKLOG_TRANSITION=retain
-  echo "teardown: saved task $ID's unfinished work to $PARK_DIR (branch $TASK_BRANCH at $PARK_SAVED_HEAD)" >&2
-}
-
-# Free the task branch from a copy about to be returned, keeping the ref.
-park_release_branch() {  # <worktree>
-  local wt=$1 out
-  [ "$(git -C "$wt" symbolic-ref --quiet HEAD 2>/dev/null)" = "refs/heads/$TASK_BRANCH" ] || return 0
-  out=$(git -C "$wt" checkout --detach -q 2>&1) \
-    || echo "warning: could not detach $wt from $TASK_BRANCH before returning it: $out" >&2
-}
-
-if [ "$ENDPOINT_ONLY" = 1 ]; then
-  teardown_endpoint_only
-  exit $?
-fi
-
 require_exclusive_task_worktree_slot || exit 1
 require_owned_task_worktree_slot || exit 1
 
@@ -4140,13 +3434,7 @@ if [ "$BACKEND" = orca ] && [ "$KIND" != scout ] && [ "$KIND" != secondmate ] &&
   ORCA_PATH_MATCH_VERIFIED=1
 fi
 
-# Park saves and verifies the unfinished work here, before any destructive step;
-# it replaces the landed-work gate below, or hands a landed task back to it.
-if [ "$PARK" = 1 ]; then
-  teardown_park_prepare || exit 1
-fi
-
-if [ "$PARK" != 1 ] && teardown_owns_worktree && [ -d "$WT" ] && [ "$FORCE" != "--force" ]; then
+if teardown_owns_worktree && [ -d "$WT" ] && [ "$FORCE" != "--force" ]; then
   if validate_worktree_teardown_safety; then
     :
   else
@@ -4272,16 +3560,19 @@ fi
 # pruned code root. Best effort - a sweep failure never blocks this teardown.
 "$SCRIPT_DIR/fm-remote-job-reap-orphans.sh" >&2 || true
 
-# Drop the task's recorded branch so the shared repo does not accumulate refs;
-# retire_task_branch owns what may be deleted and reports whatever it keeps.
+# Best-effort: drop the local task branch so the shared repo does not accumulate refs.
 if [ "$BACKEND" = orca ] && [ "$KIND" != secondmate ]; then
   if [ "$ORCA_PATH_MATCH_VERIFIED" != 1 ]; then
     require_orca_worktree_path_match_if_present "$ORCA_WORKTREE_ID" "$WT" || exit 1
     ORCA_PATH_MATCH_VERIFIED=1
   fi
   if [ -d "$WT" ]; then
-    retire_task_branch "$WT"
-    retire_proven_retirement_refs "$WT"
+    branch=$(git -C "$WT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo HEAD)
+    if [ "$branch" != "HEAD" ]; then
+      if git -C "$WT" checkout --detach -q 2>/dev/null; then
+        git -C "$WT" branch -D "$branch" >/dev/null 2>&1 || true
+      fi
+    fi
     rm -f "$WT/.claude/settings.local.json" "$WT/.opencode/plugins/fm-turn-end.js" \
       "$WT/.opencode/plugins/fm-busy-state.js" \
       "$WT/.fm-grok-turnend" "$WT/.fm-kimi-turnend"
@@ -4294,11 +3585,11 @@ if [ "$BACKEND" = orca ] && [ "$KIND" != secondmate ]; then
 elif [ "$KIND" != secondmate ] && ! teardown_owns_worktree; then
   :
 elif [ -d "$WT" ] && [ "$KIND" != secondmate ]; then
-  if [ "$PARK" = 1 ]; then
-    park_release_branch "$WT"
-  else
-    retire_task_branch "$WT"
-    retire_proven_retirement_refs "$WT"
+  branch=$(git -C "$WT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo HEAD)
+  if [ "$branch" != "HEAD" ]; then
+    if git -C "$WT" checkout --detach -q 2>/dev/null; then
+      git -C "$WT" branch -D "$branch" >/dev/null 2>&1 || true
+    fi
   fi
   # Remove our hook file so a reused pool worktree cannot fire signals for a dead task.
   rm -f "$WT/.claude/settings.local.json" "$WT/.opencode/plugins/fm-turn-end.js" \
@@ -4308,7 +3599,7 @@ elif [ -d "$WT" ] && [ "$KIND" != secondmate ]; then
   # the project. teardown_treehouse_return tolerates transient and stale git locks
   # left by a killed crew process; see the script header for retry and stale-lock proof.
   post_lock_cleanup_check=
-  if [ "$FORCE" != "--force" ] && [ "$PARK" != 1 ] && [ "$KIND" != scout ] && [ "$KIND" != secondmate ]; then
+  if [ "$FORCE" != "--force" ] && [ "$KIND" != scout ] && [ "$KIND" != secondmate ]; then
     post_lock_cleanup_check=validate_worktree_teardown_safety
   fi
   teardown_treehouse_return "$WT" "$PROJ" "worktree" "$post_lock_cleanup_check" || {
@@ -4320,15 +3611,6 @@ elif [ -d "$WT" ] && [ "$KIND" != secondmate ]; then
   # unclaimed until its next holder claims it, and leaves the claim in place
   # whenever the return did not actually happen.
   fm_treehouse_slot_owner_release "$WT" "$ID"
-elif [ "$PARK" = 1 ] && [ "$KIND" != secondmate ]; then
-  fm_treehouse_vanished_slot_owner_release "$WT" "$ID"
-fi
-
-# Preserve the overlay's endpoint-close contract before upstream's presentation
-# journal retirement.  The later exact-pane confirmation still refuses record
-# removal unless this close (or the upstream presentation close) is proved gone.
-if [ "$BACKEND" = herdr ]; then
-  teardown_close_herdr_endpoint || exit 1
 fi
 
 HERDR_PRESENTATION_JOURNAL="$STATE/$ID.herdr-presentation"
@@ -4457,7 +3739,6 @@ fm_backend_clear_transition "$BACKEND" "$STATE" "$T" || true
 # Remove the per-task temp root (/tmp/fm-<id>/, incl. its gotmp/) recorded by spawn.
 # Read before the state-file rm below; empty (pre-fix tasks without tasktmp=) is a no-op.
 [ -n "$TASK_TMP" ] && rm -rf "$TASK_TMP"
-remove_claude_session_scratch
 # Retire only this Firstmate home's launch namespace. Its never-reused per-spawn
 # files leave the equal task-id namespace of every other home untouched.
 teardown_launch_home_token() {
@@ -4526,14 +3807,10 @@ if [ "$BACKLOG_CLOSED" = 1 ]; then
       "$DATA" "$ID" "$STATE" "${BACKLOG_DONE_ARGS[@]+"${BACKLOG_DONE_ARGS[@]}"}"; then
     fm_lock_release "$META_LOCK"
     META_LOCK_HELD=0
-    retry_by="the next session start retries it"
-    if [ -e "$STATE/$ID.meta" ] || [ -L "$STATE/$ID.meta" ]; then
-      retry_by="rerun bin/fm-teardown.sh $ID to finish it, because session start keeps a task record that is still present"
-    fi
     if [ "$BACKLOG_TRANSITION" = retain ]; then
-      echo "error: $ID's endpoint and local copy are cleaned up, but its captain-held backlog item could not be returned to Queued atomically ($FM_BACKLOG_TRANSITION_ERROR); the pending retention is recorded, so $retry_by" >&2
+      echo "error: $ID's endpoint and local copy are cleaned up, but its captain-held backlog item could not be returned to Queued atomically ($FM_BACKLOG_TRANSITION_ERROR); the pending retention is recorded and the next session start retries it" >&2
     else
-      echo "error: $ID's endpoint and local copy are cleaned up, but its backlog item could not be closed atomically ($FM_BACKLOG_TRANSITION_ERROR); the pending close is recorded, so $retry_by" >&2
+      echo "error: $ID's endpoint and local copy are cleaned up, but its backlog item could not be closed atomically ($FM_BACKLOG_TRANSITION_ERROR); the pending close is recorded and the next session start retries it" >&2
     fi
     exit 1
   fi
@@ -4560,13 +3837,7 @@ fi
 if [ -d "$STATE" ]; then
   "$SCRIPT_DIR/fm-home-summary-refresh.sh" --best-effort || true
 fi
-if [ "$PARK" = 1 ] && [ -f "$DATA/$ID/brief.md" ] && [ ! -L "$DATA/$ID/brief.md" ]; then
-  mv "$DATA/$ID/brief.md" "$PARK_DIR/brief.md" \
-    || echo "warning: could not move $DATA/$ID/brief.md into $PARK_DIR; move it there before scaffolding the resume brief" >&2
-fi
-if [ "$PARK" = 1 ]; then
-  echo "park $ID complete (window ${T:-none}, worktree ${WT:-none} released; unfinished work saved in $PARK_DIR, branch $TASK_BRANCH kept at $PARK_SAVED_HEAD)"
-elif [ "$TEARDOWN_LEGACY_ACCEPTED" = 1 ]; then
+if [ "$TEARDOWN_LEGACY_ACCEPTED" = 1 ]; then
   echo "teardown $ID complete (window ${T:-none}, worktree $WT, legacy record accepted without spawn_gen: endpoint $TEARDOWN_LEGACY_ENDPOINT, incarnation $TEARDOWN_META_SPAWN_GEN)"
 elif teardown_owns_worktree; then
   echo "teardown $ID complete (window ${T:-none}, worktree $WT)"

@@ -14,7 +14,7 @@
 # That cadence is hours long and condition-aware: a paused: line naming
 # `until <UTC ISO 8601>` is rechecked when that time passes, but a declared time
 # beyond FM_PAUSE_RESURFACE_SECS cannot extend the ordinary recheck cadence, and
-# while the away-posture record (state/.afk-contract) exists an
+# while an away record (state/.afk-contract, never quiet mode's) exists an
 # item held for the captain is never rechecked at all, in either posture.
 # While state/.afk exists, the daemon owns triage and this watcher queues and exits
 # on every wake. Printed reason lines:
@@ -206,14 +206,14 @@ WATCH_HOME_EXISTED=0
 # watcher consumes only its identity-bound record after a poll observes landing.
 # shellcheck source=/dev/null
 . "$SCRIPT_DIR/fm-merge-authority-lib.sh"
-# shellcheck source=/dev/null # Canonical lint root; following it here breaks the lint memory ceiling.
+# shellcheck source=bin/fm-x-lib.sh
 . "$SCRIPT_DIR/fm-x-lib.sh"
 # shellcheck source=bin/fm-check-lib.sh
 . "$SCRIPT_DIR/fm-check-lib.sh"
 # Parent-owned secondmate missed-report guards: durable pending-reply
 # expectations created by fm-send on marked secondmate requests. The tick is
 # cheap when no records exist and never scrapes secondmate conversation.
-# shellcheck source=/dev/null # Canonical lint root; following it here breaks the lint memory ceiling.
+# shellcheck source=bin/fm-pending-reply-lib.sh
 . "$SCRIPT_DIR/fm-pending-reply-lib.sh"
 # shellcheck source=bin/fm-busy-lib.sh
 . "$SCRIPT_DIR/fm-busy-lib.sh"
@@ -224,9 +224,10 @@ WATCH_HOME_EXISTED=0
 # shellcheck source=bin/fm-task-inbox-lib.sh
 . "$SCRIPT_DIR/fm-task-inbox-lib.sh"
 # The away-posture record (state/.afk-contract) is the posture in both the
-# attended and the afk session; bin/fm-afk-contract.sh owns its schema and this
-# watcher reads only its presence (afk_record_present below).
-# shellcheck source=/dev/null # Canonical lint root; following it here breaks the lint memory ceiling.
+# attended and the afk session; bin/fm-afk-contract.sh owns its schema and its
+# away-or-quiet reading, which is all this watcher reads (away_record_present
+# below).
+# shellcheck source=bin/fm-afk-contract.sh
 . "$SCRIPT_DIR/fm-afk-contract.sh"
 # Persistent-secondmate endpoint liveness: the shared probe/relaunch library is
 # the same one bin/fm-bootstrap.sh's session-start sweep drives, so ordinary
@@ -278,7 +279,9 @@ WATCHER_STALE_GRACE=${FM_WATCHER_STALE_GRACE:-${FM_GUARD_GRACE:-$(fm_poll_derive
 # for inspection (the grace above); at or past it the re-arm evicts the holder
 # instead, because a watcher whose beacon has stalled that long is not polling
 # and nothing else would ever replace it (evict_stalled_holder below).
-WATCHER_STALL_BOUND=${FM_WATCHER_STALL_BOUND:-$((WATCHER_STALE_GRACE * 3))}
+# fm_watcher_stall_bound (bin/fm-wake-lib.sh) owns the derivation, shared with
+# the arm that follows this watcher.
+WATCHER_STALL_BOUND=$(fm_watcher_stall_bound "$POLL")
 HEARTBEAT=${FM_HEARTBEAT:-600}        # base seconds between heartbeat scans
 HEARTBEAT_MAX=${FM_HEARTBEAT_MAX:-7200}  # heartbeat backoff cap
 CHECK_INTERVAL=${FM_CHECK_INTERVAL:-300}  # seconds between *.check.sh sweeps
@@ -376,12 +379,8 @@ case "$SECONDMATE_LIVENESS_WINDOW_SECS" in ''|*[!0-9]*|0) SECONDMATE_LIVENESS_WI
 # These cases re-surface once for a recheck every PAUSE_RESURFACE_SECS - far
 # longer than the wedge threshold, but finite so a forgotten wait cannot rot
 # invisibly - except an item held for the captain while the away-posture record
-# exists, which is never rechecked (afk_record_present below).
+# exists, which is never rechecked (away_record_present below).
 PAUSE_RESURFACE_SECS=${FM_PAUSE_RESURFACE_SECS:-$FM_PAUSE_RESURFACE_SECS_DEFAULT}
-# The longest a fold-class row (fm-wake-lib.sh "fold-class rows") waits for a
-# real wake to carry it before fold_digest_tick raises one digest wake.
-FOLD_DIGEST_SECS=${FM_FOLD_DIGEST_SECS:-900}
-case "$FOLD_DIGEST_SECS" in ''|*[!0-9]*) FOLD_DIGEST_SECS=900 ;; esac
 # A declared wait that names WHEN it clears (`paused: ... until <UTC ISO 8601>`,
 # status_paused_until in fm-classify-lib.sh) is condition-aware: it is not
 # rechecked before that time, and it is rechecked once as soon as that time
@@ -405,21 +404,21 @@ _event_cap_fails=0
 # digest/injection layer would never see the wake.
 afk_present() { [ -e "$STATE/.afk" ]; }
 
-# afk_record_present: 0 while the away-posture record exists (the captain is
-# away, in either supervision shape). While it exists an item held for the
-# captain is never rechecked: there is nobody to answer it, the return brief
-# lists it, and a recheck would only churn (the 2026-09-07 away-window audit
-# counted hourly rechecks of captain-held items as pure noise). Declared
-# external waits keep their condition-aware cadence in both postures.
-# Quiet records mean the captain is present; only a real away posture suppresses
-# captain-held rechecks.
-afk_record_present() { fm_afk_contract_away_present "$STATE"; }
+# away_record_present: 0 while an away record exists (the captain is away, in
+# either supervision shape); quiet mode's record is a present captain, so it
+# reads 1 (fm_afk_contract_away_present). "The away-posture record exists"
+# below means this. While it exists an item held for the captain is never
+# rechecked: there is nobody to answer it, the return brief lists it, and a
+# recheck would only churn (the 2026-09-07 away-window audit counted hourly
+# rechecks of captain-held items as pure noise). Declared external waits keep
+# their condition-aware cadence in both postures.
+away_record_present() { fm_afk_contract_away_present "$STATE"; }
 
 # captain_held_silenced <status-line>: 0 when the line declares a captain-held
-# transfer and the away-posture record exists, so every stale path absorbs the
-# pane silently instead of rechecking it.
+# transfer and an away record exists, so every stale path absorbs the pane
+# silently instead of rechecking it.
 captain_held_silenced() {  # <status-line>
-  status_is_captain_held "$1" && afk_record_present
+  status_is_captain_held "$1" && away_record_present
 }
 
 hash_pane() {
@@ -811,23 +810,21 @@ recorded_windows() {
 
 # Print the oldest structurally valid ACTIONABLE row in a local secondmate's
 # foreign queue. A stale recheck that explicitly identifies itself as a declared
-# external-wait pause, or any fold-class row, is not evidence that the mate's
-# wake loop is stuck: the pause cadence and the fold digest already own that
-# bounded visibility, and blocked waits remain actionable because they carry
-# neither. This is a read-only
+# external-wait pause is not evidence that the mate's wake loop is stuck: the
+# pause cadence already owns that bounded visibility, and blocked waits remain
+# actionable because they do not carry this declaration. This is a read-only
 # observation: the receiving home owns acknowledgement and this parent never
 # changes the row or the foreign queue.
 secondmate_oldest_queue_row() {  # <queue-path>
   local queue=$1
   [ -f "$queue" ] && [ ! -L "$queue" ] || return 0
-  awk -F '\t' -v fold="$(fm_wake_fold_path "$queue")" '
-    BEGIN { while ((getline line < fold) > 0) if (line ~ /^[0-9]+$/) folded[line] = 1 }
+  awk -F '\t' '
     function declared_external_pause(kind, payload) {
       return kind == "stale" \
         && payload ~ /^stale: .*\(paused [0-9]+s, awaiting external - declared (pause,|paused\))/
     }
     NF >= 5 && $1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+$/ \
-      && !($2 in folded) && !declared_external_pause($3, $5) {
+      && !declared_external_pause($3, $5) {
       if (!found || $2 < seq) {
         found = 1
         seq = $2
@@ -1143,26 +1140,15 @@ FM_WEDGE_DEMAND_INSPECT_COUNT=${FM_WEDGE_DEMAND_INSPECT_COUNT:-3}
 # <min-age> replaces the cadence as the absorb-age gate for one call (0 lets a
 # declared `until` time that has just passed re-surface at once), while the
 # throttle keeps the cadence between repeats.
-# A trailing `fold` queues the re-surface as a fold-class row and returns
-# without waking (fm-wake-lib.sh "fold-class rows"): it rides along on the next
-# real wake or the fold digest (fold_digest_tick).
-resurface_absorbed() {  # <window> <throttle-marker> <age> <reason> [scope] [min-age] [fold]
-  local win=$1 throttle=$2 age=$3 reason=$4 scope=${5-} min_age=${6:-$PAUSE_RESURFACE_SECS} fold=${7:-}
+resurface_absorbed() {  # <window> <throttle-marker> <age> <reason> [scope] [min-age]
+  local win=$1 throttle=$2 age=$3 reason=$4 scope=${5-} min_age=${6:-$PAUSE_RESURFACE_SECS}
   if [ -z "$scope" ] || [ ! -e "$throttle" ] \
     || [ "$(cat "$throttle" 2>/dev/null || true)" = "$scope" ]; then
     [ "$age" -ge "$min_age" ] || return 0
     [ "$(age_of "$throttle")" -ge "$PAUSE_RESURFACE_SECS" ] || return 0   # 999999 when no prior re-surface
   fi
-  if [ "$fold" = fold ]; then
-    fm_wake_append_fold stale "$win" "$reason" || exit 1
-  else
-    fm_wake_append stale "$win" "$reason" || exit 1
-  fi
+  fm_wake_append stale "$win" "$reason" || exit 1
   if [ -n "$scope" ]; then printf '%s' "$scope" > "$throttle"; else date +%s > "$throttle"; fi
-  if [ "$fold" = fold ]; then
-    triage_log "folded re-surface (queued without a wake): $reason"
-    return 0
-  fi
   wake "$reason"
 }
 
@@ -1385,7 +1371,7 @@ EOF
     return 1
   fi
   key=$(window_key "$win")
-  if [ "$whom" = captain ] && afk_record_present; then
+  if [ "$whom" = captain ] && away_record_present; then
     triage_log "absorbed $label ($kind, never rechecked while the away-posture record exists): $win"
     return 0
   fi
@@ -1582,7 +1568,7 @@ busy_turn_over_age() {  # <task>
 # wording; a caller that reached the bounded cadence off pause tracking alone, with
 # no declaring verb left on the log, keeps the external-wait wording it always had.
 handle_paused_stale() {  # <window> <task> <hash>
-  local win=$1 task=$2 h=$3 key statusf mtime age detail reason declaration last until now min_age fold
+  local win=$1 task=$2 h=$3 key statusf mtime age detail reason declaration last until now min_age
   key=$(window_key "$win")
   printf '%s' "$h" > "$STATE/.stale-$key"
   : > "$STATE/.paused-$key"
@@ -1597,7 +1583,7 @@ handle_paused_stale() {  # <window> <task> <hash>
   min_age=$PAUSE_RESURFACE_SECS
   declaration="declared:$(fm_wake_signal_sig "$statusf" || true)"
   if status_is_captain_held "$last"; then
-    if afk_record_present; then
+    if away_record_present; then
       triage_log "absorbed stale (captain-held, never rechecked while the away-posture record exists): $win"
       return 0
     fi
@@ -1622,12 +1608,7 @@ handle_paused_stale() {  # <window> <task> <hash>
     detail="paused, awaiting external"
     reason="paused ${age}s, awaiting external - declared pause, rechecked on a long cadence not a wedge; confirm the wait still holds"
   fi
-  # SO-12: a declared-wait recheck was measured to end in a bare no-op turn, so
-  # it folds into the next real wake or the fold digest. Away mode keeps the
-  # daemon's one-shot contract and wakes as before.
-  fold='fold'
-  ! afk_present || fold=
-  resurface_absorbed "$win" "$STATE/.paused-resurfaced-$key" "$age" "stale: $win ($reason)" "$declaration" "$min_age" "$fold"
+  resurface_absorbed "$win" "$STATE/.paused-resurfaced-$key" "$age" "stale: $win ($reason)" "$declaration" "$min_age"
   triage_log "absorbed stale ($detail, age ${age}s): $win"
 }
 
@@ -1876,7 +1857,7 @@ captain_call_stale_bound() {  # <window-key> <task>
   STALE_WAIT_DECLARATION=
   task_captain_call_open "$task" || return 1
   STALE_WAIT_DECLARATION=$(captain_call_declaration "$task" "$CAPTAIN_CALL_IDENTITY")
-  afk_record_present && return 0
+  away_record_present && return 0
   stale_wait_throttled "$key" "$STALE_WAIT_DECLARATION"
 }
 
@@ -1994,9 +1975,6 @@ scan_signals() {
     if [ ! -e "$f" ]; then
       case "$f" in *.status) [ -L "$f" ] || continue ;; *) continue ;; esac
     fi
-    # A secondmate's own outbound parent channel is its words to the parent,
-    # never work for it (bin/fm-parent-channel-lib.sh owns the predicate).
-    ! fm_parent_channel_is_own_outbound "$FM_HOME" "$STATE" "$f" || continue
     sig=$(fm_wake_signal_sig "$f") || continue
     [ -n "$sig" ] || continue
     sf=$(fm_wake_signal_seen_path "$STATE" "$f")
@@ -2261,7 +2239,6 @@ heartbeat_scan_finds_actionable() {
   FM_HEARTBEAT_SURFACE_ENDPOINTS=''
   for f in "$STATE"/*.status; do
     [ -e "$f" ] || [ -L "$f" ] || continue
-    ! fm_parent_channel_is_own_outbound "$FM_HOME" "$STATE" "$f" || continue
     task=$(basename "$f"); task="${task%.status}"
     record=$(status_span_first_actionable_record "$f" "$(hb_surfaced_offset "$task")")
     rc=$?
@@ -2621,24 +2598,6 @@ resurface_after_downtime() {
   wake "check: rearm-resurface"
 }
 
-# Deliver fold-class rows that no real wake has carried: once the oldest has
-# waited FOLD_DIGEST_SECS and nothing else is queued, raise one digest wake for
-# all of them. A queued digest row is itself non-fold, so a handling successor
-# never raises a second one, and recovery re-delivers it if this cycle is lost.
-fold_digest_tick() {
-  local summary other folded oldest reason
-  summary=$(fm_wake_fold_summary) || return 0
-  read -r other folded oldest <<EOF
-$summary
-EOF
-  case "$other$folded$oldest" in ''|*[!0-9]*) return 0 ;; esac
-  [ "$folded" -gt 0 ] && [ "$other" -eq 0 ] || return 0
-  [ $(( $(date +%s) - oldest )) -ge "$FOLD_DIGEST_SECS" ] || return 0
-  reason="check: fold-digest ($folded folded; oldest: $(fm_wake_fold_oldest_payload | cut -c1-240))"
-  fm_wake_append check "$FM_WAKE_FOLD_DIGEST_KEY" "$reason" || exit 1
-  wake "$reason"
-}
-
 while :; do
   # Home-gone exit: a deleted home, state directory, or code root means this
   # watcher's world is gone (a torn-down temporary home or a discarded
@@ -2730,7 +2689,6 @@ while :; do
   # A process-event result carries richer adapter-owned wake context than the
   # generic recovery reason, so give that owner first refusal.
   resurface_after_downtime
-  fold_digest_tick
 
   # The existing poll loop also owns the bounded inactive-outcome cadence.
   # This is mechanical and silent unless a durable terminal-outcome obligation

@@ -153,10 +153,6 @@
       "audience": "agent-runtime"
     },
     {
-      "path": ".agents/skills/fleet-steward/SKILL.md",
-      "audience": "agent-runtime"
-    },
-    {
       "path": ".agents/skills/fmx-respond/SKILL.md",
       "audience": "agent-runtime"
     },
@@ -262,10 +258,6 @@
     },
     {
       "path": ".agents/skills/updatefirstmate/SKILL.md",
-      "audience": "agent-runtime"
-    },
-    {
-      "path": ".agents/skills/updatetools/SKILL.md",
       "audience": "agent-runtime"
     },
     {

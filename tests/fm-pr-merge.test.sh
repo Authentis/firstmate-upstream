@@ -241,21 +241,6 @@ case "${1:-} ${2:-}" in
     exit 0
     ;;
   api\ *)
-    # Remote head branch retirement reads, answered only when a case opts in.
-    retire_dir="$(dirname "$FM_TEST_GH_RULES")/github-retire"
-    if [ -d "$retire_dir" ]; then
-      case "$*" in
-        "api -X DELETE "*)
-          printf '%s\n' "$*" >> "$retire_dir/deleted"
-          [ ! -e "$retire_dir/delete-fails" ] || { echo 'HTTP 422: Reference update failed' >&2; exit 1; }
-          exit 0
-          ;;
-        *"/rules/branches/"*|*"/check-runs"*) ;;
-        *"/pulls?state=open"*) cat "$retire_dir/open.json"; exit 0 ;;
-        *"/pulls/"*) cat "$retire_dir/pull.json"; exit 0 ;;
-        *"/branches/fm/"*) [ -f "$retire_dir/branch.json" ] || exit 1; cat "$retire_dir/branch.json"; exit 0 ;;
-      esac
-    fi
     # The required-check reads: the branch itself, and its rules read without
     # the merge-queue filter the queue reader below applies.
     case " $* " in
@@ -358,17 +343,6 @@ add_glab_mock() {
 #!/usr/bin/env bash
 printf 'GITLAB_HOST=%s %s\n' "${GITLAB_HOST-<unset>}" "$*" >> "$FM_TEST_GLAB_LOG"
 case_dir=$(dirname "$FM_TEST_GLAB_JSON")
-if [ "${1:-}" = api ] && [ -d "$case_dir/glab-retire" ]; then
-  case "$*" in
-    *" -X DELETE "*)
-      printf '%s\n' "$*" >> "$case_dir/glab-retire/deleted"
-      exit 0
-      ;;
-    *"/merge_requests?state=opened"*) cat "$case_dir/glab-retire/open.json"; exit 0 ;;
-    *"/merge_requests/"*) cat "$case_dir/glab-retire/mr.json"; exit 0 ;;
-    *"/repository/branches/"*) cat "$case_dir/glab-retire/branch.json"; exit 0 ;;
-  esac
-fi
 case "${1:-} ${2:-}" in
   "mr view")
     [ ! -e "$case_dir/glab-view-fails" ] || exit 1
@@ -536,159 +510,6 @@ write_away_record() {
     "$ROOT/bin/fm-afk-contract.sh" enter "$@" >/dev/null
 }
 
-# github_retire_fixture <case_dir> <head> [<field>=<value> ...]: the forge's
-# answers for remote head branch retirement, describing a same-repository head
-# branch whose tip is the verified head, unprotected, with no open pull request
-# targeting it. Named fields override one answer each.
-github_retire_fixture() {
-  local case_dir=$1 head=$2 kv ref=fm/task-x1 head_repo='"example/repo"' tip=$2
-  local protected=false open='[]' branch=present
-  local dir="$case_dir/github-retire"
-  shift 2
-  for kv in "$@"; do
-    case "${kv%%=*}" in
-      head_repo) head_repo=${kv#*=} ;;
-      tip) tip=${kv#*=} ;;
-      protected) protected=${kv#*=} ;;
-      open) open=${kv#*=} ;;
-      branch) branch=${kv#*=} ;;
-      *) fail "github_retire_fixture: unknown field '${kv%%=*}'" ;;
-    esac
-  done
-  mkdir -p "$dir"
-  printf '{"head":{"ref":"%s","repo":%s},"base":{"repo":{"full_name":"example/repo","default_branch":"main"}}}\n' \
-    "$ref" "$([ "$head_repo" = null ] && echo null || printf '{"full_name":%s}' "$head_repo")" > "$dir/pull.json"
-  if [ "$branch" = present ]; then
-    printf '{"name":"%s","protected":%s,"commit":{"sha":"%s"}}\n' "$ref" "$protected" "$tip" > "$dir/branch.json"
-  fi
-  printf '%s\n' "$open" > "$dir/open.json"
-}
-
-run_retire_case() {  # <name> <pr-number> [<fixture field>=<value> ...] [-- <extra merge args>]
-  local name=$1 number=$2 case_dir head=4242424242424242424242424242424242424242 fields=()
-  shift 2
-  while [ "$#" -gt 0 ] && [ "$1" != -- ]; do fields+=("$1"); shift; done
-  [ "$#" -eq 0 ] || shift
-  case_dir=$(make_case "$name")
-  add_gh_mocks "$case_dir" "$head"
-  github_retire_fixture "$case_dir" "$head" "${fields[@]+"${fields[@]}"}"
-  : > "$case_dir/gh-axi.log"
-  RETIRE_RC=0
-  run_pr_merge "$case_dir" task-x1 "https://github.com/example/repo/pull/$number" "$@" \
-    > "$case_dir/stdout" 2> "$case_dir/stderr" || RETIRE_RC=$?
-  RETIRE_CASE=$case_dir
-}
-
-# Merged work belongs on the default branch, so a verified merge retires the
-# pull request's remote head branch without any extra flag.
-test_verified_merge_deletes_the_remote_head_branch() {
-  run_retire_case retire-default 81
-  expect_code 0 "$RETIRE_RC" "retire-default: the verified merge should succeed"
-  assert_grep 'verified: https://github.com/example/repo/pull/81 is merged' "$RETIRE_CASE/stdout" \
-    "retire-default: the merge was not verified"
-  assert_grep 'api -X DELETE repos/example/repo/git/refs/heads/fm/task-x1' "$RETIRE_CASE/github-retire/deleted" \
-    "retire-default: the remote head branch was not deleted"
-  assert_grep 'retired: remote branch fm/task-x1 of https://github.com/example/repo/pull/81 deleted' \
-    "$RETIRE_CASE/stdout" "retire-default: the deletion was not reported"
-  assert_grep 'refs/pull/81/head' "$RETIRE_CASE/stdout" \
-    "retire-default: the report did not say where the commits stay reachable"
-  pass "fm-pr-merge deletes a verified merge's same-repository remote head branch by default"
-}
-
-# Every case where the branch is not provably disposable keeps it, reports why,
-# and leaves the proven merge successful.
-test_remote_head_branch_is_kept_unless_disposable() {
-  local spec name number reason field
-  for spec in \
-    'retire-fork|82|another repository|head_repo="someone/fork"' \
-    'retire-deleted-fork|83|another repository|head_repo=null' \
-    'retire-protected|84|protected|protected=true' \
-    'retire-moved|85|is not the verified merged head|tip=5555555555555555555555555555555555555555' \
-    'retire-stacked|86|another open pull request targets it|open=[{"number":90}]' \
-    'retire-gone|87|may already be deleted|branch=absent' \
-    'retire-keep-flag|88|--keep-branch was passed|--keep-branch'; do
-    IFS='|' read -r name number reason field <<EOF
-$spec
-EOF
-    if [ "$field" = --keep-branch ]; then
-      run_retire_case "$name" "$number" -- --keep-branch
-    else
-      run_retire_case "$name" "$number" "$field"
-    fi
-    expect_code 0 "$RETIRE_RC" "$name: a kept branch must not fail the proven merge"
-    assert_grep "verified: https://github.com/example/repo/pull/$number is merged" "$RETIRE_CASE/stdout" \
-      "$name: the merge was not verified"
-    assert_absent "$RETIRE_CASE/github-retire/deleted" "$name: the branch was deleted anyway"
-    assert_grep "note: kept the remote head branch" "$RETIRE_CASE/stderr" "$name: the kept branch was not reported"
-    assert_grep "$reason" "$RETIRE_CASE/stderr" "$name: the report did not name why the branch was kept"
-  done
-  pass "fm-pr-merge keeps fork, protected, moved, targeted, missing, and --keep-branch head branches and says why"
-}
-
-test_failed_branch_deletion_never_fails_the_merge() {
-  local case_dir head=4242424242424242424242424242424242424242
-  case_dir=$(make_case retire-delete-fails-run)
-  add_gh_mocks "$case_dir" "$head"
-  github_retire_fixture "$case_dir" "$head"
-  : > "$case_dir/github-retire/delete-fails"
-  : > "$case_dir/gh-axi.log"
-  RETIRE_RC=0
-  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/89 \
-    > "$case_dir/stdout" 2> "$case_dir/stderr" || RETIRE_RC=$?
-  expect_code 0 "$RETIRE_RC" "retire-delete-fails: a failed deletion must not fail the proven merge"
-  assert_grep 'verified: https://github.com/example/repo/pull/89 is merged' "$case_dir/stdout" \
-    "retire-delete-fails: the merge was not verified"
-  assert_grep 'warning: merged https://github.com/example/repo/pull/89 but could not delete its remote branch fm/task-x1' \
-    "$case_dir/stderr" "retire-delete-fails: the failed deletion was not reported"
-  pass "fm-pr-merge reports a failed remote branch deletion without failing the proven merge"
-}
-
-# Deletion follows proof of a landed merge only: a merge that leaves the pull
-# request open never reaches any branch read or deletion.
-test_unproven_merge_never_touches_the_head_branch() {
-  local case_dir head=4343434343434343434343434343434343434343 rc=0
-  case_dir=$(make_case retire-unproven)
-  add_gh_mocks "$case_dir" "$head"
-  github_retire_fixture "$case_dir" "$head"
-  write_github_outcome "$case_dir" OPEN false false main
-  : > "$case_dir/gh-axi.log"
-  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/91 \
-    > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
-  expect_code 1 "$rc" "retire-unproven: an unproven merge must fail"
-  assert_absent "$case_dir/github-retire/deleted" "retire-unproven: an unproven merge deleted the branch"
-  assert_no_grep 'pulls/91' "$case_dir/gh.log" "retire-unproven: an unproven merge read the head branch for deletion"
-  pass "fm-pr-merge never deletes a head branch before the merge is proven landed"
-}
-
-# A GitLab merge request retires its same-project source branch after the
-# confirmed merge and keeps a source branch from another project.
-test_gitlab_confirmed_merge_retires_same_project_source_branch() {
-  local case_dir rc source
-  for source in 11 12; do
-    case_dir=$(make_gitlab_case "gitlab-retire-$source")
-    mkdir -p "$case_dir/glab-retire"
-    printf '{"source_branch":"fm/task-x1","source_project_id":%s,"target_project_id":11}\n' "$source" \
-      > "$case_dir/glab-retire/mr.json"
-    printf '{"name":"fm/task-x1","protected":false,"default":false,"commit":{"id":"%s"}}\n' "$MR_HEAD" \
-      > "$case_dir/glab-retire/branch.json"
-    printf '[]\n' > "$case_dir/glab-retire/open.json"
-    rc=0
-    run_pr_merge "$case_dir" task-x1 "$MR_URL" > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
-    expect_code 0 "$rc" "gitlab-retire-$source: the confirmed merge should succeed"
-    if [ "$source" = 11 ]; then
-      assert_grep 'projects/group%2Fsubgroup%2Fproject/repository/branches/fm%2Ftask-x1' \
-        "$case_dir/glab-retire/deleted" "gitlab-retire-$source: the source branch was not deleted"
-      assert_grep "retired: remote branch fm/task-x1 of $MR_URL deleted" "$case_dir/stdout" \
-        "gitlab-retire-$source: the deletion was not reported"
-    else
-      assert_absent "$case_dir/glab-retire/deleted" "gitlab-retire-$source: a cross-project source branch was deleted"
-      assert_grep 'its source lives in another project' "$case_dir/stderr" \
-        "gitlab-retire-$source: the kept branch was not explained"
-    fi
-  done
-  pass "fm-pr-merge retires a confirmed GitLab merge's same-project source branch and keeps a cross-project one"
-}
-
 test_verified_merge_records_pr_and_head() {
   local case_dir rc
   case_dir=$(make_case records-before-merge)
@@ -709,42 +530,6 @@ test_verified_merge_records_pr_and_head() {
     "records-before-merge: pr_head= was not recorded"
   assert_logged_gh_merge "$case_dir" 9 example/repo --squash
   pass "fm-pr-merge records pr= and pr_head= for a verified GitHub merge"
-}
-
-# state/<id>.merge-authority proves WHO merged (away/attended); state's
-# pr_head= proves WHICH head. Both live only in task state, which teardown
-# removes once the task lands - exactly the record most worth auditing.
-# fm-pr-merge must also durably write that proof beside the task's own
-# deliverable, in data/<id>/, so cleanup can never leave a merged pull request
-# indistinguishable from a control failure.
-test_verified_merge_records_durable_merge_proof() {
-  local case_dir rc file
-  case_dir=$(make_case durable-merge-proof)
-  mkdir -p "$case_dir/wt"
-  add_gh_mocks "$case_dir" deadbeefcafefeed0000000000000000deadbeef
-  : > "$case_dir/gh-axi.log"
-
-  set +e
-  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/9 \
-    > "$case_dir/stdout" 2> "$case_dir/stderr"
-  rc=$?
-  set -e
-
-  expect_code 0 "$rc" "durable-merge-proof: fm-pr-merge should succeed"
-  file="$case_dir/home/data/task-x1/merge-proof.md"
-  [ -f "$file" ] || fail "durable-merge-proof: no merge proof was recorded at $file"
-  assert_grep 'https://github.com/example/repo/pull/9' "$file" \
-    "durable-merge-proof: the recorded proof is missing the PR URL"
-  assert_grep 'deadbeefcafefeed0000000000000000deadbeef' "$file" \
-    "durable-merge-proof: the recorded proof is missing the verified head"
-  assert_grep 'attended' "$file" \
-    "durable-merge-proof: the recorded proof is missing the merge authority"
-
-  # Tearing down the task removes state/task-x1.meta and .merge-authority; the
-  # durable proof beside the deliverable must survive that removal.
-  rm -f "$case_dir/state/task-x1.meta" "$case_dir/state/task-x1.merge-authority"
-  [ -f "$file" ] || fail "durable-merge-proof: the durable proof did not survive task-state cleanup"
-  pass "fm-pr-merge durably records who merged and against which head in data/<id>/merge-proof.md, surviving task-state cleanup"
 }
 
 # The forge call is the point of no return: once gh-axi has merged, nothing this
@@ -2578,7 +2363,6 @@ test_github_closed_unqueued_outcome_omits_retry_flags
 test_github_agreeing_queue_rules_keep_retry_guidance
 test_github_conflicting_queue_rules_report_ambiguity
 test_verified_merge_records_pr_and_head
-test_verified_merge_records_durable_merge_proof
 test_pr_metadata_is_recorded_before_the_forge_call
 test_merge_failure_propagates_after_recording
 test_github_open_unqueued_outcome_refuses
@@ -4092,11 +3876,6 @@ test_away_record_cannot_change_between_the_authority_read_and_the_merge
 test_a_record_made_unreadable_before_the_merge_refuses_it
 test_merge_refuses_when_the_away_record_cannot_be_locked
 test_allow_red_refused_on_gitlab
-test_verified_merge_deletes_the_remote_head_branch
-test_remote_head_branch_is_kept_unless_disposable
-test_failed_branch_deletion_never_fails_the_merge
-test_unproven_merge_never_touches_the_head_branch
-test_gitlab_confirmed_merge_retires_same_project_source_branch
 test_required_check_that_never_reported_refuses
 test_required_checks_reported_and_green_merge
 test_red_and_unreported_checks_are_reported_together

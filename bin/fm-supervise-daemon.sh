@@ -151,9 +151,6 @@
 #                                   not misread as pending input.
 #          FM_INJECT_CONFIRM_SLEEP  seconds between daemon submit checks
 #                                   (default 0.5)
-#          FM_STATUS_FIRST_SCAN_MAX_BYTES  how much of a status log with no
-#                                   usable read position is classified, from
-#                                   its end (default 65536)
 #          FM_LOG_MAX_BYTES / FM_LOG_KEEP_LINES / FM_CRASH_*  log + crash guards
 #          FM_STATE_OVERRIDE        alternate state dir (testing)
 #          Logs each wake to state/.supervise-daemon.log (size-capped). Single
@@ -171,7 +168,7 @@ FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 # + verify-retry submit). Sourced at top level so BOTH the executed daemon and
 # the unit tests (which source this file for its pure functions) get the
 # corrected composer detection. Stale task rechecks use fm-backend.sh below.
-# shellcheck source=/dev/null # Canonical lint root; following it here breaks the lint memory ceiling.
+# shellcheck source=bin/fm-tmux-lib.sh
 . "$FM_DAEMON_DIR/fm-tmux-lib.sh"
 
 # shellcheck source=bin/fm-backend.sh
@@ -244,10 +241,6 @@ CRASH_BACKOFF_DEFAULT=60
 CRASH_NORMAL_SLEEP_DEFAULT=5
 LOG_MAX_BYTES_DEFAULT=1048576
 LOG_KEEP_LINES_DEFAULT=2000
-# A status log with no usable read position is classified from at most its last
-# STATUS_FIRST_SCAN_MAX_BYTES, so one long log cannot replay its whole history
-# into the escalation buffer (escalate_flush owns the digest bound).
-STATUS_FIRST_SCAN_MAX_BYTES_DEFAULT=65536
 
 # --- presence-gating --------------------------------------------------------
 # bin/fm-operational-input.sh owns the U+2063 FIRSTMATE_OP bytes and typed
@@ -629,33 +622,13 @@ _seen_status_path() {  # <state> <task>
 }
 
 # The byte offset in <task>'s status log through which this daemon has
-# successfully classified content.
+# successfully classified content, or 0 when it has no usable position.
 # A position rather than an event line prevents both a later routine append from
 # hiding earlier events and repeated event text from suppressing a new occurrence.
-# An absent, malformed, identity-mismatched, or legacy marker has no usable
-# position, so uncertainty prefers a duplicate over event loss: a log up to
-# STATUS_FIRST_SCAN_MAX_BYTES reads 0 and is classified whole, while a longer one
-# is classified from the first line start inside its last
-# STATUS_FIRST_SCAN_MAX_BYTES, so a new or long-unseen chatty log never replays
-# its whole history into one digest. The older history stays in the durable log.
+# An absent, malformed, identity-mismatched, or legacy marker reads 0, so the
+# whole log is classified and uncertainty prefers a duplicate over event loss.
 status_seen_offset() {  # <state> <task>
-  local f="$1/$2.status" offset size bound start skip
-  offset=$(status_presentation_marker_offset "$(_seen_status_path "$1" "$2")" "$f")
-  [ "$offset" = 0 ] || { printf '%s' "$offset"; return 0; }
-  bound=${FM_STATUS_FIRST_SCAN_MAX_BYTES:-$STATUS_FIRST_SCAN_MAX_BYTES_DEFAULT}
-  case "$bound" in ''|*[!0-9]*) bound=$STATUS_FIRST_SCAN_MAX_BYTES_DEFAULT ;; esac
-  size=$(_fm_status_file_size "$f" 2>/dev/null) || { printf '0'; return 0; }
-  size=${size//[[:space:]]/}
-  case "$size" in ''|*[!0-9]*) printf '0'; return 0 ;; esac
-  [ "$size" -gt "$bound" ] || { printf '0'; return 0; }
-  # Start one byte before the window so a window that already begins on a line
-  # start skips only that preceding newline, never a whole line.
-  start=$((size - bound - 1))
-  skip=$(_fm_status_read_span "$f" "$start" "$((bound + 1))" 2>/dev/null | head -n 1 | LC_ALL=C wc -c) \
-    || { printf '0'; return 0; }
-  skip=${skip//[[:space:]]/}
-  case "$skip" in ''|*[!0-9]*) printf '0'; return 0 ;; esac
-  printf '%s' "$((start + skip))"
+  status_presentation_marker_offset "$(_seen_status_path "$1" "$2")" "$1/$2.status"
 }
 
 # Commit <task>'s successfully classified endpoint, so the heartbeat catch-all
@@ -1770,7 +1743,7 @@ fm_super_main() {
 
   # Source the portable lock helpers (works on macOS where flock is absent).
   # Export FM_STATE_OVERRIDE so the lib resolves the same state dir.
-  # shellcheck source=/dev/null # Canonical lint root; following it here breaks the lint memory ceiling.
+  # shellcheck source=bin/fm-wake-lib.sh
   FM_STATE_OVERRIDE="$STATE" . "$FM_DAEMON_DIR/fm-wake-lib.sh"
 
   local WATCH="$FM_DAEMON_DIR/fm-watch.sh"
