@@ -359,6 +359,7 @@ A finished task whose record must stay after cleanup refuses - committed work no
 `bin/fm-control.sh <id> exit` runs that same retirement for a Herdr ship or scout once its agent reads stopped, so closing an agent through the supported verb leaves no idle pane unless one of those checks keeps it.
 Missing or malformed endpoint identity and missing confirmation machinery are ambiguity, never proof of a gone pane, and refuse record removal the same way.
 If lock, snapshot, pane identity, or restoration is ambiguous, cleanup warns and preserves the journal for manual inspection.
+Once the exact pane is confirmed gone, teardown retires the task's own journal when it binds that same pane, or when it is a version 1 attempt whose token-bearing projected workspace is itself confirmed gone, because nothing then remains for the session-start sweep to correlate; a journal bound to any other pane, or a version 1 attempt whose workspace is still present or unreadable, stays for that sweep.
 
 ### Restart recovery
 
@@ -806,7 +807,7 @@ The pane-independent max-defer alert is configured in [`wedge-alarm.md`](wedge-a
 
 - Harnesses with native tracked background execution can run the daemon in their terminal.
 - Pi and pi-signed no longer launch the away daemon; their ordinary supervision session continues under the posture record.
-- An opted-in non-Pi home also skips the daemon for `/afk`; see [supervision-host.md](supervision-host.md).
+- A non-Pi home that runs the supervision host also skips the daemon for `/afk`; see [supervision-host.md](supervision-host.md).
 - For another harness without native tracked background execution, `bin/fm-afk-launch.sh` runs the daemon in a Herdr workspace, as described next.
 
 In that last case, `bin/fm-afk-launch.sh`:
