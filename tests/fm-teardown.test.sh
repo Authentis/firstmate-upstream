@@ -246,6 +246,18 @@ land_on_origin_main() {
   rm -rf "$tmp"
 }
 
+# Push the task branch to a local bare repo registered as the `no-mistakes`
+# remote, the way the pipeline's gate push does, and fetch it so
+# refs/remotes/no-mistakes/fm/task-x1 is visible from the worktree. That mirror
+# is a local copy, never proof the work is saved or landed. Args: case_dir
+add_no_mistakes_mirror_with_pushed_branch() {
+  local case_dir=$1
+  git init -q --bare "$case_dir/nm-mirror.git"
+  git -C "$case_dir/project" remote add no-mistakes "$case_dir/nm-mirror.git"
+  git -C "$case_dir/wt" push -q no-mistakes fm/task-x1
+  git -C "$case_dir/project" fetch -q no-mistakes
+}
+
 # Override GitHub lookups to report PR 7 as merged with the supplied head.
 add_gh_pr_merged_for_head() {
   local case_dir=$1 head=$2
@@ -961,6 +973,48 @@ test_squash_merged_rebased_branch_allows() {
   expect_code 0 "$rc" "squash-rebased: teardown should succeed when the worktree followed the pipeline rebase"$'\n'"$(cat "$case_dir/stderr")"
   ! grep -q REFUSED "$case_dir/stderr" || fail "squash-rebased: teardown printed a REFUSED line"
   pass "squash-merged task whose local branch followed the pipeline rebase is torn down"
+}
+
+# The no-mistakes validation mirror is a local copy, so work that only it holds
+# is unlanded: teardown refuses and keeps the branch and record.
+test_no_mistakes_mirror_only_work_refuses() {
+  local case_dir rc tip
+  case_dir=$(make_case nm-mirror-only)
+  write_meta "$case_dir" no-mistakes ship
+  wt_commit_file "$case_dir" feature.txt hello "gate-pushed but unlanded work"
+  tip=$(git -C "$case_dir/wt" rev-parse HEAD)
+  add_no_mistakes_mirror_with_pushed_branch "$case_dir"
+  git -C "$case_dir/wt" rev-parse --verify --quiet refs/remotes/no-mistakes/fm/task-x1 >/dev/null \
+    || fail "nm-mirror-only: fixture did not expose the mirror's remote-tracking ref"
+
+  set +e
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 1 "$rc" "nm-mirror-only: teardown should refuse work held only by the validation mirror"$'\n'"$(cat "$case_dir/stderr")"
+  grep -q REFUSED "$case_dir/stderr" || fail "nm-mirror-only: no REFUSED line in stderr"
+  assert_refusal_retained_task_state "$case_dir" nm-mirror-only "$tip"
+  pass "unlanded work reachable only from the no-mistakes mirror is refused"
+}
+
+# The same mirror-held work tears down once a squash put its content on origin.
+test_no_mistakes_mirror_work_allows_once_squash_landed() {
+  local case_dir rc
+  case_dir=$(make_case nm-mirror-squash-landed)
+  write_meta "$case_dir" no-mistakes ship
+  wt_commit_file "$case_dir" feature.txt hello "gate-pushed work"
+  add_no_mistakes_mirror_with_pushed_branch "$case_dir"
+  land_on_origin_main "$case_dir" feature.txt hello
+
+  set +e
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 0 "$rc" "nm-mirror-squash-landed: teardown should succeed once content is on origin"$'\n'"$(cat "$case_dir/stderr")"
+  ! grep -q REFUSED "$case_dir/stderr" || fail "nm-mirror-squash-landed: teardown printed a REFUSED line"
+  pass "mirror-held work tears down once its content is squash-landed on origin"
 }
 
 test_squash_merged_same_file_different_content_refuses() {
@@ -4283,6 +4337,8 @@ test_no_pr_recorded_discovers_merged_pr_by_branch_allows
 test_squash_merged_pr_allows_replayed_unpushed_patch
 test_merged_pr_with_later_local_commit_refuses
 test_squash_merged_rebased_branch_allows
+test_no_mistakes_mirror_only_work_refuses
+test_no_mistakes_mirror_work_allows_once_squash_landed
 test_squash_merged_same_file_different_content_refuses
 test_squash_merged_rebased_local_with_unlanded_commit_refuses
 test_squash_merged_stale_local_refuses_when_forge_unreachable
