@@ -28,7 +28,7 @@ set -u
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-fm_live_gate default-on FM_BEARINGS_LAVISH_LIVE lavish-axi jq curl
+fm_live_gate opt-in FM_BEARINGS_LAVISH_LIVE lavish-axi jq curl
 
 pass() { printf 'ok - %s\n' "$1"; }
 note() { printf '# %s\n' "$1"; }
