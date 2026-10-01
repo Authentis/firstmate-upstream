@@ -1439,4 +1439,54 @@ STORM_LATE=$(storm_roles)
 storm_stop_all
 pass "a stale ownership lock is reclaimed together with a killed owner's publication litter"
 
+# A remote call carries its caller's forwarded locale and session COLUMNS, and
+# ps renders lstart by locale and truncates command to COLUMNS. Read raw, a
+# healthy owner then looked like a stranger: every such call launched another
+# tree whose serving child waited out the owner, failed, and was restarted.
+# Pick a caller environment that really changes this host's raw ps output, and
+# assert that divergence so the case cannot pass vacuously.
+rm -rf -- "$STORM_STATE/worker.lock" "$STORM_STATE/worker.ready" "$STORM_STATE/worker.supervisor"
+( FM_REMOTE_JOB_STATE_ROOT="$STORM_STATE"; fm_remote_job_ensure_worker "$STORM_ROOT" "$STORM_HOME" ) \
+  || fail "the caller-environment fixture worker did not start"
+STORM_OWNER=$(cat "$STORM_STATE/worker.pid")
+STORM_RAW=$(/bin/ps -p "$STORM_OWNER" -o lstart= -o command= 2>/dev/null)
+STORM_CALLER_ENV=
+for STORM_CANDIDATE in LC_ALL=de_DE.UTF-8 LC_ALL=fr_FR.UTF-8 LC_ALL=de_DE.utf8 COLUMNS=20; do
+  if [ "$(env "$STORM_CANDIDATE" /bin/ps -p "$STORM_OWNER" -o lstart= -o command= 2>/dev/null)" != "$STORM_RAW" ]; then
+    STORM_CALLER_ENV=$STORM_CANDIDATE
+    break
+  fi
+done
+if [ -z "$STORM_CALLER_ENV" ]; then
+  echo "skip - no caller locale or COLUMNS changes this host's ps output"
+else
+  STORM_BEGAN=$SECONDS
+  set +e
+  env "$STORM_CALLER_ENV" HOME="$STORM_HOME" FM_ROOT_OVERRIDE="$STORM_ROOT" \
+    FM_REMOTE_JOB_STATE_ROOT="$STORM_STATE" FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux \
+    "$STORM_WORKER" --serve >> "$TMP_ROOT/storm.log" 2>&1
+  STORM_SERVE_RC=$?
+  set -e
+  [ "$STORM_SERVE_RC" -eq 0 ] && [ $((SECONDS - STORM_BEGAN)) -le 8 ] \
+    || fail "a serving child under $STORM_CALLER_ENV lost to the live owner with exit $STORM_SERVE_RC after $((SECONDS - STORM_BEGAN))s"
+  for _ in 1 2 3 4; do
+    (
+      export "$STORM_CALLER_ENV"
+      FM_REMOTE_JOB_STATE_ROOT="$STORM_STATE"
+      fm_remote_job_ensure_worker "$STORM_ROOT" "$STORM_HOME"
+    ) || fail "ensure under $STORM_CALLER_ENV did not accept the healthy worker"
+  done
+  sleep 2
+  STORM_EARLY=$(storm_roles)
+  sleep 5
+  STORM_LATE=$(storm_roles)
+  [ "$(storm_persisting_supervisors "$STORM_EARLY" "$STORM_LATE")" -eq 1 ] \
+    && [ "$(storm_role_count "$STORM_LATE" serving)" -eq 1 ] \
+    || fail "calls under $STORM_CALLER_ENV grew extra worker trees beside a healthy owner"$'\n'"$STORM_LATE"
+  [ "$(cat "$STORM_STATE/worker.pid")" = "$STORM_OWNER" ] \
+    || fail "calls under $STORM_CALLER_ENV replaced a healthy worker"
+  pass "callers with another locale or COLUMNS recognize the healthy owner and start nothing"
+fi
+storm_stop_all
+
 echo "ALL TESTS PASSED"

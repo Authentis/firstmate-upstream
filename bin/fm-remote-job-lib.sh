@@ -918,28 +918,36 @@ fm_remote_job_worker_identity_path() { printf '%s\n' "$FM_REMOTE_JOB_STATE/worke
 fm_remote_job_worker_lock_path() { printf '%s\n' "$FM_REMOTE_JOB_STATE/worker.lock"; }
 fm_remote_job_worker_supervisor_path() { printf '%s\n' "$FM_REMOTE_JOB_STATE/worker.supervisor"; }
 
-fm_remote_job_process_start() {
-  local pid=$1 ps_bin value
+# One process field. Recorded identities are compared across processes started
+# from different login environments - every remote call carries the caller's
+# forwarded LANG and LC_* and whatever COLUMNS its session exports - and ps
+# renders lstart by locale and truncates command to COLUMNS. Pin both, as
+# bin/fm-wake-lib.sh does, so a healthy owner never reads as a stranger.
+fm_remote_job_ps_field() { # <pid> <field>
+  local ps_bin
   if [ -x /bin/ps ]; then ps_bin=/bin/ps; elif [ -x /usr/bin/ps ]; then ps_bin=/usr/bin/ps; else return 1; fi
-  value=$("$ps_bin" -p "$pid" -o lstart= 2>/dev/null) || return 1
+  COLUMNS=10000 LC_ALL=C "$ps_bin" -p "$1" -o "$2=" 2>/dev/null
+}
+
+fm_remote_job_process_start() {
+  local pid=$1 value
+  value=$(fm_remote_job_ps_field "$pid" lstart) || return 1
   [ -n "$value" ] || return 1
   case "$value" in *$'\n'*|*$'\r'*) return 1 ;; esac
   printf '%s\n' "$value"
 }
 
 fm_remote_job_process_command() {
-  local pid=$1 ps_bin value
-  if [ -x /bin/ps ]; then ps_bin=/bin/ps; elif [ -x /usr/bin/ps ]; then ps_bin=/usr/bin/ps; else return 1; fi
-  value=$("$ps_bin" -p "$pid" -o command= 2>/dev/null) || return 1
+  local pid=$1 value
+  value=$(fm_remote_job_ps_field "$pid" command) || return 1
   [ -n "$value" ] || return 1
   case "$value" in *$'\n'*|*$'\r'*) return 1 ;; esac
   printf '%s\n' "$value"
 }
 
 fm_remote_job_process_pgid() { # <pid>
-  local pid=$1 ps_bin value
-  if [ -x /bin/ps ]; then ps_bin=/bin/ps; elif [ -x /usr/bin/ps ]; then ps_bin=/usr/bin/ps; else return 1; fi
-  value=$("$ps_bin" -p "$pid" -o pgid= 2>/dev/null) || return 1
+  local pid=$1 value
+  value=$(fm_remote_job_ps_field "$pid" pgid) || return 1
   value=$(printf '%s' "$value" | tr -d '[:space:]')
   case "$value" in ''|*[!0-9]*) return 1 ;; esac
   printf '%s\n' "$value"
@@ -1066,7 +1074,7 @@ fm_remote_job_lock_owner_matches_process() {
 }
 
 fm_remote_job_worker_owned_alive() {
-  local root=$1 account_home=$2 lock pid pid_file identity_file command ps_bin
+  local root=$1 account_home=$2 lock pid pid_file identity_file command
   [ "${FM_REMOTE_JOB_ACTIVE:-}" != 1 ] || return 0
   fm_remote_job_prepare_state "$account_home" || return 1
   lock=$(fm_remote_job_worker_lock_path)
@@ -1085,8 +1093,7 @@ fm_remote_job_worker_owned_alive() {
   [ ! -e "$lock/pid" ] && [ ! -L "$lock/pid" ] &&
     [ ! -e "$lock/start" ] && [ ! -L "$lock/start" ] &&
     [ ! -e "$lock/command" ] && [ ! -L "$lock/command" ] || return 1
-  if [ -x /bin/ps ]; then ps_bin=/bin/ps; elif [ -x /usr/bin/ps ]; then ps_bin=/usr/bin/ps; else return 1; fi
-  command=$("$ps_bin" -p "$pid" -o command= 2>/dev/null) || return 1
+  command=$(fm_remote_job_ps_field "$pid" command) || return 1
   case "$command" in *"$root/bin/fm-remote-job-worker.sh"*) FM_REMOTE_JOB_OWNER_PID=$pid; return 0 ;; esac
   return 1
 }
@@ -1218,6 +1225,9 @@ fm_remote_job_start_linux_worker() { # <remote-root> <account-home>
   # another tree beside it on every call is how a stale heartbeat once grew
   # dozens of competing supervisors, so leave it to report ready on its own.
   if fm_remote_job_supervisor_claim_alive; then return 0; fi
+  # Likewise a live, verified owner of the worker lock whose heartbeat is only
+  # late, as under load: a new tree could only wait out that owner and fail.
+  if fm_remote_job_lock_owner_matches_process "$account_home"; then return 0; fi
   # Job control puts the worker tree in its own process group, so a later stop
   # can signal every descendant at once without ever reaching the caller's own
   # group. Without this the group of a leaked worker is the launching command's.

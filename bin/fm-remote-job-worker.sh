@@ -59,9 +59,12 @@
 # the claim is released on exit. Without it, every remote call that saw a stale
 # heartbeat launched another supervisor, and each one kept restarting a serving
 # child that could not take the ownership lock until its restart guard ran out.
-# A stale ownership lock is reclaimed together with the temporary files an
-# owner killed mid-publication leaves in it, so that litter can no longer keep
-# every later worker from starting.
+# A serving child that loses the ownership lock to a live owner - verified, or
+# still heartbeating after the whole acquisition wait - exits 0, so its
+# supervisor ends with it instead of restarting it. A stale ownership lock is
+# reclaimed together with the temporary files an owner killed mid-publication
+# leaves in it, so that litter can no longer keep every later worker from
+# starting.
 set -u
 
 # A non-numeric override falls back to the default rather than crashing the
@@ -227,6 +230,11 @@ worker_acquire_lock() {
       worker_publish_lock_owner || return 1
       return 0
     fi
+    # Released between the mkdir and this check: race for it again.
+    if [ ! -e "$WORKER_LOCK" ] && [ ! -L "$WORKER_LOCK" ]; then
+      attempt=$((attempt + 1))
+      continue
+    fi
     [ -d "$WORKER_LOCK" ] && [ ! -L "$WORKER_LOCK" ] || return 1
     if [ -e "$WORKER_LOCK/quarantine" ] || [ -L "$WORKER_LOCK/quarantine" ]; then
       worker_recover_quarantine "$account_home" || return 3
@@ -243,6 +251,10 @@ worker_acquire_lock() {
     rm -f -- "$WORKER_LOCK/pid" "$WORKER_LOCK/start" "$WORKER_LOCK/command" || return 1
     rmdir "$WORKER_LOCK" || return 1
   done
+  # A worker still heartbeating after the whole wait is serving this queue even
+  # though its identity could not be confirmed. Losing to it is not a failure
+  # to restart from: step aside, which also ends this child's supervisor.
+  fm_remote_job_probe "$account_home" && return 2
   return 1
 }
 
