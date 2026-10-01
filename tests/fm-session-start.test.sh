@@ -2267,6 +2267,48 @@ EOF
   pass "the pure-Bash watchdog bounds session start, kills its hung grandchild, and emits the truncation contract"
 }
 
+# A stale FM_SESSION_START_STAGE_FILE inherited from an unrelated ancestor
+# shell - a leftover export from an earlier, already-finished session start,
+# not one this exact invocation created - must never be read as proof the
+# runtime bound already wraps this process. Reading it that way skips
+# fm_run_timed entirely, so a real hang below runs forever instead of hitting
+# the bound: the breadcrumb this scaffolding relies on to prove the bound
+# still fired is the same absence-of-hang-processes check the sibling case
+# above uses.
+test_stale_stage_file_env_leaves_runtime_bound_intact() {
+  local rec root home fakebin out status=0 stray stale_stage_file
+  rec=$(new_world stale-stage-file)
+  IFS='|' read -r root home fakebin <<EOF
+$rec
+EOF
+  make_fake_toolchain "$fakebin"
+  make_fake_ps_claude "$fakebin"
+  make_hanging_tool "$fakebin" git
+
+  stale_stage_file="$TMP_ROOT/stale-stage-file-does-not-exist"
+  rm -f "$stale_stage_file"
+
+  # Inject the stale value explicitly, whatever the ambient environment holds,
+  # so the guard is exercised even where no marker leaked into this shell.
+  out=$(env -u CLAUDECODE -u PI_CODING_AGENT -u FM_PI_HARNESS -u GROK_AGENT \
+    FM_HOME="$home" FM_ROOT_OVERRIDE="$root" PATH="$fakebin:$BASE_PATH" \
+    FM_TIMEOUT_MECHANISM_OVERRIDE=bash FM_SESSION_START_TIMEOUT=3 FM_STARTUP_NETWORK_TIMEOUT=2 \
+    FM_SESSION_START_STAGE_FILE="$stale_stage_file" \
+    "$SESSION_START") || status=$?
+
+  expect_code 0 "$status" "a stale inherited stage-file marker must not turn the bound into a hang"
+  assert_contains "$out" "STARTUP TRUNCATED - SESSION START HIT ITS" \
+    "a stale inherited stage-file marker suppressed the runtime bound instead of being ignored"
+
+  FM_HOME="$home" FM_ROOT_OVERRIDE="$root" FM_STARTUP_NETWORK_TIMEOUT=2 \
+    "$ROOT/bin/fm-startup-network.sh" wait 30 >/dev/null || true
+  sleep 1
+  stray=$(pgrep -f "$fakebin/git" 2>/dev/null | wc -l | tr -d ' ')
+  [ "$stray" -eq 0 ] || fail "a stale inherited stage-file marker let $stray hung subprocess(es) survive the bound"
+
+  pass "a stale inherited FM_SESSION_START_STAGE_FILE cannot disable the runtime bound"
+}
+
 test_portable_timeout_escalates_term_resistant_process() {
   local fakebin="$TMP_ROOT/portable-kill-after" driver status=0
   mkdir -p "$fakebin"
@@ -3067,6 +3109,7 @@ test_omp_diagnostic_accepts_prelock_loaded_marker
 test_pi_diagnostic_rejects_missing_turnend_guard_marker
 test_pi_diagnostic_rejects_previous_session_loaded_marker
 test_runtime_bound_truncates_loudly_and_exits_zero
+test_stale_stage_file_env_leaves_runtime_bound_intact
 test_portable_timeout_escalates_term_resistant_process
 test_runtime_bound_leaves_a_healthy_digest_untouched
 test_runtime_bound_leaves_harness_ancestry_headroom
