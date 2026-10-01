@@ -26,6 +26,7 @@ STALL_WORKER_PID=
 STALL_REPLACEMENT_PID=
 STALL_JOB_GROUP=
 QUIET_WORKER_PID=
+STORM_ROOT=
 mkdir -p "$REMOTE_ROOT/bin" "$REMOTE_HOME" "$ACCOUNT_HOME" "$RUNTIME_BIN"
 # worker.pid records the serving child, not its restart supervisor, so stopping
 # that pid alone leaves the supervisor to respawn - the leak
@@ -45,6 +46,7 @@ cleanup_remote_job_fixture() {
     wait "$stall_pid" 2>/dev/null || true
   done
   [ -z "$STALL_JOB_GROUP" ] || kill -KILL -- "-$STALL_JOB_GROUP" 2>/dev/null || true
+  [ -z "$STORM_ROOT" ] || storm_stop_all
   if [ -f "$STATE_ROOT/worker.pid" ]; then
     fm_remote_job_stop_worker_tree "$(cat "$STATE_ROOT/worker.pid")" || true
   fi
@@ -682,6 +684,13 @@ for _ in $(seq 1 100); do
 done
 assert_present "$STATE_ROOT/worker.lock/quarantine" "failed shutdown released worker ownership"
 fm_remote_job_probe "$ACCOUNT_HOME" && fail "quarantined worker ownership still reported ready"
+# The original supervisor restarts its child into the same quarantine and stops;
+# until it does, a second supervisor would only step aside beside it.
+for _ in $(seq 1 200); do
+  fm_remote_job_supervisor_claim_alive || break
+  sleep 0.05
+done
+fm_remote_job_supervisor_claim_alive && fail "the original supervisor kept running beside quarantined ownership"
 set +e
 HOME="$ACCOUNT_HOME" FM_ROOT_OVERRIDE="$REMOTE_ROOT" FM_REMOTE_JOB_STATE_ROOT="$STATE_ROOT" \
   FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux "$REMOTE_ROOT/bin/fm-remote-job-worker.sh" \
@@ -1303,5 +1312,131 @@ RESTART_SUPERVISOR_PID=
 assert_grep "remote job worker exited 3 times; stopping the supervisor" "$TMP_ROOT/restart-supervisor.err" \
   "the restart guard did not explain why it stopped"
 pass "barely healthy worker failures remain bounded by the restart guard"
+
+# A stale ownership lock that reclaim cannot empty used to keep every serving
+# child from starting, and every remote call that then saw a stale heartbeat
+# launched another restart supervisor, each restarting its failing child until
+# its restart guard ran out. The wedge below is that lock: a dead owner, an old
+# mtime, and an entry reclaim must not delete.
+STORM_ROOT="$TMP_ROOT/storm-root"
+STORM_HOME="$TMP_ROOT/storm-account"
+STORM_STATE="$TMP_ROOT/storm-state"
+STORM_WORKER="$STORM_ROOT/bin/fm-remote-job-worker.sh"
+cp -R "$REMOTE_ROOT" "$STORM_ROOT"
+mkdir -p "$STORM_HOME"
+# Prints one "<pid> supervisor|serving" line per worker tree process of this
+# fixture. A bash subshell or command substitution keeps its parent's command
+# line, so a process whose parent has the same role is a transient fork, not
+# another tree.
+storm_roles() {
+  ps -A -o pid= -o ppid= -o command= 2>/dev/null | awk -v worker="$STORM_WORKER" '
+    index($0, worker) {
+      rest = substr($0, index($0, worker) + length(worker))
+      if (rest == "") role[$1] = "supervisor"
+      else if (rest == " --serve") role[$1] = "serving"
+      else next
+      parent[$1] = $2
+    }
+    END {
+      for (pid in role)
+        if (role[parent[pid]] != role[pid]) print pid, role[pid]
+    }
+  '
+}
+storm_role_count() { # <roles> <role>
+  printf '%s\n' "$1" | awk -v role="$2" '$2 == role { n++ } END { print n + 0 }'
+}
+# Supervisors alive in both snapshots. A just-launched supervisor exists only
+# until its claim check, so persistence, not a single sample, is the pile-up.
+storm_persisting_supervisors() { # <earlier-roles> <later-roles>
+  printf '%s\n%s\n' "$1" "$2" | awk '$2 == "supervisor" { seen[$1]++ } END { for (pid in seen) if (seen[pid] > 1) n++; print n + 0 }'
+}
+# A supervisor killed between fork and exec leaves an orphaned child that only
+# then becomes a serving process, so repeat until nothing of the fixture runs.
+storm_stop_all() {
+  local pid attempt=0 found
+  while [ "$attempt" -lt 50 ]; do
+    attempt=$((attempt + 1))
+    found=0
+    for pid in $(ps -A -o pid= -o command= 2>/dev/null | awk -v worker="$STORM_WORKER" 'index($0, worker) { print $1 }'); do
+      found=1
+      kill -KILL "$pid" 2>/dev/null || true
+    done
+    [ "$found" -eq 1 ] || return 0
+    sleep 0.1
+  done
+}
+storm_wedge_lock() { # <entry-name>
+  local dead
+  rm -rf -- "$STORM_STATE/worker.lock" "$STORM_STATE/worker.ready" "$STORM_STATE/worker.supervisor"
+  mkdir -p "$STORM_STATE/worker.lock"
+  sleep 30 &
+  dead=$!
+  kill -KILL "$dead"
+  wait "$dead" 2>/dev/null || true
+  printf '%s\n' "$dead" > "$STORM_STATE/worker.lock/pid"
+  printf 'stray\n' > "$STORM_STATE/worker.lock/$1"
+  touch -t 200001010000 "$STORM_STATE/worker.lock"
+}
+# A generous restart budget keeps a failing supervisor alive long enough that a
+# pile-up would be visible within the sampling window.
+storm_supervisor() {
+  HOME="$STORM_HOME" FM_ROOT_OVERRIDE="$STORM_ROOT" FM_REMOTE_JOB_STATE_ROOT="$STORM_STATE" \
+    FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux FM_REMOTE_JOB_SUPERVISOR_MAX_RESTARTS=50 \
+    FM_REMOTE_JOB_SUPERVISOR_MAX_BACKOFF_SECONDS=1 \
+    "$STORM_WORKER" >> "$TMP_ROOT/storm.log" 2>&1 &
+}
+storm_start_path() {
+  (
+    FM_REMOTE_JOB_STATE_ROOT="$STORM_STATE"
+    export FM_REMOTE_JOB_SUPERVISOR_MAX_RESTARTS=50 FM_REMOTE_JOB_SUPERVISOR_MAX_BACKOFF_SECONDS=1
+    fm_remote_job_start_linux_worker "$STORM_ROOT" "$STORM_HOME"
+  )
+}
+( FM_REMOTE_JOB_STATE_ROOT="$STORM_STATE"; fm_remote_job_prepare_state "$STORM_HOME" ) \
+  || fail "the pile-up fixture could not prepare its queue"
+storm_wedge_lock unexpected-entry
+# Both entry points: the ensure path's start, as each remote call runs it, and
+# the supervisor itself launched directly, so the supervisor's own claim is
+# exercised even when the start path's check is raced.
+for _ in 1 2 3 4 5 6; do
+  storm_start_path || fail "the Linux start path refused a wedged queue"
+  storm_supervisor
+done
+sleep 2
+STORM_EARLY=$(storm_roles)
+STORM_MAX_SERVING=0
+for _ in $(seq 1 25); do
+  STORM_SERVING=$(storm_role_count "$(storm_roles)" serving)
+  [ "$STORM_SERVING" -le "$STORM_MAX_SERVING" ] || STORM_MAX_SERVING=$STORM_SERVING
+  sleep 0.2
+done
+STORM_LATE=$(storm_roles)
+STORM_PERSISTING=$(storm_persisting_supervisors "$STORM_EARLY" "$STORM_LATE")
+assert_present "$STORM_STATE/worker.lock/unexpected-entry" "the pile-up fixture lost its wedged ownership lock"
+[ "$STORM_PERSISTING" -ge 1 ] \
+  || fail "no supervisor kept serving the wedged queue, so the pile-up fixture proved nothing"
+[ "$STORM_PERSISTING" -le 1 ] \
+  || fail "a wedged queue kept $STORM_PERSISTING restart supervisors alive"$'\n'"$STORM_LATE"
+[ "$STORM_MAX_SERVING" -le 1 ] \
+  || fail "a wedged queue ran $STORM_MAX_SERVING serving children at once"
+storm_stop_all
+pass "repeated starts against a wedged queue keep at most one supervisor and one serving child"
+
+# An owner killed between mktemp and rename leaves its temporary file in the
+# lock. Reclaim must clear that litter so the next worker starts on its own.
+storm_wedge_lock .pid.AbC123
+( FM_REMOTE_JOB_STATE_ROOT="$STORM_STATE"; fm_remote_job_ensure_worker "$STORM_ROOT" "$STORM_HOME" ) \
+  || fail "a lock holding a killed owner's publication litter kept the worker from starting"
+( FM_REMOTE_JOB_STATE_ROOT="$STORM_STATE"; fm_remote_job_probe "$STORM_HOME" ) \
+  || fail "the worker that reclaimed a littered lock did not report ready"
+STORM_EARLY=$(storm_roles)
+sleep 1
+STORM_LATE=$(storm_roles)
+[ "$(storm_persisting_supervisors "$STORM_EARLY" "$STORM_LATE")" -eq 1 ] \
+  && [ "$(storm_role_count "$STORM_LATE" serving)" -eq 1 ] \
+  || fail "the recovered queue does not run exactly one worker tree"$'\n'"$STORM_LATE"
+storm_stop_all
+pass "a stale ownership lock is reclaimed together with a killed owner's publication litter"
 
 echo "ALL TESTS PASSED"

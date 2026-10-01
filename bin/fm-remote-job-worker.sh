@@ -51,6 +51,17 @@
 # consecutive-failure backoff, but not that total restart guard, so a child
 # that dies just past the healthy threshold cannot restart without bound
 # either. fm-on's ensure path restarts a worker that gave up.
+#
+# At most one Linux restart supervisor serves a queue. Before every start and
+# restart of its serving child, the supervisor takes or confirms the atomic
+# worker.supervisor claim (bin/fm-remote-job-lib.sh owns its format); one that
+# finds another live supervisor's claim exits 0 without starting a child, and
+# the claim is released on exit. Without it, every remote call that saw a stale
+# heartbeat launched another supervisor, and each one kept restarting a serving
+# child that could not take the ownership lock until its restart guard ran out.
+# A stale ownership lock is reclaimed together with the temporary files an
+# owner killed mid-publication leaves in it, so that litter can no longer keep
+# every later worker from starting.
 set -u
 
 # A non-numeric override falls back to the default rather than crashing the
@@ -77,6 +88,7 @@ WORKER_LOCK_HELD=0
 WORKER_LOCK_BOUND=
 WORKER_RELEASE_OWNERSHIP=1
 WORKER_SUPERVISED_PID=
+WORKER_SUPERVISOR_TOKEN=
 WORKER_PREEMPTIBLE=0
 WORKER_PREEMPTED=0
 WORKER_LANE_HOME=
@@ -151,9 +163,15 @@ worker_lock_recent() {
 }
 
 worker_quarantined_execution_stopped() { # <account-home>
-  local account_home=$1 job state kind file pid
+  local account_home=$1
   fm_remote_job_regular_bounded "$WORKER_LOCK/quarantine" 256 || return 1
   fm_remote_job_lock_owner_matches_process "$account_home" && return 1
+  worker_recorded_executions_stopped
+}
+
+# True only when no running job's recorded supervisor or command group is alive.
+worker_recorded_executions_stopped() {
+  local job state kind file pid
   for job in "$FM_REMOTE_JOB_JOBS"/job-*; do
     [ -d "$job" ] && [ ! -L "$job" ] || continue
     state=$(fm_remote_job_read_state "$job" 2>/dev/null || true)
@@ -166,12 +184,39 @@ worker_quarantined_execution_stopped() { # <account-home>
       worker_recorded_execution_alive "$job" "$kind" "$pid" && return 1
     done
   done
+  return 0
 }
 
 worker_recover_quarantine() { # <account-home>
   worker_quarantined_execution_stopped "$1" || return 1
   [ ! -L "$WORKER_LOCK/quarantine" ] || return 1
   rm -f -- "$WORKER_LOCK/quarantine"
+}
+
+# Remove the temporary files an owner killed between mktemp and rename leaves
+# in a stale ownership lock; otherwise the lock directory can never be emptied
+# and no later worker can ever start. Called only once the lock is provably
+# stale: no live matching owner, no fresh heartbeat, and untouched for longer
+# than a publication takes. An interrupted quarantine publication means the
+# owner had not yet confirmed its command tree stopped, so that litter is
+# cleared only after every recorded execution is verified stopped, exactly as
+# a published quarantine is.
+worker_remove_stale_lock_litter() {
+  local file quarantine_litter=0
+  for file in "$WORKER_LOCK"/.pid.* "$WORKER_LOCK"/.start.* "$WORKER_LOCK"/.command.* \
+    "$WORKER_LOCK"/.quarantine.*; do
+    [ -e "$file" ] || [ -L "$file" ] || continue
+    fm_remote_job_regular_bounded "$file" 8192 || return 1
+    case "${file##*/}" in .quarantine.*) quarantine_litter=1 ;; esac
+  done
+  if [ "$quarantine_litter" -eq 1 ]; then
+    worker_recorded_executions_stopped || return 1
+  fi
+  for file in "$WORKER_LOCK"/.pid.* "$WORKER_LOCK"/.start.* "$WORKER_LOCK"/.command.* \
+    "$WORKER_LOCK"/.quarantine.*; do
+    [ -e "$file" ] || continue
+    rm -f -- "$file" || return 1
+  done
 }
 
 worker_acquire_lock() {
@@ -194,6 +239,7 @@ worker_acquire_lock() {
       continue
     fi
     [ ! -L "$WORKER_LOCK/pid" ] && [ ! -L "$WORKER_LOCK/start" ] && [ ! -L "$WORKER_LOCK/command" ] || return 1
+    worker_remove_stale_lock_litter || return 1
     rm -f -- "$WORKER_LOCK/pid" "$WORKER_LOCK/start" "$WORKER_LOCK/command" || return 1
     rmdir "$WORKER_LOCK" || return 1
   done
@@ -1208,18 +1254,61 @@ worker_supervisor_shutdown() {
   exit 0
 }
 
+# Take or confirm this supervisor's single-instance claim. Returns 0 when this
+# supervisor holds it, 1 when another live supervisor does, and 2 when the
+# claim path is not a symlink or cannot be written. A dead claimant's claim is
+# replaced. Two supervisors reclaiming the same dead claim at once can both
+# briefly believe they hold it; the loser sees the winner's live claim at its
+# next restart and stops, and the worker ownership lock still keeps their
+# serving children from both serving meanwhile.
+worker_supervisor_claim() {
+  local claim current attempt=0
+  claim=$(fm_remote_job_worker_supervisor_path)
+  while [ "$attempt" -lt 3 ]; do
+    attempt=$((attempt + 1))
+    ln -s "$WORKER_SUPERVISOR_TOKEN" "$claim" 2>/dev/null && return 0
+    [ -L "$claim" ] || return 2
+    current=$(readlink "$claim" 2>/dev/null) || continue
+    [ "$current" != "$WORKER_SUPERVISOR_TOKEN" ] || return 0
+    fm_remote_job_supervisor_token_alive "$current" && return 1
+    rm -f -- "$claim"
+  done
+  return 2
+}
+
+worker_supervisor_release() {
+  local claim
+  [ -n "${WORKER_SUPERVISOR_TOKEN:-}" ] || return 0
+  claim=$(fm_remote_job_worker_supervisor_path)
+  [ "$(readlink "$claim" 2>/dev/null || true)" = "$WORKER_SUPERVISOR_TOKEN" ] || return 0
+  rm -f -- "$claim"
+}
+
 worker_supervise_linux() {
-  local account_home child_status started failures=0 restarts=0 backoff
+  local account_home child_status started failures=0 restarts=0 backoff claim_status
   account_home=$(worker_account_home) || { worker_error "cannot resolve account home"; return 1; }
   FM_ROOT=$(fm_remote_job_canonical_existing_dir "$FM_ROOT") || { worker_error "configured FM_ROOT is unsafe"; return 1; }
   [ -f "$FM_ROOT/AGENTS.md" ] && [ ! -L "$FM_ROOT/AGENTS.md" ] || { worker_error "FM_ROOT is not a Firstmate checkout"; return 1; }
   fm_remote_job_prepare_state "$account_home" || { worker_error "$FM_REMOTE_JOB_ERROR"; return 1; }
+  WORKER_SUPERVISOR_TOKEN=$(fm_remote_job_supervisor_token "${BASHPID:-$$}") \
+    || { worker_error "cannot read this supervisor's process identity"; return 1; }
+  trap worker_supervisor_release EXIT
   trap worker_supervisor_shutdown HUP INT TERM
   while :; do
     if worker_code_root_abandoned; then
       worker_error "configured FM_ROOT $FM_ROOT no longer exists; stopping the abandoned worker supervisor"
       return 0
     fi
+    # Checked before every start and restart, not only once, so a supervisor
+    # that lost a reclaim race stops instead of restarting beside the winner.
+    # Stepping aside is silent: another tree already serves this queue.
+    worker_supervisor_claim
+    claim_status=$?
+    case "$claim_status" in
+      0) ;;
+      1) WORKER_SUPERVISOR_TOKEN=; return 0 ;;
+      *) worker_error "cannot take the single-supervisor claim $(fm_remote_job_worker_supervisor_path)"; return 1 ;;
+    esac
     started=$SECONDS
     "$SCRIPT_DIR/fm-remote-job-worker.sh" --serve &
     WORKER_SUPERVISED_PID=$!

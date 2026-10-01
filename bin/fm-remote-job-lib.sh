@@ -89,11 +89,13 @@
 # just killed. fm_remote_job_stop_worker_tree owns that stop and refuses to
 # signal a group whose leader is not itself a worker, so a worker inherited
 # from an older build or from launchd's own session is still stopped safely as
-# a single process. fm_remote_job_root_is_live is the shared predicate for
-# whether a worker's code root still exists; bin/fm-remote-job-worker.sh uses
-# it to stop itself once its root is pruned, and
-# bin/fm-remote-job-reap-orphans.sh uses it to reap workers that were already
-# orphaned that way.
+# a single process. The start path also never launches a second tree while a
+# live supervisor holds the queue's single-instance claim
+# (fm_remote_job_supervisor_claim_alive). fm_remote_job_root_is_live is the
+# shared predicate for whether a worker's code root still exists;
+# bin/fm-remote-job-worker.sh uses it to stop itself once its root is pruned,
+# and bin/fm-remote-job-reap-orphans.sh uses it to reap workers that were
+# already orphaned that way.
 
 FM_REMOTE_JOB_LABEL=dev.firstmate.remote-job
 FM_REMOTE_JOB_MAX_BYTES=${FM_REMOTE_JOB_MAX_BYTES:-1048576}
@@ -914,6 +916,7 @@ fm_remote_job_worker_pid_path() { printf '%s\n' "$FM_REMOTE_JOB_STATE/worker.pid
 fm_remote_job_worker_ready_path() { printf '%s\n' "$FM_REMOTE_JOB_STATE/worker.ready"; }
 fm_remote_job_worker_identity_path() { printf '%s\n' "$FM_REMOTE_JOB_STATE/worker.identity"; }
 fm_remote_job_worker_lock_path() { printf '%s\n' "$FM_REMOTE_JOB_STATE/worker.lock"; }
+fm_remote_job_worker_supervisor_path() { printf '%s\n' "$FM_REMOTE_JOB_STATE/worker.supervisor"; }
 
 fm_remote_job_process_start() {
   local pid=$1 ps_bin value
@@ -1001,6 +1004,36 @@ fm_remote_job_stop_worker_tree() { # <pid>
   else
     ! kill -0 "$pid" 2>/dev/null
   fi
+}
+
+# The Linux restart supervisor's single-instance claim is the worker.supervisor
+# symlink, whose target text is "<pid>|<process start>" rather than a path, so
+# creating it is one atomic ln -s that needs no flock or perl. The start time
+# keeps a reused pid from impersonating a dead claimant. The worker header owns
+# how the supervisor takes, re-verifies, and releases the claim.
+fm_remote_job_supervisor_token() { # <pid>
+  local pid=$1 start
+  start=$(fm_remote_job_process_start "$pid") || return 1
+  printf '%s|%s\n' "$pid" "$start"
+}
+
+fm_remote_job_supervisor_token_alive() { # <token>
+  local token=$1 pid start
+  pid=${token%%|*}
+  start=${token#*|}
+  case "$pid" in ''|*[!0-9]*) return 1 ;; esac
+  [ "$pid" -gt 1 ] && [ -n "$start" ] && [ "$start" != "$token" ] || return 1
+  [ "$(fm_remote_job_process_start "$pid" 2>/dev/null || true)" = "$start" ]
+}
+
+# True while a live supervisor holds this queue's claim, so a caller must not
+# start a second worker tree beside it.
+fm_remote_job_supervisor_claim_alive() {
+  local claim token
+  claim=$(fm_remote_job_worker_supervisor_path)
+  [ -L "$claim" ] || return 1
+  token=$(readlink "$claim" 2>/dev/null) || return 1
+  fm_remote_job_supervisor_token_alive "$token"
 }
 
 fm_remote_job_read_single_line() {
@@ -1180,6 +1213,11 @@ fm_remote_job_start_linux_worker() { # <remote-root> <account-home>
     wait "$pid" 2>/dev/null || true
     FM_REMOTE_JOB_REPAIRED=1
   fi
+  # A live supervisor already owns this queue, whether its serving child is
+  # starting, restarting, or merely slow to refresh its heartbeat. Starting
+  # another tree beside it on every call is how a stale heartbeat once grew
+  # dozens of competing supervisors, so leave it to report ready on its own.
+  if fm_remote_job_supervisor_claim_alive; then return 0; fi
   # Job control puts the worker tree in its own process group, so a later stop
   # can signal every descendant at once without ever reaching the caller's own
   # group. Without this the group of a leaked worker is the launching command's.
