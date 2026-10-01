@@ -475,6 +475,11 @@ FM_COMPOSER_IDLE_RE_DEFAULT='^Type a message\.\.\.$|^Ask anything(\.\.\.|…)|^P
 # ("Build · GPT-5.5 Fast OpenAI · high"). It is composer furniture, not typed
 # text, and only the run's LAST row is ever matched against it.
 FM_COMPOSER_LEFTBAR_FOOTER_RE_DEFAULT='^(Build|Plan)[[:space:]]+·[[:space:]]+'
+# Opencode also draws a keybind hint row directly under the left bar's half-block
+# floor ("tab agents  ctrl+p commands", with the busy hint folded into the same
+# row; verified live on opencode 1.18.33). Only the row IMMEDIATELY below a
+# proven floor is matched, so it never hides a lower live shape.
+FM_COMPOSER_LEFTBAR_HINT_RE_DEFAULT='ctrl\+p[[:space:]]+commands[[:space:]]*$'
 # Claude draws its permission-mode hint on its own row directly below the
 # composer (` ⏵⏵ bypass permissions on (shift+tab to cycle)`, ` ⏵⏵ accept edits
 # on`, ` ⏸ plan mode on`; verified live through Herdr on claude 2.1.236). The
@@ -1516,6 +1521,13 @@ _fm_composer_select_cursorless() {
       fm_composer_normalize_trim_var trimmed
       if _fm_composer_leftbar_floor_row "$trimmed"; then
         boundary=$next
+        raw=$(_fm_composer_screen_row "$((boundary + 1))" "$plain")
+        trimmed=$raw
+        fm_composer_normalize_trim_var trimmed
+        if fm_composer_idle_matches "$trimmed" \
+           "${FM_COMPOSER_LEFTBAR_HINT_RE:-$FM_COMPOSER_LEFTBAR_HINT_RE_DEFAULT}" sensitive; then
+          boundary=$((boundary + 1))
+        fi
       fi
     fi
     # The same footer zone, read from the other side: rows this envelope's own

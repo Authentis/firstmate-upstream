@@ -876,6 +876,27 @@ test_cursorless_container_rejects_contiguous_lower_activity() {
   pass "fm_composer_classify_screen: cursorless containers reject only contiguous unclaimed activity"
 }
 
+test_opencode_keybind_hint_below_floor() {
+  # opencode 1.18.33 (captured live in a Herdr lab) draws `tab agents  ctrl+p
+  # commands` on the row directly under the left bar's half-block floor, which
+  # used to read as a lower live shape and made an empty composer `unknown`.
+  local hint idle typed activity
+  hint='                                                                      tab agents  ctrl+p commands'
+  idle=$'\n                      ┃\n                      ┃  Ask anything… "Fix broken tests"\n                      ┃\n                      ┃  Build · MiMo-V2.6-Flash Free OpenCode Zen\n                      ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀\n'"$hint"$'\n\n\n   ● Tip Run /connect to add an AI provider and start coding\n\n  /tmp/work   1.18.33'
+  typed=${idle/'Ask anything… "Fix broken tests"'/'FM doorbell: read the inbox'}
+  assert_screen "opencode hint row under floor, idle, on herdr" empty "$CAPS_STYLED" "$idle"
+  assert_screen "opencode hint row under floor, idle, plain" empty "$CAPS_PLAIN" "$idle"
+  assert_screen "opencode hint row under floor, typed, styled" pending "$CAPS_STYLED" "$typed"
+  assert_screen "opencode hint row under floor, typed, plain stays unproven" unknown "$CAPS_PLAIN" "$typed"
+  # The hint row is only furniture when it IS the hint: live activity directly
+  # under the floor, or under the floor plus a hint, still refuses.
+  activity=${idle/"$hint"/'Working on request...'}
+  assert_screen "opencode activity row under floor still refuses" unknown "$CAPS_STYLED" "$activity"
+  activity=${idle/"$hint"/"$hint"$'\nWorking on request...'}
+  assert_screen "opencode live row under the hint row still refuses" unknown "$CAPS_STYLED" "$activity"
+  pass "fm_composer_classify_screen: opencode's keybind hint under the left-bar floor is furniture, not a lower shape"
+}
+
 test_bottom_most_candidate_wins() {
   # The one ranking rule: the live composer is bottom-anchored, so a stale
   # decorative box (codex's startup banner) can never outrank the real row
@@ -981,6 +1002,7 @@ test_matrix_codex_idle_starfield_furniture
 test_matrix_pi_separated_needs_identity
 test_matrix_pi_dollar_status_footer_is_empty
 test_matrix_opencode_leftbar_signals
+test_opencode_keybind_hint_below_floor
 test_matrix_grok_titled_bottom_border
 test_matrix_kimi_bordered_shell_glyph_box
 test_matrix_claude_inside_zellij_ansi_dump

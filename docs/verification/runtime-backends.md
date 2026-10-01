@@ -2419,3 +2419,11 @@ A throwaway scout was spawned through `bin/fm-spawn.sh --scout --harness omp --m
 6. `bin/fm-control.sh <id> exit` stopped the agent and `bin/fm-teardown.sh` returned the worktree and closed the item.
 
 `FM_OMP_LIVE_E2E=1 tests/fm-omp-primary-live-e2e.test.sh` refreshes the primary evidence; the worker path above is refreshed by repeating the scout dispatch after any omp upgrade.
+
+## opencode composer on Herdr (2026-10-01)
+
+opencode 1.18.33 draws a `tab agents  ctrl+p commands` hint on the row directly under its left bar's `╹▀▀▀` floor.
+That row used to read as a lower live shape, so an idle composer classified `unknown`, and `fm-control exit` and `relaunch` refused it as not proven empty.
+`fm_composer_classify_screen` now treats that hint, only when it sits immediately under the floor, as composer furniture.
+Verified in a named Herdr lab: `herdr pane read --source visible` of an idle `opencode` classifies `empty`, the same pane holding typed text classifies `pending` when styled.
+`tests/fm-composer-lib.test.sh` (`test_opencode_keybind_hint_below_floor`) pins the classifier without a harness.
