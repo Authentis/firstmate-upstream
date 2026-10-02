@@ -158,14 +158,25 @@ fm_tmux_composer_state() {  # <target> -> empty|pending|pending-unproven|unknown
   # Cursor Agent CLI parks its terminal cursor OUTSIDE its composer, below the
   # footer, with #{cursor_flag} 0 - so on a Cursor pane tmux's cursor row is not
   # a composer locator and the cursor-anchored read can only ever answer
-  # `unknown`. Reclassify that pane the way every cursorless backend already
-  # classifies it, letting the bottom-most shape win, which is the same rule
-  # herdr, zellij, cmux, and orca use for every harness including this one.
-  # Gated on Cursor's own structural process identity, never on the verdict
-  # alone, so the strict blank-row posture that owns `unknown` for every other
-  # harness is untouched.
-  if [ "$verdict" = unknown ] && fm_tmux_pane_is_cursor "$target"; then
+  # `unknown`. Command Code does the same: it draws its own reverse-video cursor
+  # cell and parks the terminal cursor on a blank row below its status rows
+  # (verified, commandcode 1.73.4). Reclassify such a pane the way every
+  # cursorless backend already classifies it, letting the bottom-most shape win,
+  # which is the same rule herdr, zellij, cmux, and orca use for every harness
+  # including these. Gated on the harness's own structural process identity,
+  # never on the verdict alone, so the strict blank-row posture that owns
+  # `unknown` for every other harness is untouched. Command Code's composer row
+  # sits between two solid rules, the Pi separator shape, so the cursorless read
+  # can ask for identity exactly as the cursor-anchored read above can.
+  if [ "$verdict" = unknown ] && { fm_tmux_pane_is_cursor "$target" || fm_tmux_pane_is_commandcode "$target"; }; then
     verdict=$(fm_composer_classify_screen "$(fm_tmux_composer_caps)" "$pane" '')
+    if [ "$verdict" = need-identity ]; then
+      if [ -z "${identity:-}" ] && { ! identity=$(fm_tmux_composer_identity "$target") || [ -z "$identity" ]; }; then
+        identity='probe-absent'
+      fi
+      verdict=$(fm_composer_classify_screen "$(fm_tmux_composer_caps)" "$pane" '' "$identity")
+      [ "$verdict" != need-identity ] || verdict=unknown
+    fi
   fi
   printf '%s' "$verdict"
 }
@@ -190,6 +201,23 @@ fm_tmux_pane_is_cursor() {  # <target>
     fm_cursor_process_matches "$comm" '' "$argv0" && return 0
   done <<EOF
 $(LC_ALL=C ps -t "${tty#/dev/}" -o pid=,pgid=,tpgid=,comm= 2>/dev/null)
+EOF
+  return 1
+}
+
+# fm_tmux_pane_is_commandcode: true when the pane's FOREGROUND process group
+# contains a Command Code process, identified by the exact process title its TUI
+# sets (bin/fm-agent-process-lib.sh owns that name). Foreground-scoped like
+# fm_tmux_pane_is_cursor, so an exited agent's pane gets no reclassification.
+fm_tmux_pane_is_commandcode() {  # <target>
+  local target=$1 tty pgid tpgid comm
+  tty=$(tmux display-message -p -t "$target" '#{pane_tty}' 2>/dev/null) || return 1
+  case "$tty" in /dev/*) ;; *) return 1 ;; esac
+  while read -r pgid tpgid comm; do
+    [ "$pgid" = "$tpgid" ] || continue
+    [ "${comm##*/}" = command-code ] && return 0
+  done <<EOF
+$(LC_ALL=C ps -t "${tty#/dev/}" -o pgid=,tpgid=,comm= 2>/dev/null)
 EOF
   return 1
 }

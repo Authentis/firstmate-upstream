@@ -414,5 +414,68 @@ fi
   || fail "a dead-shell pane still showing Cursor's composer must never read empty"
 pass "cursor composer: a stale Cursor screen over a dead shell never reads empty"
 
+# --- Command Code's composer: same parked cursor, different placeholder proof ---
+# Command Code 1.73.4 draws its `❯` composer row between two solid rules, with
+# status rows below and the terminal cursor parked on a blank row past them. Its
+# idle placeholder is NOT dim: the reverse-video cursor cell sits on the first
+# letter and the rest is an explicit muted truecolor grey above the ghost
+# luminance ceiling, while typed text is default-foreground with the cursor cell
+# after it. Reproduced byte-for-byte from a live 1.73.4 capture.
+ln -s "$STANDIN_BIN" "$LAB/bin/command-code"
+ln -s "$STANDIN_BIN" "$LAB/bin/command-coder"
+commandcode_screen() {  # <idle|typed|typed-home> [text]
+  local rule body
+  rule=$(printf '\033[38;2;138;148;168m%s\033[39m' "$(printf '─%.0s' $(seq 1 60))")
+  case "$1" in
+    idle) body=$(printf '\033[39m❯ \033[7mA\033[0m\033[38;2;138;148;168msk your question...\033[39m') ;;
+    typed) body=$(printf '\033[39m❯ %s\033[7m \033[0m' "$2") ;;
+    typed-home) body=$(printf '\033[39m❯ \033[7m%s\033[0m%s' "${2:0:1}" "${2:1}") ;;
+  esac
+  printf '\n%s\n%s\n%s\n  \033[38;2;232;64;87m» permission bypass on\033[39m\n  ? for shortcuts · taste on\n\n\n\n' \
+    "$rule" "$body" "$rule"
+}
+open_commandcode_pane() {  # <window> <binary> <shape> [text]
+  local window=$1 binary=$2
+  shift 2
+  new_window "$window" bash -c "$(declare -f commandcode_screen); commandcode_screen $(printf '%q ' "$@"); exec '$binary' 900"
+  local i=0
+  while [ "$i" -lt 100 ]; do
+    case "$("$REAL_TMUX" -L "$SOCKET" capture-pane -p -t "$SESSION:$window" 2>/dev/null)" in
+      *'for shortcuts'*) return 0 ;;
+    esac
+    sleep 0.1
+    i=$((i + 1))
+  done
+  fail "pane $window never rendered its composer"
+}
+
+open_commandcode_pane cc-idle "$LAB/bin/command-code" idle
+fm_tmux_pane_is_commandcode "$SESSION:cc-idle" \
+  || fail "a pane whose foreground process is command-code must be identified as Command Code"
+[ "$(cursor_anchored_verdict "$SESSION:cc-idle")" = unknown ] \
+  || fail "the cursor-anchored source must be blind on Command Code's parked cursor, or this case proves nothing"
+[ "$(fm_tmux_composer_state "$SESSION:cc-idle")" = empty ] \
+  || fail "an idle Command Code composer must read empty, or steering never reaches the worker"
+pass "commandcode composer: an idle pane reads empty although its placeholder survives ghost stripping"
+
+open_commandcode_pane cc-typed "$LAB/bin/command-code" typed 'half typed text'
+[ "$(fm_tmux_composer_state "$SESSION:cc-typed")" = pending ] \
+  || fail "a typed Command Code draft must read pending"
+open_commandcode_pane cc-placeholder-typed "$LAB/bin/command-code" typed 'Ask your question...'
+[ "$(fm_tmux_composer_state "$SESSION:cc-placeholder-typed")" = pending ] \
+  || fail "the placeholder text typed by a human (default foreground, cursor after it) must read pending"
+open_commandcode_pane cc-placeholder-home "$LAB/bin/command-code" typed-home 'Ask your question...'
+[ "$(fm_tmux_composer_state "$SESSION:cc-placeholder-home")" = pending ] \
+  || fail "typed placeholder text with the cursor moved home must still read pending: its body is default foreground"
+pass "commandcode composer: typed text, even the placeholder's own words, still reads pending"
+
+open_commandcode_pane cc-decoy "$LAB/bin/command-coder" idle
+if fm_tmux_pane_is_commandcode "$SESSION:cc-decoy"; then
+  fail "an unanchored name must not identify as Command Code"
+fi
+[ "$(fm_tmux_composer_state "$SESSION:cc-decoy")" = unknown ] \
+  || fail "the reclassification must be gated on Command Code's own process identity"
+pass "commandcode composer: an identical screen stays unknown when the pane is not Command Code"
+
 cleanup_all
 trap - EXIT

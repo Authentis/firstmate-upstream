@@ -353,6 +353,7 @@ fm_composer_strip_ghost() {
 # Delivery-only rendered busy footers per harness. claude/codex: "esc to
 # interrupt"; opencode: "esc interrupt"; pi: "Working..."; omp: "Working…"; grok: "Ctrl+c:cancel"; agy: "esc to cancel";
 # devin: "esc twice to interrupt" and its "❭ Guide Devin while it works" working composer.
+# commandcode: "esc to interrupt" and its "• <n>s • ↓" elapsed and token cells.
 # Claude's current spinner has a rotating glyph and word, but every active-turn
 # line has an ellipsis followed by a parenthesized elapsed duration. Keep this
 # signature separate from the shared default because that shape is not generic
@@ -383,6 +384,11 @@ FM_DELIVERY_CLAUDE_BUSY_REGEX_DEFAULT='esc to interrupt|…[[:space:]]+\([0-9]+[
 # delivery signals. Neither is used as semantic worker-state evidence.
 FM_DELIVERY_DEVIN_BUSY_REGEX_DEFAULT='esc twice to interrupt|^[[:space:]]*❭ Guide Devin while it works$'
 FM_DELIVERY_CODEX_BUSY_REGEX_DEFAULT='esc to interrupt'
+# Command Code 1.73.4 renders one status row for the whole running turn:
+# `<spinner> <verb>…  esc to interrupt • 2m 8s • ↓ 920`. The interrupt hint and the
+# elapsed-plus-token cells are matched independently, so neither vendor string
+# alone is load-bearing (verified live, commandcode 1.73.4 in tmux).
+FM_DELIVERY_COMMANDCODE_BUSY_REGEX_DEFAULT='esc to interrupt|•[[:space:]]+[0-9]+[smh]([[:space:]]+[0-9]+[smh])*[[:space:]]+•[[:space:]]+↓'
 FM_DELIVERY_OPENCODE_BUSY_REGEX_DEFAULT='esc interrupt'
 FM_DELIVERY_PI_BUSY_REGEX_DEFAULT='Working\.\.\.'
 # omp (Oh My Pi) renders its TUI busy line as `Working…` with U+2026 HORIZONTAL
@@ -430,6 +436,7 @@ fm_busy_lines_match() {  # [harness]
     case "$harness" in
       claude) regex=$FM_DELIVERY_CLAUDE_BUSY_REGEX_DEFAULT ;;
       devin) regex=$FM_DELIVERY_DEVIN_BUSY_REGEX_DEFAULT ;;
+      commandcode) regex=$FM_DELIVERY_COMMANDCODE_BUSY_REGEX_DEFAULT ;;
       codex) regex=$FM_DELIVERY_CODEX_BUSY_REGEX_DEFAULT ;;
       opencode) regex=$FM_DELIVERY_OPENCODE_BUSY_REGEX_DEFAULT ;;
       pi|pi-signed) regex=$FM_DELIVERY_PI_BUSY_REGEX_DEFAULT ;;
@@ -467,9 +474,14 @@ FM_COMPOSER_SHELL_PROMPT_GLYPHS=$(printf '%s\n' '>' '$' '%' '#')
 # `Add a follow-up` once a turn has completed (verified live on cursor-agent
 # 2026.08.11-e8db854). Devin renders the anchored `Ask Devin to build features,
 # fix bugs, or work on your code` as dim text after its `❭` glyph (verified
-# live, devin 3000.11.1). FM_COMPOSER_IDLE_RE overrides for an unverified harness;
+# live, devin 3000.11.1). Command Code renders the anchored `Ask your
+# question...` after its `❯` glyph, idle and mid-turn alike, in a muted
+# truecolor grey that sits ABOVE the ghost luminance ceiling, so ghost stripping
+# keeps it; _fm_composer_row_is_cursor_placeholder below owns the styling proof
+# that tells it from typed text (verified live, commandcode 1.73.4).
+# FM_COMPOSER_IDLE_RE overrides for an unverified harness;
 # matching is case-insensitive.
-FM_COMPOSER_IDLE_RE_DEFAULT='^Type a message\.\.\.$|^Ask anything(\.\.\.|…)|^Plan, search, build anything$|^Add a follow-up$|^Ask Devin to build features, fix bugs, or work on your code$'
+FM_COMPOSER_IDLE_RE_DEFAULT='^Type a message\.\.\.$|^Ask anything(\.\.\.|…)|^Plan, search, build anything$|^Add a follow-up$|^Ask Devin to build features, fix bugs, or work on your code$|^Ask your question\.\.\.$'
 
 # Opencode draws a mode/model footer line INSIDE its left-bar composer
 # ("Build · GPT-5.5 Fast OpenAI · high"). It is composer furniture, not typed
@@ -1185,7 +1197,7 @@ _fm_composer_classify_rows() {  # <screen> <styled> <ambiguous> <first-row> <las
 # be the harness's own idle suggestion (claude's rotating dim hint, codex's
 # `Use /skills ...`), so it must read `unknown` rather than a false `pending`.
 _fm_composer_classify_bare_row() {  # <screen> <styled> <row>
-  local screen=$1 styled=$2 row=$3 raw content plain state
+  local screen=$1 styled=$2 row=$3 raw content plain state body glyph=''
   raw=$(_fm_composer_screen_row "$row" "$screen")
   content=$(_fm_composer_row_content "$raw" "$styled")
   plain=$(_fm_composer_row_content "$raw" 0)
@@ -1197,7 +1209,91 @@ _fm_composer_classify_bare_row() {  # <screen> <styled> <row>
     printf 'unknown'
     return 0
   fi
+  # A placeholder that survived ghost stripping still reads `pending` above.
+  # It is furniture only when the row's own styling proves it: see
+  # _fm_composer_row_is_cursor_placeholder.
+  if [ "$state" = pending ] && [ "$styled" = 1 ]; then
+    body=$plain
+    if fm_composer_leading_agent_glyph_var glyph "$body"; then
+      body=${body#*"$glyph"}
+      fm_composer_normalize_trim_var body
+      if fm_composer_idle_matches "$body" "${FM_COMPOSER_IDLE_RE:-$FM_COMPOSER_IDLE_RE_DEFAULT}" insensitive \
+         && printf '%s\n' "$raw" | _fm_composer_row_is_cursor_placeholder; then
+        state=empty
+      fi
+    fi
+  fi
   printf '%s' "$state"
+}
+
+# _fm_composer_row_is_cursor_placeholder: 0 when one styled bare-glyph row
+# (stdin) is drawn the way an idle placeholder is and typed input never is.
+# Command Code 1.73.4 draws its idle `Ask your question...` with its own
+# reverse-video cursor cell on the FIRST letter and the rest in an explicit
+# muted truecolor foreground (`❯ ESC[7mA ESC[0m ESC[38;2;138;148;168m sk your
+# question...`), while typed text is default-foreground with the cursor cell
+# AFTER it (`❯ hello ESC[7m ESC[0m`), and neither NO_COLOR nor a 256-colour
+# terminal makes the placeholder dim (verified live in tmux). Three independent
+# facts must all hold, so a human who typed the placeholder text, or typed it and
+# moved the cursor home, still reads `pending`:
+#   - the first visible cell after the glyph is reverse video (the cursor),
+#   - every later non-blank cell is not reverse video, and
+#   - every later non-blank cell carries an explicit non-default foreground.
+# The caller additionally requires the plain row to match an anchored idle
+# placeholder. Under LC_ALL=C awk walks bytes, so the multibyte glyph and text
+# pass through as visible bytes without locale-dependent classes.
+_fm_composer_row_is_cursor_placeholder() {
+  LC_ALL=C awk '
+    function apply(params,   n, a, k, code) {
+      if (params == "") params = "0"
+      n = split(params, a, ";")
+      for (k = 1; k <= n; k++) {
+        code = a[k]
+        sub(/:.*/, "", code)
+        if (code == "" || code == "0") { rev = 0; fg = 0 }
+        else if (code == "7") rev = 1
+        else if (code == "27") rev = 0
+        else if (code == "39") fg = 0
+        else if (code == "38") { fg = 1; if (index(a[k], ":") == 0) { if (a[k + 1] == "2") k += 4; else if (a[k + 1] == "5") k += 2 } }
+        else if ((code >= 30 && code <= 37) || (code >= 90 && code <= 97)) fg = 1
+        else if (code == "48") { if (index(a[k], ":") == 0) { if (a[k + 1] == "2") k += 4; else if (a[k + 1] == "5") k += 2 } }
+      }
+    }
+    {
+      line = $0; n = length(line); i = 1; rev = 0; fg = 0
+      phase = 0; ok = 1; rest = 0
+      while (i <= n) {
+        c = substr(line, i, 1)
+        if (c == "\033") {
+          j = i + 1
+          if (substr(line, j, 1) == "[") {
+            j++; params = ""
+            while (j <= n && substr(line, j, 1) ~ /[0-9;:?]/) { params = params substr(line, j, 1); j++ }
+            if (substr(line, j, 1) == "m") apply(params)
+            i = j + 1
+          } else {
+            i = j + 1
+          }
+          continue
+        }
+        blank = (c == " " || c == "\t")
+        # phase 0: leading blanks; 1: the glyph; 2: blanks after the glyph;
+        # 3: the reverse-video cursor cell; 4: the placeholder body.
+        if (phase == 0) { if (!blank) phase = 1 }
+        else if (phase == 1) { if (blank) phase = 2 }
+        else if (phase == 2) {
+          if (!blank) { if (!rev) { ok = 0; break } ; phase = 3 }
+        } else if (phase == 3) {
+          if (!rev) { phase = 4; if (!blank) { if (!fg) { ok = 0; break } ; rest++ } }
+        } else if (!blank) {
+          if (rev || !fg) { ok = 0; break }
+          rest++
+        }
+        i++
+      }
+      exit (ok && phase == 4 && rest > 0) ? 0 : 1
+    }
+  '
 }
 
 # _fm_composer_row_is_omp_status: 0 when the trimmed row is omp's status line
