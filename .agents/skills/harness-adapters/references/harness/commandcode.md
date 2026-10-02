@@ -1,6 +1,6 @@
 # Command Code
 
-Verified on 2026-10-02 with Command Code CLI 1.73.4 on the GOAT plan.
+Verified on 2026-10-02 with Command Code CLI 1.73.4 and 1.74.0 on the GOAT plan.
 The router owns the crewmate/scout-only boundary; primary and secondmate integration is unsupported.
 [Verification evidence](../../../../../docs/verification/commandcode.md) and its live guard refresh the vendor facts below.
 
@@ -34,6 +34,8 @@ Linux process-name identity is inferred from the same vendor process title and i
 
 `../../../../../bin/fm-composer-lib.sh` owns the verified `❯` composer row between two solid rules, the `Ask your question...` placeholder proof, and the busy row.
 The idle placeholder is rendered at default-like brightness, so it reads empty only when its first cell is the reverse-video cursor and every later cell carries an explicit non-default foreground; typed text renders in the default foreground and stays a draft.
+Beside that cursor proof, either the known placeholder text or a body drawn in the foreground of the rule above it identifies the placeholder, so no single vendor string is load-bearing.
+A row's trailing carriage return, which Herdr's ANSI read emits, is a row ending rather than a typed cell.
 Command Code parks the terminal cursor below its status rows, so `../../../../../bin/fm-tmux-lib.sh` reclassifies its cursor-anchored read from the identified pane.
 `NO_COLOR` removes the cursor cell, so the launch unsets it.
 The `../../../../../bin/fm-task-inbox-lib.sh` doorbell was read and acknowledged through real `fm-send`.

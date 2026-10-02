@@ -2,10 +2,10 @@
 
 Audience: maintainer verification.
 
-Verified 2026-10-02 on macOS arm64 with Command Code CLI `1.73.4` on the GOAT plan, using model `deepseek/deepseek-v4.1-flash`.
+Verified 2026-10-02 on macOS arm64 with Command Code CLI `1.73.4` and `1.74.0` on the GOAT plan, using model `deepseek/deepseek-v4.1-flash`.
 The [adapter reference](../../.agents/skills/harness-adapters/references/harness/commandcode.md) owns operating facts; executable owners carry launch and state mechanics.
 This verification covers crewmates and scouts, with tmux as the exercised runtime backend.
-Herdr, primary, secondmate, and quota-provider integration are outside this guarantee.
+Herdr's composer read is pinned by a captured idle pane; Herdr dispatch, primary, secondmate, and quota-provider integration are outside this guarantee.
 
 ## Refresh commands
 
@@ -27,9 +27,15 @@ Failures name the installed Command Code version.
 
 ## Live guard result
 
-On 2026-10-02 the guard completed with exit 0 in 104 seconds:
+On 2026-10-02 the guard completed with exit 0 against both versions.
+The globally installed CLI was `1.73.4`; `1.74.0` ran from a separate `npm install --prefix <dir> command-code@1.74.0` whose `node_modules/.bin` led `PATH`:
 
 ```text
+ok - commandcode 1.74.0: spawn brief, model, autonomy, trust, identity and run_end idle
+ok - commandcode 1.74.0: no attribution, no workspace files in git, session-only effort, global config untouched
+ok - commandcode 1.74.0: idle composer reads empty; real fm-send doorbell read and acknowledged
+ok - commandcode 1.74.0: single Escape cancels, keeps the agent, and the mod records idle
+ok - commandcode 1.74.0: /exit through the control plane
 ok - commandcode 1.73.4: spawn brief, model, autonomy, trust, identity and run_end idle
 ok - commandcode 1.73.4: no attribution, no workspace files in git, session-only effort, global config untouched
 ok - commandcode 1.73.4: idle composer reads empty; real fm-send doorbell read and acknowledged
@@ -54,8 +60,11 @@ The mod received `run_start`, `turn_end`, and `run_end`, and `run_end` also fire
 
 The idle composer is a `❯` row between two solid `─` rules holding `Ask your question...`.
 Its first letter is the reverse-video cursor cell `\e[7mA\e[0m`, and the rest uses RGB `138;148;168`, bright enough to pass the shared dim-ghost ceiling.
+That is also the foreground of the rule directly above the composer row, and `1.74.0` draws the row with the same bytes as `1.73.4`.
 Typed text uses the default foreground followed by the reverse-video cursor cell.
 An inherited `NO_COLOR=1` removes the cursor cell, so the launch clears it.
+Herdr `0.9.1`'s `pane read --source visible --format ansi` ends every row with CR LF, while tmux `capture-pane -e -p` ends rows with LF only.
+An idle `1.74.0` pane captured on the remote host where steering failed carries the same CR LF row endings, and its bottom rows are pinned byte-exact in `tests/captures/commandcode-v1.74.0/herdr-idle.ansi`.
 The terminal cursor rests on a blank row below the `» permission bypass on [shift+tab]` and `? for shortcuts` status rows, not on the composer.
 A running turn renders `<spinner> <verb>…  esc to interrupt • 2s • ↓ 0`, with longer runs as `2m 8s`; a styled capture splits that hint across SGR runs, while the plain capture used by delivery keeps it whole.
 One Escape on a running turn rendered `Interrupted · What should Command Code do instead?` and an empty composer; Escape on an idle composer changed nothing.
@@ -71,8 +80,8 @@ The guard's worker commit carried no co-author trailer, and `git status --porcel
 
 ## Coverage and limits
 
-The portable regression drives ancestry identity, lifecycle tables, composer placeholder and draft screens, busy rows, the generated launch, model refusal, settings and git excludes, the mod's event handling through Node, the trailer-keeping variant, secondmate refusal, and trailer stripping.
+The portable regression drives ancestry identity, lifecycle tables, composer placeholder and draft screens with LF and CR LF row endings, the captured Herdr pane, the placeholder text and frame-colour signals driven apart, busy rows, the generated launch, model refusal, settings and git excludes, the mod's event handling through Node, the trailer-keeping variant, secondmate refusal, and trailer stripping.
 The tmux liveness regression proves the placeholder reads empty only on an identified Command Code pane, while typed text, typed placeholder words, and a decoy pane do not.
 The live guard checks the brief, model, autonomy, identity, semantic idle, attribution, workspace hygiene, session-only effort, doorbell acknowledgement, idle and busy interruption, and exit.
-Command Code's built-in `herdr` mod reports agent state to Herdr when Herdr's pane environment is present; that path and Herdr lifecycle control need a lab-session verification before Herdr dispatch.
+Command Code's built-in `herdr` mod reports agent state to Herdr when Herdr's pane environment is present; that path, Herdr lifecycle control, and a live Herdr doorbell need a lab-session verification before Herdr dispatch is trusted.
 Linux identity relies on the same vendor process title and has not been run here.

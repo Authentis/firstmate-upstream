@@ -478,7 +478,7 @@ FM_COMPOSER_SHELL_PROMPT_GLYPHS=$(printf '%s\n' '>' '$' '%' '#')
 # question...` after its `❯` glyph, idle and mid-turn alike, in a muted
 # truecolor grey that sits ABOVE the ghost luminance ceiling, so ghost stripping
 # keeps it; _fm_composer_row_is_cursor_placeholder below owns the styling proof
-# that tells it from typed text (verified live, commandcode 1.73.4).
+# that tells it from typed text (verified live, commandcode 1.73.4 and 1.74.0).
 # FM_COMPOSER_IDLE_RE overrides for an unverified harness;
 # matching is case-insensitive.
 FM_COMPOSER_IDLE_RE_DEFAULT='^Type a message\.\.\.$|^Ask anything(\.\.\.|…)|^Plan, search, build anything$|^Add a follow-up$|^Ask Devin to build features, fix bugs, or work on your code$|^Ask your question\.\.\.$'
@@ -1197,7 +1197,7 @@ _fm_composer_classify_rows() {  # <screen> <styled> <ambiguous> <first-row> <las
 # be the harness's own idle suggestion (claude's rotating dim hint, codex's
 # `Use /skills ...`), so it must read `unknown` rather than a false `pending`.
 _fm_composer_classify_bare_row() {  # <screen> <styled> <row>
-  local screen=$1 styled=$2 row=$3 raw content plain state body glyph=''
+  local screen=$1 styled=$2 row=$3 raw content plain state body glyph='' fg
   raw=$(_fm_composer_screen_row "$row" "$screen")
   content=$(_fm_composer_row_content "$raw" "$styled")
   plain=$(_fm_composer_row_content "$raw" 0)
@@ -1217,8 +1217,10 @@ _fm_composer_classify_bare_row() {  # <screen> <styled> <row>
     if fm_composer_leading_agent_glyph_var glyph "$body"; then
       body=${body#*"$glyph"}
       fm_composer_normalize_trim_var body
-      if fm_composer_idle_matches "$body" "${FM_COMPOSER_IDLE_RE:-$FM_COMPOSER_IDLE_RE_DEFAULT}" insensitive \
-         && printf '%s\n' "$raw" | _fm_composer_row_is_cursor_placeholder; then
+      if fg=$(printf '%s\n' "$raw" | _fm_composer_row_is_cursor_placeholder) \
+         && { fm_composer_idle_matches "$body" "${FM_COMPOSER_IDLE_RE:-$FM_COMPOSER_IDLE_RE_DEFAULT}" insensitive \
+              || { [ -n "$fg" ] && [ "$row" -gt 0 ] \
+                   && [ "$(_fm_composer_screen_row "$((row - 1))" "$screen" | _fm_composer_rule_row_fg)" = "$fg" ]; }; }; then
         state=empty
       fi
     fi
@@ -1226,57 +1228,75 @@ _fm_composer_classify_bare_row() {  # <screen> <styled> <row>
   printf '%s' "$state"
 }
 
-# _fm_composer_row_is_cursor_placeholder: 0 when one styled bare-glyph row
-# (stdin) is drawn the way an idle placeholder is and typed input never is.
-# Command Code 1.73.4 draws its idle `Ask your question...` with its own
-# reverse-video cursor cell on the FIRST letter and the rest in an explicit
-# muted truecolor foreground (`❯ ESC[7mA ESC[0m ESC[38;2;138;148;168m sk your
-# question...`), while typed text is default-foreground with the cursor cell
-# AFTER it (`❯ hello ESC[7m ESC[0m`), and neither NO_COLOR nor a 256-colour
-# terminal makes the placeholder dim (verified live in tmux). Three independent
-# facts must all hold, so a human who typed the placeholder text, or typed it and
-# moved the cursor home, still reads `pending`:
-#   - the first visible cell after the glyph is reverse video (the cursor),
-#   - every later non-blank cell is not reverse video, and
-#   - every later non-blank cell carries an explicit non-default foreground.
-# The caller additionally requires the plain row to match an anchored idle
-# placeholder. Under LC_ALL=C awk walks bytes, so the multibyte glyph and text
-# pass through as visible bytes without locale-dependent classes.
-_fm_composer_row_is_cursor_placeholder() {
-  LC_ALL=C awk '
+# _FM_COMPOSER_SGR_AWK: the one SGR tracker the styled-row readers below
+# share. apply() folds one SGR parameter list into rev (reverse video), fg
+# (explicit non-default foreground), and fgspec (that foreground's canonical
+# spec, empty when default); sgr_skip() consumes one escape sequence starting at
+# i, applying it when it is SGR, and returns the index after it.
+_FM_COMPOSER_SGR_AWK='
     function apply(params,   n, a, k, code) {
       if (params == "") params = "0"
       n = split(params, a, ";")
       for (k = 1; k <= n; k++) {
         code = a[k]
         sub(/:.*/, "", code)
-        if (code == "" || code == "0") { rev = 0; fg = 0 }
+        if (code == "" || code == "0") { rev = 0; fg = 0; fgspec = "" }
         else if (code == "7") rev = 1
         else if (code == "27") rev = 0
-        else if (code == "39") fg = 0
-        else if (code == "38") { fg = 1; if (index(a[k], ":") == 0) { if (a[k + 1] == "2") k += 4; else if (a[k + 1] == "5") k += 2 } }
-        else if ((code >= 30 && code <= 37) || (code >= 90 && code <= 97)) fg = 1
+        else if (code == "39") { fg = 0; fgspec = "" }
+        else if (code == "38") {
+          fg = 1; fgspec = a[k]
+          if (index(a[k], ":") == 0) {
+            if (a[k + 1] == "2") { fgspec = "38;2;" a[k + 2] ";" a[k + 3] ";" a[k + 4]; k += 4 }
+            else if (a[k + 1] == "5") { fgspec = "38;5;" a[k + 2]; k += 2 }
+          }
+        }
+        else if ((code >= 30 && code <= 37) || (code >= 90 && code <= 97)) { fg = 1; fgspec = code }
         else if (code == "48") { if (index(a[k], ":") == 0) { if (a[k + 1] == "2") k += 4; else if (a[k + 1] == "5") k += 2 } }
       }
     }
+    function sgr_skip(line, i, n,   j, params) {
+      j = i + 1
+      if (substr(line, j, 1) != "[") return j + 1
+      j++; params = ""
+      while (j <= n && substr(line, j, 1) ~ /[0-9;:?]/) { params = params substr(line, j, 1); j++ }
+      if (substr(line, j, 1) == "m") apply(params)
+      return j + 1
+    }
+'
+
+# _fm_composer_row_is_cursor_placeholder: 0 when one styled bare-glyph row
+# (stdin) is drawn the way an idle placeholder is and typed input never is.
+# Command Code 1.73.4 and 1.74.0 draw their idle `Ask your question...` with
+# their own reverse-video cursor cell on the FIRST letter and the rest in an
+# explicit muted truecolor foreground (`❯ ESC[7mA ESC[0m ESC[38;2;138;148;168m
+# sk your question...`), while typed text is default-foreground with the cursor
+# cell AFTER it (`❯ hello ESC[7m ESC[0m`), and neither NO_COLOR nor a 256-colour
+# terminal makes the placeholder dim (verified live in tmux). Three independent
+# facts must all hold, so a human who typed the placeholder text, or typed it and
+# moved the cursor home, still reads `pending`:
+#   - the first visible cell after the glyph is reverse video (the cursor),
+#   - every later non-blank cell is not reverse video, and
+#   - every later non-blank cell carries an explicit non-default foreground.
+# A carriage return is a row terminator, never a cell: herdr's ANSI viewport
+# read (`pane read --format ansi`, herdr 0.9.1) ends every row with CR LF, and
+# counting that CR as an unstyled typed cell read the idle placeholder as a
+# draft, so no steer reached an idle Command Code lane under herdr.
+# On success it prints the body's foreground when every body cell shares one
+# (`38;2;r;g;b`, `38;5;n`, or a 30-37/90-97 code), for the caller's frame-colour
+# signal. The caller additionally requires the placeholder text to be
+# recognised (_fm_composer_classify_bare_row). Under LC_ALL=C awk walks bytes,
+# so the multibyte glyph and text pass through as visible bytes without
+# locale-dependent classes.
+_fm_composer_row_is_cursor_placeholder() {
+  LC_ALL=C awk "$_FM_COMPOSER_SGR_AWK"'
     {
-      line = $0; n = length(line); i = 1; rev = 0; fg = 0
-      phase = 0; ok = 1; rest = 0
+      line = $0; n = length(line); i = 1; rev = 0; fg = 0; fgspec = ""
+      phase = 0; ok = 1; rest = 0; bodyfg = ""; uniform = 1
       while (i <= n) {
         c = substr(line, i, 1)
-        if (c == "\033") {
-          j = i + 1
-          if (substr(line, j, 1) == "[") {
-            j++; params = ""
-            while (j <= n && substr(line, j, 1) ~ /[0-9;:?]/) { params = params substr(line, j, 1); j++ }
-            if (substr(line, j, 1) == "m") apply(params)
-            i = j + 1
-          } else {
-            i = j + 1
-          }
-          continue
-        }
-        blank = (c == " " || c == "\t")
+        if (c == "\033") { i = sgr_skip(line, i, n); continue }
+        blank = (c == " " || c == "\t" || c == "\r")
         # phase 0: leading blanks; 1: the glyph; 2: blanks after the glyph;
         # 3: the reverse-video cursor cell; 4: the placeholder body.
         if (phase == 0) { if (!blank) phase = 1 }
@@ -1284,14 +1304,42 @@ _fm_composer_row_is_cursor_placeholder() {
         else if (phase == 2) {
           if (!blank) { if (!rev) { ok = 0; break } ; phase = 3 }
         } else if (phase == 3) {
-          if (!rev) { phase = 4; if (!blank) { if (!fg) { ok = 0; break } ; rest++ } }
+          if (!rev) { phase = 4; if (!blank) { if (!fg) { ok = 0; break } ; rest++; bodyfg = fgspec } }
         } else if (!blank) {
           if (rev || !fg) { ok = 0; break }
-          rest++
+          if (rest++ == 0) bodyfg = fgspec
+          else if (fgspec != bodyfg) uniform = 0
         }
         i++
       }
-      exit (ok && phase == 4 && rest > 0) ? 0 : 1
+      if (ok && phase == 4 && rest > 0) { if (uniform) print bodyfg; exit 0 }
+      exit 1
+    }
+  '
+}
+
+# _fm_composer_rule_row_fg: print the one explicit foreground a solid `─` rule
+# row (stdin) is drawn in; exit 1 when the row holds anything but `─` cells and
+# blanks, or its cells do not share one explicit foreground. Command Code draws
+# its placeholder in the same muted foreground as the rule directly above its
+# composer row (138;148;168 on 1.73.4 and 1.74.0), so a cursor-proven body in
+# the frame's own colour is the second, string-free placeholder signal: neither
+# signal alone is a single load-bearing vendor string.
+_fm_composer_rule_row_fg() {
+  LC_ALL=C awk "$_FM_COMPOSER_SGR_AWK"'
+    {
+      line = $0; n = length(line); i = 1; rev = 0; fg = 0; fgspec = ""; cells = 0; spec = ""
+      while (i <= n) {
+        c = substr(line, i, 1)
+        if (c == "\033") { i = sgr_skip(line, i, n); continue }
+        if (c == " " || c == "\t" || c == "\r") { i++; continue }
+        if (substr(line, i, 3) != "\342\224\200" || !fg || rev) exit 1
+        if (cells++ == 0) spec = fgspec
+        else if (fgspec != spec) exit 1
+        i += 3
+      }
+      if (cells == 0) exit 1
+      print spec
     }
   '
 }

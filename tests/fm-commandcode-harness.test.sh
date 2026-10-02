@@ -67,6 +67,44 @@ draft_row=$(printf '\033[39m❯ hello draft\033[7m \033[0m')
   || fail 'an unstyled capture must never prove the placeholder empty'
 pass "composer: the styled placeholder proof reads idle empty and every typed shape pending"
 
+# A real idle 1.74.0 pane as herdr's ANSI viewport read returns it, CR LF row
+# endings included (the composer tail, byte-exact).
+herdr_idle=$(cat "$ROOT/tests/captures/commandcode-v1.74.0/herdr-idle.ansi")
+case "$herdr_idle" in *$'\r'*) ;; *) fail 'capture lost its CR row endings; the case would be vacuous' ;; esac
+[ "$(fm_composer_classify_screen styled=1 "$herdr_idle")" = empty ] || fail 'a captured idle 1.74.0 herdr pane must read empty'
+[ "$(fm_composer_classify_screen styled=1 "$(printf '%s\n' "$herdr_idle" | tr -d '\r')")" = empty ] || fail 'the same pane without CR must read empty'
+for row in "$draft_row" "$typed_row" "$home_row" "$nocolor_row"; do
+  [ "$(fm_composer_classify_screen styled=1 "$(cc_screen "$row" | sed 's/$/\r/')")" = pending ] \
+    || fail "a CR row ending must not prove a typed row empty: $(printf '%s' "$row" | fm_composer_strip_ansi)"
+done
+pass "composer: herdr's CR LF rows read the idle placeholder empty and every typed shape pending"
+
+# Two independent placeholder signals, each sufficient beside the cursor-cell
+# proof: the anchored placeholder text, and a body drawn in the frame rule's own
+# foreground. Drive them apart and keep each case honest about which one holds.
+cc_framed() {  # <rule fg> <styled composer row>
+  local rule
+  rule=$(printf '\033[%sm%s\033[0m' "$1" '────────────────────────────────')
+  printf '\n%s\n%s\n%s\n  ? for shortcuts\n' "$rule" "$2" "$rule"
+}
+muted='38;2;138;148;168' other='38;2;232;64;87'
+renamed_row=$(printf '\033[39m❯ \033[7mW\033[0m\033[%smhat should we build?\033[0m' "$muted")
+! fm_composer_idle_matches 'What should we build?' "$FM_COMPOSER_IDLE_RE_DEFAULT" insensitive || fail 'renamed placeholder must not match the idle regex'
+[ "$(fm_composer_classify_screen styled=1 "$(cc_framed "$muted" "$renamed_row")")" = empty ] \
+  || fail 'a renamed placeholder in the frame colour must read empty without its string'
+[ "$(fm_composer_classify_screen styled=1 "$(cc_framed "$other" "$idle_row")")" = empty ] \
+  || fail 'the known placeholder must read empty when the frame colour differs'
+[ "$(fm_composer_classify_screen styled=1 "$(cc_framed "$other" "$renamed_row")")" = pending ] \
+  || fail 'with neither signal the row must stay pending'
+mixed_row=$(printf '\033[39m❯ \033[7mW\033[0m\033[%smhat should \033[%smwe build?\033[0m' "$muted" "$other")
+[ "$(fm_composer_classify_screen styled=1 "$(cc_framed "$muted" "$mixed_row")")" = pending ] \
+  || fail 'a body in more than one foreground is not the frame colour'
+for row in "$typed_row" "$home_row" "$nocolor_row"; do
+  [ "$(fm_composer_classify_screen styled=1 "$(cc_framed "$muted" "$row")")" = pending ] \
+    || fail "the frame colour must not prove a typed row empty: $(printf '%s' "$row" | fm_composer_strip_ansi)"
+done
+pass "composer: placeholder text and frame colour each carry the idle verdict; neither alone is load-bearing"
+
 for signal in ' ⌘ Crystallizing…  esc to interrupt • 3s • ↓ 0' 'esc to interrupt' ' ☆ Organizing… • 12s • ↓ 418' ' ✧ Calculating… • 2m 8s • ↓ 920'; do
   printf '%s\n' "$signal" | fm_busy_lines_match commandcode || fail "independent delivery signal lost: $signal"
 done
