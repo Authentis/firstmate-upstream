@@ -1060,12 +1060,85 @@ EOF
 # budget. The per-mate liveness lock serializes this tick against a concurrent
 # session-start sweep, so neither side can kill or re-probe an endpoint the
 # other is mid-relaunch on.
+#
+# The probes and relaunches run detached, off the liveness beacon's path. A
+# remote probe is an fm-on.sh round trip that legitimately waits out the remote
+# job's queue and execution deadlines, many minutes on a degraded host, and run
+# inline it held the beacon untouched past the stall bound while no other wake
+# was scanned. Each due tick therefore starts one detached run that publishes
+# its per-mate outcomes to a file, and a later poll queues and delivers them
+# exactly as the inline tick did. The run never writes the wake queue itself:
+# a row landing between polls would read as a missed wake to the downtime
+# check in resurface_after_downtime. An outcome a replaced watcher never
+# consumed is picked up by its successor, and the per-mate lock keeps a run
+# orphaned by that replacement from overlapping a newer one on the same mate.
+SECONDMATE_LIVENESS_PID=
+SECONDMATE_LIVENESS_OUTCOME="$STATE/.secondmate-liveness-outcome"
 secondmate_liveness_tick() {
   local tick_marker="$STATE/.secondmate-liveness-tick"
+  secondmate_liveness_consume || return 1
+  if [ -n "$SECONDMATE_LIVENESS_PID" ]; then
+    kill -0 "$SECONDMATE_LIVENESS_PID" 2>/dev/null && return 0
+    wait "$SECONDMATE_LIVENESS_PID" 2>/dev/null || true
+    SECONDMATE_LIVENESS_PID=
+    # The run may have published between the consume above and its exit.
+    secondmate_liveness_consume || return 1
+  fi
   [ "$(age_of "$tick_marker")" -ge "$SECONDMATE_LIVENESS_SECS" ] || return 0
   touch "$tick_marker" || return 1
-  local now=$(( $(date +%s) )) meta id kind
-  local bound_marker attempts notify_key reason queued err first_reason='' failed=0
+  watcher_detach secondmate_liveness_run
+  SECONDMATE_LIVENESS_PID=$WATCHER_DETACHED_PID
+}
+
+# Queue every published liveness outcome as one durable check row, report each
+# per-mate error, then wake once on the first queued outcome, else fail the
+# tick on any error.
+secondmate_liveness_consume() {
+  local outcome line kind id rest notify_key reason queued err first_reason='' failed=0
+  for outcome in "$SECONDMATE_LIVENESS_OUTCOME".*; do
+    case "$outcome" in *.tmp) continue ;; esac
+    [ -f "$outcome" ] || continue
+    while IFS= read -r line; do
+      kind=${line%%$'\t'*}
+      rest=${line#*$'\t'}
+      id=${rest%%$'\t'*}
+      rest=${rest#*$'\t'}
+      err=
+      case "$kind" in
+        wake)
+          notify_key=${rest%%$'\t'*}
+          reason=${rest#*$'\t'}
+          queued=$(fm_wake_queued_keys check)
+          if printf '%s\n' "$queued" | grep -Fx "$notify_key" >/dev/null 2>&1 \
+            || fm_wake_append check "$notify_key" "$reason"; then
+            [ -n "$first_reason" ] || first_reason=$reason
+          else
+            err="check wake row could not be queued: $reason"
+            triage_log "secondmate $id liveness error: $err" || true
+          fi
+          ;;
+        error) err=$rest ;;
+      esac
+      if [ -n "$err" ]; then
+        echo "watcher: secondmate $id liveness: $err" >&2
+        failed=1
+      fi
+    done < "$outcome"
+    rm -f "$outcome" || return 1
+  done
+  [ -z "$first_reason" ] || wake "$first_reason"
+  [ "$failed" -eq 0 ]
+}
+
+# One detached liveness pass over every registered mate. It never queues a
+# wake, wakes, or exits the watcher; secondmate_liveness_consume delivers what
+# it publishes. Should publication itself fail, the run queues its outcomes
+# directly so no relaunch goes unreported to the next drain.
+secondmate_liveness_run() {
+  local now=$(( $(date +%s) )) meta id kind self outcome published='' line rest
+  local bound_marker attempts notify_key reason err
+  fm_current_pid self || return 1
+  outcome="$SECONDMATE_LIVENESS_OUTCOME.$self"
   for meta in "$STATE"/*.meta; do
     [ -e "$meta" ] || continue
     kind=$(fm_meta_get "$meta" kind 2>/dev/null || true)
@@ -1115,24 +1188,29 @@ secondmate_liveness_tick() {
         triage_log "secondmate $id liveness: $FM_SM_LIVE_REASON"
         ;;
     esac
-    if [ -n "$reason" ]; then
-      queued=$(fm_wake_queued_keys check)
-      if printf '%s\n' "$queued" | grep -Fx "$notify_key" >/dev/null 2>&1 \
-        || fm_wake_append check "$notify_key" "$reason"; then
-        [ -n "$first_reason" ] || first_reason=$reason
-      else
-        err="check wake row could not be queued: $reason"
-      fi
-    fi
+    [ -z "$reason" ] \
+      || published="${published}wake"$'\t'"$id"$'\t'"$notify_key"$'\t'"$reason"$'\n'
     fm_secondmate_liveness_unlock "$id"
     if [ -n "$err" ]; then
-      echo "watcher: secondmate $id liveness: $err" >&2
       triage_log "secondmate $id liveness error: $err" || true
-      failed=1
+      published="${published}error"$'\t'"$id"$'\t'"$err"$'\n'
     fi
   done
-  [ -z "$first_reason" ] || wake "$first_reason"
-  [ "$failed" -eq 0 ]
+  [ -n "$published" ] || return 0
+  printf '%s' "$published" > "$outcome.tmp" && mv -f "$outcome.tmp" "$outcome" && return 0
+  rm -f "$outcome.tmp"
+  triage_log "secondmate liveness outcome could not be published; queueing its outcomes directly" || true
+  while IFS= read -r line; do
+    case "$line" in wake$'\t'*) ;; *) continue ;; esac
+    rest=${line#*$'\t'}
+    id=${rest%%$'\t'*}
+    rest=${rest#*$'\t'}
+    fm_wake_append check "${rest%%$'\t'*}" "${rest#*$'\t'}" \
+      || triage_log "secondmate $id liveness error: check wake row could not be queued: ${rest#*$'\t'}" || true
+  done <<EOF
+$published
+EOF
+  return 1
 }
 
 # Consecutive wedge-escalation count for a window past FM_WEDGE_DEMAND_INSPECT_COUNT
@@ -2506,6 +2584,63 @@ reconcile_requests_detached() {
   RECONCILE_REQUEST_PID=$!
 }
 
+# The pending-reply tick observes a remote mate through fm-on.sh and may repost
+# a recovery through fm-send.sh, round trips as unbounded as the secondmate
+# liveness probe, so it runs detached for the same reason (see
+# secondmate_liveness_tick). It only writes durable records and parent status
+# lines, which later polls surface as ordinary signals. Its lock keeps one run
+# per home, including one a replaced watcher left behind.
+PENDING_REPLY_TICK_PID=
+pending_reply_tick_detached() {
+  if [ -n "$PENDING_REPLY_TICK_PID" ]; then
+    if kill -0 "$PENDING_REPLY_TICK_PID" 2>/dev/null; then
+      return 0
+    fi
+    wait "$PENDING_REPLY_TICK_PID" 2>/dev/null || true
+    PENDING_REPLY_TICK_PID=
+  fi
+  [ -d "$(fm_pending_reply_dir "$STATE")" ] || return 0
+  watcher_detach pending_reply_tick_run
+  PENDING_REPLY_TICK_PID=$WATCHER_DETACHED_PID
+}
+
+pending_reply_tick_run() {
+  fm_lock_try_acquire "$STATE/.pending-reply-tick.lock" || return 0
+  fm_pending_reply_tick "$STATE" || true
+  fm_lock_release "$STATE/.pending-reply-tick.lock"
+}
+
+# Start <command...> detached from the poll, in its own process group, under a
+# watchdog that ends that whole group once this home's state directory is gone
+# or the run outlives WATCHER_DETACHED_MAX_SECS. An ordinary watcher exit (every
+# wake ends one) leaves the run to finish, so a slow remote round trip still
+# completes; the watchdog only keeps a run from outliving its home or hanging
+# forever. Sets WATCHER_DETACHED_PID to the watchdog, which lives exactly as
+# long as the run.
+WATCHER_DETACHED_MAX_SECS=${FM_WATCHER_DETACHED_MAX_SECS:-}
+case "$WATCHER_DETACHED_MAX_SECS" in ''|*[!0-9]*|0) WATCHER_DETACHED_MAX_SECS=3600 ;; esac
+WATCHER_DETACHED_PID=
+watcher_detach() {  # <command...>
+  (
+    # Monitor mode only gives the run its own process group; the run itself
+    # keeps ordinary job semantics for everything it starts.
+    set -m
+    ( set +m; "$@" ) &
+    job=$!
+    set +m
+    started=$SECONDS
+    while kill -0 "$job" 2>/dev/null; do
+      if [ ! -d "$STATE" ] || [ $((SECONDS - started)) -ge "$WATCHER_DETACHED_MAX_SECS" ]; then
+        kill -TERM -- "-$job" 2>/dev/null || kill -TERM "$job" 2>/dev/null
+        break
+      fi
+      sleep 1
+    done
+    wait "$job" 2>/dev/null
+  ) </dev/null >/dev/null 2>&1 &
+  WATCHER_DETACHED_PID=$!
+}
+
 PR_POLL_CONTROL_LOCK=
 PR_POLL_PUBLISH_LOCK=
 
@@ -2675,7 +2810,7 @@ while :; do
   # parent reports, observe backend busy/idle turn completion, send one recovery
   # repost after grace, and escalate once if the recovery turn is also missed.
   # No conversation scraping; unresolved records are never silently expired.
-  fm_pending_reply_tick "$STATE" || true
+  pending_reply_tick_detached
 
   # Endpoint liveness runs before queue observation: a positively dead or
   # missing secondmate endpoint is relaunched here on a bounded cadence, which

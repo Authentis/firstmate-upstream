@@ -440,6 +440,7 @@ The watcher's liveness tick applies the identical rule during ordinary supervisi
 - The remote endpoint is probed read-only once per cadence.
 - Only a positive `dead` or `missing` reply relaunches through that command.
 - An unreachable transport or inconclusive state is left untouched rather than replaced locally.
+- The probe and any relaunch run detached from the watcher's poll, and a later poll delivers their outcome, so a slow or failing host never holds the watcher's liveness beacon.
 
 ### Inventory reconcile for markerless routes
 

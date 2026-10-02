@@ -3370,6 +3370,110 @@ SH
   pass "watch liveness: an unreachable remote secondmate is probed, preserved, and never failed over"
 }
 
+# A remote round trip on the poll's path once held the liveness beacon for the
+# whole remote job deadline: the pending-reply observation and the secondmate
+# liveness probe each waited on a degraded host in turn, so the watcher neither
+# refreshed its beacon nor scanned any other wake until the stall bound evicted
+# it. Both remote calls hang here; the beacon must keep advancing, both calls
+# must be in flight together, and an unrelated status signal must still surface.
+test_slow_remote_round_trips_keep_the_beacon_fresh() {
+  local dir state pid corr i age calls rc ssh_pid
+  dir=$(make_secondmate_liveness_case liveness-remote-slow)
+  state="$dir/state"
+  rm -f "$state/sm1.meta"
+  cat > "$state/rsm1.meta" <<EOF
+window=remote:rsm1
+kind=secondmate
+harness=claude
+remote_host=lab-host
+remote_backend=herdr
+remote_herdr_session=fm-remote
+remote_target=fm-remote:w1:p1
+home=/remote/rsm1-home
+EOF
+  cat > "$dir/data/secondmates.md" <<EOF
+- rsm1 - Remote mate (host: lab-host; root: /remote/root; home: /remote/rsm1-home; scope: remote work; projects: alpha; added 2026-01-01)
+EOF
+  # The remote command's argv rides as the last ssh argument, base64 encoded.
+  cat > "$dir/fakebin/ssh" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$$" >> "${FM_FAKE_SSH_PIDS:?}"
+for last in "$@"; do :; done
+printf '%s' "$last" | base64 --decode | tr '\0' ' ' >> "${FM_FAKE_SSH_LOG:?}"
+printf '\n' >> "$FM_FAKE_SSH_LOG"
+sleep "${FM_FAKE_SSH_SLEEP:-60}"
+exit 255
+SH
+  chmod +x "$dir/fakebin/ssh"
+  : > "$dir/ssh.log"
+  : > "$dir/ssh.pids"
+  # A delivered request still awaiting its report makes the pending-reply tick
+  # observe the remote mate's busy state every poll.
+  corr=$(FM_HOME="$dir" bash -c '
+    . "$1"
+    c=$(fm_pending_reply_create "$2" "$3" rsm1 "report the slow-remote fixture") || exit 1
+    fm_pending_reply_mark_delivered "$3" "$c" || exit 1
+    printf "%s" "$c"
+  ' _ "$ROOT/bin/fm-pending-reply-lib.sh" "$dir" "$state") \
+    || fail "the pending-reply fixture could not be created"
+  [ -n "$corr" ] || fail "the pending-reply fixture has no correlation"
+
+  run_liveness_leg "$dir" slow FM_SSH_BIN="$dir/fakebin/ssh" FM_FAKE_SSH_LOG="$dir/ssh.log" \
+    FM_FAKE_SSH_PIDS="$dir/ssh.pids" FM_FAKE_SSH_SLEEP=60; pid=$LIVENESS_PID
+  i=0
+  while [ ! -s "$dir/ssh.log" ] && [ "$i" -lt 150 ]; do
+    sleep 0.1
+    i=$((i + 1))
+  done
+  [ -s "$dir/ssh.log" ] || fail "the slow remote mate was never contacted: $(cat "$dir/watch-slow.err")"
+  # Each hung call outlasts the beacon's poll-scale freshness many times over.
+  sleep 6
+  age=$(FM_STATE_OVERRIDE="$state" bash -c '. "$1"; fm_path_age "$2"' _ "$ROOT/bin/fm-wake-lib.sh" "$state/.last-watcher-beat")
+  calls=$(cat "$dir/ssh.log")
+  rc=0
+  is_live_non_zombie "$pid" || rc=1
+  if [ "$rc" -ne 0 ] || [ "$age" -gt 3 ]; then
+    kill -TERM "$pid" 2>/dev/null || true
+    xargs kill -TERM < "$dir/ssh.pids" 2>/dev/null || true
+    [ "$rc" -eq 0 ] || fail "the watcher exited during a slow remote round trip: $(cat "$dir/watch-slow.out" "$dir/watch-slow.err")"
+    fail "a hung remote round trip held the watcher beacon for ${age}s (calls: $calls)"
+  fi
+  assert_contains "$calls" "fm-remote-secondmate-control.sh observe rsm1" \
+    "the pending-reply observation never reached the slow remote mate"
+  assert_contains "$calls" "fm-remote-secondmate-control.sh state rsm1" \
+    "the liveness probe was not in flight alongside the hung observation"
+
+  # Supervision is not blind meanwhile: a fresh blocker still wakes promptly.
+  printf 'blocked: needs a hand\n' > "$state/task.status"
+  rc=0
+  wait_for_exit "$pid" 150 || rc=$?
+  [ "$rc" -eq 0 ] || {
+    xargs kill -TERM < "$dir/ssh.pids" 2>/dev/null || true
+    fail "the watcher did not wake on a signal while remote calls hung (rc=$rc): $(cat "$dir/watch-slow.err")"
+  }
+  grep -F "signal: $state/task.status" "$dir/watch-slow.out" >/dev/null || {
+    xargs kill -TERM < "$dir/ssh.pids" 2>/dev/null || true
+    fail "the blocker signal did not surface during slow remote calls: $(cat "$dir/watch-slow.out")"
+  }
+
+  # The watcher's exit leaves the hung calls to finish, but a run never
+  # outlives its home: removing the state directory ends every one of them.
+  rm -rf "$state"
+  i=0
+  while [ "$i" -lt 100 ]; do
+    calls=0
+    while IFS= read -r ssh_pid; do
+      ! kill -0 "$ssh_pid" 2>/dev/null || calls=$((calls + 1))
+    done < "$dir/ssh.pids"
+    [ "$calls" -gt 0 ] || break
+    sleep 0.1
+    i=$((i + 1))
+  done
+  xargs kill -TERM < "$dir/ssh.pids" 2>/dev/null || true
+  [ "$calls" -eq 0 ] || fail "$calls hung remote calls outlived their deleted home"
+  pass "watch: hung remote round trips stay off the poll, so the beacon stays fresh and signals still surface"
+}
+
 test_self_held_lock_reclaims_instead_of_deadlocking
 test_subshell_lock_ownership_without_bashpid
 test_bounded_lock_handoff_after_contention
@@ -3436,3 +3540,4 @@ test_secondmate_liveness_tick_error_keeps_scanning_and_wakes
 test_secondmate_liveness_tick_unqueued_outcome_is_an_error_not_a_wake
 test_secondmate_liveness_tick_skips_mate_whose_lock_is_held
 test_secondmate_liveness_tick_preserves_unreachable_remote
+test_slow_remote_round_trips_keep_the_beacon_fresh
