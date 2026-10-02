@@ -67,6 +67,15 @@ Never restart, stop, or update the shared daemon on a crewmate's claim.
 It is one instance serving every lane and home, so a restart kills other lanes' in-flight runs.
 Only positive socket refusal or absence is a daemon-down finding; escalate that finding, or a failed run record that names a daemon error, to the captain.
 
+## Failure classification before relaunch
+
+Classify a failure only after liveness and ownership are established (the sections above), steer first, and preserve the worktree and commits throughout.
+Classes are heuristics for choosing the next move, never verdicts: cap-hit or out-of-memory, no-text or hang, tool-error, or a reviewer stall.
+A reviewer stall belongs to no-mistakes, so handle it through reattach and `no-mistakes daemon status` per `validation-supervision`, never by relaunching the worker.
+For a dead worker endpoint, change something before relaunching so the same stall does not repeat: for cap-hit or out-of-memory, narrow the scope in the relaunch note; for no-text, hang, or tool-error, re-resolve the dispatch profile through `quota-array-dispatch` and pass the result with `--harness`, `--model`, or `--effort`.
+When a failure is recorded without the worker's own line, write a synthetic failure record that keeps the run, the head, the last evidence seen, and the reason.
+Nothing is abandoned automatically: a repeat after a changed relaunch goes to escalation step 5 below.
+
 ## Live-endpoint escalation
 
 Escalate in order:

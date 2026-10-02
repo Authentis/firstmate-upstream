@@ -382,7 +382,21 @@ test_pr_based_dod_draft_check_uses_gh_axi() {
   pass "PR-based DoD draft check uses gh-axi"
 }
 
+# Every ship mode's DoD hands the worker the per-criterion proof contract.
+test_every_ship_dod_carries_proof_contract() {
+  local mode out
+  for mode in no-mistakes direct-PR local-only; do
+    out="$TMP_ROOT/dod-proof-$mode.md"
+    fm_dod_block "$mode" dod-proof-task > "$out"
+    assert_grep 'minimum level' "$out" "$mode: DoD must say the done line shows the minimum proof level"
+    assert_grep 'blocked' "$out" "$mode: DoD must keep blocked criteria"
+    assert_grep 'receipts' "$out" "$mode: DoD must keep receipts authoritative"
+  done
+  pass "every ship DoD carries the proof-per-criterion contract"
+}
+
 test_scout_done_is_not_gated
+test_every_ship_dod_carries_proof_contract
 test_unpushed_ship_done_is_refused
 test_no_mistakes_prevalidation_done_is_not_gated
 test_remote_containing_named_head_is_accepted

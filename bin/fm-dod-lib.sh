@@ -350,6 +350,17 @@ There is no pull request, no \`gh-axi\` call, and no forge CI result to report: 
 EOF
 }
 
+fm_dod_proof_block() {
+  cat <<'EOF'
+
+Before your first `done:`, record the proof for each acceptance criterion of your task in your own report, one row per criterion.
+Each row carries exactly one level - `live` (exercised in the real running system), `unit` (an automated test), `typecheck` (static checks only), or `none` - or the state `blocked` or `failed`.
+A `blocked` row stays in the list with the environment limit that blocked it stated; never drop it or round it up to a level.
+Your `done:` summary names the minimum level across the rows, so one weak criterion cannot hide behind a strong one.
+The receipts (test output, commands, observed behavior) stay authoritative; the roll-up never replaces them.
+EOF
+}
+
 fm_dod_block() {  # <mode> <task-id> [branch] [<forge>]
   local mode=$1 id=$2 forge=${4:-none}
   local branch=${3:-fm/$id}
@@ -456,6 +467,7 @@ EOF
       echo "error: fm_dod_block: unknown delivery mode '$mode'" >&2
       return 1 ;;
   esac
+  fm_dod_proof_block
 }
 
 # 0 when <sha> is contained in a ref under <namespace> in <repo>.
