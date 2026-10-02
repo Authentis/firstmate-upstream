@@ -27,6 +27,7 @@ STALL_REPLACEMENT_PID=
 STALL_JOB_GROUP=
 QUIET_WORKER_PID=
 STORM_ROOT=
+TAKEOVER_WORKER=
 mkdir -p "$REMOTE_ROOT/bin" "$REMOTE_HOME" "$ACCOUNT_HOME" "$RUNTIME_BIN"
 # worker.pid records the serving child, not its restart supervisor, so stopping
 # that pid alone leaves the supervisor to respawn - the leak
@@ -47,6 +48,7 @@ cleanup_remote_job_fixture() {
   done
   [ -z "$STALL_JOB_GROUP" ] || kill -KILL -- "-$STALL_JOB_GROUP" 2>/dev/null || true
   [ -z "$STORM_ROOT" ] || storm_stop_all
+  [ -z "$TAKEOVER_WORKER" ] || worker_path_stop_all "$TAKEOVER_WORKER"
   if [ -f "$STATE_ROOT/worker.pid" ]; then
     fm_remote_job_stop_worker_tree "$(cat "$STATE_ROOT/worker.pid")" || true
   fi
@@ -590,7 +592,10 @@ for _ in $(seq 1 100); do
 done
 assert_present "$CRASH_STARTED" "the crash fixture did not begin executing"
 CRASHED_WORKER_PID=$(cat "$STATE_ROOT/worker.pid")
-kill -KILL "$CRASHED_WORKER_PID"
+# The job's own lane dies with the serving loop, so nothing supervises the
+# command any more: the replacement must stop it rather than wait on it.
+CRASHED_LANE_PID=$(cat "$STATE_ROOT/jobs/$JOB_ID/.claim/supervisor")
+kill -KILL "$CRASHED_WORKER_PID" "$CRASHED_LANE_PID"
 for _ in $(seq 1 200); do
   RESTARTED_WORKER_PID=$(cat "$STATE_ROOT/worker.pid" 2>/dev/null || true)
   [ -n "$RESTARTED_WORKER_PID" ] && [ "$RESTARTED_WORKER_PID" != "$CRASHED_WORKER_PID" ] && break
@@ -605,6 +610,35 @@ assert_absent "$CRASH_SIDE_EFFECT" "an orphaned command mutated after worker cra
 fm_remote_job_reap "$ACCOUNT_HOME" "$JOB_ID" || fail "the crash-recovered job could not be reaped"
 fm_remote_job_probe "$ACCOUNT_HOME" || fail "the restarted worker did not remain ready"
 pass "Linux supervision recovers crashes and stops orphaned commands"
+
+# A crash of the serving loop alone leaves the job's lane alive, and the lane
+# runs its job to publication by itself, so the restarted loop must leave it be
+# rather than drop work still in flight.
+CRASH_STARTED="$TMP_ROOT/lane-survives-started"
+CRASH_SIDE_EFFECT="$TMP_ROOT/lane-survives-side-effect"
+fm_remote_job_stage "$ACCOUNT_HOME" "$REMOTE_ROOT" "$REMOTE_HOME" \
+  fm-shutdown-job.sh "$CRASH_STARTED" "$CRASH_SIDE_EFFECT" < /dev/null > /dev/null
+JOB_ID=$FM_REMOTE_JOB_ID
+for _ in $(seq 1 100); do
+  [ -f "$CRASH_STARTED" ] && break
+  sleep 0.05
+done
+assert_present "$CRASH_STARTED" "the surviving-lane fixture did not begin executing"
+CRASHED_WORKER_PID=$(cat "$STATE_ROOT/worker.pid")
+kill -KILL "$CRASHED_WORKER_PID"
+for _ in $(seq 1 200); do
+  RESTARTED_WORKER_PID=$(cat "$STATE_ROOT/worker.pid" 2>/dev/null || true)
+  [ -n "$RESTARTED_WORKER_PID" ] && [ "$RESTARTED_WORKER_PID" != "$CRASHED_WORKER_PID" ] && break
+  sleep 0.05
+done
+[ -n "${RESTARTED_WORKER_PID:-}" ] && [ "$RESTARTED_WORKER_PID" != "$CRASHED_WORKER_PID" ] \
+  || fail "the Linux supervisor did not restart a crashed serving loop"
+fm_remote_job_wait "$ACCOUNT_HOME" "$JOB_ID" || fail "$FM_REMOTE_JOB_ERROR"
+[ "$FM_REMOTE_JOB_EXIT" -eq 0 ] \
+  || fail "a job whose lane survived the serving loop's crash was dropped with exit $FM_REMOTE_JOB_EXIT"
+assert_present "$CRASH_SIDE_EFFECT" "a job whose lane survived the serving loop's crash did not finish"
+fm_remote_job_reap "$ACCOUNT_HOME" "$JOB_ID" || fail "the surviving-lane job could not be reaped"
+pass "a job whose lane survives a serving-loop crash still completes"
 
 mkdir -p "$ACCOUNT_HOME/.local/bin"
 PREEXEC_STARTED="$TMP_ROOT/preexecution-started"
@@ -862,30 +896,26 @@ done
   || fail "the ownership-loss worker did not stop"
 rm -rf -- "$LOST_STATE/worker.lock"
 kill -CONT "$LOST_TERM_PID"
-LOST_READY_BEFORE=$(file_inode "$LOST_STATE/worker.ready")
-for _ in $(seq 1 100); do
-  LOST_READY_AFTER=$(file_inode "$LOST_STATE/worker.ready")
-  [ -n "$LOST_READY_AFTER" ] && [ "$LOST_READY_AFTER" != "$LOST_READY_BEFORE" ] && break
-  sleep 0.05
-done
-[ -n "${LOST_READY_AFTER:-}" ] && [ "$LOST_READY_AFTER" != "$LOST_READY_BEFORE" ] \
-  || fail "a worker with no ownership lock stopped publishing heartbeats before TERM"
-assert_absent "$LOST_STATE/worker.lock" "the ownership lock reappeared before TERM"
-kill -TERM "$LOST_TERM_PID"
 for _ in $(seq 1 100); do
   kill -0 "$LOST_TERM_PID" 2>/dev/null || break
   sleep 0.05
 done
 if kill -0 "$LOST_TERM_PID" 2>/dev/null; then
-  fail "TERM after ownership loss left the serving worker alive"
+  fail "a serving worker kept serving after its ownership lock vanished"
 fi
-wait "$LOST_TERM_PID" 2>/dev/null || true
+set +e
+wait "$LOST_TERM_PID" 2>/dev/null
+LOST_STEP_ASIDE_RC=$?
+set -e
 LOST_TERM_PID=
+[ "$LOST_STEP_ASIDE_RC" -eq 0 ] \
+  || fail "a serving worker that lost ownership exited $LOST_STEP_ASIDE_RC instead of stepping aside"
+assert_absent "$LOST_STATE/worker.lock" "a worker that lost ownership recreated the ownership lock"
 LOST_READY_SETTLED=$(file_inode "$LOST_STATE/worker.ready")
 sleep 0.3
 [ "$(file_inode "$LOST_STATE/worker.ready")" = "$LOST_READY_SETTLED" ] \
-  || fail "a worker that lost ownership kept replacing its heartbeat after TERM"
-pass "TERM after ownership loss stops the serving worker"
+  || fail "a worker that lost ownership kept replacing its heartbeat"
+pass "a serving worker whose ownership lock vanished stops serving on its own"
 
 HOLD_STARTED="$TMP_ROOT/hold-started"
 HOLD_SIDE_EFFECT="$TMP_ROOT/hold-side-effect"
@@ -1471,6 +1501,7 @@ else
     || fail "a serving child under $STORM_CALLER_ENV lost to the live owner with exit $STORM_SERVE_RC after $((SECONDS - STORM_BEGAN))s"
   for _ in 1 2 3 4; do
     (
+      # shellcheck disable=SC2163 # The variable holds a NAME=value assignment to export.
       export "$STORM_CALLER_ENV"
       FM_REMOTE_JOB_STATE_ROOT="$STORM_STATE"
       fm_remote_job_ensure_worker "$STORM_ROOT" "$STORM_HOME"
@@ -1488,5 +1519,161 @@ else
   pass "callers with another locale or COLUMNS recognize the healthy owner and start nothing"
 fi
 storm_stop_all
+
+# Kill every process running one fixture root's worker, repeating until none
+# is left, since a supervisor killed between fork and exec leaves a child that
+# only then becomes a worker process.
+worker_path_stop_all() { # <worker-path>
+  local pid attempt=0 found
+  while [ "$attempt" -lt 50 ]; do
+    attempt=$((attempt + 1))
+    found=0
+    for pid in $(ps -A -o pid= -o command= 2>/dev/null | awk -v worker="$1" 'index($0, worker) { print $1 }'); do
+      found=1
+      kill -KILL "$pid" 2>/dev/null || true
+    done
+    [ "$found" -eq 1 ] || return 0
+    sleep 0.1
+  done
+}
+takeover_wait_gone() { # <pid> <seconds>
+  local deadline=$((SECONDS + $2))
+  while kill -0 "$1" 2>/dev/null && [ "$SECONDS" -lt "$deadline" ]; do sleep 0.1; done
+  ! kill -0 "$1" 2>/dev/null
+}
+
+# The supervisor's single-instance claim must name the supervisor itself. It
+# was once read inside a command substitution, whose BASHPID is that
+# substitution's own short-lived subshell, so every claim named a dead process
+# and every later supervisor replaced it and started another tree.
+TAKEOVER_ROOT="$TMP_ROOT/takeover-root"
+TAKEOVER_HOME="$TMP_ROOT/takeover-account"
+TAKEOVER_STATE="$TMP_ROOT/takeover-state"
+TAKEOVER_WORKER="$TAKEOVER_ROOT/bin/fm-remote-job-worker.sh"
+TAKEOVER_RAN="$TMP_ROOT/takeover-ran"
+cp -R "$REMOTE_ROOT" "$TAKEOVER_ROOT"
+mkdir -p "$TAKEOVER_HOME"
+HOME="$TAKEOVER_HOME" FM_ROOT_OVERRIDE="$TAKEOVER_ROOT" FM_REMOTE_JOB_STATE_ROOT="$TAKEOVER_STATE" \
+  FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux "$TAKEOVER_WORKER" >> "$TMP_ROOT/takeover.log" 2>&1 &
+TAKEOVER_SUPERVISOR=$!
+for _ in $(seq 1 300); do
+  [ -f "$TAKEOVER_STATE/worker.ready" ] && break
+  sleep 0.05
+done
+assert_present "$TAKEOVER_STATE/worker.ready" "the takeover fixture supervisor did not become ready"
+TAKEOVER_CLAIM=$(readlink "$TAKEOVER_STATE/worker.supervisor" 2>/dev/null || true)
+[ "${TAKEOVER_CLAIM%%|*}" = "$TAKEOVER_SUPERVISOR" ] \
+  || fail "the supervisor claim names '${TAKEOVER_CLAIM%%|*}', not the live supervisor $TAKEOVER_SUPERVISOR"
+( FM_REMOTE_JOB_STATE_ROOT="$TAKEOVER_STATE"; fm_remote_job_prepare_state "$TAKEOVER_HOME" && fm_remote_job_supervisor_claim_alive ) \
+  || fail "the live supervisor's own claim reads as dead"
+TAKEOVER_BEGAN=$SECONDS
+set +e
+HOME="$TAKEOVER_HOME" FM_ROOT_OVERRIDE="$TAKEOVER_ROOT" FM_REMOTE_JOB_STATE_ROOT="$TAKEOVER_STATE" \
+  FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux "$TAKEOVER_WORKER" >> "$TMP_ROOT/takeover.log" 2>&1
+TAKEOVER_SECOND_RC=$?
+set -e
+[ "$TAKEOVER_SECOND_RC" -eq 0 ] && [ $((SECONDS - TAKEOVER_BEGAN)) -le 3 ] \
+  || fail "a second supervisor beside a live one exited $TAKEOVER_SECOND_RC after $((SECONDS - TAKEOVER_BEGAN))s"
+[ "$(readlink "$TAKEOVER_STATE/worker.supervisor" 2>/dev/null || true)" = "$TAKEOVER_CLAIM" ] \
+  || fail "a second supervisor displaced the live supervisor's claim"
+pass "the supervisor claim names the live supervisor and turns a second one away"
+
+# Ownership can move while a serving loop runs: on a host whose wall clock is
+# stepped, a live owner's recorded identity once read as a stranger's, and a
+# replacement reclaimed its lock while it kept serving. The old loop and its
+# supervisor then ran on beside the new owner, and each loop reclaimed the
+# other's running jobs, publishing "remote job worker stopped before this job
+# completed". Move ownership under a loop that is running a job: the old tree
+# must stop serving and exit, and its in-flight job must still complete.
+(
+  FM_REMOTE_JOB_STATE_ROOT="$TAKEOVER_STATE"
+  FM_REMOTE_JOB_QUEUE_TIMEOUT=60
+  FM_REMOTE_JOB_TIMEOUT=60
+  fm_remote_job_stage "$TAKEOVER_HOME" "$TAKEOVER_ROOT" "$REMOTE_HOME" \
+    fm-delay-job.sh 4 "$TAKEOVER_RAN" < /dev/null
+) >> "$TMP_ROOT/takeover-jobs" || fail "the takeover job could not be staged"
+TAKEOVER_JOB=$(tail -n 1 "$TMP_ROOT/takeover-jobs")
+for _ in $(seq 1 100); do
+  [ "$(cat "$TAKEOVER_STATE/jobs/$TAKEOVER_JOB/state" 2>/dev/null || true)" = running ] && break
+  sleep 0.05
+done
+[ "$(cat "$TAKEOVER_STATE/jobs/$TAKEOVER_JOB/state" 2>/dev/null || true)" = running ] \
+  || fail "the takeover job did not start running"
+TAKEOVER_OLD_SERVE=$(cat "$TAKEOVER_STATE/worker.pid")
+rm -rf -- "$TAKEOVER_STATE/worker.lock"
+HOME="$TAKEOVER_HOME" FM_ROOT_OVERRIDE="$TAKEOVER_ROOT" FM_REMOTE_JOB_STATE_ROOT="$TAKEOVER_STATE" \
+  FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux "$TAKEOVER_WORKER" --serve >> "$TMP_ROOT/takeover.log" 2>&1 &
+TAKEOVER_NEW_SERVE=$!
+takeover_wait_gone "$TAKEOVER_OLD_SERVE" 5 \
+  || fail "the serving loop kept serving after its ownership moved to another worker"
+takeover_wait_gone "$TAKEOVER_SUPERVISOR" 5 \
+  || fail "the supervisor kept running after its serving loop lost ownership"
+wait "$TAKEOVER_SUPERVISOR" 2>/dev/null || true
+(
+  FM_REMOTE_JOB_STATE_ROOT="$TAKEOVER_STATE"
+  fm_remote_job_wait "$TAKEOVER_HOME" "$TAKEOVER_JOB" || fail "$FM_REMOTE_JOB_ERROR"
+  [ "$FM_REMOTE_JOB_EXIT" -eq 0 ] \
+    || fail "the in-flight job was dropped across the takeover with exit $FM_REMOTE_JOB_EXIT: $(cat "$FM_REMOTE_JOB_STDERR")"
+  fm_remote_job_reap "$TAKEOVER_HOME" "$TAKEOVER_JOB"
+) || exit 1
+assert_present "$TAKEOVER_RAN" "the in-flight job's command did not finish across the takeover"
+[ "$(cat "$TAKEOVER_STATE/worker.lock/pid" 2>/dev/null || true)" = "$TAKEOVER_NEW_SERVE" ] \
+  || fail "the new owner did not keep the worker lock"
+kill -0 "$TAKEOVER_NEW_SERVE" 2>/dev/null || fail "the new owner stopped serving"
+rm -f -- "$TAKEOVER_RAN"
+(
+  FM_REMOTE_JOB_STATE_ROOT="$TAKEOVER_STATE"
+  FM_REMOTE_JOB_QUEUE_TIMEOUT=60
+  fm_remote_job_stage "$TAKEOVER_HOME" "$TAKEOVER_ROOT" "$REMOTE_HOME" \
+    fm-touch-job.sh "$TAKEOVER_RAN" < /dev/null > /dev/null || fail "$FM_REMOTE_JOB_ERROR"
+  fm_remote_job_wait "$TAKEOVER_HOME" "$FM_REMOTE_JOB_ID" || fail "$FM_REMOTE_JOB_ERROR"
+  [ "$FM_REMOTE_JOB_EXIT" -eq 0 ] || fail "the new owner's first job exited $FM_REMOTE_JOB_EXIT"
+  fm_remote_job_reap "$TAKEOVER_HOME" "$FM_REMOTE_JOB_ID"
+) || exit 1
+assert_present "$TAKEOVER_RAN" "the new owner did not run a job staged after the takeover"
+pass "a serving loop that loses ownership exits with its supervisor and leaves its in-flight job to finish"
+
+# A lane publishes its claim's owner record a moment after creating the claim.
+# A serving loop that read the unpublished claim as dead tore it down under the
+# lane, leaving claim records half removed. A fresh unpublished claim is left
+# alone, and is cleared only once it is older than any publication takes.
+kill -TERM "$TAKEOVER_NEW_SERVE" 2>/dev/null || true
+takeover_wait_gone "$TAKEOVER_NEW_SERVE" 10 || fail "the takeover owner did not stop on TERM"
+wait "$TAKEOVER_NEW_SERVE" 2>/dev/null || true
+rm -f -- "$TAKEOVER_RAN"
+(
+  FM_REMOTE_JOB_STATE_ROOT="$TAKEOVER_STATE"
+  FM_REMOTE_JOB_QUEUE_TIMEOUT=60
+  fm_remote_job_stage "$TAKEOVER_HOME" "$TAKEOVER_ROOT" "$REMOTE_HOME" \
+    fm-touch-job.sh "$TAKEOVER_RAN" < /dev/null
+) >> "$TMP_ROOT/takeover-jobs" || fail "the claim-publication job could not be staged"
+TAKEOVER_JOB=$(tail -n 1 "$TMP_ROOT/takeover-jobs")
+TAKEOVER_CLAIM_DIR="$TAKEOVER_STATE/jobs/$TAKEOVER_JOB/.claim"
+mkdir -m 700 "$TAKEOVER_CLAIM_DIR"
+printf 'pending\n' >> "$TAKEOVER_CLAIM_DIR/.owner.Pub123"
+chmod 600 "$TAKEOVER_CLAIM_DIR/.owner.Pub123"
+HOME="$TAKEOVER_HOME" FM_ROOT_OVERRIDE="$TAKEOVER_ROOT" FM_REMOTE_JOB_STATE_ROOT="$TAKEOVER_STATE" \
+  FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux "$TAKEOVER_WORKER" --serve >> "$TMP_ROOT/takeover.log" 2>&1 &
+TAKEOVER_NEW_SERVE=$!
+for _ in $(seq 1 300); do
+  [ "$(cat "$TAKEOVER_STATE/worker.pid" 2>/dev/null || true)" = "$TAKEOVER_NEW_SERVE" ] && break
+  sleep 0.05
+done
+sleep 2
+assert_present "$TAKEOVER_CLAIM_DIR/.owner.Pub123" "a serving loop tore down a claim still being published"
+assert_absent "$TAKEOVER_RAN" "a serving loop ran a job whose claim was still being published"
+touch -t 200001010000 "$TAKEOVER_CLAIM_DIR"
+(
+  FM_REMOTE_JOB_STATE_ROOT="$TAKEOVER_STATE"
+  fm_remote_job_wait "$TAKEOVER_HOME" "$TAKEOVER_JOB" || fail "$FM_REMOTE_JOB_ERROR"
+  [ "$FM_REMOTE_JOB_EXIT" -eq 0 ] || fail "the job behind an abandoned claim exited $FM_REMOTE_JOB_EXIT"
+  fm_remote_job_reap "$TAKEOVER_HOME" "$TAKEOVER_JOB"
+) || exit 1
+assert_present "$TAKEOVER_RAN" "an abandoned unpublished claim kept its job from ever running"
+kill -TERM "$TAKEOVER_NEW_SERVE" 2>/dev/null || true
+takeover_wait_gone "$TAKEOVER_NEW_SERVE" 10 || fail "the claim-publication owner did not stop on TERM"
+wait "$TAKEOVER_NEW_SERVE" 2>/dev/null || true
+worker_path_stop_all "$TAKEOVER_WORKER"
+pass "a claim still being published is left alone until it is provably abandoned"
 
 echo "ALL TESTS PASSED"

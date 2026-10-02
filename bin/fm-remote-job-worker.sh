@@ -61,7 +61,13 @@
 # child that could not take the ownership lock until its restart guard ran out.
 # A serving child that loses the ownership lock to a live owner - verified, or
 # still heartbeating after the whole acquisition wait - exits 0, so its
-# supervisor ends with it instead of restarting it. A stale ownership lock is
+# supervisor ends with it instead of restarting it. Ownership can also move
+# while a child serves, when a replacement reclaims a lock it judged stale, so
+# the serving loop re-reads the lock every second and, once it names another
+# owner or is gone, stops serving and exits 0 the same way. It leaves its lanes
+# running rather than dropping their jobs: a running job whose recorded lane is
+# still alive is never reclaimed by the new owner, which also starts no other
+# lane for that home until the job is published. A stale ownership lock is
 # reclaimed together with the temporary files an owner killed mid-publication
 # leaves in it, so that litter can no longer keep every later worker from
 # starting.
@@ -325,6 +331,33 @@ worker_shutdown_owns_lock() {
   [ -d "$WORKER_LOCK" ] && [ ! -L "$WORKER_LOCK" ] || return 1
   owner_pid=$(fm_remote_job_read_single_line "$WORKER_LOCK/pid" 64 2>/dev/null || true)
   [ "$owner_pid" = "${BASHPID:-$$}" ]
+}
+
+# Whether this serving loop still owns the lock it published: 0 while it does,
+# 1 once the directory is gone or names another owner, 2 when this read could
+# not tell. Ownership can move without any signal reaching this process - a
+# replacement reclaims a lock it judged stale - so the loop asks every second.
+worker_lock_ownership_status() {
+  local owner_pid
+  [ -d "$WORKER_LOCK" ] && [ ! -L "$WORKER_LOCK" ] || return 1
+  [ -e "$WORKER_LOCK/pid" ] || [ -L "$WORKER_LOCK/pid" ] || return 1
+  owner_pid=$(fm_remote_job_read_single_line "$WORKER_LOCK/pid" 64 2>/dev/null) || return 2
+  [ "$owner_pid" = "${BASHPID:-$$}" ] || return 1
+}
+
+# Ownership moved to another serving loop. Two loops on one queue reclaim each
+# other's running jobs, so stop serving at once, but leave this loop's lanes
+# running: each finishes and publishes its own job, and the new owner leaves a
+# job whose lane is alive alone. Exiting 0 also ends this loop's supervisor.
+worker_step_aside_lost_lock() {
+  WORKER_RELEASE_OWNERSHIP=0
+  WORKER_LOCK_HELD=0
+  WORKER_LANE_HOMES=()
+  WORKER_LANE_PIDS=()
+  WORKER_LANE_STARTS=()
+  WORKER_LANE_JOBS=()
+  worker_error "worker ownership moved to another worker; this one stops serving"
+  exit 0
 }
 
 worker_cleanup() {
@@ -637,21 +670,52 @@ worker_claim_owner_alive() { # <job-dir>
   kill -0 "$pid" 2>/dev/null
 }
 
+# A claim directory whose owner record is not yet published may belong to a
+# lane that is still publishing it, such as one a serving loop started just
+# before it lost ownership. Clearing it then races that lane's own writes, so
+# such a claim is left alone until it is older than a publication takes.
+worker_claim_in_publication() { # <claim-dir>
+  local claim=$1 mtime now
+  [ ! -e "$claim/owner" ] && [ ! -L "$claim/owner" ] || return 1
+  mtime=$(fm_remote_job_path_mtime "$claim" 2>/dev/null || true)
+  case "$mtime" in ''|*[!0-9]*) return 1 ;; esac
+  now=$(date +%s)
+  [ $((now - mtime)) -le 10 ]
+}
+
 worker_clear_dead_claim() { # <job-dir>
   local job=$1 claim="$1/.claim"
   [ -e "$claim" ] || [ -L "$claim" ] || return 0
   worker_claim_owner_alive "$job" && return 1
   [ -d "$claim" ] && [ ! -L "$claim" ] || return 1
+  worker_claim_in_publication "$claim" && return 1
   [ ! -e "$claim/owner" ] || [ ! -L "$claim/owner" ] || return 1
   fm_remote_job_remove_claim_records "$claim" || return 1
   rmdir "$claim"
 }
 
-# Reclaim a running job this serving loop does not own: a record left by a
-# crashed worker, whether its lane process died with it or survived it. The
-# recorded execution is stopped either way - a surviving foreign lane is not
-# supervised by any owner and a second lane for its home must never start
-# beside it - and the record publishes unknown completion, exactly as a
+# A running job this serving loop does not own whose recorded lane is still
+# alive: a lane started by a serving loop that has since lost ownership or
+# died. The lane runs its job to publication on its own, so reclaiming it would
+# only drop work in flight; the caller leaves the job alone and keeps a second
+# lane for its home from starting beside it. A lane whose identity cannot be
+# read this pass counts as alive while its pid is, and is looked at again on
+# the next pass.
+worker_foreign_lane_alive() { # <job-dir>
+  local job=$1 file="$1/.claim/supervisor" pid
+  [ -f "$file" ] && [ ! -L "$file" ] || return 1
+  pid=$(worker_read_process_id "$file") || return 1
+  worker_supervisor_identity_status "$job" "$pid"
+  case "$?" in
+    0) return 0 ;;
+    2) kill -0 "$pid" 2>/dev/null ;;
+    *) return 1 ;;
+  esac
+}
+
+# Reclaim a running job this serving loop does not own and no live lane runs:
+# a record left by a crashed worker or lane. Any surviving recorded command
+# group is stopped, and the record publishes unknown completion, exactly as a
 # crashed single-process worker's job always has.
 worker_reclaim_running_job() { # <job-dir>
   local job=$1 file state
@@ -1122,7 +1186,7 @@ worker_process_once() { # <account-home>
       queued)
         worker_lane_owns_job "$job" && continue
         if ! worker_clear_dead_claim "$job"; then
-          if worker_claim_owner_alive "$job"; then
+          if worker_claim_owner_alive "$job" || worker_claim_in_publication "$job/.claim"; then
             home=$(worker_read_text "$job" home 8192 2>/dev/null || true)
             [ -n "$home" ] && reserved_homes+=("$home")
           fi
@@ -1147,7 +1211,13 @@ worker_process_once() { # <account-home>
         candidates="$candidates$seq"$'\t'"$id"$'\t'"$home"$'\n'
         ;;
       running)
-        worker_lane_owns_job "$job" || worker_reclaim_running_job "$job" || true
+        worker_lane_owns_job "$job" && continue
+        if worker_foreign_lane_alive "$job"; then
+          home=$(worker_read_text "$job" home 8192 2>/dev/null || true)
+          [ -n "$home" ] && reserved_homes+=("$home")
+          continue
+        fi
+        worker_reclaim_running_job "$job" || true
         continue
         ;;
       *) continue ;;
@@ -1192,7 +1262,7 @@ worker_wait_for_work() {
 }
 
 main() {
-  local account_home lock_status next_heartbeat=-1 next_sweep=0 sweep_interval
+  local account_home lock_status next_heartbeat=-1 next_sweep=0 sweep_interval ownership
   account_home=$(worker_account_home) || { worker_error "cannot resolve account home"; exit 1; }
   FM_ROOT=$(fm_remote_job_canonical_existing_dir "$FM_ROOT") || { worker_error "configured FM_ROOT is unsafe"; exit 1; }
   [ -f "$FM_ROOT/AGENTS.md" ] && [ ! -L "$FM_ROOT/AGENTS.md" ] || { worker_error "FM_ROOT is not a Firstmate checkout"; exit 1; }
@@ -1218,6 +1288,11 @@ main() {
   WORKER_ACTIVITY=1
   while :; do
     if [ "$SECONDS" -ne "$next_heartbeat" ]; then
+      # Checked before the heartbeat, so a loop that lost ownership never
+      # refreshes the readiness of the queue it no longer serves.
+      ownership=0
+      worker_lock_ownership_status || ownership=$?
+      [ "$ownership" -ne 1 ] || worker_step_aside_lost_lock
       worker_write_heartbeat || { worker_error "cannot update worker heartbeat"; exit 1; }
       next_heartbeat=$SECONDS
     fi
@@ -1297,12 +1372,16 @@ worker_supervisor_release() {
 }
 
 worker_supervise_linux() {
-  local account_home child_status started failures=0 restarts=0 backoff claim_status
+  local account_home child_status started failures=0 restarts=0 backoff claim_status supervisor_pid
   account_home=$(worker_account_home) || { worker_error "cannot resolve account home"; return 1; }
   FM_ROOT=$(fm_remote_job_canonical_existing_dir "$FM_ROOT") || { worker_error "configured FM_ROOT is unsafe"; return 1; }
   [ -f "$FM_ROOT/AGENTS.md" ] && [ ! -L "$FM_ROOT/AGENTS.md" ] || { worker_error "FM_ROOT is not a Firstmate checkout"; return 1; }
   fm_remote_job_prepare_state "$account_home" || { worker_error "$FM_REMOTE_JOB_ERROR"; return 1; }
-  WORKER_SUPERVISOR_TOKEN=$(fm_remote_job_supervisor_token "${BASHPID:-$$}") \
+  # Read the pid outside the command substitution: inside it BASHPID names the
+  # substitution's own short-lived subshell, which left a claim that named a
+  # dead process and so excluded nobody.
+  supervisor_pid=${BASHPID:-$$}
+  WORKER_SUPERVISOR_TOKEN=$(fm_remote_job_supervisor_token "$supervisor_pid") \
     || { worker_error "cannot read this supervisor's process identity"; return 1; }
   trap worker_supervisor_release EXIT
   trap worker_supervisor_shutdown HUP INT TERM

@@ -929,8 +929,26 @@ fm_remote_job_ps_field() { # <pid> <field>
   COLUMNS=10000 LC_ALL=C "$ps_bin" -p "$1" -o "$2=" 2>/dev/null
 }
 
+# A process's start identity, compared for equality only. Linux ps derives
+# lstart from the wall-clock boot time, which moves whenever the clock is
+# stepped, so a live owner recorded before a step read as a stranger after it
+# and its lock, claims, and running jobs were reclaimed from under it. Where
+# procfs exists the identity is therefore the kernel's own start tick, counted
+# from boot and immune to clock changes, qualified by the boot id; elsewhere
+# (macOS) lstart is the kernel's fixed start time and stays as it is.
 fm_remote_job_process_start() {
-  local pid=$1 value
+  local pid=$1 value boot='-' stat
+  local -a fields
+  case "$pid" in ''|*[!0-9]*) return 1 ;; esac
+  if [ -r /proc/self/stat ]; then
+    IFS= read -r stat 2>/dev/null < "/proc/$pid/stat" || return 1
+    read -r -a fields <<< "${stat##*) }"
+    value=${fields[19]:-}
+    case "$value" in ''|*[!0-9]*) return 1 ;; esac
+    IFS= read -r boot 2>/dev/null < /proc/sys/kernel/random/boot_id || boot='-'
+    printf 'boot %s tick %s\n' "$boot" "$value"
+    return 0
+  fi
   value=$(fm_remote_job_ps_field "$pid" lstart) || return 1
   [ -n "$value" ] || return 1
   case "$value" in *$'\n'*|*$'\r'*) return 1 ;; esac
