@@ -179,6 +179,7 @@ exec /bin/sleep 40
 SH
 chmod +x "$HOST_BIN/fm-watch-arm.sh"
 ln -s /bin/bash "$TMP_ROOT/claude"
+# shellcheck disable=SC2016 # the script expands inside the child shell
 FM_HOME="$HOST_HOME" FM_ROOT_OVERRIDE="$HOST_HOME" PATH="$SHIMS:$PATH" FC_LOG="$FC_LOG" \
   FM_SUPERVISION_HOST_PRIMARY=claude HOST_SCRIPT="$HOST_BIN/fm-supervision-host.sh" \
   "$TMP_ROOT/claude" -c '
