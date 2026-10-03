@@ -1425,6 +1425,28 @@ Arm the check once per home with `bin/fm-tool-update-check.sh arm`.
 - So a budget larger than that timeout allows is cut down to what fits instead of being refused, and the cut is reported in the report line.
 - A budget that is not a whole number from 1 to 120 is still refused outright.
 
+## Secondmate context check (state/sm-context.check.sh)
+
+Each wake replays a secondmate's whole Claude conversation, so a long-lived mate's context is the largest recurring Claude cost.
+[`bin/fm-sm-context.sh`](../bin/fm-sm-context.sh) prints one mate's current context size and session age without touching it, and [`bin/fm-sm-context-check.sh`](../bin/fm-sm-context-check.sh) turns that reading into a watcher wake.
+
+- The probe reads the newest session transcript under the home's Claude projects directory and sums the last assistant message's `input_tokens`, `cache_read_input_tokens`, and `cache_creation_input_tokens`; the age is the time since that transcript's first timestamped record.
+- A remote mate is probed read-only over `bin/fm-on.sh`, so the host's Firstmate code root must be on a commit that contains the probe; until then the reading is `unknown`.
+- A mate whose recorded harness is not `claude`, or that has no transcript, reads `unknown` and never wakes.
+- The check wakes when a mate reaches `FM_SM_CONTEXT_TOKENS` (default 150000) or `FM_SM_CONTEXT_AGE_S` (default 21600, six hours) and prints the exact `bin/fm-secondmate-restart.sh <id>` command to run.
+- It reports each mate at most once per `FM_SM_CONTEXT_COOLDOWN_S` (default 21600) and never restarts anything itself.
+
+The registered check lives in the home's private `state/`, so it is not shipped.
+Create `state/sm-context.check.sh` as a one-line shim that runs the tracked script, set it executable, then bind it with `bin/fm-check-register.sh sm-context`:
+
+```sh
+#!/usr/bin/env bash
+exec "<firstmate-code-root>/bin/fm-sm-context-check.sh"
+```
+
+`bin/fm-check-unregister.sh sm-context` retires it.
+The restart rule for the wake belongs to the `secondmate-provisioning` skill.
+
 ## Mail plane (.env)
 
 The mail plane (bin/fm-mail.sh) reads unseen IMAP messages and sends one SMTP message.

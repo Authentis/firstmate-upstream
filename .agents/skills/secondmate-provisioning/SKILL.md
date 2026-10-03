@@ -234,6 +234,14 @@ Move a REMOTE one with `bin/fm-remote-secondmate-relaunch.sh <id> <harness> <mod
 Never call `fm-remote-secondmate-control.sh relaunch` through `fm-on.sh` directly for this: it leaves this primary's own record naming the runtime the mate used to run.
 A successful update restarts every live mate of both placements on its own, including one already on the target commit; the `/updatefirstmate` skill owns that pass, and `bin/fm-secondmate-restart.sh` owns its persist gate and failure vocabulary.
 
+### Context-length restart
+
+A long-lived mate replays its whole Claude conversation on every wake, so the main firstmate restarts a mate whose context has grown.
+The home's `sm-context` check ([`docs/configuration.md`](../../../docs/configuration.md#secondmate-context-check-statesm-contextchecksh)) wakes main with `check: sm-context ...` when a mate reaches 150000 tokens or six hours since its session start, naming the exact `bin/fm-secondmate-restart.sh <id>` command; `bin/fm-sm-context.sh <id>` prints the current reading.
+On that wake, restart only the named mate with that command once the mate is idle or between turns, and defer while it is mid-turn; the command already asks the mate to write down its open work first and owns its failure vocabulary.
+Report the outcome to the captain in one line, and treat a nudge or unknown result as not restarted.
+The check never restarts anything, rate-limits itself to once per six hours per mate, and stays silent for a non-Claude mate or an unknown reading.
+
 Do not reconstruct a secondmate's whole tree from the main home.
 The main firstmate reconciles only direct reports.
 Each secondmate is a firstmate in its own home, so it runs recovery on startup and reconciles its own crewmates.
