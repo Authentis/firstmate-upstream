@@ -1294,6 +1294,31 @@ quiet_stop "$QUIET_WORKER_PID"
 QUIET_WORKER_PID=
 pass "an idle worker still repairs queue permissions and stops promptly on TERM"
 
+# Default cadence, no shortened reap age: a settled idle worker forks at most a
+# few processes a second (the idle sleep and the every-other-second heartbeat
+# rename), and a job staged to it is still claimed and run within its
+# one-second scan interval.
+LOW_STATE="$TMP_ROOT/lowchurn-state"
+LOW_TOUCHED="$TMP_ROOT/lowchurn-touched"
+HOME="$QUIET_HOME" PATH="$QUIET_SHIM:/usr/bin:/bin:/usr/sbin:/sbin" FM_TEST_EXEC_LOG="$QUIET_EXEC_LOG" \
+  FM_ROOT_OVERRIDE="$REMOTE_ROOT" FM_REMOTE_JOB_STATE_ROOT="$LOW_STATE" \
+  FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux \
+  "$REMOTE_ROOT/bin/fm-remote-job-worker.sh" --serve > "$TMP_ROOT/lowchurn-worker.out" 2> "$TMP_ROOT/lowchurn-worker.err" &
+LOW_WORKER_PID=$!
+quiet_wait_ready "$LOW_STATE" low-churn
+quiet_settle 3
+sleep 6
+LOW_EXECS=$(wc -l < "$QUIET_EXEC_LOG" | tr -d ' ')
+[ "$LOW_EXECS" -le 24 ] \
+  || fail "a settled idle worker ran $LOW_EXECS commands in 6s (limit 4 a second)"$'\n'"$(sort "$QUIET_EXEC_LOG" | uniq -c)"
+LOW_BEGAN=$(date +%s)
+quiet_stage_completes "$LOW_STATE" "$QUIET_HOME" "$LOW_TOUCHED" low-churn
+LOW_PICKUP=$(( $(date +%s) - LOW_BEGAN ))
+[ "$LOW_PICKUP" -le 3 ] || fail "a job staged to the low-churn idle worker took ${LOW_PICKUP}s to run"
+quiet_stop "$LOW_WORKER_PID"
+LOW_WORKER_PID=
+pass "a settled idle worker forks at most 4 processes a second and still runs a staged job promptly"
+
 # A child that stays up for FM_REMOTE_JOB_SUPERVISOR_HEALTHY_SECONDS clears the
 # consecutive-failure backoff, so a child that dies just past that threshold
 # used to reset the only guard the supervisor had and restart forever. The
