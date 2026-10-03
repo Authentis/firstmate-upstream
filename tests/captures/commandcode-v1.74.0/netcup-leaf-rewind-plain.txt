@@ -1,0 +1,9 @@
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+Rewind
+Select a checkpoint to restore your session
+
+> FIRSTMATE_OP: v1 launch-brief: # Current worker role con.. • 3h ago (latest)
+  2 files changed
+
+Press Enter to select · Esc to cancel

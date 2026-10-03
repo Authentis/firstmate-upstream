@@ -15,8 +15,9 @@
 # This file owns three capability tables plus their pure artifact-path tables,
 # and TWO named exceptions to that purity - fm_control_endpoint_absence_verdict,
 # the single owner of the per-backend endpoint-absence proof, and
-# fm_control_clear_draft, the single owner of the verified composer-draft clear;
-# both run backend commands. Everything else has no side effects, runs no
+# fm_control_clear_draft, the single owner of the verified composer-draft clear
+# (with its checkpoint-picker helpers fm_control_overlay_open and
+# fm_control_dismiss_overlay); both run backend commands. Everything else has no side effects, runs no
 # backend command, and reads no state, so sourcing this file is still free and
 # the tables can be read by a test as a pure contract:
 #
@@ -230,10 +231,14 @@ fm_control_interrupt_clear_key() {  # <harness>
 # result and the live guard). The alternatives fail: Ctrl-U kills only the
 # cursor line of a multi-line draft and Ctrl-A then Ctrl-K only the cursor
 # line as well; one Ctrl-C clears but arms `Press Ctrl+C again to exit`, so a
-# second press would exit the agent; one Escape on a draft changes nothing,
-# and an Escape pair on an idle EMPTY composer opens nothing. The same pair on
-# a RUNNING turn is an interrupt, so a caller outside the interrupt and exit
-# verbs must prove the agent idle first (bin/fm-task-inbox-lib.sh does).
+# second press would exit the agent; one Escape on a draft changes nothing.
+# The same pair on an idle EMPTY composer opens the Rewind checkpoint picker
+# once the session has a turn (verified live, commandcode 1.74.1), where Enter
+# restores a checkpoint, so fm_control_clear_draft below never sends it to a
+# composer that reads empty and closes the picker with one Escape if it opens.
+# The same pair on a RUNNING turn is an interrupt, so a caller outside the
+# interrupt and exit verbs must prove the agent idle first
+# (bin/fm-task-inbox-lib.sh does).
 fm_control_draft_clear_key() {  # <harness>
   case "${1-}" in
     commandcode) printf 'Escape' ;;
@@ -263,25 +268,100 @@ fm_control_draft_clear_gap() {  # <harness>
   esac
 }
 
+# The key that closes the overlay a mistimed Escape pair can open. Command Code
+# is the only adapter whose clear sends the pair, so it is the only one with an
+# overlay to close: its Rewind checkpoint picker closes on ONE Escape (verified
+# live, commandcode 1.74.1); Enter would restore a checkpoint.
+fm_control_overlay_dismiss_key() {  # <harness>
+  case "${1-}" in
+    commandcode) printf 'Escape' ;;
+    *) return 1 ;;
+  esac
+}
+
+# fm_control_overlay_open: whether the harness's checkpoint picker is on screen.
+# Prints nothing; returns 0 open, 1 not open, 2 unreadable or no such overlay
+# for the adapter. The picker is two rows, the title `Rewind` directly above
+# `Select a checkpoint to restore your session` (docs/verification/
+# commandcode.md owns the capture), matched as whole trimmed rows so a
+# transcript that merely mentions them is not read as the picker. The viewport
+# is read where the backend has a verified bounded read; elsewhere the last 40
+# rows stand in, because the picker draws at the bottom.
+fm_control_overlay_open() {  # <backend> <target> <harness> [expected-label]
+  local backend=${1-} target=${2-} harness=${3-} label=${4-} screen
+  fm_control_overlay_dismiss_key "$harness" >/dev/null || return 2
+  if fm_backend_visible_capture_supported "$backend"; then
+    screen=$(fm_backend_visible_capture "$backend" "$target" "$label" 2>/dev/null) || return 2
+  else
+    screen=$(fm_backend_capture "$backend" "$target" 40 "$label" 2>/dev/null) || return 2
+  fi
+  [ -n "$screen" ] || return 2
+  printf '%s\n' "$screen" | LC_ALL=C sed $'s/\x1b\\[[0-9;:?]*[A-Za-z]//g; s/\r$//' | LC_ALL=C awk '
+    { line = $0; gsub(/^[ \t]+|[ \t]+$/, "", line) }
+    line == "" { next }
+    title { if (line == "Select a checkpoint to restore your session") found = 1; title = 0 }
+    line == "Rewind" { title = 1 }
+    END { exit(found ? 0 : 1) }
+  '
+}
+
+# fm_control_dismiss_overlay: close the checkpoint picker if it is open, with
+# exactly one Escape, and prove it closed. Returns 0 when nothing was open or it
+# closed, 1 when it is open and the key was not delivered or one Escape did not
+# close it (nothing else is sent: a second key into a picker is how Enter ends
+# up restoring a checkpoint). An unreadable screen is treated as not open,
+# because the composer read that follows it cannot be proven either.
+fm_control_dismiss_overlay() {  # <backend> <target> <harness> [expected-label]
+  local backend=${1-} target=${2-} harness=${3-} label=${4-} key polls=0
+  key=$(fm_control_overlay_dismiss_key "$harness") || return 0
+  fm_control_overlay_open "$backend" "$target" "$harness" "$label" || return 0
+  fm_control_backend_supports_key "$backend" "$key" || return 1
+  fm_backend_send_key "$backend" "$target" "$key" "$label" >/dev/null 2>&1 || return 1
+  while [ "$polls" -lt 8 ]; do
+    polls=$((polls + 1))
+    sleep 0.25
+    fm_control_overlay_open "$backend" "$target" "$harness" "$label" || return 0
+  done
+  return 1
+}
+
 # fm_control_clear_draft: the ONE mechanism that sends the draft-clear keys and
 # proves the result, so the interrupt verb, the exit verb, and the doorbell all
 # empty a composer the same way. Returns 0 only when the composer then reads
-# exactly `empty` (a verdict of pending-unproven or unknown never counts), 1
-# when the keys could not be delivered or the composer still reads otherwise
-# after two attempts, and 2 when the adapter has no verified draft clear, in
-# which case nothing was sent. Requires bin/fm-backend.sh.
+# exactly `empty` and no overlay is open (a verdict of pending-unproven or
+# unknown never counts), 1 when the keys could not be delivered or the composer
+# still reads otherwise after two attempts, and 2 when the adapter has no
+# verified draft clear, in which case nothing was sent. Requires
+# bin/fm-backend.sh.
+# It never sends the clear to a composer that already reads empty, closes an
+# open checkpoint picker with one Escape before and after the pair, and never
+# repeats the pair once a picker has opened: the pair opens it only on an EMPTY
+# composer, so an opened picker proves the text read before was not a draft.
+# On return 1, FM_CONTROL_CLEAR_WHY names why for the caller's refusal:
+#   overlay-stuck  a checkpoint picker is open and one Escape did not close it
+#   misread        the pair opened the picker, which one Escape then closed: the
+#                  composer was empty and still reads as holding text
+#   pending        the composer still reads as holding text after both pairs
+#   keys           a key could not be delivered
+# shellcheck disable=SC2034 # Output global, consumed by sourcing callers.
+FM_CONTROL_CLEAR_WHY=
 fm_control_clear_draft() {  # <backend> <target> <harness> [expected-label]
   local backend=${1-} target=${2-} harness=${3-} label=${4-} key presses gap attempts=0 polls i
+  FM_CONTROL_CLEAR_WHY=
   key=$(fm_control_draft_clear_key "$harness") || return 2
   [ -n "$key" ] || return 2
   presses=$(fm_control_draft_clear_presses "$harness") || return 2
   gap=$(fm_control_draft_clear_gap "$harness") || return 2
-  fm_control_backend_supports_key "$backend" "$key" || return 1
+  fm_control_backend_supports_key "$backend" "$key" || { FM_CONTROL_CLEAR_WHY=keys; return 1; }
+  fm_control_dismiss_overlay "$backend" "$target" "$harness" "$label" \
+    || { FM_CONTROL_CLEAR_WHY=overlay-stuck; return 1; }
+  [ "$(fm_backend_composer_state "$backend" "$target" "$label" 2>/dev/null)" != empty ] || return 0
   while [ "$attempts" -lt 2 ]; do
     attempts=$((attempts + 1))
     i=0
     while [ "$i" -lt "$presses" ]; do
-      fm_backend_send_key "$backend" "$target" "$key" "$label" >/dev/null 2>&1 || return 1
+      fm_backend_send_key "$backend" "$target" "$key" "$label" >/dev/null 2>&1 \
+        || { FM_CONTROL_CLEAR_WHY=keys; return 1; }
       i=$((i + 1))
       [ "$i" -ge "$presses" ] || sleep "$gap"
     done
@@ -289,9 +369,19 @@ fm_control_clear_draft() {  # <backend> <target> <harness> [expected-label]
     while [ "$polls" -lt 8 ]; do
       polls=$((polls + 1))
       sleep 0.25
+      if fm_control_overlay_open "$backend" "$target" "$harness" "$label"; then
+        if fm_control_dismiss_overlay "$backend" "$target" "$harness" "$label"; then
+          FM_CONTROL_CLEAR_WHY=misread
+        else
+          FM_CONTROL_CLEAR_WHY=overlay-stuck
+        fi
+        return 1
+      fi
       [ "$(fm_backend_composer_state "$backend" "$target" "$label" 2>/dev/null)" != empty ] || return 0
     done
   done
+  # shellcheck disable=SC2034 # Output global, consumed by sourcing callers.
+  FM_CONTROL_CLEAR_WHY=pending
   return 1
 }
 

@@ -7,13 +7,19 @@
 # two Escapes inside the CLI's pairing window (docs/verification/commandcode.md
 # owns the dated result; fm-commandcode-signals-live-e2e.test.sh refreshes it).
 #
+# The same pair on an EMPTY composer opens the Rewind checkpoint picker once the
+# session has a turn (verified live on 1.74.1), where Enter restores a
+# checkpoint; a composer that is empty but misread as holding text, such as the
+# placeholder drawn without its colours, therefore must not be hammered with it.
+#
 # This suite needs no Command Code install and no credentials. It runs the real
 # fm-control.sh and fm_task_inbox_ring against REAL processes in a REAL tmux
 # server: a Node stand-in executed under the process title `command-code`
-# redraws byte-exact screens captured from a live 1.74.0 pane and obeys the one
-# fact under test, a pair of Escapes inside 400 ms empties the composer while a
-# lone Escape changes nothing. It logs every key it receives, so each case also
-# asserts what was NOT sent.
+# redraws byte-exact screens captured from live panes and obeys the facts under
+# test, a pair of Escapes inside 400 ms empties a draft or opens the picker on an
+# empty composer, one Escape closes the picker, and a lone Escape otherwise
+# changes nothing. It logs every key it receives, so each case also asserts what
+# was NOT sent.
 set -u
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
@@ -54,6 +60,10 @@ ln -s "$(command -v node)" "$LAB/bin/command-code"
 # The idle screen is the captured composer tail with its CR row endings removed
 # (tmux rows end in LF); the draft screens are captured byte-for-byte.
 tr -d '\r' < "$CAPTURES/herdr-idle.ansi" > "$LAB/idle.ansi"
+# The real 1.74.1 pictures: the picker, and an idle composer whose colours the
+# launch environment erased (FORCE_COLOR=0), which reads as holding text.
+PICKER="$ROOT/tests/captures/commandcode-v1.74.1/rewind-overlay.ansi"
+MISREAD="$ROOT/tests/captures/commandcode-v1.74.1/forcecolor0-idle.ansi"
 cat > "$LAB/tui.js" <<'EOF'
 const fs = require('fs');
 const env = process.env;
@@ -61,12 +71,13 @@ const log = (line) => fs.appendFileSync(env.FAKE_LOG, line + '\n');
 const read = (p) => fs.readFileSync(p, 'utf8').replace(/\n$/, '');
 const idle = read(env.FAKE_IDLE);
 const rule = idle.split('\n').find((l) => l.includes('─────'));
-let mode = env.FAKE_DRAFT ? 'fixture' : 'idle';
+let mode = env.FAKE_START_PICKER ? 'picker' : env.FAKE_DRAFT ? 'fixture' : 'idle';
 let typed = '';
 let lastEsc = 0;
 const draw = () => {
   let rows;
-  if (mode === 'fixture') rows = read(env.FAKE_DRAFT).split('\n');
+  if (mode === 'picker') rows = read(env.FAKE_PICKER).split('\n');
+  else if (mode === 'fixture') rows = read(env.FAKE_DRAFT).split('\n');
   else if (mode === 'typed') rows = [rule, '\x1b[39m❯ ' + typed + '\x1b[7m \x1b[0m', rule, '  ? for shortcuts · taste on'];
   else rows = idle.split('\n');
   if (env.FAKE_BUSY) rows = ['\x1b[38;2;138;148;168m⠋ Working…  esc to interrupt • 2s • ↓ 0\x1b[39m', ...rows];
@@ -79,8 +90,18 @@ process.stdin.on('data', (buf) => {
     if (ch === '\x1b') {
       const now = Date.now();
       log('KEY Escape');
-      if (!env.FAKE_STUCK && lastEsc && now - lastEsc < 400) { mode = 'idle'; typed = ''; lastEsc = 0; }
-      else lastEsc = now;
+      if (mode === 'picker') {
+        // One Escape closes the picker; Enter would restore a checkpoint.
+        if (!env.FAKE_PICKER_STUCK) mode = 'idle';
+        lastEsc = 0;
+      } else if (!env.FAKE_STUCK && lastEsc && now - lastEsc < 400) {
+        // The pair empties a draft, and on an empty composer with history opens the picker.
+        if (mode === 'idle' && env.FAKE_HISTORY) { mode = 'picker'; log('PICKER opened'); }
+        else { mode = 'idle'; typed = ''; }
+        lastEsc = 0;
+      } else lastEsc = now;
+    } else if (mode === 'picker') {
+      if (ch === '\r') log('PICKER_ENTER restored a checkpoint');
     } else if (ch === '\r') {
       log('SUBMIT ' + typed);
       const line = typed;
@@ -117,7 +138,7 @@ start_pane() {
   [ "$draft" = - ] || draft_env="FAKE_DRAFT=$CAPTURES/$draft"
   # shellcheck disable=SC2086
   tmux_t new-session -d -s fmses -n "$LABEL" -x 140 -y 40 -c "$WT" \
-    "env FAKE_LOG=$LAB/keys.log FAKE_IDLE=$LAB/idle.ansi $draft_env $* $LAB/bin/command-code $LAB/tui.js; exec /bin/bash --noprofile --norc" \
+    "env FAKE_LOG=$LAB/keys.log FAKE_IDLE=$LAB/idle.ansi FAKE_PICKER=$PICKER FAKE_HISTORY=1 $draft_env $* $LAB/bin/command-code $LAB/tui.js; exec /bin/bash --noprofile --norc" \
     || fail 'could not start the stand-in pane'
   local i=0
   while [ "$i" -lt 100 ]; do
@@ -254,3 +275,81 @@ set_busy idle
 [ "$(ring commandcode)" = 1 ] || fail 'a clear that does not empty the composer must skip the ring'
 ! grep -q '^SUBMIT' "$LAB/keys.log" || fail 'the doorbell was typed onto a composer that was not cleared'
 pass "doorbell: an unverified clear skips the ring rather than typing onto the draft"
+
+# --- the Escape pair on an EMPTY composer opens the Rewind picker ---------------------------
+picker_open() { tmux_t capture-pane -p -t "$TARGET" | grep -q '^Select a checkpoint to restore your session$'; }
+
+start_pane -
+fm_control_clear_draft tmux "$TARGET" commandcode "$LABEL" || fail 'clearing a composer that reads empty must succeed'
+[ "$(count_key 'KEY Escape')" = 0 ] || fail "the clear sent $(count_key 'KEY Escape') Escape(s) to a composer that reads empty"
+! picker_open || fail 'the picker is open after a clear that sent nothing'
+pass "clear: a composer that reads empty is never sent an Escape"
+
+# The stand-in must really open the picker for the cases below to mean anything.
+start_pane -
+tmux_t send-keys -t "$TARGET" Escape
+sleep 0.1
+tmux_t send-keys -t "$TARGET" Escape
+wait_log '^PICKER opened$' || fail 'the stand-in did not open the picker on an Escape pair; the cases below would be vacuous'
+[ "$(composer)" != empty ] || fail 'the open picker must not read as an empty composer'
+[ "$(composer)" != pending ] || fail 'the open picker must not read as typed text'
+pass "stand-in: an Escape pair on an empty composer opens the picker, which reads neither empty nor pending"
+
+# The colour-erased placeholder reads pending though the composer is empty: the
+# misread the captured netcup panes showed. The clear must not repeat the pair.
+start_pane - "FAKE_IDLE=$MISREAD"
+[ "$(composer)" = pending ] || fail "the colour-erased capture must read pending to model the misread, got $(composer)"
+out=$(run_control exit) && fail "exit must refuse a composer that reads as text but is empty: $out"
+case "$out" in *'reads as holding text but is empty'*) ;; *) fail "the refusal must name the misread: $out" ;; esac
+[ "$(count_key 'KEY Escape')" = 3 ] || fail "expected one pair plus one picker-closing Escape, got $(count_key 'KEY Escape')"
+[ "$(count_key 'PICKER opened')" = 1 ] || fail 'the pair must not be repeated after the picker opened'
+! picker_open || fail 'the refusal left the picker open'
+! grep -q '^PICKER_ENTER\|^SUBMIT' "$LAB/keys.log" || fail "a key reached the picker or composer: $(cat "$LAB/keys.log")"
+[ "$(fm_backend_agent_state tmux "$TARGET")" = alive ] || fail 'the refusal stopped the agent'
+pass "exit: an empty composer read as text opens the picker once, closes it with one Escape, types nothing, and refuses"
+
+start_pane - "FAKE_IDLE=$MISREAD"
+out=$(run_control interrupt) && fail "interrupt must refuse a composer that reads as text but is empty: $out"
+case "$out" in *'reads as holding text but is empty'*|*'did not close it'*) ;; *) fail "the refusal must name the misread: $out" ;; esac
+! picker_open || fail 'the interrupt refusal left the picker open'
+! grep -q '^PICKER_ENTER\|^SUBMIT' "$LAB/keys.log" || fail "a key reached the picker or composer: $(cat "$LAB/keys.log")"
+pass "interrupt: the same misread refuses with the picker closed and nothing typed"
+
+# A picker already open (left by an earlier clear) is closed with one Escape
+# before anything is typed, and Enter is never sent into it.
+start_pane - FAKE_START_PICKER=1
+picker_open || fail 'the stand-in did not start in the picker'
+out=$(run_control exit) || fail "exit failed with the picker open: $out"
+wait_log '^SUBMIT /exit$' || fail 'the exit command never reached the composer'
+[ "$(count_key 'KEY Escape')" = 1 ] || fail "the picker must be closed with exactly one Escape, got $(count_key 'KEY Escape')"
+! grep -q '^PICKER_ENTER' "$LAB/keys.log" || fail 'Enter reached the picker'
+[ "$(fm_backend_agent_state tmux "$TARGET")" = dead ] || fail 'exit did not stop the agent'
+pass "exit: an open picker is closed with one Escape, then /exit is typed, and Enter never reaches the picker"
+
+start_pane - FAKE_START_PICKER=1 FAKE_PICKER_STUCK=1
+out=$(run_control exit) && fail "exit must refuse a picker that stays open: $out"
+case "$out" in *'Rewind checkpoint picker'*) ;; *) fail "the refusal must name the picker: $out" ;; esac
+[ "$(count_key 'KEY Escape')" = 1 ] || fail "a stuck picker gets one Escape and no more, got $(count_key 'KEY Escape')"
+! grep -q '^PICKER_ENTER\|^SUBMIT' "$LAB/keys.log" || fail "a key reached the stuck picker or composer: $(cat "$LAB/keys.log")"
+pass "exit: a picker one Escape cannot close is refused with nothing else sent"
+
+# The doorbell types a line and Enter, which would select a checkpoint.
+start_pane - FAKE_START_PICKER=1
+set_busy idle
+[ "$(ring commandcode)" = 0 ] || fail 'the doorbell must ring once the picker is closed'
+wait_log '^SUBMIT : Firstmate instruction waiting' || fail "the doorbell line was never submitted: $(cat "$LAB/keys.log")"
+[ "$(count_key 'KEY Escape')" = 1 ] || fail "the doorbell must close the picker with exactly one Escape, got $(count_key 'KEY Escape')"
+! grep -q '^PICKER_ENTER' "$LAB/keys.log" || fail 'the doorbell sent Enter into the picker'
+start_pane - FAKE_START_PICKER=1 FAKE_PICKER_STUCK=1
+set_busy idle
+[ "$(ring commandcode)" = 1 ] || fail 'the doorbell must skip a picker it cannot close'
+! grep -q '^PICKER_ENTER\|^SUBMIT' "$LAB/keys.log" || fail "a key reached the stuck picker: $(cat "$LAB/keys.log")"
+pass "doorbell: an open picker is closed with one Escape before the ring, or the ring is skipped untouched"
+
+start_pane - "FAKE_IDLE=$MISREAD"
+set_busy idle
+[ "$(ring commandcode)" = 1 ] || fail 'a misread composer must skip the ring'
+! picker_open || fail 'the doorbell left the picker open'
+[ "$(count_key 'PICKER opened')" = 1 ] || fail 'the doorbell repeated the pair after the picker opened'
+! grep -q '^PICKER_ENTER\|^SUBMIT' "$LAB/keys.log" || fail "a key reached the picker or composer: $(cat "$LAB/keys.log")"
+pass "doorbell: a misread empty composer opens the picker once, closes it, and skips the ring"

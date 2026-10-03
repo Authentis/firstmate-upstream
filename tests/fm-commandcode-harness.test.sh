@@ -79,6 +79,40 @@ for row in "$draft_row" "$typed_row" "$home_row" "$nocolor_row"; do
 done
 pass "composer: herdr's CR LF rows read the idle placeholder empty and every typed shape pending"
 
+# Real 1.74.1 composer tails, byte-exact, under three launch environments. The
+# colour-erased shapes (NO_COLOR and FORCE_COLOR=0) are the verified way an
+# empty idle composer reads pending: they stay pending on purpose, because
+# without the styling proof the row cannot be told from typed text, and the
+# control plane's clear refuses to repeat its Escape pair on them
+# (fm-commandcode-composer-clear.test.sh). The launch clears NO_COLOR.
+cc174="$ROOT/tests/captures/commandcode-v1.74.1"
+truecolor_idle=$(cat "$cc174/truecolor-idle.ansi")
+[ "$(fm_composer_classify_screen styled=1 "$truecolor_idle")" = empty ] || fail 'a captured idle 1.74.1 pane must read empty'
+[ "$(fm_composer_classify_screen styled=1 "$(cat "$cc174/nocolor-idle.ansi")")" = pending ] \
+  || fail 'the captured NO_COLOR placeholder has no cursor cell and must stay pending'
+[ "$(fm_composer_classify_screen styled=1 "$(cat "$cc174/forcecolor0-idle.ansi")")" = pending ] \
+  || fail 'the captured FORCE_COLOR=0 placeholder has no muted tail and must stay pending'
+# A long transcript above the composer, as on a lane that has run for hours,
+# changes nothing about the verdict, with LF or CR LF rows.
+transcript=$(for n in $(seq 1 30); do printf '  - transcript row %s that is long enough to look like a worker report line\n' "$n"; done)
+long_screen=$(printf '%s\n\n%s\n' "$transcript" "$truecolor_idle")
+[ "$(fm_composer_classify_screen styled=1 "$long_screen")" = empty ] || fail 'a long transcript above an idle composer must read empty'
+[ "$(fm_composer_classify_screen styled=1 "$(printf '%s\n' "$long_screen" | sed 's/$/\r/')")" = empty ] \
+  || fail 'a long transcript with CR LF rows above an idle composer must read empty'
+# The plain capture from the stalled netcup lane carries no escapes, so it can
+# never prove the placeholder: it must not read as empty or as typed text.
+netcup_idle=$(cat "$ROOT/tests/captures/commandcode-v1.74.0/netcup-leaf-idle-plain.txt")
+case "$(fm_composer_classify_screen styled=0 "$netcup_idle")" in
+  empty|pending) fail 'an unstyled capture of the stalled lane must read unknown' ;;
+esac
+# The checkpoint picker an Escape pair opens on an empty composer is neither.
+for picker in "$cc174/rewind-overlay.ansi" "$ROOT/tests/captures/commandcode-v1.74.0/netcup-leaf-rewind-plain.txt"; do
+  case "$(fm_composer_classify_screen styled=1 "$(cat "$picker")")" in
+    empty|pending) fail "the checkpoint picker must read neither empty nor pending: $picker" ;;
+  esac
+done
+pass "composer: captured 1.74.1 idle, colour-erased, long-transcript, stalled-lane, and checkpoint-picker screens"
+
 # Two independent placeholder signals, each sufficient beside the cursor-cell
 # proof: the anchored placeholder text, and a body drawn in the frame rule's own
 # foreground. Drive them apart and keep each case honest about which one holds.

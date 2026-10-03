@@ -439,16 +439,31 @@ dismiss_interrupt_hazard() {  # <key> <ere>
 # interrupt key and blocks both the exit command and the doorbell. A non-empty
 # non-pending read is left to the caller's own gate; an adapter without a draft
 # clear is never touched, because its composer text may be the captain's own.
+# A checkpoint picker already open is closed first with one Escape, because
+# typing or Enter into it would restore a checkpoint, and the clear itself
+# never runs on a composer that reads empty (fm_control_clear_draft owns both).
 # Sets HELD_DRAFT to cleared when it sent the clear.
 clear_held_draft() {  # <verb>
   local state rc=0 key
   key=$(fm_control_draft_clear_key "$HARNESS" 2>/dev/null) || return 0
   [ -n "$key" ] || return 0
+  fm_control_dismiss_overlay "$BACKEND" "$T" "$HARNESS" "$LABEL" \
+    || die "task $ID shows the $HARNESS Rewind checkpoint picker, where Enter restores a checkpoint, and one $(fm_control_overlay_dismiss_key "$HARNESS") did not close it; nothing else was sent. Close it with $(fm_control_overlay_dismiss_key "$HARNESS"), never Enter, then retry '$1'"
   state=$(fm_backend_composer_state "$BACKEND" "$T" "$LABEL" 2>/dev/null) || state=unknown
   [ "$state" = pending ] || return 0
   fm_control_clear_draft "$BACKEND" "$T" "$HARNESS" "$LABEL" || rc=$?
-  [ "$rc" = 0 ] \
-    || die "task $ID's $HARNESS composer holds text and $(fm_control_draft_clear_presses "$HARNESS") $key presses did not leave it reading empty, so '$1' would concatenate onto it or leave it behind; the composer was not cleared by any other means. Clear it by hand, then retry '$1'"
+  case "$rc:$FM_CONTROL_CLEAR_WHY" in
+    0:*) ;;
+    *:overlay-stuck)
+      die "task $ID shows the $HARNESS Rewind checkpoint picker after the composer clear, and one $(fm_control_overlay_dismiss_key "$HARNESS") did not close it; nothing else was sent. Close it with $(fm_control_overlay_dismiss_key "$HARNESS"), never Enter, then retry '$1'"
+      ;;
+    *:misread)
+      die "task $ID's $HARNESS composer reads as holding text but is empty: the $(fm_control_draft_clear_presses "$HARNESS") $key presses opened its Rewind checkpoint picker, which one $(fm_control_overlay_dismiss_key "$HARNESS") then closed, and nothing was typed. The composer read is wrong for this pane, so '$1' cannot proceed; do not retry the clear, and capture the pane with its colour escapes for diagnosis"
+      ;;
+    *)
+      die "task $ID's $HARNESS composer holds text and $(fm_control_draft_clear_presses "$HARNESS") $key presses did not leave it reading empty, so '$1' would concatenate onto it or leave it behind; the composer was not cleared by any other means. Clear it by hand, then retry '$1'"
+      ;;
+  esac
   HELD_DRAFT=cleared
 }
 

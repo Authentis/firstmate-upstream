@@ -42,6 +42,8 @@ fail() { printf 'not ok - %s: %s\n' "$VERSION" "$1" >&2; exit 1; }
 . "$ROOT/bin/fm-composer-lib.sh"
 # shellcheck source=bin/fm-tmux-lib.sh
 . "$ROOT/bin/fm-tmux-lib.sh"
+# shellcheck source=bin/fm-control-lib.sh
+. "$ROOT/bin/fm-control-lib.sh"
 H="$LAB/home"
 WT="$LAB/wt"
 PROJ="$LAB/project"
@@ -175,6 +177,29 @@ tmux send-keys -t "$TARGET" -l 'draft typed while running'
 wait_idle
 wait_composer empty || fail "a draft typed during a running turn survived the interrupt: $(fm_tmux_composer_state "$TARGET")"
 pass "$VERSION: interrupting a running turn that holds a draft leaves an empty composer ($(grep -o 'draft=cleared' "$LAB/busy-draft.log" || echo 'one Escape sufficed'))"
+
+# The same Escape pair on an EMPTY composer opens the Rewind checkpoint picker
+# once the session has a turn, where Enter restores a checkpoint. The control
+# plane must therefore never send the pair to a composer that reads empty, and
+# must close a picker that is open with ONE Escape and prove it closed.
+wait_composer empty || fail 'the composer is not empty before the checkpoint-picker probe'
+fm_control_overlay_open tmux "$TARGET" commandcode && fail 'the checkpoint picker read open on an empty composer'
+fm_control_clear_draft tmux "$TARGET" commandcode || fail 'clearing an empty composer must succeed without a key'
+sleep 0.5
+fm_control_overlay_open tmux "$TARGET" commandcode && fail 'clearing an empty composer opened the checkpoint picker'
+tmux send-keys -t "$TARGET" Escape
+sleep 0.1
+tmux send-keys -t "$TARGET" Escape
+for _ in $(seq 1 20); do fm_control_overlay_open tmux "$TARGET" commandcode && break; sleep 0.25; done
+fm_control_overlay_open tmux "$TARGET" commandcode \
+  || fail "the Escape pair on an empty composer no longer opens the checkpoint picker; the guard is vacuous: $(capture | fm_composer_strip_ansi | grep -v '^[[:space:]]*$' | tail -6)"
+[ "$(fm_tmux_composer_state "$TARGET")" != empty ] || fail 'an open checkpoint picker read as an empty composer'
+"$ROOT/bin/fm-control.sh" "$ID" interrupt > "$LAB/picker-interrupt.log" 2>&1 \
+  || fail "interrupt with the checkpoint picker open failed: $(cat "$LAB/picker-interrupt.log")"
+fm_control_overlay_open tmux "$TARGET" commandcode && fail 'the control plane left the checkpoint picker open'
+wait_composer empty || fail "the composer reads $(fm_tmux_composer_state "$TARGET") after the picker was closed"
+[ "$(fm_backend_agent_state tmux "$TARGET")" = alive ] || fail 'closing the checkpoint picker stopped the agent'
+pass "$VERSION: an Escape pair on an empty composer opens the checkpoint picker; the control plane never sends it there and closes the picker with one Escape"
 
 draft_multi
 wait_composer pending || fail 'the drafted composer did not read pending before exit'

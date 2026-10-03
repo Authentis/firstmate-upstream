@@ -11,7 +11,7 @@ The router owns the crewmate/scout-only boundary; primary and secondmate integra
 | Busy state | A per-task mod loaded with `--mod` opens on `run_start` and settles idle on `run_end` (including an interrupted run), `run_error`, and `session_shutdown`, writing through the generation-bound writer; `turn_end` touches the turn-ended file; `../../../bin/fm-busy-lib.sh` owns trust. |
 | Exit command | `/exit`, with the shared slash-command settle before Enter; prints `commandcode --resume <session-id>`. |
 | Interrupt | One Escape cancels the running turn, renders `Interrupted`, keeps the agent, and leaves an empty composer; an idle Escape is harmless; no post-interrupt clear key. |
-| Draft clear | Two Escapes within about 0.4 s empty an idle composer holding any draft (single-line, multi-line, pasted block); one Escape on a draft changes nothing, Ctrl-U and Ctrl-A then Ctrl-K clear only the cursor line, and one Ctrl-C clears but arms an exit on the next. `../../../../../bin/fm-control-lib.sh` owns the key, count, and gap, and `fm_control_clear_draft` the send-and-verify. |
+| Draft clear | Two Escapes within about 0.4 s empty an idle composer holding any draft (single-line, multi-line, pasted block); one Escape on a draft changes nothing, Ctrl-U and Ctrl-A then Ctrl-K clear only the cursor line, and one Ctrl-C clears but arms an exit on the next. The same pair on an EMPTY composer opens the Rewind checkpoint picker once the session has a turn, and one Escape closes it; Enter would restore a checkpoint. `../../../../../bin/fm-control-lib.sh` owns the key, count, and gap, and `fm_control_clear_draft` the send-and-verify, the picker check, and the single closing Escape. |
 | Skill invocation | Not verified; steer with ordinary text. |
 | Resume | `commandcode --resume <session-id>`. |
 | Model flag | `--model <provider/model-id>`, for example `deepseek/deepseek-v4.1-flash`; the spawn refuses an id absent from `commandcode --list-models`. |
@@ -38,10 +38,12 @@ The idle placeholder is rendered at default-like brightness, so it reads empty o
 Beside that cursor proof, either the known placeholder text or a body drawn in the foreground of the rule above it identifies the placeholder, so no single vendor string is load-bearing.
 A row's trailing carriage return, which Herdr's ANSI read emits, is a row ending rather than a typed cell.
 Command Code parks the terminal cursor below its status rows, so `../../../../../bin/fm-tmux-lib.sh` reclassifies its cursor-anchored read from the identified pane.
-`NO_COLOR` removes the cursor cell, so the launch unsets it.
+`NO_COLOR` removes the cursor cell, so the launch unsets it; `FORCE_COLOR=0` leaves the cursor cell but draws the placeholder body in the default foreground, and `TERM=dumb` draws no styling at all, so under any of them an empty idle composer reads pending by design, the verified way a pane that looks empty reads as holding text.
+The clear is the only consumer that sends keys on that verdict, so it never repeats its Escape pair after the pair opened the Rewind checkpoint picker, which proves the composer was empty; it closes the picker with one Escape and refuses with the misread named.
 The `../../../../../bin/fm-task-inbox-lib.sh` doorbell was read and acknowledged through real `fm-send`.
 A draft stranded in an idle composer used to skip that doorbell and make `fm-control exit` refuse.
-`fm-control` interrupt and exit now send the draft clear when the composer reads pending and refuse unless it then reads empty, and the doorbell sends it only when both the mod's idle record and the visible screen prove the agent idle, because the same Escape pair interrupts a running turn.
+`fm-control` interrupt and exit now send the draft clear when the composer reads pending and refuse unless it then reads empty with no checkpoint picker open, and the doorbell sends it only when both the mod's idle record and the visible screen prove the agent idle, because the same Escape pair interrupts a running turn.
+Any of them first closes an already open picker with one Escape, because typing into it and pressing Enter restores a checkpoint.
 No other adapter's draft is ever cleared: it may be the captain's own typing.
 
 ## Primary integration

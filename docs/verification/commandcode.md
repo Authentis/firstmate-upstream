@@ -6,6 +6,7 @@ Verified 2026-10-02 on macOS arm64 with Command Code CLI `1.73.4` and `1.74.0` o
 The [adapter reference](../../.agents/skills/harness-adapters/references/harness/commandcode.md) owns operating facts; executable owners carry launch and state mechanics.
 This verification covers crewmates and scouts, with tmux as the exercised runtime backend.
 Herdr's composer read is pinned by a captured idle pane; Herdr dispatch, primary, secondmate, and quota-provider integration are outside this guarantee.
+The checkpoint-picker and colour-erased results below were verified on 2026-10-04 with `1.74.1`.
 
 ## Refresh commands
 
@@ -58,7 +59,7 @@ Two Escapes cleared it when the second followed the first within the pairing win
 | typed text, a pasted block, typed text | empty | cursor line only | not run | not run |
 
 Ctrl-C leaves `Press Ctrl+C again to exit` under the composer, so a second press would stop the agent, which is why the control plane does not use it.
-Escape twice on an idle empty composer opened nothing.
+Escape twice on an idle empty composer opened nothing in that session, which had not yet run a turn; see "Checkpoint picker" below for what it does once a turn exists.
 A draft typed while a turn was running survived the interrupt Escape, so the interrupt verb needs the clear for it too.
 The same pair on a running turn is an interrupt, so the doorbell sends it only after proving the agent idle.
 A multi-line or pasted draft renders as plain continuation rows below the `❯` row with the reverse-video cursor cell after the last character, pinned byte-exact in `tests/captures/commandcode-v1.74.0/draft-multiline.ansi` and `draft-pasted.ansi`.
@@ -72,6 +73,65 @@ ok - commandcode 1.74.0: fm-send clears a stale draft, rings, and the worker ack
 ok - commandcode 1.74.0: interrupting a running turn that holds a draft leaves an empty composer (draft=cleared)
 ok - commandcode 1.74.0: /exit through the control plane, with a stuck draft cleared first
 ```
+
+## Checkpoint picker
+
+On 2026-10-04 Command Code `1.74.1` (the latest published version) was driven in a private tmux server, 120 columns, under an isolated home, with one minimal prompt submitted and nothing else.
+`fm_control_overlay_open` and `fm_tmux_composer_state` produced these reads, with `sleep` delays of 1 to 1.5 s after each key:
+
+```text
+fresh session (no turn yet): composer=empty overlay=0
+after ONE Escape, no history: composer=empty overlay=0
+after Escape pair, no history: composer=empty overlay=0
+after one turn: composer=empty overlay=0
+after ONE Escape, with history: composer=empty overlay=0
+after Escape pair, with history: composer=unknown overlay=1
+after ONE more Escape: composer=empty overlay=0
+```
+
+The pair on an empty idle composer therefore opens nothing until the session has a turn and opens the Rewind checkpoint picker after it; one Escape on an empty composer is harmless; and one Escape closes the picker, leaving the composer reading empty.
+The picker draws, with a styled title, these rows in place of the composer, and `Enter` there selects a checkpoint to restore:
+
+```text
+Rewind
+Select a checkpoint to restore your session
+
+> Reply with the single word ok. • just now (latest)
+  No code changes
+
+Press Enter to select · Esc to cancel
+```
+
+The extended live guard completed with exit 0 on 2026-10-04 against `1.74.1`; this line is its picker result:
+
+```text
+ok - commandcode 1.74.1: an Escape pair on an empty composer opens the checkpoint picker; the control plane never sends it there and closes the picker with one Escape
+```
+
+An open picker reads `unknown`, never `empty` or `pending`.
+`fm_control_overlay_open` matches the two title rows as whole trimmed rows, and the screens are pinned byte-exact in `tests/captures/commandcode-v1.74.1/rewind-overlay.ansi` and, as plain text from a live lane, `tests/captures/commandcode-v1.74.0/netcup-leaf-rewind-plain.txt`.
+`bin/fm-control-lib.sh` owns the picker check and its single closing Escape; the clear never sends the pair to a composer that reads empty and never repeats it after the picker opened.
+
+## Colour-erased composers
+
+The idle composer reads empty only through its styling proof (`bin/fm-composer-lib.sh` owns it), so a launch environment that erases the styling makes an empty composer read pending.
+The same `1.74.1` binary, idle, read through `fm_tmux_composer_state`, with the placeholder row captured under each environment:
+
+| Environment | Placeholder row bytes (SGR) | Read |
+|---|---|---|
+| `TERM=xterm-256color COLORTERM=truecolor` | cursor cell `7m`, tail `38;2;138;148;168` | empty |
+| `TERM=xterm-256color` with `COLORTERM` unset or `24bit` | cursor cell `7m`, tail `38;5;145` | empty |
+| `TERM=xterm` or `vt100` | cursor cell `7m`, tail `37` | empty |
+| `TERM=linux` | glyph drawn as `>` | unknown |
+| `NO_COLOR=1` | no cursor cell, first letter plain, tail `38;2;138;148;168` | pending |
+| `FORCE_COLOR=0` | cursor cell `7m`, tail in the default foreground | pending |
+| `TERM=dumb` | no escapes at all | pending |
+
+Those three pending shapes are the only verified way an empty idle composer reads pending; they stay pending on purpose, because without the styling proof the row cannot be told from typed text.
+The launch unsets `NO_COLOR` but not `FORCE_COLOR` or `TERM`.
+The idle placeholder's styling did not change over 330 s of idleness, did not blink across 40 reads at 0.25 s, and was identical on a pane holding a long transcript and a table, so a lane that has been idle for hours is not itself a cause.
+The plain screen of a stalled lane (`tests/captures/commandcode-v1.74.0/netcup-leaf-idle-plain.txt`) carries no escapes, and the same rows with the verified styling (`tests/captures/commandcode-v1.74.1/truecolor-idle.ansi`) below a long transcript read empty in `tests/fm-commandcode-harness.test.sh`, so a lane that reads pending while its plain screen shows the placeholder has a launch environment the table above does not yet name.
+Capture such a pane with its escapes (`tmux capture-pane -e -p`, or Herdr's `pane read --source visible --format ansi`) and read its process environment for `NO_COLOR`, `FORCE_COLOR`, `TERM`, and `COLORTERM`.
 
 ## Integration path
 
@@ -111,8 +171,8 @@ The guard's worker commit carried no co-author trailer, and `git status --porcel
 ## Coverage and limits
 
 The portable regression drives ancestry identity, lifecycle tables, composer placeholder and draft screens with LF and CR LF row endings, the captured Herdr pane, the placeholder text and frame-colour signals driven apart, busy rows, the generated launch, model refusal, settings and git excludes, the mod's event handling through Node, the trailer-keeping variant, secondmate refusal, and trailer stripping.
-The stuck-draft regression drives the real control plane and doorbell against a stand-in process that replays those captured screens and obeys only the Escape-pair rule, asserting which keys were never sent for a busy, unrecorded, rendered-busy, other-adapter, or unclearable pane.
+The stuck-draft regression drives the real control plane and doorbell against a stand-in process that replays captured screens and obeys only the Escape-pair rule and the picker rule, asserting which keys were never sent for a busy, unrecorded, rendered-busy, other-adapter, unclearable, empty, or misread pane, that the picker is closed with exactly one Escape and never entered, and that a pair is never repeated once the picker opened.
 The tmux liveness regression proves the placeholder reads empty only on an identified Command Code pane, while typed text, typed placeholder words, and a decoy pane do not.
-The live guard checks the brief, model, autonomy, identity, semantic idle, attribution, workspace hygiene, session-only effort, doorbell acknowledgement, idle and busy interruption, interruption and doorbell delivery through a stuck multi-line draft and pasted block, a draft typed during a running turn, and exit through a stuck draft.
+The live guard checks the brief, model, autonomy, identity, semantic idle, attribution, workspace hygiene, session-only effort, doorbell acknowledgement, idle and busy interruption, interruption and doorbell delivery through a stuck multi-line draft and pasted block, a draft typed during a running turn, the checkpoint picker an Escape pair opens on an empty composer and its single-Escape closure through the control plane, and exit through a stuck draft.
 Command Code's built-in `herdr` mod reports agent state to Herdr when Herdr's pane environment is present; that path, Herdr lifecycle control, and a live Herdr doorbell need a lab-session verification before Herdr dispatch is trusted.
 Linux identity relies on the same vendor process title and has not been run here.

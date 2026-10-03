@@ -319,7 +319,8 @@ fm_task_inbox_doorbell_line() {  # <record-path>
 # composer pre-check, then the backend's submit machinery with a minimal retry
 # budget, verdict discarded.
 # Returns 0 rang, 1 skipped because the composer PROVENLY holds pending text
-# other than our own doorbell (the watcher re-rings later), 2 the backend send
+# other than our own doorbell, or a Command Code checkpoint picker stays open
+# after its one Escape (the watcher re-rings later), 2 the backend send
 # failed, 3 skipped because the endpoint is positively dead or missing (nothing
 # typed; recovery owns the record). No return value is delivery proof; the
 # acknowledgement move is the only delivery signal.
@@ -346,6 +347,12 @@ fm_task_inbox_ring() {  # <backend> <target> <record-path> [expected-label] [har
   esac
   if ! line=$(fm_task_inbox_doorbell_line "$rec"); then
     return 2
+  fi
+  # An open Command Code checkpoint picker reads `unknown`, which rings, and
+  # the typed line plus Enter would then select a checkpoint and restore it.
+  # Close it with the one verified Escape first, or skip the ring untouched.
+  if [ "$harness" = commandcode ] && fm_task_inbox_load_clear_deps; then
+    fm_control_dismiss_overlay "$backend" "$target" "$harness" "$label" || return 1
   fi
   cstate=$(fm_backend_composer_state "$backend" "$target" "$label" 2>/dev/null) || cstate=unknown
   case "$cstate" in
