@@ -469,36 +469,10 @@ fm_remote_job_job_dir() { # <id>
   printf '%s\n' "$physical"
 }
 
-# The waiting loops below tick every quarter second or so, once per waiting
-# caller, so what a tick spawns is paid in kernel CPU on a host with many
-# callers. The clock read and the record reads of a tick therefore use shell
-# builtins; the pause between ticks stays a plain sleep (a builtin timed read
-# in its place aborted Bash 5.3 about one run in sixteen when a TERM arrived).
-if [ "${BASH_VERSINFO[0]}" -gt 4 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -ge 2 ]; }; then
-  fm_remote_job_now_to() { printf -v "$1" '%(%s)T' -1; } # <variable>
-else
-  fm_remote_job_now_to() { printf -v "$1" '%s' "$(date +%s)"; }
-fi
-
-# The same bound as fm_remote_job_regular_bounded for a small text record,
-# read with builtins only. LC_ALL=C makes the character count a byte count, and
-# a NUL ends the record in -d '' mode, so a record holding one reads as over the
-# bound; a state, number, or exit record never holds one.
-fm_remote_job_text_bounded() { # <file> <max-bytes>
-  local file=$1 max=$2 ran=0 status=0 data
-  [ -f "$file" ] && [ ! -L "$file" ] || return 1
-  case "$max" in ''|*[!0-9]*) return 1 ;; esac
-  { LC_ALL=C IFS= read -r -d '' -n "$((max + 1))" data; status=$?; ran=1; } < "$file" 2>/dev/null
-  [ "$ran" -eq 1 ] || return 1
-  # Status 0 means a NUL or max+1 characters arrived before the end of file.
-  [ "$status" -eq 1 ]
-}
-
 fm_remote_job_regular_bounded() { # <file> <max-bytes>
   local file=$1 max=$2 bytes
   [ -f "$file" ] && [ ! -L "$file" ] || return 1
-  bytes=$(LC_ALL=C wc -c < "$file") || return 1
-  bytes=${bytes//[[:space:]]/}
+  bytes=$(LC_ALL=C wc -c < "$file" | tr -d ' ') || return 1
   case "$bytes" in ''|*[!0-9]*) return 1 ;; esac
   [ "$bytes" -le "$max" ]
 }
@@ -527,19 +501,43 @@ fm_remote_job_write_state() { # <job-dir> queued|running|done
   mv -f -- "$tmp" "$job/state"
 }
 
-# Sets the named variable to the job's state without forking a command
-# substitution; the loops that poll it every tick use this form.
-fm_remote_job_read_state_into() { # <variable> <job-dir>
-  local job=$2 value extra
-  fm_remote_job_text_bounded "$job/state" 64 || return 1
-  { IFS= read -r value || return 1; if IFS= read -r extra; then : "$extra"; return 1; fi; } < "$job/state" || return 1
-  case "$value" in queued|running|'done') printf -v "$1" '%s' "$value" ;; *) return 1 ;; esac
+# Reads a one-line record bounded to <max> bytes with builtins only, matching
+# fm_remote_job_regular_bounded plus the former read/tail checks: a regular
+# non-symlink file of at most <max> bytes, one newline-terminated line, a
+# tolerated unterminated tail, no carriage returns, and a non-empty value.
+# The -d '' -n <max+1> read treats NUL as the delimiter, so an ordinary
+# record (no NULs) is pulled whole at once: the read fails at end of file,
+# and success means either <max+1> bytes landed (the file busts the
+# bound) or a NUL stopped it early (already malformed). -N cannot do this:
+# the stock /bin/bash on macOS is 3.2, which has -n but no -N. The local
+# LC_ALL=C makes -n count bytes rather than multibyte characters, so the byte
+# bound holds in a UTF-8 locale.
+fm_remote_job_read_line() { # <file> <max-bytes> <result-variable>
+  local file=$1 max=$2 result_var=$3 content
+  local LC_ALL=C
+  [ -f "$file" ] && [ ! -L "$file" ] || return 1
+  ! IFS= read -r -d '' -n "$((max + 1))" content < "$file" 2>/dev/null || return 1
+  case "$content" in *$'\r'* | *$'\n'*$'\n'*) return 1 ;; esac
+  case "$content" in *$'\n'*) ;; *) return 1 ;; esac
+  content=${content%%$'\n'*}
+  [ -n "$content" ] || return 1
+  printf -v "$result_var" '%s' "$content"
 }
 
-fm_remote_job_read_state() { # <job-dir>
-  local current
-  fm_remote_job_read_state_into current "$1" || return 1
-  printf '%s\n' "$current"
+# Reads the one-word state record with builtins only: the result consumers and
+# the lane preemption scan call this once per sample, so it cannot afford the
+# bounded-size subshell or a tail process substitution. Passing a result
+# variable name avoids the command substitution fork; without one the value is
+# printed as before.
+fm_remote_job_read_state() { # <job-dir> [result-variable]
+  local job=$1 result_var=${2:-} read_value
+  fm_remote_job_read_line "$job/state" 64 read_value || return 1
+  case "$read_value" in queued|running|'done') ;; *) return 1 ;; esac
+  if [ -n "$result_var" ]; then
+    printf -v "$result_var" '%s' "$read_value"
+  else
+    printf '%s\n' "$read_value"
+  fi
 }
 
 fm_remote_job_read_number() { # <job-dir> queue_deadline|timeout|deadline|seq
@@ -722,7 +720,7 @@ fm_remote_job_stage() { # <account-home> <root> <home> <command> [args...]; stdi
 
 fm_remote_job_wait() { # <account-home> <id>; honors FM_REMOTE_JOB_DISCONNECT_PROBE
   local account_home=$1 id=$2 job state queue_deadline execution_timeout wait_deadline exit_value
-  local now next_probe=0
+  local deadline_ticks next_probe=0
   fm_remote_job_prepare_state "$account_home" || return 1
   job=$(fm_remote_job_job_dir "$id") || {
     FM_REMOTE_JOB_ERROR="remote job record disappeared or became unsafe"
@@ -741,9 +739,12 @@ fm_remote_job_wait() { # <account-home> <id>; honors FM_REMOTE_JOB_DISCONNECT_PR
     return 1
   }
   wait_deadline=$((queue_deadline + execution_timeout + FM_REMOTE_JOB_WAIT_GRACE))
+  # SECONDS is the loop's clock so no time child runs per sample: one date
+  # read here converts the epoch deadline into the shell's own tick counter
+  # with the same whole-second granularity.
+  deadline_ticks=$((SECONDS + wait_deadline - $(date +%s)))
   while :; do
-    state=
-    fm_remote_job_read_state_into state "$job" 2>/dev/null || state=
+    fm_remote_job_read_state "$job" state 2>/dev/null || state=
     case "$state" in
       'done')
         if ! fm_remote_job_regular_bounded "$job/stdout" "$FM_REMOTE_JOB_MAX_BYTES" ||
@@ -766,13 +767,12 @@ fm_remote_job_wait() { # <account-home> <id>; honors FM_REMOTE_JOB_DISCONNECT_PR
       queued|running) ;;
       *) FM_REMOTE_JOB_ERROR="remote job state is invalid"; return 1 ;;
     esac
-    fm_remote_job_now_to now
-    if [ "$now" -ge "$wait_deadline" ]; then
+    if [ "$SECONDS" -ge "$deadline_ticks" ]; then
       FM_REMOTE_JOB_ERROR="remote job did not complete within its bounded wait"
       return 1
     fi
-    if [ -n "${FM_REMOTE_JOB_DISCONNECT_PROBE:-}" ] && [ "$now" -ge "$next_probe" ]; then
-      next_probe=$((now + 1))
+    if [ -n "${FM_REMOTE_JOB_DISCONNECT_PROBE:-}" ] && [ "$SECONDS" -ge "$next_probe" ]; then
+      next_probe=$((SECONDS + 1))
       if ! "$FM_REMOTE_JOB_DISCONNECT_PROBE"; then
         fm_remote_job_cancel "$account_home" "$id" 2>/dev/null || true
         FM_REMOTE_JOB_ERROR="remote job caller disconnected; the job was cancelled"
@@ -1196,7 +1196,7 @@ fm_remote_job_probe() { # <account-home>; a fresh worker heartbeat or active job
   [ -f "$ready" ] && [ ! -L "$ready" ] || return 1
   mtime=$(fm_remote_job_path_mtime "$ready" 2>/dev/null || true)
   case "$mtime" in ''|*[!0-9]*) return 1 ;; esac
-  fm_remote_job_now_to now
+  now=$(date +%s)
   [ $((now - mtime)) -le 10 ]
 }
 

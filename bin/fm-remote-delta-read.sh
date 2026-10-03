@@ -10,15 +10,15 @@
 # the source. A shortened or changed prefix returns a structured continuity-break
 # result instead of silently rebasing the cursor.
 #
-# An unchanged snapshot is retried after FM_REMOTE_DELTA_POLL_SECONDS (default
-# 0.5 seconds). A complete line is visible on the next sample, and the window
-# deadline can overshoot by that interval plus snapshot and scheduling work.
-# A poll that finds the log exactly as the cursor describes it - same size as
-# the offset, prefix hash equal - costs one perl process: it opens the log
-# without following links, checks the parent directory is physical, and hashes
-# the prefix itself (Digest::SHA), so the idle wait forks nothing else. Any
-# other outcome, or a perl without Digest::SHA, takes the full capture below
-# unchanged. The pause between polls remains an ordinary child sleep.
+# The log is sampled every FM_REMOTE_DELTA_POLL_SECONDS (default 0.5 seconds).
+# A complete line is visible on the next sample, and the window deadline can
+# overshoot by that interval plus snapshot and scheduling work.
+# Each sample of an existing log stats it once. The first sample always runs
+# the bounded capture and hashing; later samples skip that work only when the
+# size, subsecond mtime and ctime, inode, and device key is unchanged. If either
+# timestamp lacks a nonzero subsecond fraction, every sample captures the log
+# rather than trusting a coarse key that could hide a same-second rewrite.
+# The wait remains an ordinary child sleep; signal handling is unchanged.
 #
 # Exit 75 means the wait window closed with no complete line. SIGTERM exits the
 # same way after cleanup. The remote job worker preempts this read-only poll to
@@ -32,40 +32,6 @@ MAX_BYTES=${FM_REMOTE_DELTA_MAX_BYTES:-65536}
 POLL_SECONDS=${FM_REMOTE_DELTA_POLL_SECONDS:-0.5}
 
 die() { printf 'error: %s\n' "$1" >&2; exit 1; }
-
-if [ "${BASH_VERSINFO[0]}" -gt 4 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -ge 2 ]; }; then
-  now_to() { printf -v "$1" '%(%s)T' -1; } # <variable>
-else
-  now_to() { printf -v "$1" '%s' "$(date +%s)"; }
-fi
-
-# Exit 0 when the log is exactly what the cursor describes: a regular file
-# reached without following a link, in a physical parent directory, whose size
-# equals the offset and whose first <offset> bytes hash to the prefix. Every
-# other outcome, including a perl without Digest::SHA, exits 3 so the caller
-# takes the full capture; nothing unexpected is ever read as a match.
-log_matches_cursor() { # <file>
-  local file=$1
-  perl -MFcntl=:DEFAULT -e '
-    my ($parent, $base, $offset, $prefix) = @ARGV;
-    eval { require Digest::SHA; require Cwd; 1 } or exit 3;
-    chdir $parent or exit 3;
-    exit 3 unless Cwd::getcwd() eq $parent && Cwd::realpath($parent) eq $parent;
-    sysopen(my $source, $base, O_RDONLY | O_NOFOLLOW) or exit 3;
-    my @stat = stat $source or exit 3;
-    exit 3 unless -f _ && $stat[7] == $offset;
-    my $sha = Digest::SHA->new(256);
-    my $remaining = $offset;
-    while ($remaining > 0) {
-      my $wanted = $remaining > 65536 ? 65536 : $remaining;
-      my $read = sysread($source, my $buffer, $wanted);
-      exit 3 unless defined $read && $read > 0;
-      $sha->add($buffer);
-      $remaining -= $read;
-    }
-    exit($sha->hexdigest eq $prefix ? 0 : 3);
-  ' "${file%/*}" "${file##*/}" "$OFFSET" "$PREFIX" 2>/dev/null
-}
 usage() { sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
 
 sha256_file() {
@@ -123,6 +89,30 @@ snapshot_log() { # <file> <destination> <size-file>
   )
 }
 
+delta_subsecond() { # <timestamp>: digits, one dot, and a nonzero fraction
+  case "$1" in *[!0-9.]* | *.*.*) return 1 ;; esac
+  case "$1" in [0-9]*.*[1-9]*) ;; *) return 1 ;; esac
+}
+
+# The file identity a snapshot was taken against: GNU and BSD stat spell the
+# fields differently, so the poll selects the syntax once by capability. The
+# mtime and ctime keep their subsecond fraction; a key without one (a stat or
+# filesystem with whole-second timestamps) is discarded, because it cannot tell
+# a same-second same-size rewrite apart, and that poll takes a full snapshot.
+delta_log_key() { # <file>: sets KEY to "size:mtime:ctime:inode:device" or empty
+  local rest mtime ctime
+  if [ "$DELTA_KEY_GNU_STAT" = 1 ]; then
+    KEY=$(stat -c '%s:%.9Y:%.9Z:%i:%d' "$1" 2>/dev/null) || KEY=
+  else
+    KEY=$(stat -f '%z:%Fm:%Fc:%i:%d' "$1" 2>/dev/null) || KEY=
+  fi
+  rest=${KEY#*:}
+  mtime=${rest%%:*}
+  rest=${rest#*:}
+  ctime=${rest%%:*}
+  delta_subsecond "$mtime" && delta_subsecond "$ctime" || KEY=
+}
+
 resolve_log() { # <relative-path>
   local rel=$1 home_real parent_real parent base path
   case "$rel" in ''|/*|*'//'*) die "log must be a nonempty relative path" ;; esac
@@ -173,14 +163,21 @@ trap 'rm -rf -- "$TMP"' EXIT
 trap 'exit 75' TERM
 : > "$TMP/empty"
 EMPTY_HASH=$(sha256_file "$TMP/empty")
-now_to START
+if stat -c '%s' / >/dev/null 2>&1; then DELTA_KEY_GNU_STAT=1; else DELTA_KEY_GNU_STAT=0; fi
+START=$SECONDS
+LAST_KEY=
 while :; do
   if [ -e "$LOG" ] || [ -L "$LOG" ]; then
     [ -f "$LOG" ] && [ ! -L "$LOG" ] || die "log changed into an unsafe file: $REL"
-    if ! log_matches_cursor "$LOG"; then
+    delta_log_key "$LOG"
+    if [ -z "$KEY" ] || [ "$KEY" != "$LAST_KEY" ]; then
       snapshot_log "$LOG" "$TMP/source" "$TMP/size" \
         || die "log could not be captured safely: $REL"
-      SIZE=$(tr -d ' ' < "$TMP/size")
+      # The gate stat precedes the capture, so the snapshot is at least as new
+      # as its key: a log that moved in between changes the key and is
+      # captured again on the next poll, never mistaken for stable.
+      LAST_KEY=$KEY
+      IFS= read -r SIZE < "$TMP/size"
       if [ "$SIZE" -lt "$OFFSET" ]; then
         copy_prefix "$TMP/source" "$SIZE" "$TMP/prefix"
         ACTUAL=$(sha256_file "$TMP/prefix")
@@ -229,7 +226,6 @@ while :; do
     emit_break missing 0 "$EMPTY_HASH"
     exit 0
   fi
-  now_to NOW
-  [ $((NOW - START)) -lt "$WAIT" ] || exit 75
+  [ $((SECONDS - START)) -lt "$WAIT" ] || exit 75
   sleep "$POLL_SECONDS"
 done

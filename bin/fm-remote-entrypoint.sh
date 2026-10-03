@@ -87,33 +87,18 @@ TMP=$(mktemp -d "${TMPDIR:-/tmp}/fm-remote-entrypoint.XXXXXX") || die "cannot cr
 JOB_ID=
 JOB_COMPLETED=0
 ACCOUNT_HOME=
-# Sets ENTRYPOINT_CURRENT_PPID to this process's parent pid, empty when it
-# cannot be read. Where procfs exists the shell reads its own stat record, so
-# the once-a-second probe forks nothing; elsewhere it is one ps.
-entrypoint_read_ppid() {
-  local record
-  local -a fields
-  ENTRYPOINT_CURRENT_PPID=
-  if [ -r /proc/self/stat ] && { read -r record < /proc/self/stat; } 2>/dev/null; then
-    read -r -a fields <<< "${record##*) }"
-    ENTRYPOINT_CURRENT_PPID=${fields[1]:-}
-    return 0
-  fi
-  record=$(ps -o ppid= -p $$ 2>/dev/null || true)
-  ENTRYPOINT_CURRENT_PPID=${record//[[:space:]]/}
-}
-entrypoint_read_ppid
-ENTRYPOINT_PPID=$ENTRYPOINT_CURRENT_PPID
+ENTRYPOINT_PPID=$(ps -o ppid= -p $$ 2>/dev/null | tr -d ' ' || true)
 
 # The recorded parent is the ssh session process; when it disappears this
 # process is reparented and the caller is provably gone. An unreadable probe
 # never cancels: only an observed parent change does.
 # shellcheck disable=SC2329 # Invoked by fm_remote_job_wait through FM_REMOTE_JOB_DISCONNECT_PROBE.
 entrypoint_caller_connected() {
+  local current
   case "$ENTRYPOINT_PPID" in ''|*[!0-9]*) return 0 ;; esac
-  entrypoint_read_ppid
-  case "$ENTRYPOINT_CURRENT_PPID" in ''|*[!0-9]*) return 0 ;; esac
-  [ "$ENTRYPOINT_CURRENT_PPID" = "$ENTRYPOINT_PPID" ]
+  current=$(ps -o ppid= -p $$ 2>/dev/null | tr -d ' ' || true)
+  case "$current" in ''|*[!0-9]*) return 0 ;; esac
+  [ "$current" = "$ENTRYPOINT_PPID" ]
 }
 
 # shellcheck disable=SC2329 # Invoked through the EXIT trap below.
