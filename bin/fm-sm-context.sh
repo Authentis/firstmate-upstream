@@ -69,12 +69,12 @@ esac
 ID=$1
 case "$ID" in *[!A-Za-z0-9._-]*|-*) echo "error: invalid secondmate id" >&2; exit 2 ;; esac
 [ -f "$REG" ] || { echo "error: no secondmate registry at $REG" >&2; exit 1; }
-home= remote=0
+home='' remote=0
 while IFS= read -r line || [ -n "$line" ]; do
   case "$line" in '- '*) ;; *) continue ;; esac
   secondmate_registry_parse_line "$line" || continue
   [ "$SECONDMATE_REGISTRY_ID" = "$ID" ] || continue
-  home=$SECONDMATE_REGISTRY_HOME remote=$SECONDMATE_REGISTRY_REMOTE
+  home=$SECONDMATE_REGISTRY_HOME; remote=$SECONDMATE_REGISTRY_REMOTE
 done < "$REG"
 [ -n "$home" ] || { echo "error: no secondmate '$ID' in the registry" >&2; exit 1; }
 
