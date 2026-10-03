@@ -303,6 +303,16 @@
 #   prevents equal task ids in different Firstmate homes from sharing a file.
 #   Spawn refuses an unsafe pre-existing task temp root or launch namespace, and
 #   task teardown removes only the current home's launch namespace.
+# Launch PATH:
+#   Every launch (ship, scout, secondmate, raw command, and relaunch) begins by
+#   appending this process's PATH, shell-quoted into the staged launch file, to the
+#   pane's own PATH, so the harness binary this process already resolves is found
+#   even when the pane's PATH is bare (for example a long-running Herdr server
+#   started before PATH was set, whose panes cannot see a version-manager install).
+#   Pane entries keep precedence, so a pane that already resolves its tools behaves
+#   as before. An empty, control-character, or over-4096-byte PATH is not appended
+#   and warns instead. Under the launch environment allowlist below the append runs
+#   inside the wrapping /bin/sh, after env -i.
 # Launch environment (config/launch-env-allowlist):
 #   Absent means unchanged ambient inheritance. A present readable regular file
 #   opts every launch (ship, scout, secondmate, raw command, and relaunch) into
@@ -5419,6 +5429,23 @@ fi
 # launch and the launch-env-allowlist `env -i` wrapper.
 LAUNCH="export FM_TASK_INBOX=$(shell_quote "$STATE_REAL/$ID.inbox"); $LAUNCH"
 LAUNCH="export COMPACT_ADVISER_DISABLE=1; $LAUNCH"
+# Launch PATH (header): carry this process's PATH into the pane so a bare pane
+# PATH cannot hide the harness binary this spawn already resolved. Skipped, with
+# a warning, when the value is empty, unprintable, or too long to be sane.
+case "${PATH:-}" in
+'')
+  ;;
+*[[:cntrl:]]*)
+  echo "warning: spawner PATH contains control characters; launching with the pane's own PATH" >&2
+  ;;
+*)
+  if [ "${#PATH}" -gt 4096 ]; then
+    echo "warning: spawner PATH is longer than 4096 bytes; launching with the pane's own PATH" >&2
+  else
+    LAUNCH="export PATH=\"\${PATH:+\$PATH:}\"$(shell_quote "$PATH"); $LAUNCH"
+  fi
+  ;;
+esac
 # When the live-harness gate has exported DISABLE_AUTOUPDATER into this spawn's
 # own environment, carry it into the launch command text so Claude Code's
 # auto-updater cannot rewrite the shared binary during a live run. Embedding the
