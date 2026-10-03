@@ -978,6 +978,8 @@ The file is inherited into secondmate homes through the [primary-authoritative c
 
 Changes apply to subsequent launches; existing processes keep their environment.
 
+Every launch, filtered or not, also appends the launching process's own `PATH` to the pane's, so a harness binary the launcher resolves is found even in a pane with a bare `PATH`; the contract is owned by [`bin/fm-spawn.sh`](../bin/fm-spawn.sh)'s "Launch PATH" header.
+
 ### Allowlist format
 
 Create the file with one environment variable **name** per line, never credential values, assignments, wildcards, or shell commands.
