@@ -124,6 +124,19 @@ fm_task_inbox_dir() {  # <state-dir> <task-id>
   printf '%s/%s.inbox' "$1" "$2"
 }
 
+# State directory that holds a task's steering inbox: the ordinary state dir,
+# or its parent-route/ subdirectory, where a secondmate's own inbox lives
+# (written by bin/fm-remote-secondmate-control.sh). The ordinary location wins;
+# when neither exists the ordinary one is returned so callers report an absent
+# inbox against it.
+fm_task_inbox_state_for() {  # <state-dir> <task-id>
+  if [ -e "$1/$2.inbox" ] || [ -L "$1/$2.inbox" ] || [ ! -e "$1/parent-route/$2.inbox" ]; then
+    printf '%s' "$1"
+  else
+    printf '%s/parent-route' "$1"
+  fi
+}
+
 fm_task_inbox_handled_dir() {  # <state-dir> <task-id>
   printf '%s/%s.inbox/handled' "$1" "$2"
 }

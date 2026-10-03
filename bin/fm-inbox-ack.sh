@@ -12,7 +12,9 @@
 #   task id that is not a valid task id is refused.
 # The inbox is state/<task-id>.inbox under this home's state directory
 # (FM_STATE_OVERRIDE, else $FM_HOME/state; FM_HOME defaults to the firstmate
-# root this script lives in). The mechanics, the refusal of symlinked inbox
+# root this script lives in), or state/parent-route/<task-id>.inbox for a
+# secondmate's own inbox; fm_task_inbox_state_for picks between them, so no
+# override is needed for either. The mechanics, the refusal of symlinked inbox
 # paths, and the bookkeeping cleanup live in bin/fm-task-inbox-lib.sh
 # (fm_task_inbox_acknowledge); this script is the one command workers use in
 # place of a raw move, which command guards refuse. Exit: 0 all acknowledged,
@@ -41,6 +43,7 @@ if ! fm_pr_task_id_valid "$ID"; then
   echo "error: invalid task id" >&2
   exit 2
 fi
+STATE=$(fm_task_inbox_state_for "$STATE" "$ID")
 
 seq_arg() {  # <arg> -> digits on stdout, or fail
   local a=${1%.msg}

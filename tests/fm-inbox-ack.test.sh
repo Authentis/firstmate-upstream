@@ -14,7 +14,9 @@
 #      absent inbox, a symlinked inbox or handled/, and a handled/ copy that would
 #      be overwritten all fail without moving anything outside the inbox.
 #   6. The state directory comes from FM_STATE_OVERRIDE, else $FM_HOME/state.
-#   7. Worker and secondmate scaffolds instruct this command, not a raw move.
+#   7. A secondmate's own inbox under state/parent-route/ is found with no override;
+#      the ordinary location wins when both exist.
+#   8. Worker and secondmate scaffolds instruct this command, not a raw move.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -209,6 +211,28 @@ test_state_resolution() {
   pass "fm-inbox-ack: the inbox comes from the active home's state directory"
 }
 
+test_parent_route_inbox() {
+  local home="$TMP_ROOT/pr-home" out rc
+  make_inbox "$home/state/parent-route" sm1 3
+  out=$(env -u FM_STATE_OVERRIDE FM_HOME="$home" "$ACK" sm1 2 2>&1); rc=$?
+  expect_code 0 "$rc" "acknowledging a parent-route inbox record"
+  assert_present "$home/state/parent-route/sm1.inbox/handled/002.msg" "the parent-route record was not handled"
+  out=$(env -u FM_STATE_OVERRIDE FM_HOME="$home" "$ACK" sm1 --all-handled-through 3 2>&1); rc=$?
+  expect_code 0 "$rc" "bulk acknowledgement in a parent-route inbox"
+  assert_present "$home/state/parent-route/sm1.inbox/handled/003.msg" "the bulk acknowledgement missed a record"
+  assert_absent "$home/state/parent-route/sm1.inbox/001.msg" "a record stayed pending"
+  make_inbox "$home/state" both 1
+  make_inbox "$home/state/parent-route" both 1
+  out=$(env -u FM_STATE_OVERRIDE FM_HOME="$home" "$ACK" both 1 2>&1); rc=$?
+  expect_code 0 "$rc" "acknowledging with both locations present"
+  assert_present "$home/state/both.inbox/handled/001.msg" "the ordinary inbox did not win"
+  assert_present "$home/state/parent-route/both.inbox/001.msg" "the parent-route inbox was touched"
+  out=$(env -u FM_STATE_OVERRIDE FM_HOME="$home" "$ACK" nowhere 1 2>&1); rc=$?
+  expect_code 1 "$rc" "an absent inbox"
+  assert_contains "$out" "nowhere" "the absent inbox was not named"
+  pass "fm-inbox-ack: finds a secondmate's parent-route inbox without an override"
+}
+
 test_scaffolds_instruct_the_command() {
   local home="$TMP_ROOT/brief-home" id brief
   mkdir -p "$home/data" "$home/config"
@@ -236,4 +260,5 @@ test_ack_clears_the_doorbell_records_naming_it
 test_ack_stops_the_ladder
 test_refusals
 test_state_resolution
+test_parent_route_inbox
 test_scaffolds_instruct_the_command
