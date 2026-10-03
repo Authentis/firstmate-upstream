@@ -914,6 +914,9 @@ The text is static and never executed or expanded; secondmate charters never tak
 
 `bin/fm-brief.sh`'s header owns the placement rule and its safety argument.
 
+A brief can also take the opt-in `--habits` switch (default off), which adds a short role-specific `# Engineering habits` section for a ship or scout just before this include.
+The switch is per brief rather than per home, a secondmate charter refuses it, and `bin/fm-brief.sh`'s header owns its contract.
+
 ## Worker launch environment (config/launch-env-allowlist)
 
 The optional local, gitignored `config/launch-env-allowlist` limits the ambient environment passed to newly launched workers, scouts, and secondmates, including relaunches.

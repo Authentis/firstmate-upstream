@@ -1176,6 +1176,50 @@ test_home_brief_include_is_appended_last() {
   pass "fm-brief.sh: the home brief include lands last on ship and scout, verbatim, and fails closed"
 }
 
+# --habits is an opt-in role section: absent by default, role-specific for ship
+# and scout, placed before the home include, and refused on a secondmate charter
+# so a supervisor never takes it.
+test_habits_switch_is_opt_in_and_role_specific() {
+  local home brief kind out rc last_heading plain with_habits
+  home="$TMP_ROOT/habits-home"
+  mkdir -p "$home/config"
+  printf '%s\n' 'House rule.' > "$home/config/brief-include.md"
+
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" habits-off-ship some-proj --mode local-only >/dev/null || fail "ship scaffold failed without --habits"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" habits-off-scout some-proj --scout >/dev/null || fail "scout scaffold failed without --habits"
+  assert_no_grep '# Engineering habits' "$home/data/habits-off-ship/brief.md" "ship brief carried habits without the flag"
+  assert_no_grep '# Engineering habits' "$home/data/habits-off-scout/brief.md" "scout brief carried habits without the flag"
+
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" habits-on-ship some-proj --mode local-only --habits >/dev/null || fail "ship scaffold failed with --habits"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" habits-on-scout some-proj --scout --habits >/dev/null || fail "scout scaffold failed with --habits"
+  for kind in ship scout; do
+    brief="$home/data/habits-on-$kind/brief.md"
+    [ "$(grep -c -x '# Engineering habits' "$brief")" = 1 ] || fail "$kind brief did not carry exactly one habits section"
+    assert_grep 'Every other section of this brief takes precedence' "$brief" "$kind habits lost their precedence line"
+    last_heading=$(grep -n '^# ' "$brief" | tail -n 1)
+    [ "${last_heading#*:}" = '# Home brief additions' ] || fail "$kind include no longer last with habits on (got: $last_heading)"
+    [ "$(grep -n -x '# Engineering habits' "$brief" | cut -d: -f1)" -lt "$(grep -n -x '# Home brief additions' "$brief" | cut -d: -f1)" ] \
+      || fail "$kind habits landed after the home include"
+    [ "$(sed -n '/^# Engineering habits$/,/^# Home brief additions$/p' "$brief" | wc -l)" -le 28 ] || fail "$kind habits exceed the line budget"
+  done
+  assert_grep 'You are a ship worker' "$home/data/habits-on-ship/brief.md" "ship habits lost the ship isolation text"
+  assert_no_grep 'You are a scout' "$home/data/habits-on-ship/brief.md" "ship brief took the scout habits"
+  assert_grep 'You are a scout' "$home/data/habits-on-scout/brief.md" "scout habits lost the scout isolation text"
+  assert_no_grep 'You are a ship worker' "$home/data/habits-on-scout/brief.md" "scout brief took the ship habits"
+
+  # Dropping the habits section leaves exactly the brief made without the flag.
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" habits-cmp some-proj --mode local-only >/dev/null || fail "comparison scaffold failed"
+  plain=$(sed 's/habits-cmp/X/g' "$home/data/habits-cmp/brief.md")
+  with_habits=$(sed 's/habits-on-ship/X/g' "$home/data/habits-on-ship/brief.md" | sed '/^# Engineering habits$/,/^# Home brief additions$/{/^# Home brief additions$/!d;}')
+  [ "$plain" = "$with_habits" ] || fail "--habits changed more of the brief than its own section"
+
+  out=$(FM_HOME="$home" FM_SECONDMATE_CHARTER='Supervise.' "$ROOT/bin/fm-brief.sh" habits-mate --secondmate --no-projects --habits 2>&1); rc=$?
+  expect_code 1 "$rc" "a secondmate charter must refuse --habits"
+  assert_contains "$out" 'never takes it' "secondmate refusal did not explain itself"
+  assert_absent "$home/data/habits-mate" "a refused --habits left a partial charter behind"
+  pass "fm-brief.sh: --habits is opt-in, role-specific, ahead of the include, and refused for secondmates"
+}
+
 # (a) An unregistered/default project - no --branch-prefix passed at all - must
 # keep every generated ship mode's branch on the legacy "fm/<task-id>" name, byte
 # for byte, so every existing firstmate installation is unaffected.
@@ -1424,6 +1468,7 @@ test_scout_lavish_line_follows_presentation_floor
 test_workers_wait_without_spending_turns
 test_wait_no_turns_absent_keeps_the_previous_brief
 test_home_brief_include_is_appended_last
+test_habits_switch_is_opt_in_and_role_specific
 test_ship_branch_prefix_defaults_to_legacy_fm
 test_ship_branch_prefix_override_is_consistent_across_modes
 test_ship_branch_prefix_empty_override_yields_bare_task_id
