@@ -13,7 +13,12 @@
 # An unchanged snapshot is retried after FM_REMOTE_DELTA_POLL_SECONDS (default
 # 0.5 seconds). A complete line is visible on the next sample, and the window
 # deadline can overshoot by that interval plus snapshot and scheduling work.
-# The wait remains an ordinary child sleep; signal handling is unchanged.
+# A poll that finds the log exactly as the cursor describes it - same size as
+# the offset, prefix hash equal - costs one perl process: it opens the log
+# without following links, checks the parent directory is physical, and hashes
+# the prefix itself (Digest::SHA), so the idle wait forks nothing else. Any
+# other outcome, or a perl without Digest::SHA, takes the full capture below
+# unchanged. The pause between polls remains an ordinary child sleep.
 #
 # Exit 75 means the wait window closed with no complete line. SIGTERM exits the
 # same way after cleanup. The remote job worker preempts this read-only poll to
@@ -27,6 +32,40 @@ MAX_BYTES=${FM_REMOTE_DELTA_MAX_BYTES:-65536}
 POLL_SECONDS=${FM_REMOTE_DELTA_POLL_SECONDS:-0.5}
 
 die() { printf 'error: %s\n' "$1" >&2; exit 1; }
+
+if [ "${BASH_VERSINFO[0]}" -gt 4 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -ge 2 ]; }; then
+  now_to() { printf -v "$1" '%(%s)T' -1; } # <variable>
+else
+  now_to() { printf -v "$1" '%s' "$(date +%s)"; }
+fi
+
+# Exit 0 when the log is exactly what the cursor describes: a regular file
+# reached without following a link, in a physical parent directory, whose size
+# equals the offset and whose first <offset> bytes hash to the prefix. Every
+# other outcome, including a perl without Digest::SHA, exits 3 so the caller
+# takes the full capture; nothing unexpected is ever read as a match.
+log_matches_cursor() { # <file>
+  local file=$1
+  perl -MFcntl=:DEFAULT -e '
+    my ($parent, $base, $offset, $prefix) = @ARGV;
+    eval { require Digest::SHA; require Cwd; 1 } or exit 3;
+    chdir $parent or exit 3;
+    exit 3 unless Cwd::getcwd() eq $parent && Cwd::realpath($parent) eq $parent;
+    sysopen(my $source, $base, O_RDONLY | O_NOFOLLOW) or exit 3;
+    my @stat = stat $source or exit 3;
+    exit 3 unless -f _ && $stat[7] == $offset;
+    my $sha = Digest::SHA->new(256);
+    my $remaining = $offset;
+    while ($remaining > 0) {
+      my $wanted = $remaining > 65536 ? 65536 : $remaining;
+      my $read = sysread($source, my $buffer, $wanted);
+      exit 3 unless defined $read && $read > 0;
+      $sha->add($buffer);
+      $remaining -= $read;
+    }
+    exit($sha->hexdigest eq $prefix ? 0 : 3);
+  ' "${file%/*}" "${file##*/}" "$OFFSET" "$PREFIX" 2>/dev/null
+}
 usage() { sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
 
 sha256_file() {
@@ -134,61 +173,63 @@ trap 'rm -rf -- "$TMP"' EXIT
 trap 'exit 75' TERM
 : > "$TMP/empty"
 EMPTY_HASH=$(sha256_file "$TMP/empty")
-START=$(date +%s)
+now_to START
 while :; do
   if [ -e "$LOG" ] || [ -L "$LOG" ]; then
     [ -f "$LOG" ] && [ ! -L "$LOG" ] || die "log changed into an unsafe file: $REL"
-    snapshot_log "$LOG" "$TMP/source" "$TMP/size" \
-      || die "log could not be captured safely: $REL"
-    SIZE=$(tr -d ' ' < "$TMP/size")
-    if [ "$SIZE" -lt "$OFFSET" ]; then
-      copy_prefix "$TMP/source" "$SIZE" "$TMP/prefix"
-      ACTUAL=$(sha256_file "$TMP/prefix")
-      emit_break truncated "$SIZE" "$ACTUAL"
-      exit 0
-    fi
-    copy_prefix "$TMP/source" "$OFFSET" "$TMP/prefix"
-    ACTUAL=$(sha256_file "$TMP/prefix")
-    if [ "$ACTUAL" != "$PREFIX" ]; then
-      emit_break prefix-changed "$SIZE" "$ACTUAL"
-      exit 0
-    fi
-    if [ "$SIZE" -gt "$OFFSET" ]; then
-      tail -c "+$((OFFSET + 1))" "$TMP/source" | head -c "$MAX_BYTES" > "$TMP/chunk" || true
-      COMPLETE_BYTES=$(LC_ALL=C od -An -v -tu1 "$TMP/chunk" | awk '
-        { for (i = 1; i <= NF; i++) { bytes++; if ($i == 10) complete=bytes } }
-        END { print complete + 0 }
-      ')
-      if [ "$COMPLETE_BYTES" -eq 0 ]; then : > "$TMP/payload"; else head -c "$COMPLETE_BYTES" "$TMP/chunk" > "$TMP/payload"; fi
-      BYTES=$(LC_ALL=C wc -c < "$TMP/payload" | tr -d ' ')
-      if [ "$BYTES" -gt 0 ]; then
-        TO=$((OFFSET + BYTES))
-        copy_prefix "$TMP/source" "$TO" "$TMP/to-prefix"
-        TO_HASH=$(sha256_file "$TMP/to-prefix")
-        PAYLOAD_HASH=$(sha256_file "$TMP/payload")
-        printf 'schema=fm-remote-delta.v1\n'
-        printf 'status=delta\n'
-        printf 'path=%s\n' "$REL"
-        printf 'from_offset=%s\n' "$OFFSET"
-        printf 'to_offset=%s\n' "$TO"
-        printf 'from_prefix_sha256=%s\n' "$PREFIX"
-        printf 'to_prefix_sha256=%s\n' "$TO_HASH"
-        printf 'payload_sha256=%s\n' "$PAYLOAD_HASH"
-        printf 'payload_bytes=%s\n' "$BYTES"
-        printf 'reason=\n\n'
-        cat "$TMP/payload"
+    if ! log_matches_cursor "$LOG"; then
+      snapshot_log "$LOG" "$TMP/source" "$TMP/size" \
+        || die "log could not be captured safely: $REL"
+      SIZE=$(tr -d ' ' < "$TMP/size")
+      if [ "$SIZE" -lt "$OFFSET" ]; then
+        copy_prefix "$TMP/source" "$SIZE" "$TMP/prefix"
+        ACTUAL=$(sha256_file "$TMP/prefix")
+        emit_break truncated "$SIZE" "$ACTUAL"
         exit 0
       fi
-      if [ $((SIZE - OFFSET)) -ge "$MAX_BYTES" ]; then
-        emit_break line-exceeds-bound "$SIZE" "$ACTUAL"
+      copy_prefix "$TMP/source" "$OFFSET" "$TMP/prefix"
+      ACTUAL=$(sha256_file "$TMP/prefix")
+      if [ "$ACTUAL" != "$PREFIX" ]; then
+        emit_break prefix-changed "$SIZE" "$ACTUAL"
         exit 0
+      fi
+      if [ "$SIZE" -gt "$OFFSET" ]; then
+        tail -c "+$((OFFSET + 1))" "$TMP/source" | head -c "$MAX_BYTES" > "$TMP/chunk" || true
+        COMPLETE_BYTES=$(LC_ALL=C od -An -v -tu1 "$TMP/chunk" | awk '
+          { for (i = 1; i <= NF; i++) { bytes++; if ($i == 10) complete=bytes } }
+          END { print complete + 0 }
+        ')
+        if [ "$COMPLETE_BYTES" -eq 0 ]; then : > "$TMP/payload"; else head -c "$COMPLETE_BYTES" "$TMP/chunk" > "$TMP/payload"; fi
+        BYTES=$(LC_ALL=C wc -c < "$TMP/payload" | tr -d ' ')
+        if [ "$BYTES" -gt 0 ]; then
+          TO=$((OFFSET + BYTES))
+          copy_prefix "$TMP/source" "$TO" "$TMP/to-prefix"
+          TO_HASH=$(sha256_file "$TMP/to-prefix")
+          PAYLOAD_HASH=$(sha256_file "$TMP/payload")
+          printf 'schema=fm-remote-delta.v1\n'
+          printf 'status=delta\n'
+          printf 'path=%s\n' "$REL"
+          printf 'from_offset=%s\n' "$OFFSET"
+          printf 'to_offset=%s\n' "$TO"
+          printf 'from_prefix_sha256=%s\n' "$PREFIX"
+          printf 'to_prefix_sha256=%s\n' "$TO_HASH"
+          printf 'payload_sha256=%s\n' "$PAYLOAD_HASH"
+          printf 'payload_bytes=%s\n' "$BYTES"
+          printf 'reason=\n\n'
+          cat "$TMP/payload"
+          exit 0
+        fi
+        if [ $((SIZE - OFFSET)) -ge "$MAX_BYTES" ]; then
+          emit_break line-exceeds-bound "$SIZE" "$ACTUAL"
+          exit 0
+        fi
       fi
     fi
   elif [ "$OFFSET" -ne 0 ] || [ "$PREFIX" != "$EMPTY_HASH" ]; then
     emit_break missing 0 "$EMPTY_HASH"
     exit 0
   fi
-  NOW=$(date +%s)
+  now_to NOW
   [ $((NOW - START)) -lt "$WAIT" ] || exit 75
   sleep "$POLL_SECONDS"
 done

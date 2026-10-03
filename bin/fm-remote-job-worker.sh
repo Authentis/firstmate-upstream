@@ -889,7 +889,8 @@ worker_preempting_waiter_exists() { # <lane-home>
   local lane_home=$1 job state command job_home
   for job in "$FM_REMOTE_JOB_JOBS"/job-*; do
     [ -d "$job" ] && [ ! -L "$job" ] || continue
-    state=$(fm_remote_job_read_state "$job" 2>/dev/null || true)
+    state=
+    fm_remote_job_read_state_into state "$job" 2>/dev/null || state=
     [ "$state" = queued ] || continue
     fm_remote_job_cancelled "$job" && continue
     # Lanes are per home, so only a waiter for this lane's own home may
@@ -1186,7 +1187,8 @@ worker_process_once() { # <account-home>
     worker_lane_owns_job "$FM_REMOTE_JOB_JOBS/$id" && continue
     job=$(fm_remote_job_job_dir "$id" 2>/dev/null || true)
     [ -n "$job" ] || continue
-    state=$(fm_remote_job_read_state "$job" 2>/dev/null || true)
+    state=
+    fm_remote_job_read_state_into state "$job" 2>/dev/null || state=
     case "$state" in
       queued)
         worker_lane_owns_job "$job" && continue

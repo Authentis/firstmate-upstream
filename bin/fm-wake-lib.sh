@@ -79,7 +79,7 @@ fm_pid_identity() {
   # Git Bash/MSYS exposes these compatible files but its Cygwin ps rejects the
   # portable fallback's -o fields, so capability detection must not key on uname.
   if [ -r "$proc_root/$pid/stat" ] && [ -r "$proc_root/$pid/cmdline" ]; then
-    stat_line=$(cat "$proc_root/$pid/stat" 2>/dev/null) || return 1
+    { stat_line=$(<"$proc_root/$pid/stat"); } 2>/dev/null || return 1
     # After the final comm delimiter, array index 19 is proc stat field 22.
     read -r -a stat_fields <<< "${stat_line##*)}"
     [ "${#stat_fields[@]}" -ge 20 ] || return 1
@@ -87,7 +87,8 @@ fm_pid_identity() {
     case "$starttime" in
       ''|*[!0-9]*) return 1 ;;
     esac
-    cmdline_hex=$(od -An -v -tx1 "$proc_root/$pid/cmdline" 2>/dev/null | tr -d '[:space:]') || return 1
+    cmdline_hex=$(od -An -v -tx1 "$proc_root/$pid/cmdline" 2>/dev/null) || return 1
+    cmdline_hex=${cmdline_hex//[[:space:]]/}
     [ -n "$cmdline_hex" ] || return 1
     identity_key=proc-starttime
     [ "$_FM_UNAME" != Linux ] || identity_key=linux-starttime
@@ -104,7 +105,7 @@ fm_pid_identity() {
   # same width for the same reason.
   out=$(COLUMNS=10000 LC_ALL=C ps -p "$pid" -o lstart= -o command= 2>/dev/null) || return 1
   [ -n "$out" ] || return 1
-  printf '%s\n' "$out" | sed 's/^[[:space:]]*//'
+  printf '%s\n' "${out#"${out%%[![:space:]]*}"}"
 }
 
 fm_path_mtime() {

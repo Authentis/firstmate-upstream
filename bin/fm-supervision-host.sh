@@ -160,7 +160,11 @@
 # monotonic-clock guarantee. Arm exit probes use ordinary 0.5-second child
 # sleeps within the unchanged POLL-cadence maintenance and boundary checks;
 # close observation and a shell-only caught signal may wait that interval plus
-# work/scheduling time. No stop-signal disposition or cleanup bound changes.
+# work/scheduling time. A builtin timed read was tried in place of the sleep and
+# left out: a TERM landing during the exit cleanup crashed Bash 5.3 about one
+# run in six. The parked arm's recorded process identity is re-read every poll
+# until two reads agree, then every 15 seconds, so a late change reaches the
+# record within 15 seconds. No stop-signal disposition or cleanup bound changes.
 # FM_TEST_SUPERVISION_HOST_CLOCK names a file holding the park's elapsed
 # seconds, which the park and turn boundary checks read in place of SECONDS
 # only when FM_TEST_SEAM=1; tests/lib.sh arms the marker for isolated suites.
@@ -260,6 +264,12 @@ TURN_ERRORS=
 # (header, OUTPUT) and left out of that cycle's close.
 READY_PENDING=1
 READY_LINE=
+# refresh_process remembers the last identity it verified for one pid.
+REFRESH_RECHECK=15
+REFRESH_PID=
+REFRESH_IDENTITY=
+REFRESH_STABLE=0
+REFRESH_NEXT=0
 
 log_line() {  # <text>
   local tmp
@@ -286,8 +296,23 @@ record_process() {  # <role> <pid>
 refresh_process() {  # <pid>
   local pid=$1 identity tmp
   [ -n "$pid" ] && [ -f "$HOST_RECORD" ] || return 0
+  # A pid whose identity read the same on two consecutive refreshes is past its
+  # fork-to-exec window, so it is verified again only every REFRESH_RECHECK
+  # seconds instead of on every poll.
+  if [ "$pid" = "$REFRESH_PID" ] && [ "$REFRESH_STABLE" -ge 2 ] && [ "$SECONDS" -lt "$REFRESH_NEXT" ]; then
+    return 0
+  fi
   identity=$(identity_of "$pid")
   [ -n "$identity" ] || return 0
+  if [ "$pid" = "$REFRESH_PID" ] && [ "$identity" = "$REFRESH_IDENTITY" ]; then
+    REFRESH_STABLE=$((REFRESH_STABLE + 1))
+    REFRESH_NEXT=$((SECONDS + REFRESH_RECHECK))
+    return 0
+  fi
+  REFRESH_PID=$pid
+  REFRESH_IDENTITY=$identity
+  REFRESH_STABLE=1
+  REFRESH_NEXT=$((SECONDS + REFRESH_RECHECK))
   awk -F '\t' -v pid="$pid" -v id="$identity" '$2 == pid && $3 != id { found = 1 } END { exit !found }' "$HOST_RECORD" 2>/dev/null || return 0
   tmp=$(mktemp "$HOST_RECORD.tmp.XXXXXX" 2>/dev/null) || return 0
   awk -F '\t' -v OFS='\t' -v pid="$pid" -v id="$identity" '$2 == pid { $3 = id } { print }' "$HOST_RECORD" > "$tmp" 2>/dev/null \

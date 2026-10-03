@@ -469,10 +469,36 @@ fm_remote_job_job_dir() { # <id>
   printf '%s\n' "$physical"
 }
 
+# The waiting loops below tick every quarter second or so, once per waiting
+# caller, so what a tick spawns is paid in kernel CPU on a host with many
+# callers. The clock read and the record reads of a tick therefore use shell
+# builtins; the pause between ticks stays a plain sleep (a builtin timed read
+# in its place aborted Bash 5.3 about one run in sixteen when a TERM arrived).
+if [ "${BASH_VERSINFO[0]}" -gt 4 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -ge 2 ]; }; then
+  fm_remote_job_now_to() { printf -v "$1" '%(%s)T' -1; } # <variable>
+else
+  fm_remote_job_now_to() { printf -v "$1" '%s' "$(date +%s)"; }
+fi
+
+# The same bound as fm_remote_job_regular_bounded for a small text record,
+# read with builtins only. LC_ALL=C makes the character count a byte count, and
+# a NUL ends the record in -d '' mode, so a record holding one reads as over the
+# bound; a state, number, or exit record never holds one.
+fm_remote_job_text_bounded() { # <file> <max-bytes>
+  local file=$1 max=$2 ran=0 status=0 data
+  [ -f "$file" ] && [ ! -L "$file" ] || return 1
+  case "$max" in ''|*[!0-9]*) return 1 ;; esac
+  { LC_ALL=C IFS= read -r -d '' -n "$((max + 1))" data; status=$?; ran=1; } < "$file" 2>/dev/null
+  [ "$ran" -eq 1 ] || return 1
+  # Status 0 means a NUL or max+1 characters arrived before the end of file.
+  [ "$status" -eq 1 ]
+}
+
 fm_remote_job_regular_bounded() { # <file> <max-bytes>
   local file=$1 max=$2 bytes
   [ -f "$file" ] && [ ! -L "$file" ] || return 1
-  bytes=$(LC_ALL=C wc -c < "$file" | tr -d ' ') || return 1
+  bytes=$(LC_ALL=C wc -c < "$file") || return 1
+  bytes=${bytes//[[:space:]]/}
   case "$bytes" in ''|*[!0-9]*) return 1 ;; esac
   [ "$bytes" -le "$max" ]
 }
@@ -501,15 +527,19 @@ fm_remote_job_write_state() { # <job-dir> queued|running|done
   mv -f -- "$tmp" "$job/state"
 }
 
+# Sets the named variable to the job's state without forking a command
+# substitution; the loops that poll it every tick use this form.
+fm_remote_job_read_state_into() { # <variable> <job-dir>
+  local job=$2 value extra
+  fm_remote_job_text_bounded "$job/state" 64 || return 1
+  { IFS= read -r value || return 1; if IFS= read -r extra; then : "$extra"; return 1; fi; } < "$job/state" || return 1
+  case "$value" in queued|running|'done') printf -v "$1" '%s' "$value" ;; *) return 1 ;; esac
+}
+
 fm_remote_job_read_state() { # <job-dir>
-  local job=$1 value extra
-  fm_remote_job_regular_bounded "$job/state" 64 || return 1
-  IFS= read -r value < "$job/state" || return 1
-  if IFS= read -r extra < <(tail -n +2 "$job/state"); then
-    : "$extra"
-    return 1
-  fi
-  case "$value" in queued|running|'done') printf '%s\n' "$value" ;; *) return 1 ;; esac
+  local current
+  fm_remote_job_read_state_into current "$1" || return 1
+  printf '%s\n' "$current"
 }
 
 fm_remote_job_read_number() { # <job-dir> queue_deadline|timeout|deadline|seq
@@ -712,7 +742,8 @@ fm_remote_job_wait() { # <account-home> <id>; honors FM_REMOTE_JOB_DISCONNECT_PR
   }
   wait_deadline=$((queue_deadline + execution_timeout + FM_REMOTE_JOB_WAIT_GRACE))
   while :; do
-    state=$(fm_remote_job_read_state "$job" 2>/dev/null || true)
+    state=
+    fm_remote_job_read_state_into state "$job" 2>/dev/null || state=
     case "$state" in
       'done')
         if ! fm_remote_job_regular_bounded "$job/stdout" "$FM_REMOTE_JOB_MAX_BYTES" ||
@@ -735,7 +766,7 @@ fm_remote_job_wait() { # <account-home> <id>; honors FM_REMOTE_JOB_DISCONNECT_PR
       queued|running) ;;
       *) FM_REMOTE_JOB_ERROR="remote job state is invalid"; return 1 ;;
     esac
-    now=$(date +%s)
+    fm_remote_job_now_to now
     if [ "$now" -ge "$wait_deadline" ]; then
       FM_REMOTE_JOB_ERROR="remote job did not complete within its bounded wait"
       return 1
@@ -1165,7 +1196,7 @@ fm_remote_job_probe() { # <account-home>; a fresh worker heartbeat or active job
   [ -f "$ready" ] && [ ! -L "$ready" ] || return 1
   mtime=$(fm_remote_job_path_mtime "$ready" 2>/dev/null || true)
   case "$mtime" in ''|*[!0-9]*) return 1 ;; esac
-  now=$(date +%s)
+  fm_remote_job_now_to now
   [ $((now - mtime)) -le 10 ]
 }
 

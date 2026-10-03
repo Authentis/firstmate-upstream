@@ -258,7 +258,8 @@ _fm_engine_identity() {  # <pid>
   local identity
   identity=$(fm_pid_identity "$1" 2>/dev/null) || return 1
   [ -n "$identity" ] || return 1
-  printf '%s\n' "$identity" | tr '\t\n' '  ' | sed 's/ *$//'
+  identity=${identity//[$'\t\n']/ }
+  printf '%s\n' "${identity%"${identity##*[! ]}"}"
 }
 
 # Print "<pid> <ppid>" for every process.
