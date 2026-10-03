@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { lstatSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { runCommandAsync } from "./fm-async-exec.ts";
 
 // Shared wake-dispatch handshake between the Pi watcher extension (the
@@ -141,7 +141,31 @@ export interface UnreadWakeScope {
    * non-heartbeat wake claims it in the away posture.
    */
   heartbeatSeqs: string[];
+  /**
+   * The wake-fold rows included in eligibleSeqs (bin/fm-wake-fold-lib.sh): the
+   * home's own outbound parent-channel echoes and repeated custom-check
+   * output. They name no task, so a claim made only of them is not scoped by
+   * task. Always empty while the fold is off or an away posture is present.
+   */
+  foldedSeqs: string[];
+  /**
+   * Every queued row this scan left for main (a check, a decision-owned row,
+   * or a heartbeat no heartbeat review is claiming). The fold's own closes
+   * are offered to the host only when nothing is left behind.
+   */
+  unclaimedSeqs: string[];
   taskByWakeKey: Record<string, string>;
+}
+
+// True when the claim names no task, so a report on any task or on fleet is in
+// scope: a heartbeat review, a claimed heartbeat or check row, or a claim made
+// only of wake-fold rows. A folded row beside a task-local row never widens
+// that row's scope.
+export function scopeNamesNoTask(scope: UnreadWakeScope, heartbeat: boolean): boolean {
+  return heartbeat
+    || scope.checkSeqs.length > 0
+    || scope.heartbeatSeqs.length > 0
+    || (scope.foldedSeqs.length > 0 && scope.eligibleTasks.length === 0);
 }
 
 const EMPTY_SCOPE: UnreadWakeScope = {
@@ -154,6 +178,8 @@ const EMPTY_SCOPE: UnreadWakeScope = {
   needsDecisionKeys: [],
   checkSeqs: [],
   heartbeatSeqs: [],
+  foldedSeqs: [],
+  unclaimedSeqs: [],
   taskByWakeKey: {},
 };
 const UNSAFE_SCOPE: UnreadWakeScope = {
@@ -166,6 +192,8 @@ const UNSAFE_SCOPE: UnreadWakeScope = {
   needsDecisionKeys: [],
   checkSeqs: [],
   heartbeatSeqs: [],
+  foldedSeqs: [],
+  unclaimedSeqs: [],
   taskByWakeKey: {},
 };
 
@@ -205,6 +233,12 @@ const UNSAFE_SCOPE: UnreadWakeScope = {
 // this repo's fm_wake_append could never have produced (an unknown kind, or a
 // line that fails the structural tab-field check) also still vetoes the whole
 // scan - that is queue corruption, not an everyday mixed queue.
+//
+// A row the wake fold recorded in state/.wake-fold (bin/fm-wake-fold-lib.sh:
+// the home's own outbound parent-channel echo, or a repeated check output) is
+// the one exception to the no-task veto: it is claimed without a task instead,
+// but only while the fold is active (config/wake-fold on, no away record), so
+// switching the fold off restores the rule exactly.
 //
 // In the away posture (`afk`, the dispatcher's read of the away-posture
 // record) the partition above collapses: main is parked, so check rows,
@@ -369,6 +403,58 @@ function spanIsDecisionOwned(
   return false;
 }
 
+// The wake fold's switch, as bin/fm-wake-fold-lib.sh's fm_wake_fold_enabled
+// reads it: config/wake-fold absent or `on` folds, any other or unreadable
+// content does not. The config directory follows the library's resolution,
+// with the home taken from FM_HOME or the state directory's parent.
+function wakeFoldSwitchOn(state: string): boolean {
+  const home = process.env.FM_HOME || process.env.FM_ROOT_OVERRIDE || dirname(state);
+  const file = join(process.env.FM_CONFIG_OVERRIDE || join(home, "config"), "wake-fold");
+  try {
+    lstatSync(file);
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "ENOENT";
+  }
+  try {
+    return readFileSync(file, "utf8").replace(/\s+/g, "") === "on";
+  } catch {
+    return false;
+  }
+}
+
+// The fold is active only while its switch is on and no away or quiet record
+// exists (bin/fm-watch.sh's wake_fold_active), so an inactive fold leaves
+// every offer decision exactly as it was before the fold existed.
+export function wakeFoldActive(state: string, afk: boolean): boolean {
+  if (afk) return false;
+  for (const name of [".afk", AFK_CONTRACT_FILE]) {
+    try {
+      lstatSync(join(state, name));
+      return false;
+    } catch {
+      // Absent: no such record.
+    }
+  }
+  return wakeFoldSwitchOn(state);
+}
+
+// The folded rows still queued, as sequence -> class, from the durable record
+// bin/fm-wake-fold-lib.sh appends "<seq>\t<epoch>\t<class>" lines to. An absent
+// or unreadable record, and any line of another shape, folds nothing.
+function readWakeFoldRecord(state: string): Map<string, string> {
+  const folded = new Map<string, string>();
+  try {
+    for (const line of readFileSync(join(state, ".wake-fold"), "utf8").split(/\r?\n/)) {
+      const [seq, , cls, ...extra] = line.split("\t");
+      if (extra.length > 0 || !/^[0-9]+$/.test(seq ?? "")) continue;
+      if (cls === "own-outbound" || cls === "check-repeat") folded.set(seq, cls);
+    }
+  } catch {
+    // No record: nothing is folded.
+  }
+  return folded;
+}
+
 export function scopeForUnreadWake(state: string, heartbeat: boolean, afk = false, attendedHost = false): UnreadWakeScope {
   let queue = "";
   try {
@@ -414,6 +500,9 @@ export function scopeForUnreadWake(state: string, heartbeat: boolean, afk = fals
   const needsDecisionKeys: string[] = [];
   const checkSeqs: string[] = [];
   const heartbeatSeqs: string[] = [];
+  const foldedSeqs: string[] = [];
+  const unclaimedSeqs: string[] = [];
+  const foldRecord = wakeFoldActive(state, afk) ? readWakeFoldRecord(state) : new Map<string, string>();
   const staleDecisionOwnership = new Map<string, boolean>();
   const resolveVerb = process.env.FM_CLASSIFY_RESOLVE_VERB || "resolved";
   const heldVerb = process.env.FM_CLASSIFY_CAPTAIN_HELD_VERB || "captain-held";
@@ -434,7 +523,24 @@ export function scopeForUnreadWake(state: string, heartbeat: boolean, afk = fals
       if (heartbeat || afk) {
         eligibleSeqs.push(seq);
         heartbeatSeqs.push(seq);
+      } else {
+        unclaimedSeqs.push(seq);
       }
+      continue;
+    }
+    // A row the wake fold recorded - the home's own outbound report to its
+    // parent, or output a check already delivered once - is the branch's to
+    // claim without a task. It has no task or project record by construction,
+    // which is not the unresolvable-row fault the veto below exists for. The
+    // class must match the row's kind, and a needs-decision payload keeps its
+    // ordinary decision handling below.
+    const foldClass = foldRecord.get(seq);
+    if (
+      (foldClass === "own-outbound" && kind === "signal" && !/^needs-decision:/.test(fields[4] ?? ""))
+      || (foldClass === "check-repeat" && kind === "check")
+    ) {
+      eligibleSeqs.push(seq);
+      foldedSeqs.push(seq);
       continue;
     }
     if (kind === "check") {
@@ -445,6 +551,8 @@ export function scopeForUnreadWake(state: string, heartbeat: boolean, afk = fals
       if (afk) {
         eligibleSeqs.push(seq);
         checkSeqs.push(seq);
+      } else {
+        unclaimedSeqs.push(seq);
       }
       continue;
     }
@@ -460,7 +568,10 @@ export function scopeForUnreadWake(state: string, heartbeat: boolean, afk = fals
         // takes the decision row like any other task-local row; the guarded
         // scripts decide what it may do about it (bin/fm-lease-lib.sh).
         needsDecisionKeys.push(key);
-        if (!afk) continue;
+        if (!afk) {
+          unclaimedSeqs.push(seq);
+          continue;
+        }
       }
       task = key.replace(/\.(?:status|turn-ended)$/, "");
       project = metadata.get(task) ?? "";
@@ -538,7 +649,10 @@ export function scopeForUnreadWake(state: string, heartbeat: boolean, afk = fals
       }
       if (staleDecisionOwnership.get(ownershipKey)) {
         needsDecisionKeys.push(key);
-        if (!afk) continue;
+        if (!afk) {
+          unclaimedSeqs.push(seq);
+          continue;
+        }
       }
     }
     if (!project || !task) return UNSAFE_SCOPE;
@@ -564,6 +678,8 @@ export function scopeForUnreadWake(state: string, heartbeat: boolean, afk = fals
     needsDecisionKeys,
     checkSeqs,
     heartbeatSeqs,
+    foldedSeqs,
+    unclaimedSeqs,
     taskByWakeKey: Object.fromEntries(taskByKey),
   };
 }
@@ -600,6 +716,12 @@ export interface BranchOfferVerdict {
 // row: until that row is read, a later signal or stale trigger for the same
 // task stays on main. Other tasks and heartbeat handling remain independent.
 //
+// Two check-kind closes are the fold's own - its `wake digest` and a
+// `rearm-resurface` - and an attended host (not Pi's watcher) is offered them
+// while the fold is active and no queued row is left for main: every row
+// claimable, or, for a re-arm, an empty queue. Anything left for main keeps the
+// close there.
+//
 // The away posture collapses that partition: every actionable row is
 // branch-eligible and the trigger class no longer forces anything to main
 // (scopeForUnreadWake owns the per-row rule).
@@ -620,8 +742,16 @@ export function branchOfferForWake(state: string, message: string, afk: boolean,
     scope.taskByWakeKey[key] ?? scope.taskByWakeKey[key.replace(/^fm-/, "")] ?? key;
   const needsDecisionTasks = new Set(scope.needsDecisionKeys.map(taskIdentity));
   const isNeedsDecisionTrigger = triggerKeys.some((key) => needsDecisionTasks.has(taskIdentity(key)));
-  const attendedEligible = !isCheckTrigger && !isNeedsDecisionTrigger && (
-    afk ? scopeForUnreadWake(state, heartbeat, false).eligible : scope.eligible
+  // The fold's own closes - its digest, and a re-arm - announce only rows the
+  // host would claim on their own close, so an attended host takes them when
+  // nothing is left behind for main: every queued row claimable, or (a re-arm)
+  // none queued at all. Pi's watcher never gets this exemption.
+  const isFoldClose = /^check: wake digest:/.test(message) || /^check: rearm-resurface$/.test(message);
+  const offeredFoldClose = isFoldClose && attendedHost && !afk && wakeFoldActive(state, afk)
+    && scope.unclaimedSeqs.length === 0
+    && (scope.eligible || (scope.status === "empty" && message === "check: rearm-resurface"));
+  const attendedEligible = (!isCheckTrigger || offeredFoldClose) && !isNeedsDecisionTrigger && (
+    afk ? scopeForUnreadWake(state, heartbeat, false).eligible : scope.eligible || offeredFoldClose
   );
   const eligible = afk ? scope.eligible : attendedEligible;
   return { scope, heartbeat, eligible, awayOnly: Boolean(eligible && !attendedEligible) };

@@ -107,6 +107,8 @@ Only an away record is away: no record, or the record daemon-backed quiet mode w
 
 The host asks the Pi branch's offer rule (`branchOfferForWake`, through `bin/fm-branch-dispatch.mjs offer`) whether the branch may take the close.
 So a close reaches main off Pi exactly when it would on Pi: a check trigger, a decision-owned signal or stale trigger, and a scan that is unsafe or holds nothing for the branch stay main's.
+While the wake fold is active, the rows it records in `state/.wake-fold` (the home's own outbound parent-channel echo and a repeated check output) are claimable without a task instead of vetoing the scan, and the fold's `check: wake digest:` close and a `check: rearm-resurface` close (including one with an empty queue) go to the host when no queued row is left for main.
+`config/wake-fold` set to `off`, or any away or quiet record, restores the unfolded offer rule exactly; [`bin/fm-wake-fold-lib.sh`](../bin/fm-wake-fold-lib.sh) owns the fold and `scopeForUnreadWake` owns the rule.
 On that main-only pass-through the host starts the successor watcher cycle and leaves it running, then prints the close unchanged.
 It leaves the watcher's recovery marker reading downtime, confirming no handling handoff, because the re-arm owner delivers a close to main only while that marker reads downtime.
 The session's next park without `--restart` requests a take-over to restore a single host-owned arm; the [host header](../bin/fm-supervision-host.sh) owns successor persistence and cleanup, and the [arm header](../bin/fm-watch-arm.sh) owns take-over eligibility and fallback.
@@ -408,6 +410,7 @@ Each arm owner's own suite covers its host mode against a stub host.
 | Test | What it covers |
 |---|---|
 | `tests/fm-supervision-host.test.sh` | Drives the real host, auto-arm, grant, drain, report, and lease scripts against a stub engine, in both postures, including the shared offer rule and the drain's `BRANCH OUTCOMES` section. |
+| `tests/fm-offer-wake-fold.test.sh` | The offer rule's treatment of wake-fold rows: the offer-probe verdict table, the fold's digest and re-arm closes, every retained veto, and `config/wake-fold` off restoring the unfolded verdicts. |
 | `tests/fm-claude-stop-autoarm.test.sh` | The Claude arm owner's host mode against a stub host. |
 | `tests/fm-cursor-primary.test.sh` | The Cursor arm owner's host mode against a stub host. |
 | `tests/fm-pi-watch-extension.test.sh` | The OpenCode plugin's host mode against a stub host. |
