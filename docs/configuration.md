@@ -12,6 +12,7 @@ Start with the directory layout, then use the setting reference for the behavior
 | Worker permissions, accounts, or environment | [Claude permission mode](#claude-permission-mode-configclaude-permission-mode), [worker account pin](#worker-account-pin-configclaude-account-configpi-account), and [worker launch environment](#worker-launch-environment-configlaunch-env-allowlist) |
 | Backlog, preferences, and memory | [Backlog backend](#backlog-backend-taskstoml--configbacklog-backend), [captain preferences](#captain-preferences-datacaptainmd--datacaptain-sharedmd), and [startup memory budget](#startup-memory-budget-configstartup-memory-budget) |
 | Supervision and presentation | [Pi supervision branch](#pi-supervision-branch), [supervision host](#supervision-host-configsupervision-host), [wake fold](#wake-fold-configwake-fold), and [Calm preference](#calm-preference-configcalm) |
+| Requiring a review receipt before a merge | [Merge review receipts](#merge-review-receipts-configmerge-receipt-required) |
 | Persistent secondmates | [Secondmate routes](#secondmate-routes-datasecondmatesmd) |
 | Per-run overrides and tuning | [Environment variables](#environment-variables) |
 
@@ -568,6 +569,33 @@ A Secondmate on a remote route is covered the same way: the primary resolves and
 
 The presence flag is session-scoped enablement, so it transfers at launch and is left unchanged by live convergence into a running home.
 See [`trace-context.md`](trace-context.md) for carrier semantics, supported routes, the manual fleet-restart requirement, the session boundary, and safety limits; `bin/fm-trace-context-lib.sh`'s header owns the exact mechanics, and [`verification/trace-context.md`](verification/trace-context.md) records repeatable evidence.
+
+## Merge review receipts (config/merge-receipt-required)
+
+The optional local, gitignored `config/merge-receipt-required` file opts projects into a review-receipt requirement on every merge `bin/fm-pr-merge.sh` performs, so a review rule that a home keeps outside Firstmate also holds on this merge path.
+With the file absent, or with no line matching the project, merges behave exactly as before.
+
+### File format
+
+Each non-blank line is `<scope> <data-dir>`, and `#` starts a comment.
+The scope is `*` for every project, or the exact `owner/repo` (a GitLab group path) compared case-insensitively.
+The first matching line wins, so put specific projects before `*`.
+The data directory is relative to `FM_HOME` unless it is absolute.
+A malformed line or an unreadable file refuses the merge rather than being skipped.
+
+### What the merge then requires
+
+After the live green-checks conditions and before the forge merge command, the merge needs a receipt or a waiver for this exact pull request number and the head commit read from the forge at merge time.
+A receipt is `<data-dir>/xreview/<pr-number>.md` with an `at=<epoch> ... head=<sha>` header line and a `VERDICT: PASS` or `VERDICT: FAIL` line.
+A waiver is `<data-dir>/xreview-waiver-<pr-number>`, free text that names `head=<hex>` or `head <hex>`.
+A receipt satisfies the requirement only when it reads PASS at the current head.
+A waiver satisfies it on its own, but only while the current head still starts with the head it names, so a push after the waiver lapses it.
+A missing, stale, FAIL, or unparseable receipt with no covering waiver refuses with a message naming the file and the heads involved.
+`--attended-override`, `--allow-red`, `--allow-missing`, and the away posture do not waive it; only a waiver file does.
+
+`bin/fm-pr-merge.sh`'s header owns the exact parsing rules.
+The receipts themselves are written by the home that runs the review, and Firstmate only reads them.
+The file is a home-local choice and is not inherited by secondmate homes.
 
 ## Fleet activity ledger (config/fleet-ledger)
 

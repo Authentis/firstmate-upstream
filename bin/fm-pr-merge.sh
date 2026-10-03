@@ -96,6 +96,23 @@
 # recorded value stale. Reading that state needs glab and jq, and either one
 # absent stops the merge before any state is recorded.
 #
+# Opt-in review-receipt gate: when config/merge-receipt-required has a line for
+# this project (docs/configuration.md owns the schema), both forge verifiers add
+# one more refusal after their live conditions and before any forge merge
+# command unless this exact PR number has, for the live head they just read,
+# either a PASS receipt or a waiver in that line's data directory (relative to
+# FM_HOME unless absolute). A receipt is <data-dir>/xreview/<pr-number>.md with
+# an `at=<epoch> ... head=<sha>` header line and `VERDICT: PASS|FAIL` lines, the
+# last verdict counting; its head must equal the live head exactly. A waiver is
+# <data-dir>/xreview-waiver-<pr-number>, free text naming `head=<hex>` or
+# `head <hex>` with 7 or more hex digits that are a prefix of the live head;
+# it satisfies the gate on its own, whatever the receipt says, and only while
+# the live head still starts with that hex. A missing, stale, FAIL, or
+# unparseable receipt with no covering waiver, and an unreadable or malformed
+# requirement file, refuse. --attended-override, --allow-red, --allow-missing,
+# and the away posture never waive it. With no file or no matching line the
+# merge is exactly as it was.
+#
 # Before either forge merge, the task's existing per-task control lock
 # serializes the captain-hold check through the forge command. A still-held or
 # unreadable row refuses before that command, so a captain approval must be
@@ -447,6 +464,86 @@ if [ "$PROVIDER" = gitlab ]; then
   RECORDED_HEAD=$(grep '^pr_head=' "$META" | tail -1 | cut -d= -f2- || true)
 fi
 
+# Opt-in review-receipt gate; the header above owns its exact receipt and waiver
+# parsing. Sets FM_MERGE_RECEIPT_REFUSAL to the refusal text, empty when the
+# merge may proceed.
+FM_MERGE_RECEIPT_REFUSAL=
+merge_receipt_gate() {
+  local live_head=$1 cfg line scope dir extra data='' path_lc receipt waiver
+  local rec_head='' verdict='' token hex waiver_seen=''
+  FM_MERGE_RECEIPT_REFUSAL=
+  cfg="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}/merge-receipt-required"
+  { [ -e "$cfg" ] || [ -L "$cfg" ]; } || return 0
+  if [ ! -f "$cfg" ] || [ ! -r "$cfg" ]; then
+    FM_MERGE_RECEIPT_REFUSAL="  - the review-receipt requirement file $cfg could not be read, so whether this merge needs a receipt cannot be ruled out"
+    return 0
+  fi
+  path_lc=$(printf '%s' "$PR_PATH" | tr '[:upper:]' '[:lower:]')
+  while IFS= read -r line || [ -n "$line" ]; do
+    line=${line%%#*}
+    scope='' dir='' extra=''
+    read -r scope dir extra <<EOL || true
+$line
+EOL
+    [ -n "$scope" ] || continue
+    if [ -z "$dir" ] || [ -n "$extra" ]; then
+      FM_MERGE_RECEIPT_REFUSAL="  - $cfg has a malformed line (expected '<scope> <data-dir>'): $line"
+      return 0
+    fi
+    if [ "$scope" = '*' ] || [ "$(printf '%s' "$scope" | tr '[:upper:]' '[:lower:]')" = "$path_lc" ]; then
+      data=$dir
+      break
+    fi
+  done < "$cfg"
+  [ -n "$data" ] || return 0
+  case "$data" in
+    /*) ;;
+    *) data="$FM_HOME/$data" ;;
+  esac
+  receipt="$data/xreview/$PR_NUMBER.md"
+  waiver="$data/xreview-waiver-$PR_NUMBER"
+
+  if [ -f "$waiver" ] && [ -r "$waiver" ]; then
+    while IFS= read -r token; do
+      [ -n "$token" ] || continue
+      hex=$(printf '%s' "${token#head?}" | tr '[:upper:]' '[:lower:]')
+      waiver_seen="${waiver_seen:+$waiver_seen, }$hex"
+      case "$live_head" in
+        "$hex"*) return 0 ;;
+      esac
+    done <<EOT
+$(grep -Eo 'head[= ][0-9a-fA-F]{7,64}' "$waiver" 2>/dev/null || true)
+EOT
+  fi
+
+  if [ ! -f "$receipt" ] || [ ! -r "$receipt" ]; then
+    FM_MERGE_RECEIPT_REFUSAL="  - no review receipt at $receipt for PR $PR_NUMBER at head $live_head"
+  else
+    rec_head=$(grep -Eo -m1 '^at=[0-9]+ .*head=[0-9a-fA-F]{40,64}' "$receipt" 2>/dev/null || true)
+    rec_head=$(printf '%s' "${rec_head##*head=}" | tr '[:upper:]' '[:lower:]')
+    verdict=$(grep -E '^VERDICT: (PASS|FAIL)[[:space:]]*$' "$receipt" 2>/dev/null | tail -n1 || true)
+    verdict=${verdict#VERDICT: }
+    verdict=${verdict%%[[:space:]]*}
+    if ! fm_pr_head_valid "$rec_head" || [ -z "$verdict" ]; then
+      FM_MERGE_RECEIPT_REFUSAL="  - the review receipt $receipt is unparseable (it needs an 'at=<epoch> ... head=<sha>' header and a 'VERDICT: PASS' or 'VERDICT: FAIL' line)"
+    elif [ "$rec_head" != "$live_head" ]; then
+      FM_MERGE_RECEIPT_REFUSAL="  - the review receipt $receipt is stale: it reviewed head $rec_head but the current head is $live_head"
+    elif [ "$verdict" != PASS ]; then
+      FM_MERGE_RECEIPT_REFUSAL="  - the review receipt $receipt for head $live_head is $verdict, not PASS"
+    else
+      return 0
+    fi
+  fi
+  if [ -n "$waiver_seen" ]; then
+    FM_MERGE_RECEIPT_REFUSAL="$FM_MERGE_RECEIPT_REFUSAL
+  - the waiver $waiver names head $waiver_seen, which does not cover the current head $live_head"
+  elif [ -e "$waiver" ]; then
+    FM_MERGE_RECEIPT_REFUSAL="$FM_MERGE_RECEIPT_REFUSAL
+  - the waiver $waiver names no head (it needs 'head=<sha>' or 'head <sha>'), so it covers nothing"
+  fi
+  return 0
+}
+
 # Pre-merge conditions for a GitLab merge request, read from one live view of
 # the merge request. Sets FM_PR_MERGE_HEAD to the verified head on success and
 # returns non-zero after reporting every condition that failed.
@@ -539,6 +636,10 @@ FIELDS
 "
   [ "$pipeline_sha" = "$live_head" ] \
     || refusals="$refusals  - the head pipeline ran at \"${pipeline_sha:-none}\", not at the current head $live_head
+"
+
+  merge_receipt_gate "$live_head"
+  [ -z "$FM_MERGE_RECEIPT_REFUSAL" ] || refusals="$refusals$FM_MERGE_RECEIPT_REFUSAL
 "
 
   if [ -n "$refusals" ]; then
@@ -841,6 +942,10 @@ EOF
 $missing
 EOF
   fi
+
+  merge_receipt_gate "$live_head"
+  [ -z "$FM_MERGE_RECEIPT_REFUSAL" ] || refusals="$refusals$FM_MERGE_RECEIPT_REFUSAL
+"
 
   if [ -n "$mergeable_refusal" ]; then
     if [ -z "$refusals" ] && [ "$mergeable" = UNKNOWN ]; then

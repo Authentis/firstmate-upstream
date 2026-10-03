@@ -24,7 +24,8 @@
 #
 # Layout under <state-dir>:
 #   <task>.inbox/NNN.msg       one durable steer, numeric sequence, atomic rename
-#   <task>.inbox/handled/      the worker's `mv` here IS the acknowledgement
+#   <task>.inbox/handled/      the move of a record here IS the acknowledgement,
+#                              made by bin/fm-inbox-ack.sh (fm_task_inbox_acknowledge)
 #   <task>.inbox/.seq.lock     serializes sequence allocation across writers
 #                              (the session and the away daemon)
 #   <task>.inbox/.ring-state   watcher re-ring ladder: "<msg>\t<count>\t<epoch>"
@@ -46,6 +47,13 @@
 # inbox root and handled/, so a message is processed at most once per worker
 # lifetime even if every doorbell is duplicated. Concurrent writers serialize
 # on .seq.lock; the worst racing outcome is ordering, never loss.
+#
+# Acknowledgement (fm_task_inbox_acknowledge): moves one record into handled/ and
+# drops the ladder, escalation, and retry bookkeeping that names it, so a
+# handled record never rings, escalates, or retries again. bin/fm-inbox-ack.sh
+# is the worker-facing entrypoint (its header owns usage); a raw move into
+# handled/ still acknowledges, and the ladder's own empty-inbox and missing-record
+# resets reconcile the bookkeeping on the next poll.
 #
 # Re-ring ladder (fm_task_inbox_due_action): an unhandled message older than
 # FM_TASK_INBOX_GRACE_SECS is due one delivery attempt per grace period; an
@@ -114,6 +122,19 @@ fm_task_inbox_ring_max() {
 
 fm_task_inbox_dir() {  # <state-dir> <task-id>
   printf '%s/%s.inbox' "$1" "$2"
+}
+
+# State directory that holds a task's steering inbox: the ordinary state dir,
+# or its parent-route/ subdirectory, where a secondmate's own inbox lives
+# (written by bin/fm-remote-secondmate-control.sh). The ordinary location wins;
+# when neither exists the ordinary one is returned so callers report an absent
+# inbox against it.
+fm_task_inbox_state_for() {  # <state-dir> <task-id>
+  if [ -e "$1/$2.inbox" ] || [ -L "$1/$2.inbox" ] || [ ! -e "$1/parent-route/$2.inbox" ]; then
+    printf '%s' "$1"
+  else
+    printf '%s/parent-route' "$1"
+  fi
 }
 
 fm_task_inbox_handled_dir() {  # <state-dir> <task-id>
@@ -507,4 +528,66 @@ fm_task_inbox_record_escalated() {  # <state-dir> <task-id> <record-path>
     [ -d "$dir" ] || return 0
     return 1
   fi
+}
+
+# Acknowledge one record by its numeric sequence: move <task>.inbox/NNN.msg into
+# handled/ and clear the ladder, escalation, and retry marks that name it.
+# Prints "handled NNN.msg" when it moved the record, "already NNN.msg" when the
+# sequence is already in handled/ (idempotent success), and fails with status 1
+# (message on stderr) for a malformed sequence, a missing record, an inbox or
+# handled/ that is not a plain directory (a symlink could redirect the move out
+# of the inbox), or a handled/ copy that would be overwritten. The move never
+# clobbers.
+fm_task_inbox_acknowledge() {  # <state-dir> <task-id> <seq>
+  local dir handled want f n base='' mark rec_base
+  case "${3-}" in ''|*[!0-9]*) echo "error: not a sequence number: ${3-}" >&2; return 1 ;; esac
+  want=$((10#$3))
+  dir=$(fm_task_inbox_dir "$1" "$2")
+  handled=$(fm_task_inbox_handled_dir "$1" "$2")
+  if [ -L "$dir" ] || [ ! -d "$dir" ]; then
+    echo "error: no steering inbox for task $2" >&2
+    return 1
+  fi
+  if [ -L "$handled" ] || { [ -e "$handled" ] && [ ! -d "$handled" ]; }; then
+    echo "error: handled/ for task $2 is not a plain directory" >&2
+    return 1
+  fi
+  for f in "$dir"/*.msg; do
+    [ -e "$f" ] || continue
+    n=$(fm_task_inbox_seq_of "${f##*/}") || continue
+    [ "$n" -eq "$want" ] || continue
+    base=${f##*/}
+    break
+  done
+  if [ -z "$base" ]; then
+    for f in "$handled"/*.msg; do
+      [ -e "$f" ] || continue
+      n=$(fm_task_inbox_seq_of "${f##*/}") || continue
+      [ "$n" -eq "$want" ] || continue
+      printf 'already %s\n' "${f##*/}"
+      return 0
+    done
+    echo "error: task $2 has no steering message $3" >&2
+    return 1
+  fi
+  if [ -L "$dir/$base" ] || [ ! -f "$dir/$base" ]; then
+    echo "error: steering message $base of task $2 is not a regular file" >&2
+    return 1
+  fi
+  mkdir -p "$handled" || return 1
+  if [ -e "$handled/$base" ]; then
+    echo "error: handled/$base already exists for task $2; refusing to overwrite it" >&2
+    return 1
+  fi
+  mv -n "$dir/$base" "$handled/$base" || return 1
+  if [ -e "$dir/$base" ]; then
+    echo "error: could not move $base of task $2 into handled/" >&2
+    return 1
+  fi
+  rec_base=$(cut -f1 "$dir/.ring-state" 2>/dev/null || true)
+  [ "$rec_base" != "$base" ] || rm -f "$dir/.ring-state" 2>/dev/null || true
+  for mark in .escalated .retry-ring; do
+    [ "$(cat "$dir/$mark" 2>/dev/null || true)" != "$base" ] || rm -f "$dir/$mark" 2>/dev/null || true
+  done
+  printf 'handled %s\n' "$base"
 }
