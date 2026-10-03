@@ -11,7 +11,7 @@ Start with the directory layout, then use the setting reference for the behavior
 | Task windows and worker tools | [Runtime backend](#runtime-backend-configbackend--fm_backend) and [harness support](#harness-support) |
 | Worker permissions, accounts, or environment | [Claude permission mode](#claude-permission-mode-configclaude-permission-mode), [worker account pin](#worker-account-pin-configclaude-account-configpi-account), and [worker launch environment](#worker-launch-environment-configlaunch-env-allowlist) |
 | Backlog, preferences, and memory | [Backlog backend](#backlog-backend-taskstoml--configbacklog-backend), [captain preferences](#captain-preferences-datacaptainmd--datacaptain-sharedmd), and [startup memory budget](#startup-memory-budget-configstartup-memory-budget) |
-| Supervision and presentation | [Pi supervision branch](#pi-supervision-branch), [supervision host](#supervision-host-configsupervision-host), and [Calm preference](#calm-preference-configcalm) |
+| Supervision and presentation | [Pi supervision branch](#pi-supervision-branch), [supervision host](#supervision-host-configsupervision-host), [wake fold](#wake-fold-configwake-fold), and [Calm preference](#calm-preference-configcalm) |
 | Persistent secondmates | [Secondmate routes](#secondmate-routes-datasecondmatesmd) |
 | Per-run overrides and tuning | [Environment variables](#environment-variables) |
 
@@ -609,6 +609,28 @@ With the flag absent the wedge timer spends no fold or current-state read for it
 The flag is a home-local supervision-noise preference and is not inherited by secondmate homes, which supervise their own crew and own that trade separately.
 
 [`architecture.md`](architecture.md) owns the wait-evidence contract and which records may take the ladder away; `bin/fm-watch.sh`'s `wedge_wait_evidence` owns the exact derivation and its fail-closed boundaries.
+
+## Wake fold (config/wake-fold)
+
+The wake fold is on by default and spends a supervisor turn only on wakes that carry something new.
+With the local, gitignored `config/wake-fold` absent or containing `on`, the watcher queues three kinds of routine wake durably without waking the supervisor:
+
+- A secondmate home's signal on its own outbound parent channel, whose lines are that home's reports to its parent.
+- A registered custom check printing text identical to one of its recent deliveries.
+- A watcher re-arm whose whole queue is those folded rows.
+
+Folded rows ride along on the next real wake's drain.
+Once the oldest has waited `FM_WAKE_FOLD_DIGEST_SECS` (default `900`), the watcher raises one `check: wake digest` wake for them.
+`bin/fm-wake-drain.sh --ack-if-routine` acknowledges a presentation that holds only folded rows and nothing new in one call, printing a `ROUTINE:` line instead of `WAKE_ACK_REQUIRED`.
+Decisions, failures, done, blocked, needs-decision, captain notes, merge results, process-event results, stale panes, heartbeats, and every worker status line never fold, and an away or quiet record turns the fold off.
+
+### Turning the fold off
+
+Write `off` to `config/wake-fold` to disable every fold class and the drain's one-call acknowledgement.
+Any content other than `on` disables it, so a mistyped switch errs toward waking.
+The next watcher cycle and drain then behave as they did before the fold existed, and rows folded earlier still arrive through the digest.
+The switch is home-local and is not inherited by secondmate homes, which fold by default once their code includes the fold.
+[`bin/fm-wake-fold-lib.sh`](../bin/fm-wake-fold-lib.sh) owns the fold classes, record, digest, and switch.
 
 ## Gate defaults (.no-mistakes.yaml)
 
@@ -2360,6 +2382,7 @@ FM_WATCHER_STALL_BOUND=       # live-holder stall bound; default and arm/re-arm 
 FM_SIGNAL_GRACE=30      # seconds to coalesce nearby status and turn-end signals into one wake
 FM_WATCHER_CLEANUP_LOCK_BOUND=   # optional watcher EXIT marker-lock wait; default and validation: docs/watcher-continuity.md
 FM_TURNEND_CHURN_ABSORB_SECS=900   # longest one endpoint's bare turn-ends may be deferred on pane-churn evidence alone; only consulted when config/turnend-churn-absorb is present
+FM_WAKE_FOLD_DIGEST_SECS=900       # longest a folded wake row waits for a real wake to carry it before the watcher raises one `check: wake digest` wake; nonpositive or invalid values fall back to 900 (see "Wake fold")
 FM_CAPTAIN_RE='done:|needs-decision:|blocked:|failed:|PR ready|checks green|ready in branch|merged'   # captain-relevant status regex; nonterminal progress verbs remain excluded even when their prose matches
 FM_CLASSIFY_PAUSED_VERB=paused     # leading declared-wait status verb; bin/fm-classify-lib.sh owns its meaning and legacy external-wait label; excluded from FM_CAPTAIN_RE and distinct from blocked
 FM_STALE_ESCALATE_SECS=240         # idle seconds before a provably-working stale pane escalates, unless that pane's own worker declared a wait that has not elapsed, or, where config/wedge-defer-parked-gate arms it, that pane's crew is parked at a validation gate awaiting the supervisor's decision on it that the crew raised under that run's key and nobody has answered yet, either of which takes the FM_PAUSE_RESURFACE_SECS recheck below instead; stale panes whose crew is not provably working surface immediately unless admitted directly to the declared-wait cadence, while a live idle declared wait still surfaces once before that cadence bounds repeats; at that same escalation moment a recovery-grade agent-state probe (docs/architecture.md owns that dead-record contract) reports a pane whose endpoint is proven `dead` or `missing` once and stops re-escalating it while it stays that way

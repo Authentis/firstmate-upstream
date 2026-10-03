@@ -83,7 +83,13 @@
 #                          an unhandled record's ladder cannot advance; quiet
 #                          successful attempts never wake firstmate
 #                          (bin/fm-task-inbox-lib.sh owns the ladder policy)
-#   check: <script>: <out> authenticated check output, always actionable
+#   check: <script>: <out> authenticated check output, actionable unless the
+#                          wake fold queues a repeat of recent output without
+#                          waking (bin/fm-wake-fold-lib.sh)
+#   check: wake digest: <n> folded routine wake row(s) queued, oldest <s>s
+#                          rows the wake fold queued without waking have
+#                          waited FM_WAKE_FOLD_DIGEST_SECS with no real wake
+#                          to carry them
 #   check: process-event result captured: <keys>
 #                          a durably captured process-to-event result is queued
 #                          and has not been surfaced yet; reported once per
@@ -229,6 +235,10 @@ WATCH_HOME_EXISTED=0
 # below).
 # shellcheck source=bin/fm-afk-contract.sh
 . "$SCRIPT_DIR/fm-afk-contract.sh"
+# Which wakes queue without waking, and their digest: bin/fm-wake-fold-lib.sh
+# owns the fold classes, record, digest, and config/wake-fold switch.
+# shellcheck source=bin/fm-wake-fold-lib.sh
+. "$SCRIPT_DIR/fm-wake-fold-lib.sh"
 # Persistent-secondmate endpoint liveness: the shared probe/relaunch library is
 # the same one bin/fm-bootstrap.sh's session-start sweep drives, so ordinary
 # supervision recovers a positively dead or missing mate through the identical
@@ -413,6 +423,53 @@ afk_present() { [ -e "$STATE/.afk" ]; }
 # rechecks of captain-held items as pure noise). Declared external waits keep
 # their condition-aware cadence in both postures.
 away_record_present() { fm_afk_contract_away_present "$STATE"; }
+
+# The wake fold applies while config/wake-fold allows it and no away or quiet
+# record has made the daemon the triage owner (bin/fm-wake-fold-lib.sh).
+wake_fold_active() {
+  ! afk_present && fm_wake_fold_enabled
+}
+
+# Queue every signal on this home's own outbound parent channel as one folded
+# row per file, committing its newest signature and the same classification
+# markers a surfaced signal commits, and print the rest of <pending> for
+# ordinary triage.
+fold_own_outbound_signals() {  # <pending>
+  local sf sig f endpoint_f surface_end surface_ident rest='' own='' folded=' '
+  while IFS=$(printf '\t') read -r sf sig f; do
+    [ -n "$sf" ] || continue
+    if [ "${f%.status}" = "$f" ] || ! fm_wake_fold_own_outbound "$f"; then
+      rest="${rest}${sf}"$'\t'"${sig}"$'\t'"${f}"$'\n'
+    else
+      own="${own}${sf}"$'\t'"${sig}"$'\t'"${f}"$'\n'
+    fi
+  done <<EOF
+$1
+EOF
+  # Newest first: the grace re-scan appends a later signature for the same file.
+  own=$(printf '%s' "$own" | awk '{ line[NR] = $0 } END { for (i = NR; i > 0; i--) print line[i] }')
+  while IFS=$(printf '\t') read -r sf sig f; do
+    [ -n "$sf" ] || continue
+    case "$folded" in *" $f "*) continue ;; esac
+    folded="$folded$f "
+    FM_SIGNAL_SURFACE_ENDPOINTS=''
+    signal_files_actionable "$f" || true
+    fm_wake_fold_append signal "$(basename "$f")" "signal: $f" own-outbound || return 1
+    fm_wake_status_reported_commit "$STATE" "$f" "$sig" || true
+    mark_surface_reported "$f" "$sig" || true
+    while IFS=$(printf '\t') read -r endpoint_f surface_end surface_ident; do
+      [ -n "$endpoint_f" ] || continue
+      fm_wake_status_seen_commit "$STATE" "$endpoint_f" "$surface_end" "$surface_ident" || true
+      mark_surfaced "$endpoint_f" "$surface_end" "$surface_ident"
+    done <<EOF
+$FM_SIGNAL_SURFACE_ENDPOINTS
+EOF
+    triage_log "folded own outbound parent-channel signal: $f"
+  done <<EOF
+$own
+EOF
+  printf '%s' "$rest"
+}
 
 # captain_held_silenced <status-line>: 0 when the line declares a captain-held
 # transfer and an away record exists, so every stale path absorbs the pane
@@ -2750,7 +2807,25 @@ resurface_after_downtime() {
     fi
     [ "$FM_RECOVERY_MARKER_ACTION" = recover ] || return 0
   fi
+  # A re-arm whose whole queue is folded rows announces nothing the digest
+  # will not deliver; a crashed predecessor's lock recovery still re-arms.
+  if [ -z "${FM_LOCK_RECOVERED_PID:-}" ] && wake_fold_active \
+    && fm_wake_fold_queue_all_folded; then
+    WATCHER_RECOVERY_PENDING=0
+    triage_log "folded rearm-resurface: every queued row is a folded row"
+    return 0
+  fi
   wake "check: rearm-resurface"
+}
+
+# Deliver folded rows that no real wake has carried within the digest bound.
+# The away daemon owns triage under an away or quiet record, and every queued
+# row reaches it through the ordinary re-arm there, so no digest is raised.
+wake_fold_digest_tick() {
+  local reason
+  afk_present && return 0
+  reason=$(fm_wake_fold_digest_due) || return 0
+  wake "$reason"
 }
 
 while :; do
@@ -2844,6 +2919,7 @@ while :; do
   # A process-event result carries richer adapter-owned wake context than the
   # generic recovery reason, so give that owner first refusal.
   resurface_after_downtime
+  wake_fold_digest_tick
 
   # The existing poll loop also owns the bounded inactive-outcome cadence.
   # This is mechanical and silent unless a durable terminal-outcome obligation
@@ -2975,6 +3051,17 @@ EOF
           wake "$reason"
         fi
         pr_poll_control_release || exit 1
+        if [ "$is_pr_poll" -eq 0 ] && [ "$(basename "$c")" != x-watch.check.sh ] \
+          && [ "$(basename "$c")" != contributions.check.sh ] && wake_fold_active; then
+          if fm_wake_fold_check_repeat "$c" "$out"; then
+            fm_wake_fold_append check "$c" "$reason" check-repeat || exit 1
+            touch "$STATE/.last-check"
+            triage_log "folded repeated check output: $c"
+            continue
+          fi
+          fm_wake_fold_check_remember "$c" "$out" \
+            || triage_log "check output could not be remembered for folding: $c"
+        fi
         fm_wake_append check "$c" "$reason" || exit 1
         touch "$STATE/.last-check"
         wake "$reason"
@@ -3008,6 +3095,9 @@ EOF
     # home_summary_refresh_detached for why publication stays off the beacon's
     # path. Publication failure stays side-band.
     home_summary_refresh_detached
+    if wake_fold_active; then
+      pending=$(fold_own_outbound_signals "$pending") || exit 1
+    fi
     files=""
     while IFS=$(printf '\t') read -r sf sig f; do
       [ -n "$sf" ] || continue
@@ -3055,7 +3145,10 @@ EOF
     # passes it to handle_wake (see the comment above handle_wake in
     # bin/fm-supervise-daemon.sh).
     # shellcheck disable=SC2086  # same space-separated status-path list
-    if afk_present || [ "$signal_actionable" -eq 0 ] \
+    if [ -z "$files" ]; then
+      # Every changed file was folded above; nothing is left to classify.
+      :
+    elif afk_present || [ "$signal_actionable" -eq 0 ] \
       || { ! signal_crew_provably_working $files && ! signal_turnend_panes_churned $files; }; then
       while IFS=$(printf '\t') read -r sf sig f; do
         [ -n "$sf" ] || continue

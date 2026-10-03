@@ -1,7 +1,7 @@
 Mode: Grok background-notify supervision.
 
 When this session owns supervision and away mode is not active:
-1. Drain first with `bin/fm-wake-drain.sh`.
+1. Drain first with `bin/fm-wake-drain.sh --ack-if-routine`; a `ROUTINE:` line means the presentation held only folded routine rows and is already acknowledged, so nothing remains to acknowledge ([wake fold](../configuration.md#wake-fold-configwake-fold)).
    After handling all emitted wakes and reconciling open decisions and unread status lines, run the exact `--ack-through` command printed as `WAKE_ACK_REQUIRED`; until then the work remains durable for idempotent re-handling after interruption.
 2. Source `__FM_X_MODE_ENV__` first when Relay is active.
 3. First cycle: arm with Grok's tracked background tool, as its own call:
@@ -22,7 +22,7 @@ When this session owns supervision and away mode is not active:
 
 Grok injects a synthetic user message with `synthetic_reason: task_completed` when the background arm completes.
 When you see a background-task-completed system reminder for the arm:
-1. Run `bin/fm-wake-drain.sh` first.
+1. Run `bin/fm-wake-drain.sh --ack-if-routine` first.
 2. Optionally fetch arm output with `get_command_or_subagent_output(<task_id>)` for the reason line.
 3. Handle `signal`, `stale`, `check`, or `heartbeat` using the harness-neutral contract in `AGENTS.md`.
 4. Ordinary wake: re-arm the next cycle with the same background `__FM_GROK_ARM__` call if the home still needs supervision, as `bin/fm-supervision-lib.sh` defines it.

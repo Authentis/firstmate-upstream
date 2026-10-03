@@ -6,6 +6,10 @@
 # newer branch outcome, OPEN DECISIONS, captain-call record divergence, and on
 # a supervision-host home the supervision session's new and unprocessed
 # outcomes (BRANCH OUTCOMES), then assert liveness.
+# --ack-if-routine presents the same way but, when every presented row is a
+# folded row and nothing presented is new, runs the printed acknowledgement
+# itself and prints one ROUTINE line instead (present_or_ack_routine below;
+# bin/fm-wake-fold-lib.sh owns which rows are folded).
 #
 # Keep sequence-bound row consumption independent from generation-bound episode
 # retirement; docs/watcher-continuity.md owns the recovery contract.
@@ -33,6 +37,8 @@ SCRIPT_DIR="$(d=${BASH_SOURCE[0]%/*}; [ "$d" != "${BASH_SOURCE[0]}" ] || d=.; cd
 . "$SCRIPT_DIR/fm-supervision-engine-lib.sh"
 # shellcheck source=bin/fm-afk-contract.sh
 . "$SCRIPT_DIR/fm-afk-contract.sh"
+# shellcheck source=bin/fm-wake-fold-lib.sh
+. "$SCRIPT_DIR/fm-wake-fold-lib.sh"
 
 DRAIN_TMP=
 DRAIN_VIEW_TMP=
@@ -50,6 +56,8 @@ ACK_FINGERPRINTS=
 ACK_NOTICE_FINGERPRINTS=
 PRESENTATION_LOCK_TIMEOUT=${FM_STATUS_PRESENTATION_LOCK_TIMEOUT:-10}
 BRANCH_OUTCOMES_RC=0
+ACK_IF_ROUTINE=false
+ROUTINE_CANDIDATE=false
 case "$PRESENTATION_LOCK_TIMEOUT" in ''|*[!0-9]*|0) PRESENTATION_LOCK_TIMEOUT=10 ;; esac
 
 # --- per-actor consume (docs/watcher-continuity.md "Per-actor acknowledgement") --
@@ -228,7 +236,11 @@ case "${1:-}" in
     case "$ACK_GENERATION" in ''|*[!A-Za-z0-9._-]*) echo "wake drain: invalid recovery generation" >&2; exit 2 ;; esac
     [ "$#" -eq 4 ] || { echo "wake drain: unexpected acknowledgement arguments" >&2; exit 2; }
     ;;
-  *) echo "usage: fm-wake-drain.sh [--ack-through SEQUENCE --recovery-generation GENERATION]" >&2; exit 2 ;;
+  --ack-if-routine)
+    [ "$#" -eq 1 ] || { echo "wake drain: --ack-if-routine takes no arguments" >&2; exit 2; }
+    ACK_IF_ROUTINE=true
+    ;;
+  *) echo "usage: fm-wake-drain.sh [--ack-if-routine | --ack-through SEQUENCE --recovery-generation GENERATION]" >&2; exit 2 ;;
 esac
 
 [ "$ACTOR" != branch ] || require_branch_eligible_rows || exit 1
@@ -809,6 +821,85 @@ print_status_presentation() {  # [<deduped-raw-rows>]
   return "$rc"
 }
 
+# --ack-if-routine (bin/fm-wake-fold-lib.sh "ONE-CALL ACKNOWLEDGEMENT"): the
+# status and outcome sections are prepared into buffers first. When every row
+# this actor presents is a folded row, the status presentation holds only
+# annotations of those rows and an OPEN DECISIONS set this actor was already
+# shown, and the outcomes hold no captain section, the same generation-bound
+# acknowledgement the WAKE_ACK_REQUIRED line names runs here and one ROUTINE
+# line replaces that line. Anything else presents exactly what a plain drain
+# presents, in the same order. Only a drain whose rows are all folded (or whose
+# queue is empty with a recovery acknowledgement owed) buffers this way, and a
+# buffered presentation commits its one-shot status receipts when it is
+# buffered rather than when it reaches the caller, so read its output whole.
+ROUTINE_OPEN_DECISIONS_SEEN="$STATE/.wake-fold-open-decisions-$ACTOR"
+
+# Print the OPEN DECISIONS item lines of a status presentation, or fail when it
+# holds anything but annotations, that section, and unread or backstop lines
+# from this home's own outbound parent channel (its own reports, never news).
+routine_open_decisions() {  # <status-presentation>
+  local own
+  own=$(fm_wake_fold_own_outbound_task) || own=
+  printf '%s\n' "$1" | awk -v own="$own" '
+    /^$/ { next }
+    /^wake annotation:/ && section == "" { next }
+    /^OPEN DECISIONS \(/ { section = "decisions"; next }
+    /^OPEN DECISIONS: / && section == "decisions" { next }
+    /^UNREAD STATUS \(/ || /^STATUS OUTCOME BACKSTOP \(/ { section = "own"; next }
+    section == "decisions" { print; next }
+    section == "own" && own != "" && index($0, own " ") == 1 { next }
+    { bad = 1 }
+    END { exit bad ? 1 : 0 }'
+}
+
+routine_outcomes_only() {  # <branch-outcomes-section>
+  [ -z "$1" ] && return 0
+  case "$1" in "BRANCH OUTCOMES, ROUTINE"*) ;; *) return 1 ;; esac
+  ! printf '%s\n' "$1" | grep -Eq '^BRANCH OUTCOMES( \(|:)'
+}
+
+print_wake_ack_required() {  # <sequence> <generation>
+  printf 'WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through %s --recovery-generation %s\n' \
+    "$1" "$2" >&2
+}
+
+present_or_ack_routine() {  # <rows> <sequence> <generation>
+  local rows=$1 sequence=$2 generation=$3 status_out outcomes_out decisions
+  local outcomes_rc=0 routine=false ack_err seen=''
+  status_out=$( (print_status_presentation "$rows") ) || true
+  outcomes_out=$(print_branch_outcomes_section) || outcomes_rc=1
+  if decisions=$(routine_open_decisions "$status_out"); then
+    if [ -f "$ROUTINE_OPEN_DECISIONS_SEEN" ]; then
+      seen=$(cat "$ROUTINE_OPEN_DECISIONS_SEEN" 2>/dev/null) || seen='unreadable'
+    fi
+    if [ "$outcomes_rc" -eq 0 ] && [ "$decisions" = "$seen" ] \
+      && routine_outcomes_only "$outcomes_out"; then
+      routine=true
+    fi
+    if [ -n "$decisions" ]; then
+      printf '%s\n' "$decisions" > "$ROUTINE_OPEN_DECISIONS_SEEN" 2>/dev/null || true
+    else
+      rm -f -- "$ROUTINE_OPEN_DECISIONS_SEEN"
+    fi
+  fi
+  if [ "$routine" = true ]; then
+    [ -z "$status_out" ] || printf '%s\n' "$status_out"
+    [ -z "$outcomes_out" ] || printf '%s\n' "$outcomes_out"
+    if ack_err=$("$SCRIPT_DIR/fm-wake-drain.sh" --ack-through "$sequence" \
+      --recovery-generation "$generation" 2>&1) && [ -z "$ack_err" ]; then
+      printf 'ROUTINE: nothing presented needs handling (every queued row was a folded routine row, and no status, decision, or outcome is new); acknowledged through %s.\n' "$sequence"
+      return 0
+    fi
+    [ -z "$ack_err" ] || printf '%s\n' "$ack_err" >&2
+    print_wake_ack_required "$sequence" "$generation"
+    return 0
+  fi
+  print_wake_ack_required "$sequence" "$generation"
+  [ -z "$status_out" ] || printf '%s\n' "$status_out"
+  [ -z "$outcomes_out" ] || printf '%s\n' "$outcomes_out"
+  return "$outcomes_rc"
+}
+
 # shellcheck disable=SC2317,SC2329 # Invoked by trap handlers below.
 cleanup() {
   local status=$?
@@ -987,6 +1078,11 @@ if [ ! -s "$FM_WAKE_QUEUE" ]; then
   esac
   fm_lock_release "$FM_WAKE_QUEUE_LOCK"
   DRAIN_LOCK_HELD=false
+  if [ "$RECOVERY_ACK_REQUIRED" = true ] && [ "$ACK_IF_ROUTINE" = true ] && fm_wake_fold_enabled; then
+    present_or_ack_routine '' 0 "${RECOVERY_MARKER_TOKEN##*:}" || BRANCH_OUTCOMES_RC=1
+    assert_watcher_liveness
+    exit "$BRANCH_OUTCOMES_RC"
+  fi
   (print_status_presentation) || true
   print_branch_outcomes_section || BRANCH_OUTCOMES_RC=1
   if [ "$RECOVERY_ACK_REQUIRED" = true ]; then
@@ -1050,6 +1146,13 @@ awk -F '\t' -v seqs="$ACTOR_ROWS_FILE" '
   NF >= 5 && ($2 in keep)
 ' "$FM_WAKE_QUEUE" > "$DRAIN_VIEW_TMP" || exit 1
 RAW_ROWS=$(fm_wake_print_deduped "$DRAIN_VIEW_TMP") || exit "$?"
+# Decided on every row this actor owns, not only the deduplicated ones it
+# prints, so a folded repeat can never hide an earlier row that was not folded.
+# shellcheck disable=SC2046 # one sequence number per word
+if [ "$ACK_IF_ROUTINE" = true ] && fm_wake_fold_enabled \
+  && fm_wake_fold_rows_all_folded $(awk -F '\t' '$2 ~ /^[0-9]+$/ { print $2 }' "$DRAIN_VIEW_TMP"); then
+  ROUTINE_CANDIDATE=true
+fi
 rm -f -- "$DRAIN_VIEW_TMP" || exit 1
 DRAIN_VIEW_TMP=
 ACK_THROUGH=$(printf '%s\n' "$RAW_ROWS" | awk -F '\t' '$2 ~ /^[0-9]+$/ && $2 > max { max=$2 } END { print max + 0 }') || exit 1
@@ -1069,8 +1172,12 @@ case "$RECOVERY_MARKER_TOKEN" in
 esac
 fm_lock_release "$FM_WAKE_QUEUE_LOCK"
 DRAIN_LOCK_HELD=false
-printf 'WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through %s --recovery-generation %s\n' \
-  "$ACK_THROUGH" "${RECOVERY_MARKER_TOKEN##*:}" >&2
+if [ "$ROUTINE_CANDIDATE" = true ]; then
+  present_or_ack_routine "$RAW_ROWS" "$ACK_THROUGH" "${RECOVERY_MARKER_TOKEN##*:}" || BRANCH_OUTCOMES_RC=1
+  assert_watcher_liveness
+  exit "$BRANCH_OUTCOMES_RC"
+fi
+print_wake_ack_required "$ACK_THROUGH" "${RECOVERY_MARKER_TOKEN##*:}"
 
 (print_status_presentation "$RAW_ROWS") || true
 print_branch_outcomes_section || BRANCH_OUTCOMES_RC=1

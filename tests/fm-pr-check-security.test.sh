@@ -2099,7 +2099,9 @@ seed_canonical_poll() {
 add_stop_custom_check() {
   local dir=$1 state
   state="$dir/home/state"
-  printf '#!/usr/bin/env bash\nprintf "stop-cycle\\n"\n' > "$state/z-stop.check.sh"
+  # A per-run prefix keeps each cycle's control output new: the wake fold
+  # queues a byte-identical repeat of a check's output without waking.
+  printf '#!/usr/bin/env bash\nprintf "%%s stop-cycle\\n" "$$"\n' > "$state/z-stop.check.sh"
   chmod 0700 "$state/z-stop.check.sh"
   FM_HOME="$dir/home" "$REGISTER" z-stop >/dev/null \
     || fail "could not register stop-cycle custom check"
