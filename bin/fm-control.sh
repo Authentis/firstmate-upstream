@@ -32,10 +32,16 @@
 #              an idle agent (Devin's revert picker) sends its later presses
 #              only after the first press rendered a running turn, and
 #              otherwise reports `cancel=not-running` having sent one press.
+#              An adapter with a verified draft clear (Command Code's double
+#              Escape, fm_control_draft_clear_key) whose composer then reads
+#              pending has that clear sent and must read empty afterwards, or
+#              the verb refuses; the result carries `draft=cleared`.
 #   exit       Stop the agent, preserving its terminal endpoint, worktree, and
 #              every uncommitted change. Interrupts first when the task reads
 #              busy, then submits the harness's exit command. Postcondition:
 #              the backend's recovery-grade classifier reports the agent gone.
+#              The same draft clear runs before the exit command is typed, so
+#              a stuck draft cannot make the command concatenate onto it.
 #              Already-stopped is success (idempotent). An endpoint that reads
 #              `missing` is put through the control plane's per-backend absence
 #              proof (fm_control_endpoint_absence_verdict) before anything is
@@ -426,6 +432,26 @@ dismiss_interrupt_hazard() {  # <key> <ere>
   INTERRUPT_HAZARD=dismissed
 }
 
+# clear_held_draft <verb>: when the adapter has a verified draft clear
+# (fm_control_draft_clear_key) and its composer visibly holds text, send that
+# clear and require the composer to read empty afterwards, refusing loudly
+# otherwise. Without this, a draft left in an idle composer survives the
+# interrupt key and blocks both the exit command and the doorbell. A non-empty
+# non-pending read is left to the caller's own gate; an adapter without a draft
+# clear is never touched, because its composer text may be the captain's own.
+# Sets HELD_DRAFT to cleared when it sent the clear.
+clear_held_draft() {  # <verb>
+  local state rc=0 key
+  key=$(fm_control_draft_clear_key "$HARNESS" 2>/dev/null) || return 0
+  [ -n "$key" ] || return 0
+  state=$(fm_backend_composer_state "$BACKEND" "$T" "$LABEL" 2>/dev/null) || state=unknown
+  [ "$state" = pending ] || return 0
+  fm_control_clear_draft "$BACKEND" "$T" "$HARNESS" "$LABEL" || rc=$?
+  [ "$rc" = 0 ] \
+    || die "task $ID's $HARNESS composer holds text and $(fm_control_draft_clear_presses "$HARNESS") $key presses did not leave it reading empty, so '$1' would concatenate onto it or leave it behind; the composer was not cleared by any other means. Clear it by hand, then retry '$1'"
+  HELD_DRAFT=cleared
+}
+
 # send_interrupt_keys: deliver the harness's interrupt key the verified number
 # of times, then the composer-clear key when the adapter needs one. Refuses
 # before sending anything when the backend cannot deliver either key, because
@@ -451,6 +477,7 @@ send_interrupt_keys() {
     || die "harness $HARNESS must see its screen between interrupt presses, because a repeated $key on an idle agent opens its revert picker, and the $BACKEND backend has no verified viewport read; refusing to press blind"
   INTERRUPT_ARMED=yes
   INTERRUPT_HAZARD=none
+  HELD_DRAFT=none
   while [ "$i" -lt "$repeat" ]; do
     fm_backend_send_key "$BACKEND" "$T" "$key" "$LABEL" \
       || die "interrupt key $key was not delivered to task $ID on $BACKEND"
@@ -465,6 +492,7 @@ send_interrupt_keys() {
   [ -z "$hazard" ] || dismiss_interrupt_hazard "$key" "$hazard"
   [ -z "$clear" ] || fm_backend_send_key "$BACKEND" "$T" "$clear" "$LABEL" \
     || die "interrupt key $key reached task $ID, but $clear did not, so its composer still holds the cancelled prompt; clear it before the next lifecycle action"
+  clear_held_draft interrupt
 }
 
 prepare_interrupt_ack() {
@@ -522,6 +550,7 @@ deliver_interrupt() {
     fi
   fi
   [ "$INTERRUPT_HAZARD" = none ] || cancel="$cancel revert-picker=$INTERRUPT_HAZARD"
+  [ "$HELD_DRAFT" = none ] || cancel="$cancel draft=$HELD_DRAFT"
   printf '%s' "$cancel"
 }
 
@@ -624,6 +653,7 @@ do_exit() {
   if [ -n "$hazard" ] && rendered_matches "$hazard"; then
     die "task $ID shows the $HARNESS revert picker, where typed text becomes a search and Enter reverts file changes; refusing to type the $cmd exit command. Close it with $(fm_control_interrupt_key "$HARNESS"), never Enter, then retry '$VERB'"
   fi
+  clear_held_draft exit
   composer_state=$(fm_backend_composer_state "$BACKEND" "$T" "$LABEL" 2>/dev/null) \
     || composer_state=unknown
   case "$composer_state" in
@@ -949,8 +979,9 @@ record_note() {
         echo "uncommitted change are exactly as the previous worker left them."
         echo
         echo "First, check your instruction inbox: list $STATE/$ID.inbox/*.msg, act on"
-        echo "each message in numeric order, then mv each handled file into"
-        echo "$STATE/$ID.inbox/handled/. A steer sent before the relaunch survives there."
+        echo "each message in numeric order, then acknowledge each handled one with"
+        echo "$FM_ROOT/bin/fm-inbox-ack.sh $ID <seq> (never a raw move). A steer sent before"
+        echo "the relaunch survives there."
         echo
         printf '%s\n' "$NOTE"
       } >> "$RELAUNCH_BRIEF" \

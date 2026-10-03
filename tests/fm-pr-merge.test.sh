@@ -3886,3 +3886,272 @@ test_allow_missing_follows_the_allow_red_rules
 test_required_producer_identity
 test_app_bound_required_status_context_matches_by_name
 test_required_partial_reads_report_all_failures
+
+# --- config/merge-receipt-required: the opt-in review-receipt gate -----------
+# The header of bin/fm-pr-merge.sh owns the receipt and waiver formats. The
+# fixtures below reproduce the shapes the decision-os home writes: a header line
+# `at=<epoch> secs=<n> head=<40-hex>` then `VERDICT: PASS|FAIL`, and a free-text
+# waiver that names `head=<hex>` or `head <hex>`.
+RECEIPT_HEAD=1010101010101010101010101010101010101010
+RECEIPT_OLD_HEAD=2020202020202020202020202020202020202020
+
+# write_receipt <case_dir> <pr-number> <head> <verdict-line>...
+write_receipt() {
+  local case_dir=$1 pr=$2 head=$3
+  shift 3
+  mkdir -p "$case_dir/home/data/xreview"
+  {
+    printf '# xreview PR %s via test/model\n' "$pr"
+    printf 'at=1790926043 secs=24 head=%s\n\n' "$head"
+    printf '%s\n' "$@"
+  } > "$case_dir/home/data/xreview/$pr.md"
+}
+
+# receipt_case <name> [config-line]: a GitHub case whose live head is
+# RECEIPT_HEAD, with the gate switched on for every project unless told otherwise.
+receipt_case() {
+  local name=$1 line=${2-'* data'} case_dir
+  case_dir=$(make_case "$name")
+  mkdir -p "$case_dir/wt"
+  add_gh_mocks "$case_dir" "$RECEIPT_HEAD"
+  : > "$case_dir/gh-axi.log"
+  [ -z "$line" ] || printf '%s\n' "$line" > "$case_dir/home/config/merge-receipt-required"
+  printf '%s\n' "$case_dir"
+}
+
+# receipt_merge <case_dir> <pr-number> [args...]: run the merge, set RECEIPT_RC.
+receipt_merge() {
+  local case_dir=$1 pr=$2
+  shift 2
+  set +e
+  run_pr_merge "$case_dir" task-x1 "https://github.com/example/repo/pull/$pr" "$@" \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  RECEIPT_RC=$?
+  set -e
+}
+
+# expect_receipt_refusal <case_dir> <label> <stderr-fragment>
+expect_receipt_refusal() {
+  local case_dir=$1 label=$2 fragment=$3
+  expect_code 1 "$RECEIPT_RC" "$label: the merge should be refused"
+  assert_grep "$fragment" "$case_dir/stderr" "$label: the refusal did not say why"
+  ! grep -q '^pr merge ' "$case_dir/gh.log" \
+    || fail "$label: gh merged a pull request the receipt gate refused"
+}
+
+test_receipt_gate_off_leaves_merges_unchanged() {
+  local case_dir
+  case_dir=$(receipt_case receipt-off '')
+  receipt_merge "$case_dir" 9
+  expect_code 0 "$RECEIPT_RC" "receipt-off: no config file must not change a merge"
+  assert_logged_gh_merge "$case_dir" 9 example/repo --squash
+
+  case_dir=$(receipt_case receipt-other-project 'someone/else data')
+  receipt_merge "$case_dir" 9
+  expect_code 0 "$RECEIPT_RC" "receipt-other-project: a line for another project must not gate this one"
+  assert_logged_gh_merge "$case_dir" 9 example/repo --squash
+
+  case_dir=$(receipt_case receipt-comments-only "# nothing opted in yet")
+  receipt_merge "$case_dir" 9
+  expect_code 0 "$RECEIPT_RC" "receipt-comments-only: a file with no entries must not gate merges"
+  pass "fm-pr-merge is unchanged when the receipt gate is off or names another project"
+}
+
+test_receipt_missing_refuses() {
+  local case_dir
+  case_dir=$(receipt_case receipt-missing)
+  receipt_merge "$case_dir" 9
+  expect_receipt_refusal "$case_dir" receipt-missing "no review receipt at"
+  assert_grep "xreview/9.md" "$case_dir/stderr" "receipt-missing: the refusal did not name the receipt path"
+  pass "fm-pr-merge refuses a merge with no review receipt"
+}
+
+test_receipt_stale_head_refuses() {
+  local case_dir
+  case_dir=$(receipt_case receipt-stale)
+  write_receipt "$case_dir" 9 "$RECEIPT_OLD_HEAD" 'VERDICT: PASS'
+  receipt_merge "$case_dir" 9
+  expect_receipt_refusal "$case_dir" receipt-stale "is stale: it reviewed head $RECEIPT_OLD_HEAD but the current head is $RECEIPT_HEAD"
+  pass "fm-pr-merge refuses a PASS receipt that reviewed an older head"
+}
+
+test_receipt_fail_refuses() {
+  local case_dir
+  case_dir=$(receipt_case receipt-fail)
+  write_receipt "$case_dir" 9 "$RECEIPT_HEAD" 'VERDICT: FAIL' 'FINDING error a.py:1 broken'
+  receipt_merge "$case_dir" 9
+  expect_receipt_refusal "$case_dir" receipt-fail "is FAIL, not PASS"
+  pass "fm-pr-merge refuses a FAIL receipt at the current head"
+}
+
+test_receipt_unparseable_refuses() {
+  local case_dir
+  case_dir=$(receipt_case receipt-unparseable)
+  # The decision-os home also writes receipts that carry a header and no verdict
+  # (a model quota error); they must read as no verdict, never as a pass.
+  write_receipt "$case_dir" 9 "$RECEIPT_HEAD" '403: {"message":"usage limit"}'
+  receipt_merge "$case_dir" 9
+  expect_receipt_refusal "$case_dir" receipt-no-verdict "is unparseable"
+
+  case_dir=$(receipt_case receipt-no-head)
+  mkdir -p "$case_dir/home/data/xreview"
+  printf '%s\n' '# xreview PR 9' 'VERDICT: PASS' > "$case_dir/home/data/xreview/9.md"
+  receipt_merge "$case_dir" 9
+  expect_receipt_refusal "$case_dir" receipt-no-head "is unparseable"
+
+  case_dir=$(receipt_case receipt-another-pr)
+  write_receipt "$case_dir" 8 "$RECEIPT_HEAD" 'VERDICT: PASS'
+  receipt_merge "$case_dir" 9
+  expect_receipt_refusal "$case_dir" receipt-another-pr "no review receipt at"
+  pass "fm-pr-merge refuses an unparseable receipt and never reads another PR's receipt"
+}
+
+test_receipt_pass_at_current_head_merges() {
+  local case_dir
+  case_dir=$(receipt_case receipt-pass)
+  write_receipt "$case_dir" 9 "$RECEIPT_HEAD" 'VERDICT: PASS' 'FINDING info x.py:2 note'
+  receipt_merge "$case_dir" 9
+  expect_code 0 "$RECEIPT_RC" "receipt-pass: a PASS receipt at the live head should merge"
+  assert_logged_gh_merge "$case_dir" 9 example/repo --squash
+
+  # A reviewer that corrects itself ends the file with a second verdict; the
+  # last one counts, as it does for the home that wrote it.
+  case_dir=$(receipt_case receipt-last-verdict)
+  write_receipt "$case_dir" 9 "$RECEIPT_HEAD" 'VERDICT: FAIL' 'I need to correct myself.' 'VERDICT: PASS'
+  receipt_merge "$case_dir" 9
+  expect_code 0 "$RECEIPT_RC" "receipt-last-verdict: the final PASS verdict should count"
+
+  case_dir=$(receipt_case receipt-last-fail)
+  write_receipt "$case_dir" 9 "$RECEIPT_HEAD" 'VERDICT: PASS' 'VERDICT: FAIL'
+  receipt_merge "$case_dir" 9
+  expect_receipt_refusal "$case_dir" receipt-last-fail "is FAIL, not PASS"
+
+  case_dir=$(receipt_case receipt-absolute-dir "* $TMP_ROOT/receipt-shared-data")
+  mkdir -p "$TMP_ROOT/receipt-shared-data/xreview"
+  printf '%s\n' 'at=1 secs=1 head='"$RECEIPT_HEAD" '' 'VERDICT: PASS' \
+    > "$TMP_ROOT/receipt-shared-data/xreview/9.md"
+  receipt_merge "$case_dir" 9
+  expect_code 0 "$RECEIPT_RC" "receipt-absolute-dir: an absolute data directory should be honoured"
+  pass "fm-pr-merge merges on a PASS receipt at the live head, the last verdict counting"
+}
+
+test_receipt_waiver_covering_head_merges() {
+  local case_dir
+  # The real waivers name the head as `head <8 hex>` or `head=<10 hex>` inside prose.
+  case_dir=$(receipt_case waiver-space-form)
+  write_receipt "$case_dir" 9 "$RECEIPT_HEAD" 'VERDICT: FAIL'
+  printf '%s\n' 'PR 9 head 10101010: cross-family review FAIL; chief waiver, land and file a follow-up.' \
+    > "$case_dir/home/data/xreview-waiver-9"
+  receipt_merge "$case_dir" 9
+  expect_code 0 "$RECEIPT_RC" "waiver-space-form: a waiver naming the live head should satisfy the gate"
+  assert_logged_gh_merge "$case_dir" 9 example/repo --squash
+
+  case_dir=$(receipt_case waiver-equals-form)
+  printf '%s\n' 'head=1010101010' 'Chief of staff waiver: provenance wording only.' \
+    > "$case_dir/home/data/xreview-waiver-9"
+  receipt_merge "$case_dir" 9
+  expect_code 0 "$RECEIPT_RC" "waiver-equals-form: a waiver with no receipt at all should satisfy the gate"
+  pass "fm-pr-merge accepts a chief waiver that names the current head"
+}
+
+test_receipt_waiver_for_another_head_refuses() {
+  local case_dir
+  case_dir=$(receipt_case waiver-stale)
+  write_receipt "$case_dir" 9 "$RECEIPT_HEAD" 'VERDICT: FAIL'
+  printf '%s\n' 'PR 9 head 20202020: chief waiver for the earlier push.' \
+    > "$case_dir/home/data/xreview-waiver-9"
+  receipt_merge "$case_dir" 9
+  expect_receipt_refusal "$case_dir" waiver-stale "does not cover the current head $RECEIPT_HEAD"
+  assert_grep "is FAIL, not PASS" "$case_dir/stderr" "waiver-stale: the receipt problem was not reported too"
+
+  case_dir=$(receipt_case waiver-too-short)
+  printf '%s\n' 'PR 9 head 101010: too short to identify a commit.' \
+    > "$case_dir/home/data/xreview-waiver-9"
+  receipt_merge "$case_dir" 9
+  expect_receipt_refusal "$case_dir" waiver-too-short "names no head"
+
+  case_dir=$(receipt_case waiver-no-head)
+  printf '%s\n' 'Chief waiver, no sha given.' > "$case_dir/home/data/xreview-waiver-9"
+  receipt_merge "$case_dir" 9
+  expect_receipt_refusal "$case_dir" waiver-no-head "names no head"
+  pass "fm-pr-merge refuses a waiver that does not name the current head"
+}
+
+test_receipt_gate_is_not_waived_by_attended_flags() {
+  local case_dir
+  case_dir=$(receipt_case receipt-attended)
+  receipt_merge "$case_dir" 9 --attended-override -- --admin
+  expect_receipt_refusal "$case_dir" receipt-attended "no review receipt at"
+  pass "fm-pr-merge does not let --attended-override skip the receipt gate"
+}
+
+test_receipt_gate_reports_with_other_refusals_and_after_green_checks() {
+  local case_dir
+  case_dir=$(receipt_case receipt-with-red)
+  write_github_red_json "$case_dir" "$RECEIPT_HEAD" ci
+  receipt_merge "$case_dir" 9
+  expect_receipt_refusal "$case_dir" receipt-with-red "check 'ci' is not green"
+  assert_grep "no review receipt at" "$case_dir/stderr" \
+    "receipt-with-red: the receipt refusal was not reported alongside the red check"
+  pass "fm-pr-merge reports the receipt refusal together with the existing green-check refusals"
+}
+
+test_receipt_config_errors_refuse() {
+  local case_dir
+  case_dir=$(receipt_case receipt-config-malformed 'data-only-no-scope')
+  write_receipt "$case_dir" 9 "$RECEIPT_HEAD" 'VERDICT: PASS'
+  receipt_merge "$case_dir" 9
+  expect_receipt_refusal "$case_dir" receipt-config-malformed "malformed line"
+
+  case_dir=$(receipt_case receipt-config-dir '')
+  mkdir -p "$case_dir/home/config/merge-receipt-required"
+  receipt_merge "$case_dir" 9
+  expect_receipt_refusal "$case_dir" receipt-config-dir "could not be read"
+  pass "fm-pr-merge refuses rather than skipping an unreadable or malformed requirement file"
+}
+
+test_receipt_first_matching_scope_wins() {
+  local case_dir
+  case_dir=$(receipt_case receipt-scope-order "Example/Repo data-specific")
+  printf '%s\n' '* data' >> "$case_dir/home/config/merge-receipt-required"
+  write_receipt "$case_dir" 9 "$RECEIPT_HEAD" 'VERDICT: PASS'
+  receipt_merge "$case_dir" 9
+  expect_receipt_refusal "$case_dir" receipt-scope-order "data-specific/xreview/9.md"
+  pass "fm-pr-merge matches the project case-insensitively and lets the first matching line win"
+}
+
+test_receipt_gate_covers_gitlab_merges() {
+  local case_dir
+  case_dir=$(make_gitlab_case receipt-gitlab)
+  printf '%s\n' "$MR_PATH data" > "$case_dir/home/config/merge-receipt-required"
+  set +e
+  run_pr_merge "$case_dir" task-x1 "$MR_URL" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  RECEIPT_RC=$?
+  set -e
+  expect_code 1 "$RECEIPT_RC" "receipt-gitlab: a GitLab merge with no receipt should be refused"
+  assert_grep "no review receipt at" "$case_dir/stderr" "receipt-gitlab: the refusal did not say why"
+  [ -z "$(glab_merge_line "$case_dir/glab.log")" ] || fail "receipt-gitlab: glab merged despite the refusal"
+
+  write_receipt "$case_dir" 7 "$MR_HEAD" 'VERDICT: PASS'
+  set +e
+  run_pr_merge "$case_dir" task-x1 "$MR_URL" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  RECEIPT_RC=$?
+  set -e
+  expect_code 0 "$RECEIPT_RC" "receipt-gitlab: a PASS receipt at the live head should merge"
+  [ -n "$(glab_merge_line "$case_dir/glab.log")" ] || fail "receipt-gitlab: glab did not merge"
+  pass "fm-pr-merge applies the receipt gate to GitLab merge requests too"
+}
+
+test_receipt_gate_off_leaves_merges_unchanged
+test_receipt_missing_refuses
+test_receipt_stale_head_refuses
+test_receipt_fail_refuses
+test_receipt_unparseable_refuses
+test_receipt_pass_at_current_head_merges
+test_receipt_waiver_covering_head_merges
+test_receipt_waiver_for_another_head_refuses
+test_receipt_gate_is_not_waived_by_attended_flags
+test_receipt_gate_reports_with_other_refusals_and_after_green_checks
+test_receipt_config_errors_refuse
+test_receipt_first_matching_scope_wins
+test_receipt_gate_covers_gitlab_merges

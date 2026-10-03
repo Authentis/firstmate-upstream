@@ -4,7 +4,8 @@
 # a cheap plan model; one run costs a few cents of plan credit).
 # Runs the real fm-spawn launch command in a private tmux server; only worktree
 # allocation and initial endpoint delivery use fixtures. Steering, interrupt and
-# exit use the real Firstmate control plane. The worker runs under an isolated
+# exit use the real Firstmate control plane, including their clearing of a draft
+# stuck in the idle composer. The worker runs under an isolated
 # HOME holding only a copy of the login, so the guard can prove that the spawn
 # never writes the user's global Command Code config (where --effort would land).
 set -u
@@ -131,7 +132,53 @@ capture | fm_composer_strip_ansi | grep -q 'Interrupted' || fail 'Escape did not
 [ "$(fm_tmux_composer_state "$TARGET")" = empty ] || fail 'the interrupted composer is not empty'
 pass "$VERSION: single Escape cancels, keeps the agent, and the mod records idle"
 
+# A draft the idle composer already holds is the stall this guard exists for: one
+# Escape clears nothing there, so the doorbell was skipped and exit refused.
+# fm-control must empty it with the verified double Escape, for a typed
+# multi-line draft and a bracketed-paste block alike.
+draft_multi() { tmux send-keys -t "$TARGET" -l 'stale draft one'; tmux send-keys -t "$TARGET" M-Enter; tmux send-keys -t "$TARGET" -l 'stale draft two'; }
+draft_paste() { printf '%s' $'pasted line one\npasted line two\npasted line three' | tmux load-buffer -b cc-live-draft -; tmux paste-buffer -p -b cc-live-draft -t "$TARGET"; }
+wait_composer() {  # <state>
+  local i
+  for i in $(seq 1 40); do [ "$(fm_tmux_composer_state "$TARGET")" = "$1" ] && return 0; sleep 0.25; done
+  return 1
+}
+for shape in draft_multi draft_paste; do
+  "$shape"
+  wait_composer pending || fail "$shape: the drafted composer did not read pending: $(capture | fm_composer_strip_ansi | grep -v '^[[:space:]]*$' | tail -6)"
+  "$ROOT/bin/fm-control.sh" "$ID" interrupt > "$LAB/draft-interrupt.log" 2>&1 || fail "$shape: interrupt with a stuck draft failed: $(cat "$LAB/draft-interrupt.log")"
+  wait_composer empty || fail "$shape: the composer still reads $(fm_tmux_composer_state "$TARGET") after the draft clear"
+  grep -q 'draft=cleared' "$LAB/draft-interrupt.log" || fail "$shape: interrupt did not report the draft clear: $(cat "$LAB/draft-interrupt.log")"
+  [ "$(fm_backend_agent_state tmux "$TARGET")" = alive ] || fail "$shape: clearing the draft stopped the agent"
+done
+pass "$VERSION: interrupt empties a stuck multi-line draft and a pasted block, keeping the agent"
+
+draft_multi
+wait_composer pending || fail 'the drafted composer did not read pending before the doorbell'
+"$ROOT/bin/fm-send.sh" "$ID" 'Runtime stale-draft verification: compute 41 times 43 and write only the result to draft-steer.txt. Acknowledge this instruction by moving its .msg file into handled/ as instructed by the doorbell. Do no other work.' > "$LAB/send.log" 2>&1 || fail "steer onto a stuck draft failed: $(cat "$LAB/send.log")"
+! grep -q 'doorbell skipped' "$LAB/send.log" || fail "the doorbell was skipped despite a clearable draft: $(cat "$LAB/send.log")"
+wait_file "$WT/draft-steer.txt"
+wait_file "$H/state/$ID.inbox/handled/003.msg"
+[ "$(tr -d '[:space:]' < "$WT/draft-steer.txt")" = 1763 ] || fail 'wrong steering result after clearing the stale draft'
+wait_idle
+pass "$VERSION: fm-send clears a stale draft, rings, and the worker acknowledges"
+
+"$ROOT/bin/fm-send.sh" "$ID" 'Runtime busy-draft verification: run sleep 90 in your shell tool, then wait for it to finish. Do not respond before it finishes.' > "$LAB/send.log" 2>&1 || fail 'could not steer busy-draft probe'
+seen_busy=0
+for _ in $(seq 1 240); do
+  if [ "$(busy_state)" = 'busy commandcode-mod' ] && capture | fm_composer_strip_ansi | fm_busy_lines_match commandcode; then seen_busy=1; break; fi
+  sleep 0.5
+done
+[ "$seen_busy" = 1 ] || fail 'no busy turn for the busy-draft probe'
+tmux send-keys -t "$TARGET" -l 'draft typed while running'
+"$ROOT/bin/fm-control.sh" "$ID" interrupt > "$LAB/busy-draft.log" 2>&1 || fail "interrupt of a running turn with a draft failed: $(cat "$LAB/busy-draft.log")"
+wait_idle
+wait_composer empty || fail "a draft typed during a running turn survived the interrupt: $(fm_tmux_composer_state "$TARGET")"
+pass "$VERSION: interrupting a running turn that holds a draft leaves an empty composer ($(grep -o 'draft=cleared' "$LAB/busy-draft.log" || echo 'one Escape sufficed'))"
+
+draft_multi
+wait_composer pending || fail 'the drafted composer did not read pending before exit'
 "$ROOT/bin/fm-control.sh" "$ID" exit > "$LAB/exit.log" 2>&1 || fail "exit failed: $(cat "$LAB/exit.log")"
 [ "$(fm_backend_agent_state tmux "$TARGET")" = dead ] || fail '/exit did not return to the shell'
 [ "$(busy_state)" != 'busy commandcode-mod' ] || fail 'exit left a busy record'
-pass "$VERSION: /exit through the control plane"
+pass "$VERSION: /exit through the control plane, with a stuck draft cleared first"

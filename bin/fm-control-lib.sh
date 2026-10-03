@@ -13,18 +13,19 @@
 # here rather than improvised per harness in agent prose.
 #
 # This file owns three capability tables plus their pure artifact-path tables,
-# and ONE named exception to that purity - fm_control_endpoint_absence_verdict,
-# the single owner of the per-backend endpoint-absence proof, which does run
-# backend reads. Everything else has no side effects, runs no backend command,
-# and reads no state, so sourcing this file is still free and the tables can be
-# read by a test as a pure contract:
+# and TWO named exceptions to that purity - fm_control_endpoint_absence_verdict,
+# the single owner of the per-backend endpoint-absence proof, and
+# fm_control_clear_draft, the single owner of the verified composer-draft clear;
+# both run backend commands. Everything else has no side effects, runs no
+# backend command, and reads no state, so sourcing this file is still free and
+# the tables can be read by a test as a pure contract:
 #
 #   1. Verb allowlist. There is no arbitrary-text and no generic raw-key entry
 #      point on the control plane; a caller either names an allowlisted verb or
 #      is refused.
 #   2. Per-harness control mechanics: which key interrupts a running turn, how
 #      many times it must be sent, whether the composer needs clearing after
-#      that key, which adapter-owned cancellation acknowledgement is observable,
+#      that key, which key sequence clears a draft an idle composer holds, which adapter-owned cancellation acknowledgement is observable,
 #      which command exits the agent, and which task kinds the adapter is
 #      verified to run. These are the empirically verified facts previously
 #      carried only in the harness-adapters skill's per-adapter tables; that
@@ -214,6 +215,84 @@ fm_control_interrupt_clear_key() {  # <harness>
     claude|codex|opencode|pi|pi-signed|omp|grok|kimi|cursor|gemini|rovo|agy|devin|commandcode) ;;
     *) return 1 ;;
   esac
+}
+
+# The key sequence that clears a DRAFT an idle composer already holds, as
+# distinct from the post-interrupt clear above, which removes a prompt the
+# interrupt itself restored. Prints the key or nothing; a harness with no
+# verified mechanics returns nonzero, matching the tables above, and every
+# other adapter's draft is never touched: a draft there may be the captain's
+# own typing. Command Code is the one adapter with a verified draft clear:
+# Escape pressed twice within about 0.4 s empties the composer, whatever it
+# holds (verified live, commandcode 1.74.0 in tmux: a single-line draft, a
+# three-line draft, a pasted five-line block, and a typed-pasted-typed mix all
+# read empty afterwards; docs/verification/commandcode.md owns the dated
+# result and the live guard). The alternatives fail: Ctrl-U kills only the
+# cursor line of a multi-line draft and Ctrl-A then Ctrl-K only the cursor
+# line as well; one Ctrl-C clears but arms `Press Ctrl+C again to exit`, so a
+# second press would exit the agent; one Escape on a draft changes nothing,
+# and an Escape pair on an idle EMPTY composer opens nothing. The same pair on
+# a RUNNING turn is an interrupt, so a caller outside the interrupt and exit
+# verbs must prove the agent idle first (bin/fm-task-inbox-lib.sh does).
+fm_control_draft_clear_key() {  # <harness>
+  case "${1-}" in
+    commandcode) printf 'Escape' ;;
+    claude|codex|opencode|pi|pi-signed|omp|grok|kimi|cursor|gemini|muse|rovo|agy|devin) ;;
+    *) return 1 ;;
+  esac
+}
+
+# How many times the draft-clear key is delivered; empty when the adapter has
+# no draft clear.
+fm_control_draft_clear_presses() {  # <harness>
+  case "${1-}" in
+    commandcode) printf '2' ;;
+    claude|codex|opencode|pi|pi-signed|omp|grok|kimi|cursor|gemini|muse|rovo|agy|devin) ;;
+    *) return 1 ;;
+  esac
+}
+
+# Seconds between the presses. Command Code pairs two Escapes only inside a
+# window measured between 0.4 s (paired) and 0.5 s (not paired) including the
+# sender's own process overhead, so the gap is a quarter of that.
+fm_control_draft_clear_gap() {  # <harness>
+  case "${1-}" in
+    commandcode) printf '0.1' ;;
+    claude|codex|opencode|pi|pi-signed|omp|grok|kimi|cursor|gemini|muse|rovo|agy|devin) ;;
+    *) return 1 ;;
+  esac
+}
+
+# fm_control_clear_draft: the ONE mechanism that sends the draft-clear keys and
+# proves the result, so the interrupt verb, the exit verb, and the doorbell all
+# empty a composer the same way. Returns 0 only when the composer then reads
+# exactly `empty` (a verdict of pending-unproven or unknown never counts), 1
+# when the keys could not be delivered or the composer still reads otherwise
+# after two attempts, and 2 when the adapter has no verified draft clear, in
+# which case nothing was sent. Requires bin/fm-backend.sh.
+fm_control_clear_draft() {  # <backend> <target> <harness> [expected-label]
+  local backend=${1-} target=${2-} harness=${3-} label=${4-} key presses gap attempts=0 polls i
+  key=$(fm_control_draft_clear_key "$harness") || return 2
+  [ -n "$key" ] || return 2
+  presses=$(fm_control_draft_clear_presses "$harness") || return 2
+  gap=$(fm_control_draft_clear_gap "$harness") || return 2
+  fm_control_backend_supports_key "$backend" "$key" || return 1
+  while [ "$attempts" -lt 2 ]; do
+    attempts=$((attempts + 1))
+    i=0
+    while [ "$i" -lt "$presses" ]; do
+      fm_backend_send_key "$backend" "$target" "$key" "$label" >/dev/null 2>&1 || return 1
+      i=$((i + 1))
+      [ "$i" -ge "$presses" ] || sleep "$gap"
+    done
+    polls=0
+    while [ "$polls" -lt 8 ]; do
+      polls=$((polls + 1))
+      sleep 0.25
+      [ "$(fm_backend_composer_state "$backend" "$target" "$label" 2>/dev/null)" != empty ] || return 0
+    done
+  done
+  return 1
 }
 
 fm_control_interrupt_ack_source() {  # <harness>
