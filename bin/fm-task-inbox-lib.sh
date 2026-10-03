@@ -333,8 +333,14 @@ fm_task_inbox_doorbell_line() {  # <record-path>
 # whose Enter never landed, so on an agent not reported busy it is submitted
 # rather than skipped; skipping it would block every later ring. On both paths
 # a lost first Enter gets one confirmed retry.
-fm_task_inbox_ring() {  # <backend> <target> <record-path> [expected-label]
-  local backend=$1 target=$2 rec=$3 label=${4:-} line cstate verdict
+# A pending composer holding anything else is cleared first only when the
+# optional <harness> has a verified draft clear (fm_control_draft_clear_key:
+# Command Code), the agent is proven idle by both its semantic record and its
+# rendered screen, and the composer then reads exactly empty; any other case
+# skips as before, so a draft that may be the captain's own is never touched on
+# another adapter, and a running turn is never cancelled by the clear.
+fm_task_inbox_ring() {  # <backend> <target> <record-path> [expected-label] [harness]
+  local backend=$1 target=$2 rec=$3 label=${4:-} harness=${5:-} line cstate verdict
   case "$(fm_backend_agent_state "$backend" "$target" 2>/dev/null || true)" in
     dead|missing) return 3 ;;
   esac
@@ -344,14 +350,15 @@ fm_task_inbox_ring() {  # <backend> <target> <record-path> [expected-label]
   cstate=$(fm_backend_composer_state "$backend" "$target" "$label" 2>/dev/null) || cstate=unknown
   case "$cstate" in
     pending)
-      fm_task_inbox_composer_holds "$backend" "$target" "$line" "$label" \
-        && [ "$(fm_backend_busy_state "$backend" "$target" 2>/dev/null)" != busy ] \
-        || return 1
-      fm_backend_send_key "$backend" "$target" Enter "$label" >/dev/null 2>&1 || return 2
-      sleep 0.3
-      fm_task_inbox_composer_holds "$backend" "$target" "$line" "$label" || return 0
-      fm_backend_send_key "$backend" "$target" Enter "$label" >/dev/null 2>&1 || return 2
-      return 0
+      if fm_task_inbox_composer_holds "$backend" "$target" "$line" "$label"; then
+        [ "$(fm_backend_busy_state "$backend" "$target" 2>/dev/null)" != busy ] || return 1
+        fm_backend_send_key "$backend" "$target" Enter "$label" >/dev/null 2>&1 || return 2
+        sleep 0.3
+        fm_task_inbox_composer_holds "$backend" "$target" "$line" "$label" || return 0
+        fm_backend_send_key "$backend" "$target" Enter "$label" >/dev/null 2>&1 || return 2
+        return 0
+      fi
+      fm_task_inbox_clear_idle_draft "$backend" "$target" "$rec" "$label" "$harness" || return 1
       ;;
   esac
   # Accepted residual race: terminal input and Enter are separate delivery
@@ -365,6 +372,53 @@ fm_task_inbox_ring() {  # <backend> <target> <record-path> [expected-label]
   # (empty, pending, unknown, ...) is deliberately ignored, never proof.
   [ "$verdict" != send-failed ] || return 2
   return 0
+}
+
+# fm_task_inbox_clear_idle_draft: empty a stale draft out of a composer the
+# doorbell would otherwise skip. Succeeds only when the harness has a verified
+# draft clear, the task's agent is proven idle, and the composer reads exactly
+# empty afterwards. The clear is an interrupt on a running turn, so idleness is
+# proven twice and independently: the semantic busy record must read idle, and
+# the visible screen must show none of the harness's busy rows. Unknown, busy,
+# no record, and an unreadable screen all refuse without sending a key.
+fm_task_inbox_clear_idle_draft() {  # <backend> <target> <record-path> <label> <harness>
+  local backend=$1 target=$2 rec=$3 label=$4 harness=$5 family key dir id state screen
+  [ -n "$harness" ] || return 1
+  fm_task_inbox_load_clear_deps || return 1
+  family=$(fm_control_harness_family "$harness" 2>/dev/null) || return 1
+  key=$(fm_control_draft_clear_key "$family" 2>/dev/null) || return 1
+  [ -n "$key" ] || return 1
+  dir=${rec%/*}
+  [ "${dir##*/}" != handled ] || dir=${dir%/*}
+  id=${dir##*/}
+  id=${id%.inbox}
+  state=${dir%/*}
+  [ -n "$id" ] && [ "$id" != "${dir##*/}" ] || return 1
+  case "$(fm_busy_classify "$backend" "$target" "$family" "$id" "$state" 2>/dev/null)" in
+    idle\ *) ;;
+    *) return 1 ;;
+  esac
+  screen=$(fm_backend_capture "$backend" "$target" 40 "$label" 2>/dev/null) || return 1
+  [ -n "$screen" ] || return 1
+  if printf '%s\n' "$screen" | fm_composer_strip_ansi | fm_busy_lines_match "$family"; then
+    return 1
+  fi
+  fm_control_clear_draft "$backend" "$target" "$family" "$label"
+}
+
+# The clear needs the control table, the busy fold, and the composer readers.
+# They are loaded on first use so every other consumer of this library keeps
+# its small source graph; a consumer that already loaded them is left alone.
+fm_task_inbox_load_clear_deps() {
+  declare -F fm_control_clear_draft >/dev/null 2>&1 \
+    || { # shellcheck source=/dev/null
+      . "$_FM_TASK_INBOX_LIB_DIR/fm-control-lib.sh"; } || return 1
+  declare -F fm_busy_classify >/dev/null 2>&1 \
+    || { # shellcheck source=/dev/null
+      . "$_FM_TASK_INBOX_LIB_DIR/fm-busy-lib.sh"; } || return 1
+  declare -F fm_busy_lines_match >/dev/null 2>&1 \
+    || { # shellcheck source=/dev/null
+      . "$_FM_TASK_INBOX_LIB_DIR/fm-composer-lib.sh"; } || return 1
 }
 
 # Whether the composer's content, ignoring line wrapping, is exactly <line>.

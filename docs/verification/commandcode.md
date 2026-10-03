@@ -16,6 +16,7 @@ commandcode status
 commandcode --list-models
 bin/fm-test-run.sh tests/fm-commandcode-harness.test.sh
 bin/fm-test-run.sh tests/fm-tmux-agent-liveness.test.sh
+bin/fm-test-run.sh tests/fm-commandcode-composer-clear.test.sh
 FM_COMMANDCODE_SIGNALS_LIVE=1 bin/fm-test-run.sh tests/fm-commandcode-signals-live-e2e.test.sh
 ```
 
@@ -41,6 +42,35 @@ ok - commandcode 1.73.4: no attribution, no workspace files in git, session-only
 ok - commandcode 1.73.4: idle composer reads empty; real fm-send doorbell read and acknowledged
 ok - commandcode 1.73.4: single Escape cancels, keeps the agent, and the mod records idle
 ok - commandcode 1.73.4: /exit through the control plane
+```
+
+## Stuck-draft clear
+
+On 2026-10-03 Command Code `1.74.0` was driven in a private tmux server under an isolated home, with drafts typed into the idle composer and no prompt submitted.
+One Escape on a draft changed nothing and showed no hint.
+Two Escapes cleared it when the second followed the first within the pairing window, which measured between a 0.4 s gap (paired) and a 0.5 s gap (not paired) including the sender's process overhead; gaps of 0.05, 0.1, 0.2, 0.3 and 0.4 s all paired.
+
+| Draft | Escape x2 | Ctrl-U | Ctrl-A then Ctrl-K | Ctrl-C once |
+|---|---|---|---|---|
+| single line | empty | empty | not run | empty, arms exit |
+| three lines, entered with Alt-Enter | empty | cursor line only | cursor line only | empty, arms exit |
+| pasted five-line block | empty | cursor line only | not run | empty, arms exit |
+| typed text, a pasted block, typed text | empty | cursor line only | not run | not run |
+
+Ctrl-C leaves `Press Ctrl+C again to exit` under the composer, so a second press would stop the agent, which is why the control plane does not use it.
+Escape twice on an idle empty composer opened nothing.
+A draft typed while a turn was running survived the interrupt Escape, so the interrupt verb needs the clear for it too.
+The same pair on a running turn is an interrupt, so the doorbell sends it only after proving the agent idle.
+A multi-line or pasted draft renders as plain continuation rows below the `❯` row with the reverse-video cursor cell after the last character, pinned byte-exact in `tests/captures/commandcode-v1.74.0/draft-multiline.ansi` and `draft-pasted.ansi`.
+`bin/fm-control-lib.sh` owns the key, count and gap; `fm-control` interrupt and exit and the `fm-task-inbox-lib.sh` doorbell send the clear and require the composer to read empty afterwards.
+
+The extended live guard completed with exit 0 on 2026-10-03 against `1.74.0`; these four lines are its stuck-draft results:
+
+```text
+ok - commandcode 1.74.0: interrupt empties a stuck multi-line draft and a pasted block, keeping the agent
+ok - commandcode 1.74.0: fm-send clears a stale draft, rings, and the worker acknowledges
+ok - commandcode 1.74.0: interrupting a running turn that holds a draft leaves an empty composer (draft=cleared)
+ok - commandcode 1.74.0: /exit through the control plane, with a stuck draft cleared first
 ```
 
 ## Integration path
@@ -81,7 +111,8 @@ The guard's worker commit carried no co-author trailer, and `git status --porcel
 ## Coverage and limits
 
 The portable regression drives ancestry identity, lifecycle tables, composer placeholder and draft screens with LF and CR LF row endings, the captured Herdr pane, the placeholder text and frame-colour signals driven apart, busy rows, the generated launch, model refusal, settings and git excludes, the mod's event handling through Node, the trailer-keeping variant, secondmate refusal, and trailer stripping.
+The stuck-draft regression drives the real control plane and doorbell against a stand-in process that replays those captured screens and obeys only the Escape-pair rule, asserting which keys were never sent for a busy, unrecorded, rendered-busy, other-adapter, or unclearable pane.
 The tmux liveness regression proves the placeholder reads empty only on an identified Command Code pane, while typed text, typed placeholder words, and a decoy pane do not.
-The live guard checks the brief, model, autonomy, identity, semantic idle, attribution, workspace hygiene, session-only effort, doorbell acknowledgement, idle and busy interruption, and exit.
+The live guard checks the brief, model, autonomy, identity, semantic idle, attribution, workspace hygiene, session-only effort, doorbell acknowledgement, idle and busy interruption, interruption and doorbell delivery through a stuck multi-line draft and pasted block, a draft typed during a running turn, and exit through a stuck draft.
 Command Code's built-in `herdr` mod reports agent state to Herdr when Herdr's pane environment is present; that path, Herdr lifecycle control, and a live Herdr doorbell need a lab-session verification before Herdr dispatch is trusted.
 Linux identity relies on the same vendor process title and has not been run here.
