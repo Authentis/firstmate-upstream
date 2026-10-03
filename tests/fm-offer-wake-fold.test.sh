@@ -118,10 +118,6 @@ test_wake_fold_off_restores_the_unfolded_verdicts() {
   assert_offer "$home" "$DIGEST" 1 safe "a digest with the fold on"
   printf 'off\n' > "$home/config/wake-fold"
   assert_offer "$home" "$DIGEST" 0 unsafe "a digest with wake-fold off"
-  home=$(fold_offer_home rearm-off)
-  assert_offer "$home" "$REARM" 1 empty "an empty re-arm with the fold on"
-  printf 'off\n' > "$home/config/wake-fold"
-  assert_offer "$home" "$REARM" 0 empty "an empty re-arm with wake-fold off"
 
   # An away or quiet record also leaves the fold inactive.
   home=$(fold_offer_home away)
@@ -210,25 +206,16 @@ test_fold_closes_go_to_the_host_only_when_nothing_is_left_for_main() {
   home=$(fold_offer_home digest-empty)
   assert_offer "$home" "$DIGEST" 0 empty "a digest with nothing queued"
 
+  # A re-arm is how main learns the host's cycle restarted, so it stays main's
+  # whatever is queued: a host that took the empty one parked beside a Stop hook
+  # that then never exited.
   home=$(fold_offer_home rearm)
   state="$home/state"
-  assert_offer "$home" "$REARM" 1 empty "a re-arm with an empty queue"
-  rm -f "$state/.wake-queue"
-  assert_offer "$home" "$REARM" 0 unsafe "a re-arm with no readable queue"
-  : > "$state/.wake-queue"
+  assert_offer "$home" "$REARM" 0 empty "a re-arm with an empty queue"
   append_wake "$state" signal demo.status "$SIG"
   fold_offer_fold_row "$home" signal parent-replies.status "$ECHO_ROW" own-outbound
-  assert_offer "$home" "$REARM" 1 safe "a re-arm with only claimable rows"
-  append_wake "$state" check merge 'check: merge landed: fixture'
-  assert_offer "$home" "$REARM" 0 safe "a re-arm with a check row left for main"
-  home=$(fold_offer_home rearm-decision)
-  append_wake "$home/state" signal demo.status 'needs-decision: pick one'
-  assert_offer "$home" "$REARM" 0 unsafe "a re-arm with a decision row left for main"
-  home=$(fold_offer_home rearm-unsafe)
-  append_wake "$home/state" signal demo.status "$SIG"
-  append_wake "$home/state" signal gone.status 'signal: gone.status'
-  assert_offer "$home" "$REARM" 0 unsafe "a re-arm with an unresolvable row"
-  pass "offer rule: the fold's digest and re-arm closes reach the host only when no row is left for main"
+  assert_offer "$home" "$REARM" 0 safe "a re-arm with only claimable rows"
+  pass "offer rule: the fold's digest reaches the host only when no row is left for main, and a re-arm always stays main's"
 }
 
 test_report_offer_probe_table_with_the_fold_on

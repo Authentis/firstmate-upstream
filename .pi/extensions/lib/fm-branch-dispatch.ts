@@ -716,11 +716,10 @@ export interface BranchOfferVerdict {
 // row: until that row is read, a later signal or stale trigger for the same
 // task stays on main. Other tasks and heartbeat handling remain independent.
 //
-// Two check-kind closes are the fold's own - its `wake digest` and a
-// `rearm-resurface` - and an attended host (not Pi's watcher) is offered them
-// while the fold is active and no queued row is left for main: every row
-// claimable, or, for a re-arm, an empty queue. Anything left for main keeps the
-// close there.
+// The fold's own `wake digest` check close is offered to an attended host (not
+// Pi's watcher) while the fold is active and no queued row is left for main.
+// Anything left for main keeps the close there, and a `rearm-resurface` always
+// stays main's.
 //
 // The away posture collapses that partition: every actionable row is
 // branch-eligible and the trigger class no longer forces anything to main
@@ -742,14 +741,13 @@ export function branchOfferForWake(state: string, message: string, afk: boolean,
     scope.taskByWakeKey[key] ?? scope.taskByWakeKey[key.replace(/^fm-/, "")] ?? key;
   const needsDecisionTasks = new Set(scope.needsDecisionKeys.map(taskIdentity));
   const isNeedsDecisionTrigger = triggerKeys.some((key) => needsDecisionTasks.has(taskIdentity(key)));
-  // The fold's own closes - its digest, and a re-arm - announce only rows the
-  // host would claim on their own close, so an attended host takes them when
-  // nothing is left behind for main: every queued row claimable, or (a re-arm)
-  // none queued at all. Pi's watcher never gets this exemption.
-  const isFoldClose = /^check: wake digest:/.test(message) || /^check: rearm-resurface$/.test(message);
-  const offeredFoldClose = isFoldClose && attendedHost && !afk && wakeFoldActive(state, afk)
-    && scope.unclaimedSeqs.length === 0
-    && (scope.eligible || (scope.status === "empty" && message === "check: rearm-resurface"));
+  // The fold's own digest announces only rows the host would claim on their own
+  // close, so an attended host takes it when every queued row is claimable.
+  // Pi's watcher never gets this exemption. A re-arm is deliberately not
+  // offered: it is how main learns the host's cycle restarted, and a host that
+  // took it as a no-op parks forever beside a Stop hook that then never exits.
+  const offeredFoldClose = /^check: wake digest:/.test(message) && attendedHost && !afk
+    && wakeFoldActive(state, afk) && scope.eligible && scope.unclaimedSeqs.length === 0;
   const attendedEligible = (!isCheckTrigger || offeredFoldClose) && !isNeedsDecisionTrigger && (
     afk ? scopeForUnreadWake(state, heartbeat, false).eligible : scope.eligible || offeredFoldClose
   );
