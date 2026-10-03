@@ -95,6 +95,8 @@ The `firstmate-coding-guidelines` skill owns the rule that local no-mistakes Tes
 Verify the same way the gate does: reach for `bin/fm-test-run.sh` with the subjects you care about rather than chaining `bash tests/a.test.sh && bash tests/b.test.sh`, because a list of script paths gets the same bounded concurrency as `--changed`.
 The pipeline publishes that evidence itself, so never hand-commit `.no-mistakes/` paths onto a feature branch; CI rejects them as tracked personal fleet paths.
 
+The runner takes one lock per checkout and refuses a second live run, and on Darwin it runs at background priority with `--jobs` clamped to 4; a full suite on a laptop can still saturate it, so run broad selections on a portable-lane host.
+
 Check and test the toolbelt before pushing:
 
 ```sh

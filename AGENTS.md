@@ -241,6 +241,7 @@ After an autonomous merge, give the captain a one-line full-URL or local-main ou
 ### Validate
 
 Load `validation-supervision` when a ship starts or already has an active no-mistakes validation run, including a mid-run requirement change or finding.
+Full test suites, families, and lanes run only on a portable-lane host (bosgame or netcup); the Mac runs only Darwin-only tests, one `tests/<name>.test.sh` at a time under `taskpolicy -b`.
 
 ### PR ready, landing, and teardown
 

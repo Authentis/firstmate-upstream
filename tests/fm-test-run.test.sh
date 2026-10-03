@@ -1826,6 +1826,274 @@ assert len(doc["scripts"])==3
   pass "aggregate-json merges lane timing artifacts"
 }
 
+# --- host safety: one run per checkout, Darwin priority and cap, no orphans ---
+# A full-suite run from one tool session froze the host twice (three overlapping
+# runners, then eleven orphaned processes). Every fixture below stubs the
+# workers; none of them runs a real suite.
+
+guard_fixture() {  # <tmp> <script-name>... ; sets GUARD_REPO and GUARD_RUNNER
+  local tmp=$1
+  GUARD_REPO="$tmp/repo"
+  GUARD_RUNNER="$GUARD_REPO/bin/fm-test-run.sh"
+  mkdir -p "$GUARD_REPO/bin" "$GUARD_REPO/tests" "$tmp/locks" "$tmp/evidence"
+  cp "$RUNNER" "$GUARD_RUNNER"
+  cp "$ROOT/tests/git-config-helpers.sh" "$GUARD_REPO/tests/"
+  cp "$ROOT/bin/fm-timeout-lib.sh" "$GUARD_REPO/bin/"
+  chmod +x "$GUARD_RUNNER"
+}
+
+guard_wait_for() {  # <path> [tenths-of-a-second]
+  local path=$1 left=${2:-300}
+  while [ ! -e "$path" ] && [ "$left" -gt 0 ]; do
+    sleep 0.1
+    left=$((left - 1))
+  done
+  [ -e "$path" ]
+}
+
+guard_wait_gone() {  # <pid>... ; true once none is alive
+  local pid left=100 alive
+  while [ "$left" -gt 0 ]; do
+    alive=0
+    for pid in "$@"; do
+      if kill -0 "$pid" 2>/dev/null; then alive=1; fi
+    done
+    [ "$alive" -eq 1 ] || return 0
+    sleep 0.1
+    left=$((left - 1))
+  done
+  return 1
+}
+
+test_second_run_for_one_checkout_is_refused() {
+  local tmp rc1 holder out err
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/fm-test-run-lock.XXXXXX")
+  guard_fixture "$tmp"
+  cat >"$GUARD_REPO/tests/fm-lock-hold.test.sh" <<'SH'
+#!/usr/bin/env bash
+touch "$GUARD_EVIDENCE/holding"
+waited=0
+while [ ! -e "$GUARD_EVIDENCE/release" ] && [ "$waited" -lt 600 ]; do
+  sleep 0.1
+  waited=$((waited + 1))
+done
+echo "ok - held"
+SH
+  cat >"$GUARD_REPO/tests/fm-lock-quick.test.sh" <<'SH'
+#!/usr/bin/env bash
+echo "ok - quick"
+SH
+  # A script that invokes the runner again on the same checkout: the nested run
+  # belongs to the live holder and must not be refused as a second suite.
+  cat >"$GUARD_REPO/tests/fm-lock-nested.test.sh" <<'SH'
+#!/usr/bin/env bash
+"$GUARD_RUNNER" tests/fm-lock-quick.test.sh >"$GUARD_EVIDENCE/nested.out" 2>&1
+echo "$?" >"$GUARD_EVIDENCE/nested.rc"
+echo "ok - nested"
+SH
+  chmod +x "$GUARD_REPO"/tests/fm-lock-*.test.sh
+
+  GUARD_EVIDENCE="$tmp/evidence" FM_TEST_RUN_LOCK_DIR="$tmp/locks" \
+    "$GUARD_RUNNER" tests/fm-lock-hold.test.sh >"$tmp/first.out" 2>"$tmp/first.err" &
+  holder=$!
+  guard_wait_for "$tmp/evidence/holding" || { kill "$holder" 2>/dev/null; fail "the first run never started its script"; }
+
+  set +e
+  GUARD_EVIDENCE="$tmp/evidence" FM_TEST_RUN_LOCK_DIR="$tmp/locks" \
+    "$GUARD_RUNNER" tests/fm-lock-quick.test.sh >"$tmp/second.out" 2>"$tmp/second.err"
+  rc1=$?
+  set -e
+  err=$(cat "$tmp/second.err")
+  touch "$tmp/evidence/release"
+  wait "$holder" || fail "the first run failed: $(cat "$tmp/first.out" "$tmp/first.err")"
+
+  [ "$rc1" -eq 2 ] || fail "a second run on the same checkout must be refused with 2, got $rc1: $err"
+  assert_contains "$err" "another test run is live" "refusal names the cause"
+  assert_contains "$err" "pid $holder" "refusal names the holder pid"
+  [ ! -s "$tmp/second.out" ] || fail "the refused run must execute nothing: $(cat "$tmp/second.out")"
+
+  # The lock is released with the holder, so the next run starts.
+  out=$(GUARD_EVIDENCE="$tmp/evidence" FM_TEST_RUN_LOCK_DIR="$tmp/locks" \
+    "$GUARD_RUNNER" tests/fm-lock-quick.test.sh 2>&1) \
+    || fail "a run after the holder finished must start: $out"
+  assert_contains "$out" "FM_TEST_SUMMARY total=1 failed=0" "run after release completed"
+
+  # A holder that nested the runner through its own script is not a second suite.
+  env GUARD_RUNNER="$GUARD_RUNNER" GUARD_EVIDENCE="$tmp/evidence" FM_TEST_RUN_LOCK_DIR="$tmp/locks" \
+    "$GUARD_RUNNER" tests/fm-lock-nested.test.sh >"$tmp/nested-outer.out" 2>&1 \
+    || fail "the outer run with a nested runner failed: $(cat "$tmp/nested-outer.out")"
+  [ "$(cat "$tmp/evidence/nested.rc")" = 0 ] \
+    || fail "a runner nested in the holder's script was refused: $(cat "$tmp/evidence/nested.out")"
+
+  rm -rf "$tmp"
+  pass "a second run for one checkout is refused naming the holder, and the lock is released"
+}
+
+test_run_lock_is_keyed_per_checkout_and_reclaims_stale() {
+  local tmp other holder out stale proc_stamp
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/fm-test-run-lock2.XXXXXX")
+  guard_fixture "$tmp"
+  cat >"$GUARD_REPO/tests/fm-lock-hold.test.sh" <<'SH'
+#!/usr/bin/env bash
+touch "$GUARD_EVIDENCE/holding"
+waited=0
+while [ ! -e "$GUARD_EVIDENCE/release" ] && [ "$waited" -lt 600 ]; do
+  sleep 0.1
+  waited=$((waited + 1))
+done
+echo "ok - held"
+SH
+  cat >"$GUARD_REPO/tests/fm-lock-quick.test.sh" <<'SH'
+#!/usr/bin/env bash
+echo "ok - quick"
+SH
+  chmod +x "$GUARD_REPO"/tests/fm-lock-*.test.sh
+  other="$tmp/other"
+  mkdir -p "$other/bin" "$other/tests"
+  cp "$GUARD_RUNNER" "$other/bin/"
+  cp "$GUARD_REPO/tests/git-config-helpers.sh" "$GUARD_REPO/tests/fm-lock-quick.test.sh" "$other/tests/"
+
+  GUARD_EVIDENCE="$tmp/evidence" FM_TEST_RUN_LOCK_DIR="$tmp/locks" \
+    "$GUARD_RUNNER" tests/fm-lock-hold.test.sh >"$tmp/first.out" 2>&1 &
+  holder=$!
+  guard_wait_for "$tmp/evidence/holding" || { kill "$holder" 2>/dev/null; fail "the first run never started its script"; }
+  # A different checkout is a different lock.
+  out=$(FM_TEST_RUN_LOCK_DIR="$tmp/locks" "$other/bin/fm-test-run.sh" tests/fm-lock-quick.test.sh 2>&1) \
+    || { touch "$tmp/evidence/release"; wait "$holder"; fail "a run on another checkout was refused: $out"; }
+  touch "$tmp/evidence/release"
+  wait "$holder" || fail "the first run failed: $(cat "$tmp/first.out")"
+
+  # A lock left by a dead run (SIGKILL cannot be trapped) is reclaimed.
+  stale=$(printf '%s' "$(cd "$GUARD_REPO" && pwd -P)" | cksum | awk '{print $1}')
+  mkdir "$tmp/locks/fm-test-run-lock.$stale"
+  printf '%s\n' 2147483646 >"$tmp/locks/fm-test-run-lock.$stale/pid"
+  printf '%s\n' 'Thu Jan  1 00:00:00 1970' >"$tmp/locks/fm-test-run-lock.$stale/start"
+  out=$(FM_TEST_RUN_LOCK_DIR="$tmp/locks" "$GUARD_RUNNER" tests/fm-lock-quick.test.sh 2>&1) \
+    || fail "a stale lock must be reclaimed: $out"
+  assert_contains "$out" "FM_TEST_SUMMARY total=1 failed=0" "run after stale lock completed"
+  [ ! -e "$tmp/locks/fm-test-run-lock.$stale" ] || fail "the reclaimed lock was not released"
+
+  # Inspection modes execute nothing and never take or respect the lock.
+  mkdir "$tmp/locks/fm-test-run-lock.$stale"
+  printf '%s\n' "$$" >"$tmp/locks/fm-test-run-lock.$stale/pid"
+  proc_stamp=$(ps -o lstart= -p "$$" | tr -s ' ' | sed 's/^ //')
+  printf '%s\n' "$proc_stamp" >"$tmp/locks/fm-test-run-lock.$stale/start"
+  out=$(FM_TEST_RUN_LOCK_DIR="$tmp/locks" "$GUARD_RUNNER" --list tests/fm-lock-quick.test.sh 2>&1) \
+    || fail "--list must work while a live run holds the lock: $out"
+  assert_contains "$out" "tests/fm-lock-quick.test.sh" "--list output under a held lock"
+
+  rm -rf "$tmp"
+  pass "the run lock is per checkout, reclaims a dead holder, and leaves --list alone"
+}
+
+test_darwin_runs_at_background_priority_and_caps_jobs() {
+  local tmp bin out real_uname s
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/fm-test-run-darwin.XXXXXX")
+  guard_fixture "$tmp"
+  bin="$tmp/fake-bin"
+  mkdir -p "$bin"
+  real_uname=$(command -v uname)
+  cat >"$bin/uname" <<SH
+#!/usr/bin/env bash
+if [ "\${1:-}" = -s ]; then echo Darwin; exit 0; fi
+exec "$real_uname" "\$@"
+SH
+  cat >"$bin/taskpolicy" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$GUARD_EVIDENCE/taskpolicy.log"
+[ "$1" = -b ] || exit 64
+shift
+exec "$@"
+SH
+  cat >"$bin/stat" <<'SH'
+#!/usr/bin/env bash
+if [ "$1" = "-c" ] && [ "$2" = "%a" ]; then printf '700\n'; exit 0; fi
+if [ "$1" = "-f" ] && [ "$2" = "%Lp" ]; then printf '700\n'; exit 0; fi
+exec /usr/bin/stat "$@"
+SH
+  chmod +x "$bin/uname" "$bin/taskpolicy" "$bin/stat"
+  for s in fm-brief fm-composer-lib fm-lint fm-crew-state fm-arm-pretool-check; do
+    printf '#!/usr/bin/env bash\necho "ok - %s"\n' "$s" >"$GUARD_REPO/tests/$s.test.sh"
+    chmod +x "$GUARD_REPO/tests/$s.test.sh"
+  done
+
+  out=$(PATH="$bin:$PATH" GUARD_EVIDENCE="$tmp/evidence" FM_TEST_RUN_LOCK_DIR="$tmp/locks" \
+    "$GUARD_RUNNER" --jobs 8 --json "$tmp/t.json" \
+    tests/fm-brief.test.sh tests/fm-composer-lib.test.sh tests/fm-lint.test.sh \
+    tests/fm-crew-state.test.sh tests/fm-arm-pretool-check.test.sh 2>&1) \
+    || fail "darwin run failed: $out"
+  assert_contains "$out" "--jobs 8 clamped to 4 on Darwin" "explicit larger --jobs is clamped with a message"
+  python3 -c '
+import json,sys
+doc=json.load(open(sys.argv[1]))
+assert "jobs=4" in doc["selection"], doc["selection"]
+assert doc["summary"]["total"]==5
+' "$tmp/t.json" || fail "the clamped run did not use 4 workers"
+  grep -Eq '^-b .*fm-test-run\.sh' "$tmp/evidence/taskpolicy.log" \
+    || fail "the runner was not re-executed under taskpolicy -b: $(cat "$tmp/evidence/taskpolicy.log" 2>/dev/null)"
+  [ "$(wc -l <"$tmp/evidence/taskpolicy.log" | tr -d ' ')" = 1 ] \
+    || fail "the runner must re-execute under taskpolicy exactly once"
+
+  # A request within the cap is not clamped.
+  out=$(PATH="$bin:$PATH" GUARD_EVIDENCE="$tmp/evidence" FM_TEST_RUN_LOCK_DIR="$tmp/locks" \
+    "$GUARD_RUNNER" --jobs 2 tests/fm-brief.test.sh tests/fm-lint.test.sh 2>&1) \
+    || fail "darwin --jobs 2 run failed: $out"
+  case "$out" in *clamped*) fail "--jobs 2 must not be clamped: $out" ;; esac
+
+  rm -rf "$tmp"
+  pass "on Darwin the runner re-executes under taskpolicy -b and clamps --jobs to 4"
+}
+
+# Kill the runner mid-run and prove nothing it started outlives it: the script
+# leaves a child and a grandchild running, in the shape that orphaned eleven
+# processes before.
+guard_kill_case() {  # <label> <signal> <runner-args...>
+  local label=$1 sig=$2 tmp pid_file pids runner_pid p lock_left
+  shift 2
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/fm-test-run-kill.XXXXXX")
+  guard_fixture "$tmp"
+  cat >"$GUARD_REPO/tests/fm-brief.test.sh" <<'SH'
+#!/usr/bin/env bash
+sleep 300 &
+echo "$!" >>"$GUARD_EVIDENCE/pids"
+sh -c 'sleep 301 & echo $! >>"$1"; wait' _ "$GUARD_EVIDENCE/pids" &
+echo "$!" >>"$GUARD_EVIDENCE/pids"
+touch "$GUARD_EVIDENCE/started"
+sleep 302
+SH
+  chmod +x "$GUARD_REPO/tests/fm-brief.test.sh"
+  GUARD_EVIDENCE="$tmp/evidence" FM_TEST_RUN_LOCK_DIR="$tmp/locks" \
+    "$GUARD_RUNNER" "$@" tests/fm-brief.test.sh >"$tmp/out" 2>"$tmp/err" &
+  runner_pid=$!
+  guard_wait_for "$tmp/evidence/started" || { kill -KILL "$runner_pid" 2>/dev/null; fail "$label: the script never started"; }
+  sleep 0.5
+  pids=$(cat "$tmp/evidence/pids")
+  [ "$(printf '%s\n' "$pids" | wc -l | tr -d ' ')" -ge 3 ] \
+    || { kill -KILL "$runner_pid" 2>/dev/null; fail "$label: expected a child tree to be running, got: $pids"; }
+  for p in $pids; do
+    kill -0 "$p" 2>/dev/null || { kill -KILL "$runner_pid" 2>/dev/null; fail "$label: tree member $p was not running before the signal"; }
+  done
+
+  kill "-$sig" "$runner_pid"
+  guard_wait_gone "$runner_pid" || { kill -KILL "$runner_pid" 2>/dev/null; fail "$label: the runner survived SIG$sig"; }
+  # The tree can take a moment to die after its parent does.
+  # shellcheck disable=SC2086
+  if ! guard_wait_gone $pids; then
+    for p in $pids; do kill -KILL "$p" 2>/dev/null || true; done
+    fail "$label: processes outlived the killed runner: $pids"
+  fi
+  lock_left=$(find "$tmp/locks" -mindepth 1 -maxdepth 1 2>/dev/null | wc -l | tr -d ' ')
+  [ "$lock_left" = 0 ] || fail "$label: the killed runner left its lock behind"
+  rm -rf "$tmp"
+  pass "$label: SIG$sig leaves no process and no lock behind"
+}
+
+test_killed_runner_leaves_no_processes() {
+  guard_kill_case "serial run" TERM
+  guard_kill_case "serial run" HUP
+  guard_kill_case "concurrent run" TERM --jobs 2
+}
+
 test_list_all_exact_suite_coverage
 test_family_selection
 test_single_script_selection
@@ -1867,3 +2135,7 @@ test_max_wall_ms_is_a_result_not_advice
 test_jobs_parallel_scheduler_and_failure_propagation
 test_herdr_ci_family_run_has_a_step_timeout
 test_aggregate_json
+test_second_run_for_one_checkout_is_refused
+test_run_lock_is_keyed_per_checkout_and_reclaims_stale
+test_darwin_runs_at_background_priority_and_caps_jobs
+test_killed_runner_leaves_no_processes

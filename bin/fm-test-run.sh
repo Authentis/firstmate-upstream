@@ -56,6 +56,8 @@
 #                   min(4, cpus) workers when multiple selected scripts are
 #                   admissible; --lane, --family, and --all stay serial unless
 #                   asked for concurrency explicitly.
+#                   On Darwin N is clamped to 4 with a message, because a loaded
+#                   laptop froze twice under larger runs.
 #                   N>1 is allowed only when every selected script is proven
 #                   safe to run concurrently: individually in the proven-isolated
 #                   set (bin/fm-test-isolation-proof.sh --list), or in a family
@@ -94,6 +96,18 @@
 #   FM_TEST_SUMMARY_FAMILY family=<name> count=<n> duration_ms=<n> failed=<n>
 #   FM_TEST_SLOWEST rank=<k> script=<path> duration_ms=<n>
 #   FM_TEST_BUDGET max_wall_ms=<n> duration_ms=<n>   (only with --max-wall-ms)
+#
+# Host safety (executing modes only):
+#   One run per checkout: the runner takes a lock keyed on its checkout and
+#   refuses to start, naming the holder, while another live run owns it. A lock
+#   whose holder is gone is reclaimed. A script that itself invokes this runner
+#   (the runner's own tests) inherits FM_TEST_RUN_LOCK_HOLDER and is exempt.
+#   FM_TEST_RUN_LOCK_DIR overrides the lock directory (default ${TMPDIR:-/tmp}).
+#   On Darwin the runner re-executes itself under `taskpolicy -b` so every
+#   worker runs at background priority. FM_TEST_RUN_NO_TASKPOLICY=1 skips that.
+#   An EXIT, HUP, INT, or TERM trap terminates every descendant of the runner
+#   (workers, their children, helpers) so nothing outlives it. SIGKILL cannot
+#   be trapped; the lock then goes stale and the next run reclaims it.
 #
 # Placement refusal:
 #   A task worker is assigned an isolated worktree, and that placement is
@@ -150,6 +164,8 @@
 # tests/fixtures/<dir>/ is mapped by that directory instead. Curated family arms
 # above those also name individual tests/ files explicitly.
 set -eu
+
+ORIG_ARGS=("$@")
 
 now_ms() {
   if command -v python3 >/dev/null 2>&1; then
@@ -270,6 +286,138 @@ cpu_count() {
   esac
   [ "$n" -ge 1 ] || n=1
   printf '%s\n' "$n"
+}
+
+# Host safety for executing modes (header: "Host safety"): background priority
+# on Darwin, one live run per checkout, and a trap that leaves no descendant
+# behind. A full suite run from a tool session froze the host twice, so none of
+# this is optional once a run is going to execute scripts.
+RUN_TMP=
+LOCK_DIR=
+
+# Every pid below <root-pid>, one per line, in breadth-first order.
+# shellcheck disable=SC2329
+descendant_pids() {  # [root-pid]
+  ps -A -o pid= -o ppid= 2>/dev/null | awk -v root="${1:-$$}" '
+    { kids[$2] = kids[$2] " " $1 }
+    END {
+      queue[1] = root
+      n = 1
+      for (i = 1; i <= n; i++) {
+        c = split(kids[queue[i]], a, " ")
+        for (j = 1; j <= c; j++) { queue[++n] = a[j]; print a[j] }
+      }
+    }'
+}
+
+# Terminate everything this runner started. TERM first, then KILL for whatever
+# survives a short grace. The first snapshot is kept: a middle process that dies
+# re-parents its children to init, where a later descendant walk can no longer
+# find them.
+# shellcheck disable=SC2329
+terminate_descendants() {
+  local seen pid live waited=0 now
+  seen=$(descendant_pids "$$")
+  [ -n "$seen" ] || return 0
+  # shellcheck disable=SC2086
+  kill -TERM $seen 2>/dev/null || true
+  while [ "$waited" -lt 20 ]; do
+    live=
+    for pid in $seen; do
+      if kill -0 "$pid" 2>/dev/null; then live="$live $pid"; fi
+    done
+    [ -n "$live" ] || return 0
+    sleep 0.1
+    waited=$((waited + 1))
+  done
+  now=$(descendant_pids "$$")
+  # shellcheck disable=SC2086
+  kill -KILL $live $now 2>/dev/null || true
+}
+
+# shellcheck disable=SC2329
+release_run_lock() {
+  [ -n "$LOCK_DIR" ] || return 0
+  if [ "$(cat "$LOCK_DIR/pid" 2>/dev/null)" = "$$" ]; then
+    rm -rf "$LOCK_DIR"
+  fi
+  LOCK_DIR=
+}
+
+# Invoked indirectly by the EXIT trap in start_host_safety.
+# shellcheck disable=SC2329
+cleanup_run() {
+  trap - EXIT HUP INT TERM
+  terminate_descendants
+  release_run_lock
+  [ -z "$RUN_TMP" ] || rm -rf "$RUN_TMP"
+}
+
+proc_start_stamp() {  # <pid>
+  ps -o lstart= -p "$1" 2>/dev/null | tr -s ' ' | sed 's/^ //'
+}
+
+# Take the per-checkout lock or refuse naming the live holder. A holder is live
+# only while its pid exists with the start time recorded next to it, so a dead
+# run and a recycled pid both read as stale and the lock is reclaimed.
+acquire_run_lock() {
+  local base key dir holder_pid holder_stamp now_stamp holder_args attempt=0
+  base=${FM_TEST_RUN_LOCK_DIR:-${TMPDIR:-/tmp}}
+  mkdir -p "$base" 2>/dev/null || die "cannot create lock directory $base"
+  key=$(printf '%s' "$(pwd -P)" | cksum | awk '{print $1}')
+  dir="${base%/}/fm-test-run-lock.$key"
+  while [ "$attempt" -lt 20 ]; do
+    attempt=$((attempt + 1))
+    if mkdir "$dir" 2>/dev/null; then
+      LOCK_DIR=$dir
+      proc_start_stamp "$$" >"$dir/start"
+      printf '%s\n' "$ROOT" >"$dir/root"
+      printf '%s\n' "${ORIG_ARGS[*]-}" >"$dir/args"
+      # The pid file is written last: its presence marks a complete record.
+      printf '%s\n' "$$" >"$dir/pid.tmp"
+      mv "$dir/pid.tmp" "$dir/pid"
+      export FM_TEST_RUN_LOCK_HOLDER=$$
+      return 0
+    fi
+    holder_pid=$(cat "$dir/pid" 2>/dev/null || true)
+    if [ -z "$holder_pid" ]; then
+      # Holder is still writing its record, or died before finishing it.
+      if [ "$attempt" -ge 10 ]; then rm -rf "$dir"; else sleep 0.1; fi
+      continue
+    fi
+    holder_stamp=$(cat "$dir/start" 2>/dev/null || true)
+    now_stamp=$(proc_start_stamp "$holder_pid")
+    if [ -n "$now_stamp" ] && [ "$now_stamp" = "$holder_stamp" ]; then
+      # A script this holder is running may invoke the runner again (its own
+      # tests do); that nested run is the holder's, not a second suite.
+      [ "${FM_TEST_RUN_LOCK_HOLDER:-}" != "$holder_pid" ] || return 0
+      holder_args=$(cat "$dir/args" 2>/dev/null || true)
+      die "another test run is live for this checkout: pid $holder_pid (started $holder_stamp) running 'fm-test-run.sh $holder_args'; wait for it or stop it with kill $holder_pid - parallel suites froze this host before"
+    fi
+    # Stale holder: reclaim. Losing the mkdir race to another reclaimer loops
+    # back and reads that reclaimer as the live holder.
+    rm -rf "$dir"
+  done
+  die "could not take the test-run lock under $base"
+}
+
+start_host_safety() {
+  local darwin=0
+  [ "$(uname -s 2>/dev/null)" = Darwin ] && darwin=1
+  if [ "$darwin" -eq 1 ] && [ -z "${FM_TEST_RUN_BACKGROUNDED:-}" ] \
+    && [ "${FM_TEST_RUN_NO_TASKPOLICY:-}" != 1 ] && command -v taskpolicy >/dev/null 2>&1; then
+    FM_TEST_RUN_BACKGROUNDED=1 exec taskpolicy -b "$BASH" \
+      "$ROOT/bin/$(basename "${BASH_SOURCE[0]}")" "${ORIG_ARGS[@]+"${ORIG_ARGS[@]}"}"
+  fi
+  if [ "$darwin" -eq 1 ] && [ "$JOBS" -gt 4 ]; then
+    log "--jobs $JOBS clamped to 4 on Darwin"
+    JOBS=4
+  fi
+  trap cleanup_run EXIT
+  trap 'exit 129' HUP
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  acquire_run_lock
 }
 
 # Primary family for one tests/*.test.sh basename. Unmapped scripts are
@@ -2132,6 +2280,9 @@ case "$JOBS" in
 esac
 [ "$JOBS" -ge 1 ] || die "--jobs must be >= 1"
 [ "$JOBS" -le "$JOBS_MAX" ] || die "--jobs is capped at $JOBS_MAX (got $JOBS)"
+# The request as made: admission refuses on it, so a host clamp below never turns
+# a refusal into a smaller run.
+JOBS_REQUESTED=$JOBS
 
 if [ -n "$MAX_WALL_MS" ]; then
   case "$MAX_WALL_MS" in
@@ -2152,6 +2303,10 @@ esac
 # who named no selection mode is told that rather than this.
 if [ -n "${MODE:-}" ] && [ "$LIST_ONLY" -eq 0 ] && [ "$LIST_SCHEDULED" -eq 0 ]; then
   refuse_primary_checkout_for_task
+fi
+
+if [ -n "${MODE:-}" ] && [ "$LIST_ONLY" -eq 0 ] && [ "$LIST_SCHEDULED" -eq 0 ]; then
+  start_host_safety
 fi
 
 case "${MODE:-}" in
@@ -2304,8 +2459,8 @@ if [ "$JOBS" -gt 1 ] && [ "$AUTO_CONCURRENCY" -eq 0 ]; then
     if ! is_proven_isolated_script "$s"; then
       family=$(family_for_basename "$(basename "$s")")
       family_jobs_max=$(concurrent_safe_family_jobs_max "$family")
-      [ "$JOBS" -le "$family_jobs_max" ] \
-        || die "--jobs $JOBS refused: family $family is proven only up to $family_jobs_max concurrent workers"
+      [ "$JOBS_REQUESTED" -le "$family_jobs_max" ] \
+        || die "--jobs $JOBS_REQUESTED refused: family $family is proven only up to $family_jobs_max concurrent workers"
     fi
   done
 fi
@@ -2365,14 +2520,6 @@ FAMILIES_TSV="$RUN_TMP/families.tsv"
 declare -a WORKER_PIDS=()
 declare -a WORKER_IDX=()
 declare -a WORKER_SCRIPTS=()
-
-# Invoked indirectly by the EXIT trap below.
-# shellcheck disable=SC2329
-cleanup_run() {
-  rm -rf "$RUN_TMP"
-}
-
-trap cleanup_run EXIT
 
 RUN_ID="fm-test-run-${RUN_STARTED_MS}-$$"
 TOTAL=0
@@ -2463,9 +2610,26 @@ run_script_bounded() {  # <script> <out> <stream> <id>
   local GIT_CONFIG_GLOBAL GIT_CONFIG_NOSYSTEM
   # shellcheck source=tests/git-config-helpers.sh
   . "$ROOT/tests/git-config-helpers.sh" || return
-  local rc
+  local rc bg
   : "$id"
   set +e
+  # Backgrounded and waited on: bash defers a trapped INT or TERM until a
+  # foreground child exits, which would leave a killed runner alive for as long
+  # as one test script takes. `wait` returns at the signal and the trap runs.
+  run_script_once "$script" "$out" "$stream" <&0 &
+  bg=$!
+  wait "$bg"
+  rc=$?
+  if [ "$PER_SCRIPT_TIMEOUT_SECS" -gt 0 ] && [ "$rc" -eq 124 ]; then
+    printf 'not ok - %s exceeded the per-script bound of %ss and was terminated\n' \
+      "$script" "$PER_SCRIPT_TIMEOUT_SECS" >>"$out"
+    [ "$stream" -eq 1 ] && tail -1 "$out"
+  fi
+  return "$rc"
+}
+
+run_script_once() {  # <script> <out> <stream>
+  local script=$1 out=$2 stream=$3 rc
   if [ "$stream" -eq 1 ]; then
     if [ "$PER_SCRIPT_TIMEOUT_SECS" -gt 0 ]; then
       # Expansion is intentionally deferred to the child bash passed to -c.
@@ -2483,11 +2647,6 @@ run_script_bounded() {  # <script> <out> <stream> <id>
   else
     bash "$script" >"$out" 2>&1
     rc=$?
-  fi
-  if [ "$PER_SCRIPT_TIMEOUT_SECS" -gt 0 ] && [ "$rc" -eq 124 ]; then
-    printf 'not ok - %s exceeded the per-script bound of %ss and was terminated\n' \
-      "$script" "$PER_SCRIPT_TIMEOUT_SECS" >>"$out"
-    [ "$stream" -eq 1 ] && tail -1 "$out"
   fi
   return "$rc"
 }
