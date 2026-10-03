@@ -73,6 +73,13 @@ case "${1:-}" in
     exit 0
     ;;
   list)
+    # The reconcile sweep reads every queued row with ONE
+    # `list --state queued --fields held,blocked`, so that is the read a wedged
+    # backend must be able to hang. Any other listing (the startup inventory)
+    # answers promptly.
+    case " $* " in
+      *" --state queued --fields held,blocked "*) sleep 300; exit 0 ;;
+    esac
     printf 'count: 0\n'
     printf 'tasks[0]{id,state,kind,repo,title,blocked_by,hold_kind,hold_reason}:\n'
     exit 0
@@ -410,7 +417,7 @@ DIGEST="$E2E/digest.out"
 DIGEST_START=$(date +%s)
 env -u CLAUDECODE -u PI_CODING_AGENT -u FM_PI_HARNESS -u GROK_AGENT \
   FM_HOME="$E2E_HOME" FM_ROOT_OVERRIDE="$E2E_ROOT" PATH="$E2E_FAKEBIN:$BASE_PATH" \
-  FM_BACKLOG_ROW_TIMEOUT_SECS="$BOUND_SECS" \
+  FM_BACKLOG_ROW_TIMEOUT_SECS="$BOUND_SECS" FM_BACKLOG_LIST_TIMEOUT_SECS="$BOUND_SECS" \
   "$ROOT/bin/fm-session-start.sh" > "$DIGEST" 2>&1 || true
 DIGEST_ELAPSED=$(elapsed_since "$DIGEST_START")
 

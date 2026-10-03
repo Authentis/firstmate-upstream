@@ -95,7 +95,12 @@
 #          retention an interrupted cleanup recorded, and marks In flight any
 #          item this home already owns a worker for. The worker-record sweep
 #          never starts a captain-held or closed item, and reconciliation never
-#          reads or writes another home; the fleet snapshot's classifier and
+#          reads or writes another home. The sweep reads the queued backlog rows
+#          once, not once per record, and stops after
+#          FM_BOOTSTRAP_RECONCILE_BUDGET_SECS (default 60) wall-clock seconds,
+#          reporting how many records it left for the next start; the single
+#          read is bounded by FM_BACKLOG_LIST_TIMEOUT_SECS (default 30). The
+#          fleet snapshot's classifier and
 #          bin/fm-secondmate-reconcile.sh's nudge stay as backstops. Replayed
 #          transitions and restored In-flight rows print BOOTSTRAP_INFO facts.
 #          The `code-root <file>` variant is a detect-only local check that runs
@@ -1189,8 +1194,17 @@ crew_dispatch_validate() {
 # restart rather than waiting for a parent's cross-home nudge; the fleet
 # snapshot's classifier and bin/fm-secondmate-reconcile.sh's nudge stay as
 # backstops for what this cannot see. Never reads or writes another home.
+#
+# The record sweep reads the backlog ONCE (fm_backlog_queued_rows) rather than
+# probing one row per record, and only takes the lock and re-probes for a record
+# whose row that read showed as a queued, unheld, unblocked row - the one case
+# the sweep can heal. FM_BOOTSTRAP_RECONCILE_BUDGET_SECS (default 60) bounds the
+# whole sweep: past it the sweep stops and names how many records it left for
+# the next start instead of consuming the session-start budget.
 backlog_record_reconcile() {
   local marker meta control_lock meta_lock id row label has_record=0 gate_status
+  local queued_rows='' rows_ok=0 rows_error='' budget=${FM_BOOTSTRAP_RECONCILE_BUDGET_SECS:-60}
+  local sweep_start skipped=0 over_budget=0
   # A fresh home with no state directory has no physical task records to pair.
   # Keep bootstrap diagnostics working without creating state just for a no-op.
   [ -e "$STATE" ] || [ -L "$STATE" ] || return 0
@@ -1266,19 +1280,63 @@ backlog_record_reconcile() {
     break
   done
   [ "$has_record" = 1 ] || return 0
+  case "$budget" in ''|*[!0-9]*) budget=60 ;; esac
+  [ "$budget" -gt 0 ] 2>/dev/null || budget=60
+  sweep_start=$SECONDS
+  # The first record already passed the full authorization above; authorize the
+  # shared state directory once and check the rest with shell tests.
   for meta in "$STATE"/*.meta; do
     [ -e "$meta" ] || [ -L "$meta" ] || continue
-    if ! fm_backlog_record_present "$meta" "task record" "$STATE"; then
+    if ! fm_backlog_record_batch_begin "$meta" "task record" "$STATE"; then
       echo "BACKLOG_RECONCILE: unsafe worker record refused: $FM_BACKLOG_TRANSITION_ERROR"
       return 2
     fi
-    id=$(basename "$meta" .meta)
+    break
+  done
+  if fm_backlog_queued_rows "$DATA"; then
+    rows_ok=1
+    queued_rows=$FM_BACKLOG_QUEUED_ROWS
+  else
+    rows_error=$FM_BACKLOG_ROW_ERROR
+  fi
+  for meta in "$STATE"/*.meta; do
+    [ -e "$meta" ] || [ -L "$meta" ] || continue
+    if [ "$over_budget" = 1 ] || [ $((SECONDS - sweep_start)) -ge "$budget" ]; then
+      over_budget=1
+      skipped=$((skipped + 1))
+      continue
+    fi
+    if ! fm_backlog_record_batch_check "$meta" "task record"; then
+      echo "BACKLOG_RECONCILE: unsafe worker record refused: $FM_BACKLOG_TRANSITION_ERROR"
+      return 2
+    fi
+    id=${meta##*/}
+    id=${id%.meta}
+    # Nothing below changes anything for a record whose row is not queued, so
+    # only a listed queued row is worth a lock. When the listing itself could
+    # not be read, nothing can be healed, but every owned record is still
+    # reported by name, with no lock and no further backend read.
+    if [ "$rows_ok" = 1 ]; then
+      case "$queued_rows" in
+        *$'\n'"$id"$'\t'"queued no no"$'\n'*) ;;
+        *) continue ;;
+      esac
+    else
+      [ -e "$STATE/$id.backlog-close" ] || [ -L "$STATE/$id.backlog-close" ] && continue
+      if [ "$(fm_meta_get "$meta" kind)" != secondmate ] \
+         && [ "$(fm_meta_get "$meta" cleanup_recovery)" != orca ]; then
+        echo "BACKLOG_RECONCILE: $id: worker record exists but its backlog item could not be read: $rows_error"
+      fi
+      continue
+    fi
     meta_lock=$(fm_meta_lock_path "$meta") || continue
     fm_lock_try_acquire "$meta_lock" || continue
     if [ -e "$STATE/$id.backlog-close" ] || [ -L "$STATE/$id.backlog-close" ]; then
       fm_lock_release "$meta_lock"
       continue
     fi
+    # The full authorization, not the batched check: this is the re-verification
+    # that the state boundary did not change between the sweep's check and the lock.
     if ! fm_backlog_record_present "$meta" "task record" "$STATE"; then
       echo "BACKLOG_RECONCILE: $id: post-lock worker record check refused: $FM_BACKLOG_TRANSITION_ERROR"
       fm_lock_release "$meta_lock"
@@ -1287,6 +1345,7 @@ backlog_record_reconcile() {
     if [ "$(fm_meta_get "$meta" kind)" != secondmate ] \
        && [ "$(fm_meta_get "$meta" cleanup_recovery)" != orca ]; then
       row=
+      # Confirm under the lock what the batched read showed before it.
       if fm_backlog_row_probe "$DATA" "$id"; then
         row=$FM_BACKLOG_ROW_STATE
       elif [ "$FM_BACKLOG_ROW_RESULT" != not_found ]; then
@@ -1305,6 +1364,9 @@ backlog_record_reconcile() {
     fi
     fm_lock_release "$meta_lock"
   done
+  if [ "$over_budget" = 1 ]; then
+    echo "BACKLOG_RECONCILE: sweep budget of ${budget}s exhausted; $skipped worker records were not reconciled and are left for the next session start"
+  fi
 }
 
 startup_memory_budget_setup() {

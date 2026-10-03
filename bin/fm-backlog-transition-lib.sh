@@ -476,6 +476,130 @@ fm_backlog_row_probe() {  # <data-dir> <id>
   return 0
 }
 
+# Read every queued row in ONE bounded `tasks-axi list`, instead of one `show`
+# per task record, so a sweep over N records costs one backend read rather than
+# N. Sets FM_BACKLOG_QUEUED_ROWS to one `<id><TAB><state> <held> <blocked>` line
+# per queued row, wrapped in leading and trailing newlines so a caller can test
+# membership with a plain `case` and no per-row process. Returns non-zero with
+# FM_BACKLOG_ROW_ERROR set when the read cannot be trusted: a backend failure,
+# a timeout (which also latches FM_BACKLOG_ROW_SHOW_WEDGED), an unexpected
+# column layout, or any row the parser dropped, because an incomplete listing
+# must never read as "no queued rows".
+#
+# FM_BACKLOG_LIST_TIMEOUT_SECS bounds the one read (default 30); it is larger
+# than the per-row bound because it carries the whole backlog.
+FM_BACKLOG_QUEUED_ROWS=
+fm_backlog_queued_rows() {  # <data-dir>
+  local authorized_data=$1 data out status source_status addressing_status secs=${FM_BACKLOG_LIST_TIMEOUT_SECS:-30}
+  local declared parsed header newlines
+  FM_BACKLOG_QUEUED_ROWS=
+  FM_BACKLOG_ROW_RESULT=error
+  FM_BACKLOG_ROW_ERROR=
+  if ! data=$(fm_backlog_data_absolute "$1"); then
+    FM_BACKLOG_ROW_ERROR="data directory cannot be resolved: $1"
+    return 1
+  fi
+  fm_backlog_source_present "$data" "$authorized_data"
+  source_status=$?
+  if [ "$source_status" -ne 0 ]; then
+    FM_BACKLOG_ROW_ERROR=$FM_BACKLOG_TRANSITION_ERROR
+    return "$source_status"
+  fi
+  case "$secs" in ''|*[!0-9]*) secs=30 ;; esac
+  [ "$secs" -gt 0 ] 2>/dev/null || secs=30
+  if [ "$FM_BACKLOG_ROW_SHOW_WEDGED" = 1 ]; then
+    FM_BACKLOG_ROW_ERROR="tasks-axi list skipped: the backlog backend already exceeded its read bound"
+    return 124
+  fi
+  fm_backlog_tasks_axi_addressing "$data"
+  addressing_status=$?
+  if [ "$addressing_status" -ne 0 ]; then
+    FM_BACKLOG_ROW_ERROR=${FM_BACKLOG_TRANSITION_ERROR:-"backlog addressing failed"}
+    return "$addressing_status"
+  fi
+  if [ -n "$FM_BACKLOG_AXI_FILE" ]; then
+    set -- --file "$FM_BACKLOG_AXI_FILE"
+  else
+    set --
+  fi
+  # shellcheck disable=SC2016  # Expansion is deliberately deferred to the child shell.
+  out=$(fm_run_timed "$secs" bash -c 'cd "$1" 2>/dev/null || exit 1; shift; exec tasks-axi list --state queued --fields held,blocked "$@"' \
+    _ "$FM_BACKLOG_AXI_ROOT" "$@" 2>&1)
+  status=$?
+  if [ "$status" -ne 0 ]; then
+    if [ "$status" -eq 124 ]; then
+      FM_BACKLOG_ROW_SHOW_WEDGED=1
+      FM_BACKLOG_ROW_ERROR="tasks-axi list exceeded its ${secs}s backlog read bound"
+    else
+      FM_BACKLOG_ROW_ERROR=$(printf '%s\n' "$out" | sed -n '1p')
+      [ -n "$FM_BACKLOG_ROW_ERROR" ] || FM_BACKLOG_ROW_ERROR="tasks-axi list failed with no output"
+    fi
+    return "$status"
+  fi
+  # One awk pass does both jobs: it checks the column layout and emits the rows.
+  # The id and state lead each row and held/blocked follow the free-text title,
+  # so they are read from the end. A row whose tail does not parse still emits
+  # with unknown flags, which can never match a heal, and the declared-versus-
+  # parsed count below refuses a listing that dropped any row.
+  parsed=$(printf '%s\n' "$out" | LC_ALL=C awk '
+    # An empty queue is reported as a sentence, not a zero-row table.
+    /^tasks: 0 / { declared = 0; next }
+    /^tasks\[/ {
+      if ($0 !~ /^tasks\[[0-9]+\]\{.*,held,blocked\}:$/) { print "!layout"; exit }
+      declared = $0
+      sub(/^tasks\[/, "", declared)
+      sub(/\].*$/, "", declared)
+      intable = 1
+      next
+    }
+    intable && /^  [^ ]/ {
+      line = substr($0, 3)
+      n = index(line, ",")
+      id = substr(line, 1, n - 1)
+      rest = substr(line, n + 1)
+      m = index(rest, ",")
+      state = substr(rest, 1, m - 1)
+      if (n > 1 && m > 1 && match(line, /,(yes|no),(yes|no)$/)) {
+        split(substr(line, RSTART + 1), f, ",")
+        row[++count] = id "\t" state " " f[1] " " f[2]
+      } else {
+        row[++count] = id "\t" state " ? ?"
+      }
+      next
+    }
+    intable && !/^  / { intable = 0 }
+    END {
+      if (declared == "") { print "!layout"; exit }
+      print "!declared " declared
+      for (i = 1; i <= count; i++) print row[i]
+    }
+  ')
+  header=${parsed%%$'\n'*}
+  case "$header" in
+    '!declared '*) ;;
+    *)
+      FM_BACKLOG_ROW_ERROR="tasks-axi list returned an unexpected row layout"
+      return 1
+      ;;
+  esac
+  declared=${header#'!declared '}
+  if [ "$parsed" = "$header" ]; then
+    parsed=
+    newlines=0
+  else
+    parsed=${parsed#*$'\n'}
+    newlines=${parsed//[!$'\n']/}
+    newlines=$(( ${#newlines} + 1 ))
+  fi
+  if [ "$newlines" != "$declared" ]; then
+    FM_BACKLOG_ROW_ERROR="tasks-axi list declared $declared queued rows but $newlines parsed"
+    return 1
+  fi
+  FM_BACKLOG_QUEUED_ROWS=$'\n'$parsed$'\n'
+  FM_BACKLOG_ROW_RESULT=found
+  return 0
+}
+
 # Run one tasks-axi mutation against <home>'s backlog, capturing its first
 # output line in FM_BACKLOG_TRANSITION_ERROR on failure. The home boundary is
 # authorized through fm_backlog_source_present first; fm_backlog_tasks_axi owns
@@ -716,6 +840,34 @@ fm_backlog_record_parent_authorized() {  # <path> <label> <root> [parent-only]
 fm_backlog_record_present() {
   local path=$1 label=${2:-record} root=$3
   fm_backlog_record_parent_authorized "$path" "$label" "$root" || return 1
+  if [ ! -f "$path" ]; then
+    FM_BACKLOG_TRANSITION_ERROR="$label is not a regular file at $path"
+    return 1
+  fi
+  return 0
+}
+
+# Batched form of fm_backlog_record_present for a sweep over many records that
+# share one parent directory. fm_backlog_record_present re-resolves the
+# authorized root, the parent, and the record itself on every call (three perl
+# spawns each); a sweep authorizes the shared root and parent ONCE here and then
+# checks each record with shell tests alone. The verdicts and messages match
+# fm_backlog_record_present's: a record is refused when it is a symlink, cannot
+# be resolved, or is not a regular file.
+fm_backlog_record_batch_begin() {  # <sample-record-path> <label> <root>
+  fm_backlog_record_parent_authorized "$1" "$2" "$3" parent-only
+}
+
+fm_backlog_record_batch_check() {  # <path> <label>
+  local path=$1 label=$2
+  if [ -L "$path" ]; then
+    if [ -e "$path" ]; then
+      FM_BACKLOG_TRANSITION_ERROR="$label resolves through a different final path at $path"
+    else
+      FM_BACKLOG_TRANSITION_ERROR="$label cannot be resolved at $path"
+    fi
+    return 1
+  fi
   if [ ! -f "$path" ]; then
     FM_BACKLOG_TRANSITION_ERROR="$label is not a regular file at $path"
     return 1

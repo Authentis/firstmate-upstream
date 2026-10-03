@@ -1915,7 +1915,8 @@ test_recovery_reports_an_owned_row_read_failure() {
   case_dir=$(make_home heal-owned-read-failure)
   add_item "$case_dir" "$id"
   write_task_meta "$case_dir" "$id" ship no-mistakes
-  break_verb "$case_dir" show
+  # The sweep reads the queued rows with one `list`, not a `show` per record.
+  break_verb "$case_dir" list
 
   out=$(run_bootstrap "$case_dir")
   assert_contains "$out" "worker record exists but its backlog item could not be read" \

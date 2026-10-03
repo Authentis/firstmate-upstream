@@ -747,7 +747,15 @@ task_json_lines() {
   local remote_host remote_root current_file endpoint_file observation_line index=0
   local pr pr_source event_json current_json endpoint_exists agent_alive meta_json status_json report_json worktree_json home_json
   local last_event_raw current_state current_source pending_decision blocked_event report_present=0 pr_from_status
-  local open_decisions_tsv open_decisions_json
+  local open_decisions_tsv open_decisions_json records_file open_decisions_file
+
+  # Records go to a file from THIS shell rather than down a pipeline: a failed
+  # per-task jq or a `return` inside a pipeline subshell is invisible to the
+  # reader, so the snapshot would silently omit that task. Every record the loop
+  # fails to produce fails the whole function instead.
+  records_file="$SNAPSHOT_TASK_DIR/task-records.jsonl"
+  open_decisions_file="$SNAPSHOT_TASK_DIR/open-decisions.json"
+  : > "$records_file" || return 1
 
   while [ "$index" -lt "$SNAPSHOT_TASK_META_COUNT" ]; do
     meta=${SNAPSHOT_TASK_METAS[index]}
@@ -855,6 +863,12 @@ task_json_lines() {
       home_json=$(jq -n '{path:null,present:false}')
     fi
 
+    # Free-form decision text is the one per-task value with no small bound, so
+    # it travels by file; argv carries only short scalars.
+    printf '%s\n' "$open_decisions_json" > "$open_decisions_file" || {
+      snapshot_task_cleanup
+      return 1
+    }
     jq -n \
       --arg id "$id" \
       --arg kind "$kind" \
@@ -884,11 +898,11 @@ task_json_lines() {
       --argjson worktree_path "$worktree_json" \
       --argjson home_path "$home_json" \
       --argjson endpoint_exists "$endpoint_exists" \
-      --argjson open_decisions "$open_decisions_json" \
+      --slurpfile open_decisions "$open_decisions_file" \
       --argjson pending_decision "$(bool_json "$pending_decision")" \
       --argjson blocked_event "$(bool_json "$blocked_event")" \
       --argjson report_present "$(bool_json "$report_present")" \
-      '{
+      '($open_decisions[0]) as $open_decisions | {
         id:$id,
         kind:$kind,
         harness:($harness // ""),
@@ -931,8 +945,13 @@ task_json_lines() {
              steer:"bin/fm-send.sh fm-\($id) \u0027<instruction>\u0027",
              return_channel_note:null}
           end)
-      }'
-  done | jq -s 'sort_by(.id)'
+      }' >> "$records_file" || {
+      echo "fm-fleet-snapshot: task record for $id could not be built" >&2
+      snapshot_task_cleanup
+      return 1
+    }
+  done
+  jq -s 'sort_by(.id)' "$records_file"
 }
 
 # Main-home current-inventory validity: same orphan / unstructured-current checks
@@ -1656,8 +1675,15 @@ terminal_evidence_json() {  # <parent-task-json> <event-note> <evidence-contradi
 }
 
 parent_evidence_reconciliation_json() {  # <summary-json-file> <activities-json> <decisions-json>
-  jq -n --slurpfile summary "$1" --argjson activities "$2" --argjson decisions "$3" '
+  local activities_file decisions_file
+  activities_file="$JSON_TRANSPORT_DIR/reconcile-activities.json"
+  decisions_file="$JSON_TRANSPORT_DIR/reconcile-decisions.json"
+  printf '%s\n' "$2" > "$activities_file" || return 1
+  printf '%s\n' "$3" > "$decisions_file" || return 1
+  jq -n --slurpfile summary "$1" --slurpfile activities "$activities_file" --slurpfile decisions "$decisions_file" '
     ($summary[0]) as $summary
+    | ($activities[0]) as $activities
+    | ($decisions[0]) as $decisions
     |
     def keyed: . != null and . != "" and . != "default";
     def result($e; $matches; $complete; $surface):
@@ -1715,6 +1741,21 @@ parent_evidence_reconciliation_json() {  # <summary-json-file> <activities-json>
        activities:$activity_results,decisions:$decision_results,
        contradiction:any(($activity_results + $decision_results)[]; .verdict == "contradicts"),
        inconclusive:any(($activity_results + $decision_results)[]; .verdict == "inconclusive")}'
+}
+
+# The per-secondmate record builders carry values whose size follows the
+# mate's own history (open decisions, activity windows, evidence
+# reconciliation), so they reach jq through files, never argv: a single argv
+# word over the kernel limit (128 KB on Linux) fails the exec outright.
+SNAPSHOT_SPOOL_DIR=
+spool_secondmate_json_args() {  # <decisions> <activities> <activity_scan> <terminal> <reconciliation>
+  SNAPSHOT_SPOOL_DIR="$JSON_TRANSPORT_DIR/spool"
+  [ -d "$SNAPSHOT_SPOOL_DIR" ] || mkdir -p "$SNAPSHOT_SPOOL_DIR" || return 1
+  printf '%s\n' "$1" > "$SNAPSHOT_SPOOL_DIR/decisions.json" || return 1
+  printf '%s\n' "$2" > "$SNAPSHOT_SPOOL_DIR/activities.json" || return 1
+  printf '%s\n' "$3" > "$SNAPSHOT_SPOOL_DIR/activity_scan.json" || return 1
+  printf '%s\n' "$4" > "$SNAPSHOT_SPOOL_DIR/terminal.json" || return 1
+  printf '%s\n' "$5" > "$SNAPSHOT_SPOOL_DIR/reconciliation.json" || return 1
 }
 
 secondmate_current_json() {  # <parent-tasks-json-file> <output-file>
@@ -1871,15 +1912,19 @@ secondmate_current_json() {  # <parent-tasks-json-file> <output-file>
           '{provenance:"parent-direct-report-terminal",trust:"untrusted-supplement",captured:false,observed_at:$observed,freshness:"not-collected",reason:"no useful contradiction check",lines:0,bytes:0,event_note_seen:false,contradiction:false}')
       fi
       if printf '%s' "$terminal" | jq -e '.contradiction == true' >/dev/null; then contradiction=true; fi
+      spool_secondmate_json_args "$decisions" "$activities" "$activity_scan" "$terminal" "$reconciliation" || return 1
       jq -n \
         --arg id "$id" --arg home "$home" --arg host "$host" --argjson remote "$remote" --arg state "$state" --arg observed "$summary_observed" \
         --arg summary_source "$summary_source" --arg summary_freshness "$summary_freshness" --argjson summary_age "$summary_age" \
         --arg spawn_gen "$sampled_spawn_gen" \
-        --argjson registered "$registered" --slurpfile summary "$summary_file" --argjson summary_valid "$summary_valid" --argjson decisions "$decisions" \
-        --argjson activities "$activities" --argjson activity_scan "$activity_scan" \
-        --argjson reconciliation "$reconciliation" --argjson terminal "$terminal" --argjson contradiction "$contradiction" \
+        --argjson registered "$registered" --slurpfile summary "$summary_file" --argjson summary_valid "$summary_valid" \
+        --slurpfile decisions "$SNAPSHOT_SPOOL_DIR/decisions.json" \
+        --slurpfile activities "$SNAPSHOT_SPOOL_DIR/activities.json" --slurpfile activity_scan "$SNAPSHOT_SPOOL_DIR/activity_scan.json" \
+        --slurpfile reconciliation "$SNAPSHOT_SPOOL_DIR/reconciliation.json" --slurpfile terminal "$SNAPSHOT_SPOOL_DIR/terminal.json" --argjson contradiction "$contradiction" \
         --arg event_raw "$event_raw" --arg event_note "$event_note" --argjson event_age "$event_age" '
         ($summary[0]) as $summary
+        | ($decisions[0]) as $decisions | ($activities[0]) as $activities | ($activity_scan[0]) as $activity_scan
+        | ($reconciliation[0]) as $reconciliation | ($terminal[0]) as $terminal
         |
         {id:$id,home:$home,host:($host | if . == "" then null else . end),remote:$remote,registered:$registered,
          spawn_gen:($spawn_gen | if . == "" then null else . end),
@@ -1908,13 +1953,18 @@ secondmate_current_json() {  # <parent-tasks-json-file> <output-file>
         terminal=$(jq -n --arg observed "$SNAPSHOT_NOW" \
           '{provenance:"parent-direct-report-terminal",trust:"untrusted-supplement",captured:false,observed_at:$observed,freshness:"not-collected",reason:"no parent event to compare",lines:0,bytes:0,event_note_seen:false,contradiction:false}')
       fi
+      spool_secondmate_json_args "$decisions" "$activities" "$activity_scan" "$terminal" null || return 1
       jq -n \
         --arg id "$id" --arg home "$home" --arg host "$host" --argjson remote "$remote" --arg reason "$reason" --arg observed "$SNAPSHOT_NOW" \
         --arg spawn_gen "$sampled_spawn_gen" \
         --arg provenance "$provenance" --arg freshness "$freshness" --arg event_raw "$event_raw" --arg event_note "$event_note" \
-        --argjson registered "$registered" --argjson event_age "$event_age" --argjson observed_age "$observed_age" --argjson activities "$activities" --argjson activity_scan "$activity_scan" \
-        --argjson decisions "$decisions" --argjson terminal "$terminal" --slurpfile summary "$summary_file" --argjson summary_sampled "$summary_sampled" '
+        --argjson registered "$registered" --argjson event_age "$event_age" --argjson observed_age "$observed_age" \
+        --slurpfile activities "$SNAPSHOT_SPOOL_DIR/activities.json" --slurpfile activity_scan "$SNAPSHOT_SPOOL_DIR/activity_scan.json" \
+        --slurpfile decisions "$SNAPSHOT_SPOOL_DIR/decisions.json" --slurpfile terminal "$SNAPSHOT_SPOOL_DIR/terminal.json" \
+        --slurpfile summary "$summary_file" --argjson summary_sampled "$summary_sampled" '
         ($summary[0]) as $summary
+        | ($decisions[0]) as $decisions | ($activities[0]) as $activities | ($activity_scan[0]) as $activity_scan
+        | ($terminal[0]) as $terminal
         |
         {id:$id,home:($home | if . == "" then null else . end),host:($host | if . == "" then null else . end),remote:$remote,registered:$registered,
          spawn_gen:($spawn_gen | if . == "" then null else . end),
@@ -1961,47 +2011,77 @@ secondmate_landed_from_current_json() {  # <secondmate-current-json-file> <outpu
 }
 
 scout_report_lines() {
-  local report id
+  local report id records_file
   if [ ! -d "$DATA" ]; then
     jq -n '[]'
     return 0
   fi
-  LC_ALL=C find "$DATA" -mindepth 2 -maxdepth 2 -type f -name report.md -print \
-    | sort \
-    | while IFS= read -r report; do
-      id=$(basename "$(dirname "$report")")
-      jq -n --arg id "$id" --arg path "$report" '{id:$id,path:$path}'
-    done \
-    | jq -s 'sort_by(.id)'
+  records_file="$JSON_TRANSPORT_DIR/scout-report-records.jsonl"
+  : > "$records_file" || return 1
+  # Read from a file, not a pipe, so a failed record is seen by this shell.
+  LC_ALL=C find "$DATA" -mindepth 2 -maxdepth 2 -type f -name report.md -print | sort > "$JSON_TRANSPORT_DIR/scout-report-paths.txt" || return 1
+  while IFS= read -r report; do
+    id=$(basename "$(dirname "$report")")
+    jq -n --arg id "$id" --arg path "$report" '{id:$id,path:$path}' >> "$records_file" || return 1
+  done < "$JSON_TRANSPORT_DIR/scout-report-paths.txt"
+  jq -s 'sort_by(.id)' "$records_file"
 }
 
+# Large documents (the whole backlog, the whole task set) cross between steps by
+# file only. The transport directory therefore exists before the first read.
+JSON_TRANSPORT_DIR=$(mktemp -d "${TMPDIR:-/tmp}/fm-fleet-snapshot.XXXXXX") \
+  || { echo "fm-fleet-snapshot: temporary transport directory creation failed" >&2; exit 1; }
 BACKLOG_JSON=$(backlog_json) || { echo "fm-fleet-snapshot: backlog read failed" >&2; exit 1; }
 contribution_tasks_json() {
-  local meta id merge_authority
+  local meta id line kind pr head fields_file count=0 merge_authority=unknown resolved=0
+  # One pass over the records, then ONE jq over their fields: a per-record jq
+  # (and a per-record merge-authority resolution) made this the dominant cost of
+  # a session start on a large home.
+  fields_file="$JSON_TRANSPORT_DIR/contribution-task-fields.tsv"
+  : > "$fields_file" || return 1
   for meta in "$STATE"/*.meta; do
     [ -f "$meta" ] && [ ! -L "$meta" ] || continue
-    id=$(basename "$meta" .meta)
-    merge_authority=unknown
-    if fm_merge_authority_resolve "$FM_HOME" "$STATE" "$meta" "$id"; then
-      merge_authority=$FM_MERGE_AUTHORITY
+    id=${meta##*/}
+    id=${id%.meta}
+    # The authority depends only on the home's away-contract state, never on the
+    # record, so it is resolved once for the whole set.
+    if [ "$resolved" = 0 ]; then
+      resolved=1
+      if fm_merge_authority_resolve "$FM_HOME" "$STATE" "$meta" "$id"; then
+        merge_authority=$FM_MERGE_AUTHORITY
+      fi
     fi
-    jq -n --arg id "$id" --arg kind "$(meta_value "$meta" kind)" \
-      --arg url "$(meta_value "$meta" pr)" --arg head "$(meta_value "$meta" pr_head)" \
-      --arg merge_authority "$merge_authority" '{id:$id,kind:$kind,pr:{url:$url,head:$head},merge_authority:$merge_authority}'
-  done | jq -s .
+    kind='' pr='' head=''
+    while IFS= read -r line || [ -n "$line" ]; do
+      case "$line" in
+        kind=*) kind=${line#*=} ;;
+        pr=*) pr=${line#*=} ;;
+        pr_head=*) head=${line#*=} ;;
+      esac
+    done < "$meta" || return 1
+    printf '%s\t%s\t%s\t%s\n' "$id" "${kind//$'\t'/ }" "${pr//$'\t'/ }" "${head//$'\t'/ }" >> "$fields_file" || return 1
+    count=$((count + 1))
+  done
+  jq -R -s --arg merge_authority "$merge_authority" --argjson expected "$count" '
+    [ split("\n")[] | select(length > 0) | split("\t")
+      | {id:.[0],kind:(.[1] // ""),pr:{url:(.[2] // ""),head:(.[3] // "")},merge_authority:$merge_authority} ]
+    | if length == $expected then . else error("contribution task records were dropped") end' "$fields_file"
 }
 
 if [ "$OUTPUT_MODE" = contribution-input ]; then
   # Reuse the canonical backlog parser, without observing workers or other homes.
   contribution_tasks=$(contribution_tasks_json) || { echo "fm-fleet-snapshot: contribution task read failed" >&2; exit 1; }
-  jq -n --argjson backlog "$BACKLOG_JSON" --argjson tasks "$contribution_tasks" '{backlog:$backlog,tasks:$tasks}'
+  printf '%s\n' "$BACKLOG_JSON" > "$JSON_TRANSPORT_DIR/contribution-backlog.json" \
+    || { echo "fm-fleet-snapshot: temporary backlog file write failed" >&2; exit 1; }
+  printf '%s\n' "$contribution_tasks" > "$JSON_TRANSPORT_DIR/contribution-tasks-only.json" \
+    || { echo "fm-fleet-snapshot: contribution task staging failed" >&2; exit 1; }
+  jq -n --slurpfile backlog "$JSON_TRANSPORT_DIR/contribution-backlog.json" \
+    --slurpfile tasks "$JSON_TRANSPORT_DIR/contribution-tasks-only.json" '{backlog:$backlog[0],tasks:$tasks[0]}'
   exit 0
 fi
 prefetch_task_current_states || { echo "fm-fleet-snapshot: task observation failed" >&2; exit 1; }
 TASKS_JSON=$(task_json_lines) || { echo "fm-fleet-snapshot: task snapshot failed" >&2; exit 1; }
 
-JSON_TRANSPORT_DIR=$(mktemp -d "${TMPDIR:-/tmp}/fm-fleet-snapshot.XXXXXX") \
-  || { echo "fm-fleet-snapshot: temporary transport directory creation failed" >&2; exit 1; }
 BACKLOG_JSON_FILE="$JSON_TRANSPORT_DIR/backlog.json"
 TASKS_JSON_FILE="$JSON_TRANSPORT_DIR/tasks.json"
 MAIN_INVENTORY_JSON_FILE="$JSON_TRANSPORT_DIR/main-inventory.json"
