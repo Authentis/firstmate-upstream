@@ -24,6 +24,7 @@ Every other section of this brief takes precedence, and nothing here adds a revi
 4. **Verification.** Done needs a real artifact: the output of a command you ran on the real surface, or a local verifier you can rerun.
    A compile, type check, or passing unit test is support, and a check on the wrong surface or an inconclusive one is not a pass; say so plainly.
    Label what you state about behavior as measured (you ran it), inferred, or guessed, and let the proof rows under Definition of done carry the level.
+   A performance number needs its limiter named (why isn't it twice as fast?) and ruled out against errors, caching and an untuned side before you report it.
 5. **Role isolation.** You are a ship worker: your branch in your disposable worktree is the only thing you change.
    Do not run fleet commands (spawn, send, teardown, merge), do not take a scout's report deliverable, and do not treat a Firstmate supervisor contract as your job description.
 
@@ -46,6 +47,7 @@ Every other section of this brief takes precedence, and nothing here adds a revi
    Otherwise write one line saying why the question is local and read only what it touches.
 4. **Verification.** Every finding in the report cites a real artifact: command output you ran, a `file:line`, or a commit.
    Label each claim measured (you ran it), inferred, or guessed, and report an unanswerable question as unknown with what you searched.
+   A performance number needs its limiter named (why isn't it twice as fast?) and ruled out against errors, caching and an untuned side before you report it.
 5. **Role isolation.** You are a scout: the report and the status file are your only writes outside the worktree.
    Make no branch for delivery, push nothing, open no PR, run no fleet commands, and do not promote yourself to a ship; firstmate decides that.
 EOF2
