@@ -320,6 +320,7 @@ test_large_log_folds_fast_without_spawning_processes() {
   got=$(
     # shellcheck disable=SC2329 # bash calls this handler itself for a missing command.
     command_not_found_handle() { printf '%s\n' "$1" >> "$counts"; return 127; }
+    # shellcheck disable=SC2123 # deliberate: this subshell may reach no external command.
     PATH=/nonexistent
     status_open_decisions "$f" secondmate
   )
