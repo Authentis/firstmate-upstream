@@ -26,7 +26,7 @@
 #   `approval` and `floor`, each profile's declared `provider` and `floor`, the
 #   quota rows from ONE quota-axi --json snapshot (schema 5 or 6; each
 #   candidate binds to one row through quota_row in
-#   bin/fm-quota-axi-lib.sh, so a Pi lane such as openai-codex-work/...
+#   bin/fm-quota-axi-lib.sh, so a Pi lane such as openai-work/...
 #   reads its own account's row and an expanded provider with no row for the
 #   candidate is unmeasured, never blocked), and the spendPriority argmax over
 #   the eligible candidates. The model never sees quota, catalogs, approvals,

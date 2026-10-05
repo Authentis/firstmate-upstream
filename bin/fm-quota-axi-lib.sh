@@ -161,7 +161,7 @@ fm_quota_provider_for_harness() {
   case "$1" in
     omp)
       case "${2:-}" in
-        openai-codex/*)  printf 'codex\n' ;;
+        openai/*|openai-codex/*) printf 'codex\n' ;;
         claude-bridge/*) printf 'claude\n' ;;
         *)               return 1 ;;
       esac

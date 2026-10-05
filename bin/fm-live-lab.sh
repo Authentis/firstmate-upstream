@@ -66,7 +66,7 @@
 #                    exists; touch the gate and message the worker to resume.
 #   primary          window main: claude --setting-sources project,local
 #                    (default sonnet, medium, permission mode auto) or pi
-#                    (default openai-codex/gpt-6-luna, medium), launched
+#                    (default openai/gpt-6-luna, medium), launched
 #                    after the mate and worker so its first turn end arms
 #                    supervision. up then sends one harmless probe prompt.
 #
@@ -480,7 +480,7 @@ cmd_up() {
   [ "$host_line" != __default__ ] || { [ "$harness" = claude ] && host_line=claude || host_line=none; }
   HOST_OFF=no
   [ "$host_line" != off ] || HOST_OFF=yes
-  [ -n "$model" ] || { [ "$harness" = claude ] && model=sonnet || model=openai-codex/gpt-6-luna; }
+  [ -n "$model" ] || { [ "$harness" = claude ] && model=sonnet || model=openai/gpt-6-luna; }
   CLAUDE_DIR=${CLAUDE_CONFIG_DIR:-}
   case "$CLAUDE_DIR" in ''|/*) ;; *) die "CLAUDE_CONFIG_DIR must be an absolute path" ;; esac
   CLAUDE_STORE="${CLAUDE_DIR:-$HOME}/.claude.json"

@@ -39,12 +39,12 @@
 # candidate order and every candidate's provider is the harness's primary family.
 #
 # omp (Oh My Pi) has no single primary family, so its candidate model prefix
-# selects the family: openai-codex/<id> checks the codex row and
+# selects the family: openai/<id> (or the legacy openai-codex/<id>) checks the codex row and
 # claude-bridge/<id> checks the claude row, each against the bare <id> for
 # model: and product: scopes. Any other or absent prefix is refused up front,
 # the same shape as an unknown harness, because no quota-axi row measures it.
 # quota-axi reports Codex quota unavailable on this host because omp carries
-# its own Codex login, so an openai-codex candidate reads as unknown quota here
+# its own Codex login, so an openai or openai-codex candidate reads as unknown quota here
 # and is never selected on this host; its runway is disclosed uncertainty for
 # the agent-side gates, not measured headroom.
 set -u
@@ -365,7 +365,7 @@ for c in "${CANDIDATES[@]}"; do
   [ -n "$model" ] || die "invalid candidate: $c"
   fm_control_harness_supported "$harness" || die "unknown harness: $harness"
   provider_for_harness "$harness" "$model" >/dev/null || case "$harness" in
-    omp) die "omp quota mapping covers only the openai-codex and claude-bridge prefixes: $model" ;;
+    omp) die "omp quota mapping covers only the openai, openai-codex and claude-bridge prefixes: $model" ;;
     *) die "unknown harness: $harness" ;;
   esac
 done
