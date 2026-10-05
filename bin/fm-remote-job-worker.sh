@@ -28,10 +28,15 @@
 # one second between passes. Work arriving after the four-pass burst may wait
 # for that quiet scan. Newly staged or cancelled work, a lane that died, an
 # orphaned claim, or an expired queue deadline can wait that interval plus
-# scan work and scheduling time. It re-reads its ownership lock about once per
-# second and refreshes the readiness heartbeat about every two seconds, both
-# without forking helpers and far inside the probe's 10-second freshness bound.
-# sweep, whose state preparation also re-applies the queue directories' 0700
+# scan work and scheduling time. A separate heartbeat process refreshes readiness
+# about once per second, including during slow scans and sweeps, only while the
+# serving process is alive and its recorded lock ownership still verifies.
+# The heartbeat recreates a missing ready file with the serving process's PID
+# and mode 0600 after verifying ownership, without waiting for the serving loop.
+# Losing lock ownership stops heartbeat refresh; losing the heartbeat process
+# while still owning the lock stops the serving loop on its next pass. The
+# serving loop separately re-reads its ownership lock every second with builtins.
+# The stale sweep, whose state preparation also re-applies the queue directories' 0700
 # modes, runs at startup and then at most every 60 seconds, never more rarely
 # than the shortest record reap age.
 #
@@ -98,6 +103,7 @@ WORKER_LOCK_HELD=0
 WORKER_LOCK_BOUND=
 WORKER_RELEASE_OWNERSHIP=1
 WORKER_SUPERVISED_PID=
+WORKER_HEARTBEAT_PID=
 WORKER_SUPERVISOR_TOKEN=
 WORKER_PREEMPTIBLE=0
 WORKER_PREEMPTED=0
@@ -122,10 +128,43 @@ worker_account_home() {
 
 # Builtins plus the one rename, so an idle worker spawns a single process per
 # heartbeat; the probe reads only the file's mtime.
-worker_write_heartbeat() {
-  local tmp="$FM_REMOTE_JOB_STATE/.ready.${BASHPID:-$$}"
-  (umask 077; printf '%s\n' "${BASHPID:-$$}" > "$tmp") || { rm -f -- "$tmp"; return 1; }
+worker_write_heartbeat() { # <owner-pid>
+  local owner=$1 tmp
+  tmp="$FM_REMOTE_JOB_STATE/.ready.${owner}"
+  (umask 077; printf '%s\n' "$owner" > "$tmp") || { rm -f -- "$tmp"; return 1; }
   mv -f -- "$tmp" "$WORKER_READY"
+}
+
+worker_heartbeat_loop() { # <account-home> <owner-pid>
+  local account_home=$1 owner=$2 ready owner_state
+  ready=$(fm_remote_job_worker_ready_path)
+  trap 'exit 0' HUP INT TERM
+  while kill -0 "$owner" 2>/dev/null &&
+    owner_state=$(/bin/ps -p "$owner" -o state= 2>/dev/null) &&
+    [ -n "$owner_state" ] && [[ "$owner_state" != *Z* ]] &&
+    fm_remote_job_lock_owner_matches_process "$account_home" &&
+    [ "$FM_REMOTE_JOB_OWNER_PID" = "$owner" ]; do
+    if [ ! -e "$ready" ] && [ ! -L "$ready" ]; then
+      worker_write_heartbeat "$owner" || exit 1
+    else
+      touch -c -- "$ready" || exit 1
+    fi
+    /bin/sleep 1
+  done
+}
+
+worker_start_heartbeat() { # <account-home>
+  local account_home=$1 owner=${BASHPID:-$$}
+  worker_heartbeat_loop "$account_home" "$owner" &
+  WORKER_HEARTBEAT_PID=$!
+}
+
+worker_stop_heartbeat() {
+  local pid=${WORKER_HEARTBEAT_PID:-}
+  [ -n "$pid" ] || return 0
+  kill -TERM "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+  WORKER_HEARTBEAT_PID=
 }
 
 worker_publish_pid() {
@@ -137,9 +176,8 @@ worker_publish_pid() {
   mv -f -- "$tmp" "$pid_file"
 }
 
-worker_publish_identity() {
-  local account_home=$1 identity identity_file tmp
-  identity=$(fm_remote_job_code_identity "$FM_ROOT" "$account_home") || return 1
+worker_publish_identity() { # <identity>
+  local identity=$1 identity_file tmp
   identity_file=$(fm_remote_job_worker_identity_path)
   tmp=$(umask 077; mktemp "$FM_REMOTE_JOB_STATE/.identity.XXXXXX") || return 1
   printf '%s\n' "$identity" > "$tmp" || { rm -f -- "$tmp"; return 1; }
@@ -229,12 +267,16 @@ worker_remove_stale_lock_litter() {
   done
 }
 
-worker_acquire_lock() {
-  local account_home=$1 attempt=0
+worker_acquire_lock() { # <account-home> <identity>
+  local account_home=$1 identity=$2 attempt=0
   while [ "$attempt" -lt 150 ]; do
     if (umask 077; mkdir "$WORKER_LOCK") 2>/dev/null; then
       WORKER_LOCK_HELD=1
+      # Discard the predecessor's heartbeat before publishing our identity:
+      # readiness must come from this owner after lock publication succeeds.
+      rm -f -- "$(fm_remote_job_worker_ready_path)" || return 1
       worker_publish_lock_owner || return 1
+      worker_publish_identity "$identity" || return 4
       return 0
     fi
     # Released between the mkdir and this check: race for it again.
@@ -629,6 +671,7 @@ worker_shutdown() {
 }
 
 worker_exit_cleanup() {
+  worker_stop_heartbeat
   if [ "$WORKER_RELEASE_OWNERSHIP" -eq 1 ] && ! worker_stop_active_execution; then
     worker_error "could not stop the active command tree during exit"
     worker_publish_quarantine || worker_error "could not quarantine failed exit ownership"
@@ -1291,49 +1334,51 @@ worker_wait_for_work() {
 }
 
 main() {
-  local account_home lock_status next_ownership=-1 next_heartbeat=0 next_sweep=0 sweep_interval ownership
+  local account_home identity lock_status next_ownership=-1 next_sweep=0 sweep_interval ownership
   account_home=$(worker_account_home) || { worker_error "cannot resolve account home"; exit 1; }
   FM_ROOT=$(fm_remote_job_canonical_existing_dir "$FM_ROOT") || { worker_error "configured FM_ROOT is unsafe"; exit 1; }
   [ -f "$FM_ROOT/AGENTS.md" ] && [ ! -L "$FM_ROOT/AGENTS.md" ] || { worker_error "FM_ROOT is not a Firstmate checkout"; exit 1; }
   fm_remote_job_prepare_state "$account_home" || { worker_error "$FM_REMOTE_JOB_ERROR"; exit 1; }
+  identity=$(fm_remote_job_code_identity "$FM_ROOT" "$account_home") || { worker_error "cannot compute worker code identity"; exit 1; }
   WORKER_LOCK=$(fm_remote_job_worker_lock_path)
   trap worker_exit_cleanup EXIT
-  worker_acquire_lock "$account_home"
+  worker_acquire_lock "$account_home" "$identity"
   lock_status=$?
   case "$lock_status" in
     0) ;;
     2) exit 0 ;;
     3) worker_error "worker ownership is quarantined after an unconfirmed shutdown"; exit 75 ;;
+    4) worker_error "cannot publish worker code identity"; exit 1 ;;
     *) worker_error "cannot acquire or safely reclaim worker ownership"; exit 1 ;;
   esac
   trap worker_shutdown HUP INT TERM
-  worker_publish_identity "$account_home" || { worker_error "cannot publish worker code identity"; exit 1; }
   worker_publish_pid || { worker_error "cannot publish worker pid"; exit 1; }
+  WORKER_READY=$(fm_remote_job_worker_ready_path)
+  worker_write_heartbeat "${BASHPID:-$$}" || { worker_error "cannot update worker heartbeat"; exit 1; }
+  worker_start_heartbeat "$account_home"
   sweep_interval=$WORKER_SWEEP_SECONDS
   [ "$FM_REMOTE_JOB_STAGE_REAP_SECONDS" -ge "$sweep_interval" ] || sweep_interval=$FM_REMOTE_JOB_STAGE_REAP_SECONDS
   [ "$FM_REMOTE_JOB_REAP_SECONDS" -ge "$sweep_interval" ] || sweep_interval=$FM_REMOTE_JOB_REAP_SECONDS
   [ "$sweep_interval" -ge 1 ] || sweep_interval=1
   WORKER_FAST_REMAINING=0
   WORKER_ACTIVITY=1
-  WORKER_READY=$(fm_remote_job_worker_ready_path)
   while :; do
-    # Ownership is re-read every second with builtins only; the heartbeat
-    # follows at most every other second, far inside the probe's 10-second bound.
+    # The independent heartbeat keeps readiness fresh through slow serving
+    # passes while ownership remains verifiable.
+    if ! kill -0 "$WORKER_HEARTBEAT_PID" 2>/dev/null &&
+      fm_remote_job_lock_owner_matches_process "$account_home" &&
+      [ "$FM_REMOTE_JOB_OWNER_PID" = "${BASHPID:-$$}" ]; then
+      worker_error "readiness heartbeat process stopped"
+      exit 1
+    fi
+    # Ownership is re-read every second with builtins only, so a loop that lost
+    # ownership steps aside before it refreshes the queue it no longer serves.
     if [ "$SECONDS" -ne "$next_ownership" ]; then
-      # Checked before the heartbeat, so a loop that lost ownership never
-      # refreshes the readiness of the queue it no longer serves.
       ownership=0
       worker_lock_ownership_status || ownership=$?
       [ "$ownership" -ne 1 ] || worker_step_aside_lost_lock
       next_ownership=$SECONDS
-      if [ "$SECONDS" -ge "$next_heartbeat" ]; then
-        worker_write_heartbeat || { worker_error "cannot update worker heartbeat"; exit 1; }
-        next_heartbeat=$((SECONDS + 2))
-      fi
     fi
-    # Checked right after a heartbeat no older than a second, so the grace
-    # window cannot make a still-healthy worker read as unready to a
-    # concurrent probe.
     if worker_code_root_abandoned; then
       worker_error "configured FM_ROOT $FM_ROOT no longer exists; stopping the abandoned worker"
       exit 0
