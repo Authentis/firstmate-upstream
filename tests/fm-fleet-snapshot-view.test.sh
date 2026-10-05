@@ -1152,6 +1152,105 @@ EOF
   pass "home-summary excludes kind=secondmate from unowned_current and terminal_in_flight"
 }
 
+# A status line has no small bound. The last status line (raw and note) and the
+# crew-state detail crossed to jq through argv, so a busy home failed the whole
+# snapshot with "Argument list too long" before jq ever started. This pins that
+# every value with no small bound now travels by file and round-trips exactly.
+test_snapshot_transports_long_status_lines_by_file() {
+  local home fakebin out i id note
+  # Small input: the transported fields still carry their exact values.
+  home=$(make_home long-line-small)
+  mkdir -p "$home/projects/wt"
+  fm_write_meta "$home/state/ship-task.meta" \
+    "window=firstmate:fm-ship-task" \
+    "worktree=$home/projects/wt" \
+    "project=alpha" \
+    "harness=claude" \
+    "kind=ship" \
+    "mode=ship"
+  printf 'working: a short note\n' > "$home/state/ship-task.status"
+  fakebin=$(make_fakebin "$home")
+  out=$(PATH="$fakebin:$PATH" FM_HOME="$home" "$SNAPSHOT" --json)
+  printf '%s' "$out" | jq -e '
+    .tasks[] | select(.id == "ship-task")
+    | .paths.status_log.last_event.raw == "working: a short note"
+      and .paths.status_log.last_event.note == "a short note"
+      and .hints.last_event_text == "working: a short note"
+  ' >/dev/null || fail "small-input status event changed value: $out"
+
+  # Large input: many lanes, long status lines, and a deep open-decision set.
+  home=$(make_home long-line-large)
+  mkdir -p "$home/mate-home"
+  i=0
+  while [ "$i" -lt 14 ]; do
+    i=$((i + 1))
+    id=$(printf 'lane-%02d' "$i")
+    fm_write_meta "$home/state/$id.meta" \
+      "window=firstmate:fm-$id" \
+      "worktree=$home/mate-home" \
+      "project=alpha" \
+      "harness=codex" \
+      "kind=ship" \
+      "mode=ship"
+    printf 'working: %s\n' "$(head -c 8000 /dev/zero | tr '\0' 'y')" > "$home/state/$id.status"
+  done
+  # 400 KB is past the per-argument limit on both Linux and macOS.
+  note=$(head -c 400000 /dev/zero | tr '\0' 'x')
+  printf '%s' "$note" > "$home/expected-note.txt"
+  {
+    i=0
+    while [ "$i" -lt 110 ]; do
+      i=$((i + 1))
+      printf 'needs-decision [key=dec-%03d]: decide item %d\n' "$i" "$i"
+    done
+    printf 'working: %s\n' "$note"
+  } > "$home/state/mate.status"
+  fm_write_meta "$home/state/mate.meta" \
+    "window=firstmate:fm-mate" \
+    "worktree=$home/mate-home" \
+    "project=$home/mate-home" \
+    "harness=codex" \
+    "kind=secondmate" \
+    "mode=secondmate" \
+    "home=$home/mate-home" \
+    "projects=alpha"
+  # A lone long line, with no decision to supersede it, is what the crew-state
+  # detail reads; it must reach the record by file too.
+  crew_note=$(head -c 20000 /dev/zero | tr '\0' 'z')
+  printf '%s' "$crew_note" > "$home/expected-crew-note.txt"
+  printf 'working: %s\n' "$crew_note" > "$home/state/mate-long.status"
+  fm_write_meta "$home/state/mate-long.meta" \
+    "window=firstmate:fm-mate-long" \
+    "worktree=$home/mate-home" \
+    "project=$home/mate-home" \
+    "harness=codex" \
+    "kind=secondmate" \
+    "mode=secondmate" \
+    "home=$home/mate-home" \
+    "projects=alpha"
+  fakebin=$(make_fakebin "$home")
+  if ! out=$(PATH="$fakebin:$PATH" FM_HOME="$home" "$SNAPSHOT" --json 2>"$home/snapshot.err"); then
+    fail "snapshot failed on long status lines: $(cat "$home/snapshot.err")"
+  fi
+  printf '%s' "$out" | jq -e \
+    --rawfile expected "$home/expected-note.txt" \
+    --rawfile crew "$home/expected-crew-note.txt" '
+    (.tasks | length) == 16
+      and ([.tasks[] | select(.id | startswith("lane-"))] | length) == 14
+      and (.tasks[] | select(.id == "mate")
+        | .paths.status_log.last_event.raw == ("working: " + $expected)
+          and .hints.last_event_text == ("working: " + $expected)
+          and (.hints.open_decisions | length) == 110)
+      and (.tasks[] | select(.id == "mate-long")
+        | .current_state.detail == $crew
+          and (.current_state.raw | endswith(" · " + $crew)))
+      and (.secondmate_current.records[] | select(.id == "mate")
+        | .parent_event.raw == ("working: " + $expected)
+          and .parent_event.note == $expected)
+  ' >/dev/null || fail "long status line or open decisions did not round-trip exactly: $out"
+  pass "snapshot transports long status lines and deep decision sets by file"
+}
+
 test_empty_fleet_json
 test_fixture_snapshot_json
 test_home_summary_excludes_secondmate_from_child_inventory
@@ -1167,6 +1266,7 @@ test_open_decision_clears_on_keyed_resolution
 test_completed_scout_report_is_pointer_not_pending
 test_parked_scout_decision_stays_pending
 test_scout_reports_include_teardown_reports
+test_snapshot_transports_long_status_lines_by_file
 test_backlog_tasks_axi_forms_and_overrides
 test_view_renders_snapshot
 test_view_renders_dead_secondmate_agent_status
