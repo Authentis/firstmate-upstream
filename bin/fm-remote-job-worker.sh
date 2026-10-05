@@ -160,13 +160,14 @@ worker_start_heartbeat() {
   WORKER_HEARTBEAT_PID=$!
 }
 
-# The heartbeat stops on its own once its owner is gone, so shutdown does not
-# block on the sleep it may be inside; waiting there only delayed a replacement
-# this worker's supervisor had already started.
+# The heartbeat's sleep defers a TERM trap by up to a second, which alone would
+# push shutdown past the fork's quarantine window. SIGKILL reaps it at once, and
+# waiting reaps the child so a stopped worker's process group empties promptly.
 worker_stop_heartbeat() {
   local pid=${WORKER_HEARTBEAT_PID:-}
   [ -n "$pid" ] || return 0
-  kill -TERM "$pid" 2>/dev/null || true
+  kill -KILL "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
   WORKER_HEARTBEAT_PID=
 }
 
