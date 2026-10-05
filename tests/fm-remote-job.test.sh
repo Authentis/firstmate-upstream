@@ -92,6 +92,13 @@ printf 'started\n' > "$1"
 sleep 3
 printf 'ran\n' > "$2"
 SH
+cat > "$REMOTE_ROOT/bin/fm-quarantine-job.sh" <<'SH'
+#!/bin/bash
+trap '' HUP INT TERM
+printf 'started\n' > "$1"
+sleep 8
+printf 'ran\n' > "$2"
+SH
 cat > "$REMOTE_ROOT/bin/fm-output-job.sh" <<'SH'
 #!/bin/bash
 set -e
@@ -701,7 +708,7 @@ QUARANTINE_STARTED="$TMP_ROOT/quarantine-started"
 QUARANTINE_SIDE_EFFECT="$TMP_ROOT/quarantine-side-effect"
 FM_REMOTE_JOB_TIMEOUT=5
 fm_remote_job_stage "$ACCOUNT_HOME" "$REMOTE_ROOT" "$REMOTE_HOME" \
-  fm-shutdown-job.sh "$QUARANTINE_STARTED" "$QUARANTINE_SIDE_EFFECT" < /dev/null > /dev/null
+  fm-quarantine-job.sh "$QUARANTINE_STARTED" "$QUARANTINE_SIDE_EFFECT" < /dev/null > /dev/null
 JOB_ID=$FM_REMOTE_JOB_ID
 JOB_DIR="$STATE_ROOT/jobs/$JOB_ID"
 for _ in $(seq 1 100); do
