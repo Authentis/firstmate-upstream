@@ -34,8 +34,8 @@
 # The heartbeat recreates a missing ready file with the serving process's PID
 # and mode 0600 after verifying ownership, without waiting for the serving loop.
 # Losing lock ownership stops heartbeat refresh; losing the heartbeat process
-# while still owning the lock stops the serving loop on its next pass. The
-# serving loop separately re-reads its ownership lock every second with builtins.
+# while still owning the lock stops the serving loop on its next pass. Both
+# ownership checks are builtin reads, so neither forks a helper per pass.
 # The stale sweep, whose state preparation also re-applies the queue directories' 0700
 # modes, runs at startup and then at most every 60 seconds, never more rarely
 # than the shortest record reap age.
@@ -135,15 +135,16 @@ worker_write_heartbeat() { # <owner-pid>
   mv -f -- "$tmp" "$WORKER_READY"
 }
 
-worker_heartbeat_loop() { # <account-home> <owner-pid>
-  local account_home=$1 owner=$2 ready owner_state
+worker_heartbeat_loop() { # <owner-pid>
+  local owner=$1 ready owner_state
   ready=$(fm_remote_job_worker_ready_path)
   trap 'exit 0' HUP INT TERM
+  # Ownership is verified with the same builtin read the serving loop uses, so
+  # an idle heartbeat forks only its liveness probe, its sleep, and the rename.
   while kill -0 "$owner" 2>/dev/null &&
     owner_state=$(/bin/ps -p "$owner" -o state= 2>/dev/null) &&
     [ -n "$owner_state" ] && [[ "$owner_state" != *Z* ]] &&
-    fm_remote_job_lock_owner_matches_process "$account_home" &&
-    [ "$FM_REMOTE_JOB_OWNER_PID" = "$owner" ]; do
+    worker_lock_ownership_status "$owner"; do
     if [ ! -e "$ready" ] && [ ! -L "$ready" ]; then
       worker_write_heartbeat "$owner" || exit 1
     else
@@ -153,17 +154,19 @@ worker_heartbeat_loop() { # <account-home> <owner-pid>
   done
 }
 
-worker_start_heartbeat() { # <account-home>
-  local account_home=$1 owner=${BASHPID:-$$}
-  worker_heartbeat_loop "$account_home" "$owner" &
+worker_start_heartbeat() {
+  local owner=${BASHPID:-$$}
+  worker_heartbeat_loop "$owner" &
   WORKER_HEARTBEAT_PID=$!
 }
 
+# The heartbeat stops on its own once its owner is gone, so shutdown does not
+# block on the sleep it may be inside; waiting there only delayed a replacement
+# this worker's supervisor had already started.
 worker_stop_heartbeat() {
   local pid=${WORKER_HEARTBEAT_PID:-}
   [ -n "$pid" ] || return 0
   kill -TERM "$pid" 2>/dev/null || true
-  wait "$pid" 2>/dev/null || true
   WORKER_HEARTBEAT_PID=
 }
 
@@ -380,8 +383,8 @@ worker_shutdown_owns_lock() {
 # 1 once the directory is gone or names another owner, 2 when this read could
 # not tell. Ownership can move without any signal reaching this process - a
 # replacement reclaims a lock it judged stale - so the loop asks every second.
-worker_lock_ownership_status() {
-  local owner_pid='' extra=''
+worker_lock_ownership_status() { # [owner-pid]
+  local owner=${1:-${BASHPID:-$$}} owner_pid='' extra=''
   [ -d "$WORKER_LOCK" ] && [ ! -L "$WORKER_LOCK" ] || return 1
   [ -e "$WORKER_LOCK/pid" ] || [ -L "$WORKER_LOCK/pid" ] || return 1
   # Builtin reads: this runs every second, and the bounded single-line helper
@@ -389,7 +392,7 @@ worker_lock_ownership_status() {
   [ -f "$WORKER_LOCK/pid" ] && [ ! -L "$WORKER_LOCK/pid" ] || return 2
   { IFS= read -r -n 65 owner_pid; IFS= read -r extra; } < "$WORKER_LOCK/pid" 2>/dev/null || true
   [ -n "$owner_pid" ] && [ "${#owner_pid}" -le 64 ] && [ -z "$extra" ] || return 2
-  [ "$owner_pid" = "${BASHPID:-$$}" ] || return 1
+  [ "$owner_pid" = "$owner" ] || return 1
 }
 
 # Ownership moved to another serving loop. Two loops on one queue reclaim each
@@ -1355,7 +1358,7 @@ main() {
   worker_publish_pid || { worker_error "cannot publish worker pid"; exit 1; }
   WORKER_READY=$(fm_remote_job_worker_ready_path)
   worker_write_heartbeat "${BASHPID:-$$}" || { worker_error "cannot update worker heartbeat"; exit 1; }
-  worker_start_heartbeat "$account_home"
+  worker_start_heartbeat
   sweep_interval=$WORKER_SWEEP_SECONDS
   [ "$FM_REMOTE_JOB_STAGE_REAP_SECONDS" -ge "$sweep_interval" ] || sweep_interval=$FM_REMOTE_JOB_STAGE_REAP_SECONDS
   [ "$FM_REMOTE_JOB_REAP_SECONDS" -ge "$sweep_interval" ] || sweep_interval=$FM_REMOTE_JOB_REAP_SECONDS
