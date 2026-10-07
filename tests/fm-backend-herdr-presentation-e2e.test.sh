@@ -23,6 +23,7 @@ REAL_HERDR=$(command -v herdr)
 REAL_TREEHOUSE=$(command -v treehouse)
 HERDR_ORIGINAL_PATH=$PATH
 TMP_ROOT=$(mktemp -d "$(cd "${TMPDIR:-/tmp}" && pwd -P)/fm-herdr-presentation.XXXXXX")
+export TREEHOUSE_ROOT="$TMP_ROOT/treehouse"
 FAKEBIN="$TMP_ROOT/fakebin"
 HERDR_CALL_LOG="$TMP_ROOT/herdr-calls.log"
 TREEHOUSE_CALL_LOG="$TMP_ROOT/treehouse-calls.log"
@@ -384,6 +385,10 @@ assert_cleanup_focus_preserved() {  # <line-count> <pane-id> <expected-focus>
 remember_meta_worktree() {  # <meta>
   local wt
   wt=$(grep '^worktree=' "$1" | cut -d= -f2-)
+  case "$wt" in
+    "$TREEHOUSE_ROOT"/*) : ;;
+    *) fail "worktree escaped the test Treehouse root: $wt" ;;
+  esac
   [ -n "$wt" ] || fail "metadata did not record a worktree"
   RECORDED_WORKTREES="${RECORDED_WORKTREES}${wt}"$'\n'
   printf '%s' "$wt"
