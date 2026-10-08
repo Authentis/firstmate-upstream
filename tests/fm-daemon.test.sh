@@ -1208,6 +1208,12 @@ test_housekeeping_paused_overdue_with_live_gate_run_stays_quiet() {
   paused_overdue_housekeeping paused-overdue-away-live 'state: working · source: run-step · validating (running)'
   [ ! -s "$PH_STATE/.subsuper-escalations" ] \
     || fail "an overdue paused: lane with a live gate run escalated: $(cat "$PH_STATE/.subsuper-escalations")"
+  echo $(( $(date +%s) - 20000 )) > "$PH_STATE/.subsuper-paused-$PH_KEY"
+  paused_overdue_tick 'state: working · source: run-step · validating (running)'
+  grep -F "awaiting external" "$PH_STATE/.subsuper-escalations" >/dev/null 2>&1 \
+    || fail "an overdue paused: lane with a live gate run lost its long recheck cadence"
+  grep -F "no live gate run" "$PH_STATE/.subsuper-escalations" >/dev/null 2>&1 \
+    && fail "the long recheck of a live gate run was sent as a no-live-gate-run wake"
   paused_overdue_tick 'state: paused · source: status-log · run ended, parked'
   paused_overdue_tick 'state: paused · source: status-log · run ended, parked'
   [ "$(grep -c "no live gate run" "$PH_STATE/.subsuper-escalations" 2>/dev/null)" = 1 ] \

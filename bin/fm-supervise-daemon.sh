@@ -1294,8 +1294,8 @@ housekeeping() {  # <state>
     overdue="$state/.subsuper-pause-overdue-$key"
     if status_paused_overdue "$last" "$state/$task.status"; then
       status_mtime=$(_fm_status_file_mtime "$state/$task.status")
-      if [ "$(cat "$overdue" 2>/dev/null || true)" != "$status_mtime" ]; then
-        if ! crew_is_provably_working "$task" && escalate_add "$state" "paused $(( now - status_mtime ))s with no live gate run (parked, not waiting; finish it with done: or unblock it): $win"; then
+      if [ "$(cat "$overdue" 2>/dev/null || true)" != "$status_mtime" ] && ! crew_is_provably_working "$task"; then
+        if escalate_add "$state" "paused $(( now - status_mtime ))s with no live gate run (parked, not waiting; finish it with done: or unblock it): $win"; then
           printf '%s\n' "$status_mtime" > "$overdue"
           _now > "$marker"
         fi
