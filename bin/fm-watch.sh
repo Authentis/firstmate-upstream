@@ -3300,6 +3300,12 @@ EOF
           # line. On a NEW hash, give an active run/busy pane (the same
           # authoritative source fm-crew-state.sh itself already prioritizes
           # over the log) a chance to override before trusting the log.
+          # A hash absorbed on the pause cadence is not a terminal sighting: a
+          # `paused:` line that has since gone overdue is first seen here.
+          if [ -e "$pf" ]; then
+            clear_pause_state "$key"
+            rm -f "$sf"
+          fi
           if [ "$(cat "$sf" 2>/dev/null || true)" != "$h" ]; then
             if crew_is_provably_working "$(window_to_task "$w" "$STATE")"; then
               printf '%s' "$h" > "$sf"

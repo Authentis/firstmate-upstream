@@ -2407,6 +2407,26 @@ test_paused_under_limit_stays_quiet() {
   pass "a paused: lane younger than the limit stays quiet"
 }
 
+# The common sequence: the young paused: line is first absorbed on the pause
+# cadence at hash h, the pane stays frozen at h, and the line later crosses the
+# limit. The absorbed hash must not hide the now-overdue line.
+test_paused_absorbed_then_overdue_wakes() {
+  paused_overdue_case paused-absorbed-then-overdue 'paused: PR https://example.test/pr/9 published, parked' 600 \
+    'state: paused · source: status-log · PR published, parked'
+  if ! wait_poll_cycle "$PO_STATE" "$PO_PID"; then
+    reap "$PO_PID"; fail "a young paused: lane woke before it went overdue: $(cat "$PO_OUT")"
+  fi
+  [ -e "$PO_STATE/.paused-$PO_KEY" ] || { reap "$PO_PID"; fail "the young paused: lane was not absorbed on the pause cadence"; }
+  [ ! -s "$PO_OUT" ] || { reap "$PO_PID"; fail "young paused: lane printed a wake"; }
+  set_mtime $(( $(date +%s) - 7300 )) "$PO_STATE/parked.status"
+  printf '%s' "$(seen_sig "$PO_STATE/parked.status")" > "$PO_STATE/.seen-parked_status"
+  wait_for_exit "$PO_PID" 100 || { reap "$PO_PID"; fail "an absorbed paused: lane that went overdue did not wake"; }
+  grep -Fx "stale: $PO_WINDOW" "$PO_OUT" >/dev/null || fail "overdue wake not printed after absorb: $(cat "$PO_OUT")"
+  [ ! -e "$PO_STATE/.paused-$PO_KEY" ] || fail "the overdue wake left the pause cadence flag behind"
+  unset FM_FAKE_CREW_STATE
+  pass "a paused: lane absorbed while young wakes once it goes overdue at the same pane hash"
+}
+
 test_paused_overdue_classifier() {
   local dir state future
   dir=$(make_case paused-overdue-classify); state="$dir/state"
@@ -6778,6 +6798,7 @@ test_paused_overdue_classifier
 test_paused_overdue_without_gate_run_wakes
 test_paused_overdue_stays_quiet_with_live_gate_run
 test_paused_under_limit_stays_quiet
+test_paused_absorbed_then_overdue_wakes
 test_nonterminal_stale_paused_absorbed_then_resurfaced
 test_exited_declared_pause_is_bounded_but_live_gate_surfaces
 test_own_work_wait_keeps_first_alert_then_long_cadence

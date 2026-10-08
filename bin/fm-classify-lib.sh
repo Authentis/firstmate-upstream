@@ -125,7 +125,8 @@ FM_PAUSE_RESURFACE_SECS_DEFAULT=14400
 
 # A `paused:` lane with no live gate run for longer than this is parked, not
 # waiting: stale_is_terminal below treats it like `blocked:` so the watcher
-# surfaces it unless the crew's authoritative state shows a live run. Two hours
+# surfaces it, and the away-mode daemon's pause recheck escalates it, unless the
+# crew's authoritative state shows a live run. Two hours
 # by default; FM_PAUSED_NO_GATE_SECS overrides it. A paused line naming an
 # `until` time not yet reached stays quiet.
 FM_PAUSED_NO_GATE_SECS_DEFAULT=7200

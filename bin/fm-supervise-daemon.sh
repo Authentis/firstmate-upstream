@@ -558,7 +558,7 @@ pause_marker_record() {  # <window> <state> - create if absent
 pause_marker_remove() {  # <window> <state>
   local win=$1 state=$2 key
   key=$(_stale_key "$(window_to_task "$win" "$state")")
-  rm -f "$state/.subsuper-paused-$key" "$state/.subsuper-pause-until-due-$key"
+  rm -f "$state/.subsuper-paused-$key" "$state/.subsuper-pause-until-due-$key" "$state/.subsuper-pause-overdue-$key"
 }
 
 clear_pause_tracking() {  # <window> <state>
@@ -566,7 +566,7 @@ clear_pause_tracking() {  # <window> <state>
   task=$(window_to_task "$win" "$state")
   key=$(_stale_key "$task")
   watcher_key=$(_stale_key "$win")
-  rm -f "$state/.subsuper-paused-$key" "$state/.subsuper-pause-until-due-$key" "$state/.subsuper-stale-$key" \
+  rm -f "$state/.subsuper-paused-$key" "$state/.subsuper-pause-until-due-$key" "$state/.subsuper-pause-overdue-$key" "$state/.subsuper-stale-$key" \
     "$state/.paused-$watcher_key" "$state/.paused-rechecked-$watcher_key" "$state/.paused-resurfaced-$watcher_key" \
     "$state/.stale-$watcher_key" "$state/.stale-since-$watcher_key" "$state/.wedge-escalations-$watcher_key" \
     "$state/.writing-since-$watcher_key" "$state/.writing-resurfaced-$watcher_key" \
@@ -1188,7 +1188,7 @@ _oldest_line_age() {  # <buf> -> seconds since the oldest buffered item first ar
 #  3) heartbeat scan: every HEARTBEAT_SCAN_SECS, run the catch-all status scan in
 #     the block below and escalate what it finds; that block owns its file set.
 housekeeping() {  # <state>
-  local state=$1 now due f key task win marker age last max_defer oldest pause_secs marker_epoch until bounded_until pause_reason
+  local state=$1 now due f key task win marker age last max_defer oldest pause_secs marker_epoch until bounded_until pause_reason overdue status_mtime
   now=$(_now)
   migrate_watcher_pause_markers "$state"
 
@@ -1288,6 +1288,21 @@ housekeeping() {  # <state>
     bounded_until=0
     if status_is_captain_held "$last" && fm_afk_contract_away_present "$state"; then
       continue
+    fi
+    # A paused: line with no live gate run past FM_PAUSED_NO_GATE_SECS is parked:
+    # escalate it once per declaration, like blocked:, then keep the cadence.
+    overdue="$state/.subsuper-pause-overdue-$key"
+    if status_paused_overdue "$last" "$state/$task.status"; then
+      status_mtime=$(_fm_status_file_mtime "$state/$task.status")
+      if [ "$(cat "$overdue" 2>/dev/null || true)" != "$status_mtime" ]; then
+        if crew_is_provably_working "$task"; then
+          printf '%s\n' "$status_mtime" > "$overdue"
+        elif escalate_add "$state" "paused $(( now - status_mtime ))s with no live gate run (parked, not waiting; finish it with done: or unblock it): $win"; then
+          printf '%s\n' "$status_mtime" > "$overdue"
+          _now > "$marker"
+        fi
+        continue
+      fi
     fi
     if until=$(status_paused_until "$last"); then
       if [ "$now" -lt "$until" ] && [ "$age" -lt "$pause_secs" ]; then
