@@ -2448,8 +2448,16 @@ test_secondmate_relaunch_keyed_pin_overrides_stale_profile() {
   [ "$(journal_field "$dir" sm3 to_effort)" = high ] \
     || fail "the configured effort token should come with the pin"
   assert_not_contains "$out" "not a verified harness" "codex is a verified harness"
+  printf 'pi\n' > "$home/config/secondmate-harness"
+  cp "$home/state/sm3.meta" "$dir/before-refusal.meta"
+  : > "$dir/fake/literal"
+  out=$(run_control "$dir" sm3 relaunch); rc=$?
+  expect_code 1 "$rc" "a Pi profile without a model must refuse before stop: $out"
+  assert_contains "$out" 'Pi secondmate sm3 requires an explicit model' 'control missing-model refusal hidden'
+  [ ! -s "$dir/fake/literal" ] || fail 'control stopped the old agent before missing-model refusal'
+  cmp -s "$dir/before-refusal.meta" "$home/state/sm3.meta" || fail 'control refusal mutated metadata'
   chmod u+w "$dir/home/state/sm3.git-hooks"
-  pass "fm-control relaunch: a secondmate relaunch re-resolves its keyed pin despite stale explicit profile"
+  pass "fm-control relaunch: keyed profile overrides stale arguments; unpinned Pi refuses before stop"
 }
 
 if [ "${FM_SM_PIN_TEST_ONLY:-0}" = 1 ]; then

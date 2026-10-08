@@ -870,12 +870,31 @@ test_remote_restart_uses_id_specific_profile() {
   pass "persist-gated remote restart resolves the secondmate id pin and sends explicit model/thinking values"
 }
 
+test_remote_restart_refuses_unpinned_pi_model() {
+  local dir out rc model
+  for model in '' default -; do
+    dir=$(new_case "remote-empty-${model:-empty}")
+    setup_remote_case "$dir" sm2 ok
+    printf 'pi %s\n' "$model" > "$dir/home/config/secondmate-harness"
+    out=$(run_restart "$dir" sm2); rc=$?
+    expect_code 3 "$rc" "unpinned Pi restart must refuse: $out"
+    assert_contains "$out" 'Pi secondmate sm2 requires an explicit model' 'missing-model refusal was hidden'
+    assert_not_contains "$out" 'restarted: sm2' 'unpinned model claimed restart'
+    if [ -f "$dir/ssh.log" ]; then
+      assert_no_grep '^fm-remote-secondmate-control.sh relaunch' "$dir/ssh.log" 'unpinned Pi crossed the relaunch transport'
+    fi
+  done
+  pass "remote restart refuses empty/default/dash Pi models before relaunch transport"
+}
+
 if [ "${FM_SM_PIN_TEST_ONLY:-0}" = 1 ]; then
   test_remote_restart_uses_id_specific_profile
+  test_remote_restart_refuses_unpinned_pi_model
   exit 0
 fi
 
 test_remote_restart_uses_id_specific_profile
+test_remote_restart_refuses_unpinned_pi_model
 
 test_persist_gates_and_asks_only_for_open_records
 test_persist_precedes_restart

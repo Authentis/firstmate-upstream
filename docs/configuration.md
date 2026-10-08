@@ -830,7 +830,7 @@ Blank lines and lines starting with `#` are ignored.
 A keyed line must contain a concrete harness, model, and effort; `default` or `-` model values and absent or default effort values are refused.
 Duplicate ids, duplicate defaults, and malformed lines fail before launch or relaunch rather than selecting around them.
 
-A matching id pin governs initial spawn, local control-plane relaunch, remote relaunch, and watcher recovery, including when metadata or caller arguments carry an empty, default, or stale profile.
+A matching id pin governs initial spawn, local control-plane relaunch, remote relaunch, persist-gated secondmate restart, and watcher recovery, including when metadata or caller arguments carry an empty, default, or stale profile.
 Without a matching id, the unkeyed line preserves the single-line format's existing behavior and per-launch override rules.
 A bare default harness supplies no model or effort flag.
 When the default harness token is absent or `default`, resolution falls back through `config/crew-harness` and then the primary's own harness, and no model or effort is read from that default line.
@@ -842,6 +842,8 @@ A provider error or an unconfirmed response refuses launch, and watcher recovery
 
 ### Per-launch overrides and inherited defaults
 
+Pi and signed-Pi secondmates require a concrete model after profile resolution; an empty, `default`, or `-` model refuses launch or relaunch before the endpoint is changed.
+A bare legacy `pi` line remains readable, but needs an explicit model or a matching keyed pin to launch a secondmate.
 An explicit harness argument to `fm-spawn.sh` overrides the unkeyed default for that spawn only; keyed secondmate pins follow the [secondmate profile contract](#choose-the-secondmate-harness).
 Without a matching keyed pin, an explicit `--model` or `--effort` overrides the matching default token from `config/secondmate-harness`; for a local route, an explicit harness or raw launch command starts with clean model and effort defaults unless those flags are also passed.
 

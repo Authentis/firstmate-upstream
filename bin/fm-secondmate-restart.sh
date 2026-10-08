@@ -282,6 +282,11 @@ while [ "$i" -lt "${#IDS[@]}" ]; do
       continue
     fi
     [ -n "${HARNESS[i]}" ] || HARNESS[i]=$FM_SECONDMATE_RESTART_HARNESS
+    if ! profile_error=$("$SCRIPT_DIR/fm-harness.sh" validate-secondmate-model "${HARNESS[i]}" "${MODEL[i]}" "$id" 2>&1); then
+      REASON[i]=$profile_error
+      i=$((i + 1))
+      continue
+    fi
     case "${EFFORT[i]}" in
       ''|low|medium|high|xhigh|max|ultra) ;;
       *) EFFORT[i]="" ;;

@@ -994,6 +994,11 @@ spawn_remote_secondmate() {
       [ -n "$effort" ] || effort=-
     fi
   fi
+  if ! "$SCRIPT_DIR/fm-harness.sh" validate-secondmate-model "$harness" "$model" "$id"; then
+    fm_lock_release "$registry_lock" || true
+    fm_lock_release "$SPAWN_TASK_LOCK" || true
+    return 1
+  fi
   # A remote second mate always runs on Herdr: its server belongs to the host's
   # own GUI login session, so the endpoint outlives every SSH connection that
   # supervises it. bin/fm-remote-doctor.sh gates that host on the same
@@ -2452,12 +2457,10 @@ agy)
   ;;
 esac
 
-# config/secondmate-harness may carry optional model/effort tokens alongside the
-# harness ("<harness> [<model>] [<effort>]"). They apply only when this is a
-# --secondmate spawn and no explicit per-spawn harness/raw launch was supplied, so
-# the harness itself came from the secondmate config fallback chain. Resolving
-# here on every spawn makes the pin durable across respawns. Precedence: explicit
-# --model/--effort flags still win over the file's tokens.
+# Keyed pins were applied before route selection and set both explicit flags.
+# Otherwise resolve optional default tokens for profile axes the caller omitted.
+# A raw positional launch keeps its own profile; Pi secondmates still require
+# a concrete model at the shared validation boundary below.
 if [ "$KIND" = secondmate ] && [ -z "$ARG3" ]; then
   if [ "$MODEL_SET" -eq 0 ]; then
     SM_MODEL=$("$SCRIPT_DIR/fm-harness.sh" secondmate-model "$ID")
@@ -2472,6 +2475,9 @@ if [ "$KIND" = secondmate ] && [ -z "$ARG3" ]; then
       esac
     fi
   fi
+fi
+if [ "$KIND" = secondmate ]; then
+  "$SCRIPT_DIR/fm-harness.sh" validate-secondmate-model "$HARNESS" "$MODEL" "$ID" || exit 1
 fi
 # Ultra is an explicit native capability, never a Pi thinking-level alias.
 # Validate the fully resolved profile before worktree or endpoint provisioning.

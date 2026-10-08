@@ -14,6 +14,8 @@
 #        fm-harness.sh secondmate-effort [<id>] print the optional EFFORT token from
 #                                        config/secondmate-harness, or empty when absent.
 #        fm-harness.sh secondmate-pin <id> print the matching keyed profile, or empty.
+#        fm-harness.sh validate-secondmate-model <harness> <model> [<id>]
+#                                        Refuse Pi secondmates without a concrete model.
 #        fm-harness.sh validate-native-effort <harness> <model> <effort>
 #                                        Refuse ultra unless the harness is pi or
 #                                        pi-signed and the model explicitly names
@@ -537,6 +539,20 @@ resolve_secondmate_effort() {
   secondmate_field 3 "${1:-}"
 }
 
+validate_secondmate_model() {
+  case "${1:-}" in
+    pi|pi-signed)
+      case "${2:-}" in
+        ''|default|-)
+          echo "error: Pi secondmate ${3:-unknown} requires an explicit model; configure config/secondmate-harness before launch or relaunch" >&2
+          return 1
+          ;;
+      esac
+      ;;
+  esac
+  return 0
+}
+
 validate_native_effort() {
   local harness=${1:-} model=${2:-} effort=${3:-}
   [ "$effort" = ultra ] || return 0
@@ -550,6 +566,7 @@ validate_native_effort() {
 }
 
 case "${1:-}" in
+  validate-secondmate-model) shift; validate_secondmate_model "$@" ;;
   validate-native-effort) shift; validate_native_effort "$@" ;;
   ancestry)
     case "${2:-}" in

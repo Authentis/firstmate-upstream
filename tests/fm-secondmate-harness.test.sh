@@ -2842,10 +2842,38 @@ SH
   [ "$(cat "$w/home/wire")" = 'sm fm-remote-secondmate-control.sh launch sm pi openai/gpt-6.1-sol low herdr' ] || fail "remote spawn did not send the parent model/effort pin: $(cat "$w/home/wire")"
   [ "$(meta_field "$w/home/state/sm.meta" model)" = openai/gpt-6.1-sol ] || fail 'remote spawn retained stale model metadata'
   [ "$(meta_field "$w/home/state/sm.meta" effort)" = low ] || fail 'remote spawn retained stale effort metadata'
+  printf 'pi\n' > "$w/home/config/secondmate-harness"
+  rm "$w/home/wire"
+  rc=0
+  out=$(FM_HOME="$w/home" FM_ROOT_OVERRIDE="$w/code" FM_SPAWN_NO_GUARD=1 "$w/code/bin/fm-spawn.sh" sm --secondmate 2>&1) || rc=$?
+  expect_code 1 "$rc" "unpinned remote spawn must refuse: $out"
+  assert_contains "$out" 'requires an explicit model' 'remote spawn missing-model diagnostic hidden'
+  [ ! -f "$w/home/wire" ] || fail 'unpinned remote spawn reached launch transport'
   pass "remote initial/recovery spawn passes explicit id pins despite default model/effort metadata"
 }
 
+test_pi_secondmate_refuses_missing_model() {
+  local w sm out rc model
+  local -a profile_args
+  for model in '' default -; do
+    w="$TMP_ROOT/unpinned-${model:-empty}"
+    sm="$w/sm"
+    mkdir -p "$w/home/config"
+    printf 'pi\n' > "$w/home/config/secondmate-harness"
+    make_seeded_home "$sm" sm
+    rc=0
+    profile_args=(--harness pi)
+    [ -z "$model" ] || profile_args+=(--model "$model")
+    out=$(spawn_secondmate_capture "$w" sm "$sm" "$w/launch" "${profile_args[@]}" 2>&1) || rc=$?
+    expect_code 1 "$rc" "unpinned Pi spawn must fail: $out"
+    assert_contains "$out" 'Pi secondmate sm requires an explicit model' 'spawn missing-model refusal hidden'
+    [ ! -s "$w/launch" ] || fail 'unpinned Pi launch reached endpoint'
+  done
+  pass "local Pi spawn refuses empty/default/dash models before creating an endpoint"
+}
+
 if [ "${FM_SM_PIN_TEST_ONLY:-0}" = 1 ]; then
+  test_pi_secondmate_refuses_missing_model
   test_keyed_secondmate_pins
   test_remote_spawn_replaces_stale_meta_with_keyed_pin
   test_keyed_pi_launch_and_first_call
@@ -2854,6 +2882,7 @@ if [ "${FM_SM_PIN_TEST_ONLY:-0}" = 1 ]; then
 fi
 
 test_keyed_secondmate_pins
+test_pi_secondmate_refuses_missing_model
 test_remote_spawn_replaces_stale_meta_with_keyed_pin
 test_keyed_pi_launch_and_first_call
 test_pi_first_call_bounded_and_first_response_only

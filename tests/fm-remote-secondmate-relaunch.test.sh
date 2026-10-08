@@ -112,11 +112,26 @@ test_remote_relaunch_keyed_pin() {
   rm -f "$HOME_DIR/config/secondmate-harness"
   pass "remote relaunch reads the parent keyed pin rather than default arguments or stale metadata"
 }
+test_remote_relaunch_refuses_unpinned_pi() {
+  local out rc model
+  reset_meta
+  printf 'pi\n' > "$HOME_DIR/config/secondmate-harness"
+  for model in '' default -; do
+    out=$(run_relaunch ios pi "$model" low); rc=$?
+    expect_code 1 "$rc" "unpinned Pi relaunch must fail: $out"
+    assert_contains "$out" 'Pi secondmate ios requires an explicit model' 'missing model lacked clear refusal'
+    assert_grep 'model=openai-codex/gpt-5.6-sol' "$HOME_DIR/state/ios.meta" 'refusal changed metadata'
+  done
+  rm -f "$HOME_DIR/config/secondmate-harness"
+  pass "remote wrapper refuses empty/default/dash Pi models without publishing a relaunch"
+}
 if [ "${FM_SM_PIN_TEST_ONLY:-0}" = 1 ]; then
   test_remote_relaunch_keyed_pin
+  test_remote_relaunch_refuses_unpinned_pi
   exit 0
 fi
 test_remote_relaunch_keyed_pin
+test_remote_relaunch_refuses_unpinned_pi
 
 # --- a successful relaunch republishes the parent's own route record --------
 reset_meta

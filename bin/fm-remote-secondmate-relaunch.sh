@@ -51,6 +51,8 @@ if [ -n "$PIN" ]; then
   read -r HARNESS MODEL EFFORT <<< "$PIN"
 fi
 
+"$SCRIPT_DIR/fm-harness.sh" validate-secondmate-model "$HARNESS" "$MODEL" "$ID" || exit 1
+
 META="$STATE/$ID.meta"
 [ -f "$META" ] && [ ! -L "$META" ] || die "no metadata for $ID at $META"
 REMOTE_HOST=$(fm_meta_get "$META" remote_host)
