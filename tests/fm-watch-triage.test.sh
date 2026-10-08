@@ -2427,6 +2427,29 @@ test_paused_absorbed_then_overdue_wakes() {
   pass "a paused: lane absorbed while young wakes once it goes overdue at the same pane hash"
 }
 
+# An overdue paused: line first held by a live gate run stays quiet while the run
+# lives, then wakes once the run ends with the pane frozen at the same hash.
+test_paused_overdue_wakes_when_live_gate_run_ends() {
+  paused_overdue_case paused-overdue-run-ends 'paused: own pipeline run' 7300 \
+    'state: working · source: run-step · validating (running)'
+  local ssf="$PO_STATE/.stale-since-$PO_KEY"
+  for _ in 1 2; do
+    if ! wait_poll_cycle "$PO_STATE" "$PO_PID"; then
+      reap "$PO_PID"; fail "an overdue paused: lane woke while its gate run was live: $(cat "$PO_OUT")"
+    fi
+  done
+  [ -e "$ssf" ] || { reap "$PO_PID"; fail "the live gate run did not absorb the overdue paused: lane"; }
+  [ ! -s "$PO_OUT" ] || { reap "$PO_PID"; fail "live-gate overdue paused: lane printed a wake"; }
+  cat > "$PO_FAKEBIN/fm-crew-state.sh" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' 'state: paused · source: status-log · run ended'
+SH
+  wait_for_exit "$PO_PID" 100 || { reap "$PO_PID"; fail "an overdue paused: lane did not wake after its gate run ended"; }
+  grep -Fx "stale: $PO_WINDOW" "$PO_OUT" >/dev/null || fail "overdue wake not printed after the run ended: $(cat "$PO_OUT")"
+  unset FM_FAKE_CREW_STATE
+  pass "an overdue paused: lane stays quiet while its gate run lives and wakes once it ends"
+}
+
 test_paused_overdue_classifier() {
   local dir state future
   dir=$(make_case paused-overdue-classify); state="$dir/state"
@@ -6799,6 +6822,7 @@ test_paused_overdue_without_gate_run_wakes
 test_paused_overdue_stays_quiet_with_live_gate_run
 test_paused_under_limit_stays_quiet
 test_paused_absorbed_then_overdue_wakes
+test_paused_overdue_wakes_when_live_gate_run_ends
 test_nonterminal_stale_paused_absorbed_then_resurfaced
 test_exited_declared_pause_is_bounded_but_live_gate_surfaces
 test_own_work_wait_keeps_first_alert_then_long_cadence

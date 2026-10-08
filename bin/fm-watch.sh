@@ -3301,10 +3301,14 @@ EOF
           # authoritative source fm-crew-state.sh itself already prioritizes
           # over the log) a chance to override before trusting the log.
           # A hash absorbed on the pause cadence is not a terminal sighting: a
-          # `paused:` line that has since gone overdue is first seen here.
+          # `paused:` line that has since gone overdue is first seen here, and an
+          # overdue one held only by a live gate run is seen again once it ends.
           if [ -e "$pf" ]; then
             clear_pause_state "$key"
             rm -f "$sf"
+          elif [ -e "$ssf" ] && status_paused_overdue "$(last_status_line "$STATE/$task.status")" "$STATE/$task.status" \
+            && ! crew_is_provably_working "$task"; then
+            rm -f "$sf" "$ssf"
           fi
           if [ "$(cat "$sf" 2>/dev/null || true)" != "$h" ]; then
             if crew_is_provably_working "$(window_to_task "$w" "$STATE")"; then
