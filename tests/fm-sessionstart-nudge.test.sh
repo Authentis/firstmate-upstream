@@ -967,6 +967,71 @@ JS
   pass "Pi retains a bounded digest prefix and loudly marks oversized preflight delivery"
 }
 
+test_pi_compact_nudge_is_capped_so_copies_cannot_stack() {
+  local fixture out status=0
+  command -v node >/dev/null 2>&1 || {
+    echo "skip: node not found for Pi compact nudge cap test"
+    return 0
+  }
+  fixture="$TMP_ROOT/pi-compact-cap"
+  mkdir -p "$fixture/.pi/extensions/lib" "$fixture/bin" "$fixture/state" "$fixture/data" "$fixture/config"
+  git init -q -b main "$fixture"
+  git -C "$fixture" commit -q --allow-empty -m init
+  : > "$fixture/AGENTS.md"
+  cp "$ROOT/.pi/extensions/fm-primary-turnend-guard.ts" "$fixture/.pi/extensions/"
+  cp "$ROOT/.pi/extensions/lib/fm-operational-input.ts" \
+    "$ROOT/.pi/extensions/lib/fm-sessionstart-supervisor.mjs" "$fixture/.pi/extensions/lib/"
+  cp "$ROOT/bin/fm-sessionstart-run.sh" "$ROOT/bin/fm-sessionstart-nudge.sh" \
+    "$ROOT/bin/fm-primary-scope-lib.sh" "$ROOT/bin/fm-gate-refuse-lib.sh" \
+    "$ROOT/bin/fm-hook-host-lib.sh" \
+    "$ROOT/bin/fm-operational-input.sh" "$fixture/bin/"
+  cat > "$fixture/bin/fm-session-start.sh" <<'SH'
+#!/usr/bin/env bash
+printf 'COMPACT_DIGEST_PREFIX\n'
+i=0
+while [ "$i" -lt 200 ]; do
+  printf '%01024d' 0
+  i=$((i + 1))
+done
+printf '\nCOMPACT_DIGEST_SUFFIX\n'
+SH
+  chmod +x "$fixture/bin/"*.sh
+
+  out=$(EXT="$fixture/.pi/extensions/fm-primary-turnend-guard.ts" \
+    FM_HOME="$fixture" FM_ROOT_OVERRIDE="$fixture" FM_GATE_REFUSE_BYPASS=1 \
+    node --input-type=module 2>&1 <<'JS'
+import { existsSync, readFileSync } from "node:fs";
+import { pathToFileURL } from "node:url";
+const handlers = new Map();
+const sent = [];
+const pi = {
+  on(event, handler) { handlers.set(event, handler); },
+  sendMessage(message) { sent.push(message); },
+};
+const extension = await import(`${pathToFileURL(process.env.EXT).href}?compact=${Date.now()}`);
+extension.default(pi);
+const ctx = { sessionManager: { getEntries: () => [], getSessionId: () => "compact-cap" } };
+for (let round = 1; round <= 3; round++) {
+  await handlers.get("session_compact")({}, ctx);
+  if (sent.length !== round) throw new Error(`round ${round}: expected one nudge, saw ${sent.length}`);
+  const content = sent[round - 1].content;
+  if (content.length > 45000) throw new Error(`round ${round}: nudge was ${content.length} characters`);
+  if (!content.includes("COMPACT_DIGEST_PREFIX")) throw new Error("capped nudge lost its leading instructions");
+  if (content.includes("COMPACT_DIGEST_SUFFIX")) throw new Error("capped nudge kept the omitted tail");
+  if (!content.includes("CONTEXT RE-EMIT TRUNCATED")) throw new Error("capped nudge was not loud");
+  if (!content.includes(".reemit-latest.txt")) throw new Error("capped nudge did not name the saved copy");
+}
+const saved = `${process.env.FM_HOME}/state/.reemit-latest.txt`;
+if (!existsSync(saved) || !readFileSync(saved, "utf8").includes("COMPACT_DIGEST_SUFFIX")) {
+  throw new Error("the full digest was not saved for on-demand reading");
+}
+JS
+  ) || status=$?
+  expect_code 0 "$status" "Pi compact nudge cap"
+  [ -z "$out" ] || fail "Pi compact nudge cap printed output: $out"
+  pass "Pi caps each compaction nudge, saves the full digest, and marks the cut loudly"
+}
+
 test_run_resume_delegates_to_the_nudge() {
   local root="$TMP_ROOT/run-resume" out status=0
   make_run_primary "$root"
@@ -1109,6 +1174,7 @@ test_run_rebuild_forwards_source_to_drifted_instruction_refresh
 test_run_compact_without_completion_refreshes_before_finishing_startup
 test_run_clear_without_completion_finishes_startup
 test_run_clear_rejects_previous_owner_completion
+test_pi_compact_nudge_is_capped_so_copies_cannot_stack
 test_run_resume_delegates_to_the_nudge
 test_run_reads_source_from_the_hook_payload
 test_run_unknown_source_takes_the_helm

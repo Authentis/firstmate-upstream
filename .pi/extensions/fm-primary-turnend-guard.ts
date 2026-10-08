@@ -100,6 +100,10 @@ function startupRebuildSource(ctx: SessionStartContext): "resume" | "fork" | und
 const sessionstartTruncatedMarker =
   "\n\nPI SESSION-START DELIVERY TRUNCATED - the digest exceeded 512 KiB. " +
   "Treat omitted context as unread and inspect the named files directly before acting on it.";
+// A compaction keeps the previous nudge as a valid cut point, so copies stack.
+// Capping each one bounds the stack at any digest size; the full output is
+// saved for an on-demand read.
+const sessionstartCompactMaxChars = 40_000;
 const sessionstartManualFallback =
   "Run `bin/fm-session-start.sh` now, exactly once, before executing any other instructions.";
 const sessionstartIneligibleExit = 3;
@@ -415,6 +419,19 @@ function sessionstartMessage(
     raw = sessionstartManualFallback;
   }
   if (!raw) return undefined;
+  if (generation.source === "compact" && raw.length > sessionstartCompactMaxChars) {
+    const saved = `${state}/.reemit-latest.txt`;
+    let pointer = "run `bin/fm-session-start.sh --reemit` for the rest";
+    try {
+      writeFileSync(saved, raw);
+      pointer = `read ${saved} for the rest, or run \`bin/fm-session-start.sh --reemit\``;
+    } catch {
+    }
+    raw = `${raw.slice(0, sessionstartCompactMaxChars)}\n\n` +
+      `CONTEXT RE-EMIT TRUNCATED - the compaction digest was ${raw.length} characters and was cut at ` +
+      `${sessionstartCompactMaxChars} so repeated compactions cannot stack past the context window. ` +
+      `Treat the omitted tail (later fleet records and curated context) as unread; ${pointer}.`;
+  }
   try {
     // The wrapper already returns an encoded nudge on a context-preserving
     // open, so only an unencoded digest or fallback needs the marker added.
