@@ -2626,6 +2626,38 @@ $(hash_file_for_test "$root/AGENTS.md")" ] \
   pass "true-start AGENTS baselines stay immutable while every drifted Pi compact re-emits the current contract"
 }
 
+test_sourceless_rerun_after_truncated_startup_writes_the_baseline_once() {
+  local rec root home fakebin out baseline expected_hash
+  rec=$(new_world agents-sourceless)
+  IFS='|' read -r root home fakebin <<EOF
+$rec
+EOF
+  make_fake_toolchain "$fakebin"
+  make_fake_ps_harness "$fakebin" pi
+  printf 'FIRSTMATE_TEST_INSTRUCTION=original\n' > "$root/AGENTS.md"
+  expected_hash=$(hash_file_for_test "$root/AGENTS.md")
+  printf '494125\n%s\n' "$expected_hash" > "$home/state/.session-start-agents-baseline"
+
+  out=$(FM_FAKE_HARNESS=pi run_pi_session_start "$home" "$root" "$fakebin:$BASE_PATH")
+  assert_contains "$out" "SESSION START - $home" "the sourceless rerun did not run the full digest"
+  baseline=$(cat "$home/state/.session-start-agents-baseline")
+  [ "$(printf '%s\n' "$baseline" | sed -n '2p')" = "$expected_hash" ] \
+    && [ "$(printf '%s\n' "$baseline" | sed -n '1p')" = "$(cat "$home/state/.lock")" ] \
+    || fail "a sourceless rerun did not record the baseline for the lock owner: $baseline"
+
+  printf 'FIRSTMATE_TEST_INSTRUCTION=changed\n' > "$root/AGENTS.md"
+  FM_FAKE_HARNESS=pi run_pi_session_start "$home" "$root" "$fakebin:$BASE_PATH" >/dev/null
+  [ "$(cat "$home/state/.session-start-agents-baseline")" = "$baseline" ] \
+    || fail "a second sourceless rerun rewrote the baseline for the same lock owner"
+
+  printf 'FIRSTMATE_TEST_INSTRUCTION=original\n' > "$root/AGENTS.md"
+  out=$(FM_FAKE_HARNESS=pi run_pi_session_start "$home" "$root" "$fakebin:$BASE_PATH" --reemit --source compact)
+  assert_not_contains "$out" "CURRENT AGENTS.md - INSTRUCTION REFRESH" \
+    "the Pi compact after a sourceless rerun reprinted AGENTS.md"
+
+  pass "a sourceless rerun writes the AGENTS baseline once per lock owner and the next Pi compact stays quiet"
+}
+
 test_read_only_pi_compact_refreshes_against_its_own_session_identity() {
   local rec root home fakebin holder_pid out baseline_before completion_before
   rec=$(new_world agents-refresh-read-only)
@@ -3186,6 +3218,7 @@ test_runtime_bound_leaves_a_healthy_digest_untouched
 test_runtime_bound_leaves_harness_ancestry_headroom
 test_reemit_skips_startup_sweeps_but_keeps_the_wake_drain
 test_agents_baseline_stays_at_true_start_and_reemits_on_every_drifted_pi_compact
+test_sourceless_rerun_after_truncated_startup_writes_the_baseline_once
 test_read_only_pi_compact_refreshes_against_its_own_session_identity
 test_codex_unreachable_reset_sources_do_not_claim_instruction_refresh
 test_agents_baseline_requires_sha256_and_successful_completion

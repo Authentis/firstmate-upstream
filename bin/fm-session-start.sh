@@ -232,6 +232,9 @@
 #             current AGENTS.md to print before the bulky digest. The baseline
 #             remains immutable so every later drifted compaction refreshes
 #             again, while an equal baseline emits no instruction refresh.
+#             A complete sourceless run (a manual rerun after a truncated
+#             startup) records the baseline the same way, but only when the
+#             baseline does not already belong to this lock owner.
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -685,7 +688,7 @@ EOF
 }
 
 AGENTS_START_HASH=
-if [ "$REEMIT" -eq 0 ] && [ "$SESSION_SOURCE" = startup ]; then
+if [ "$REEMIT" -eq 0 ] && { [ "$SESSION_SOURCE" = startup ] || [ -z "$SESSION_SOURCE" ]; }; then
   AGENTS_START_HASH=$(hash_file_sha256 "$FM_ROOT/AGENTS.md" 2>/dev/null || true)
 fi
 
@@ -1145,7 +1148,13 @@ if [ "$READ_ONLY" -eq 0 ] && [ "$REEMIT" -eq 0 ]; then
     [ -z "$COMPLETION_TMP" ] || rm -f "$COMPLETION_TMP" 2>/dev/null || true
     printf '\nSESSION_START_COMPLETION: not recorded - the next clear or compact will run a full startup.\n'
   fi
-  if [ "$SESSION_SOURCE" = startup ] && [ "$COMPLETION_RECORDED" -eq 1 ] && [ -n "$AGENTS_START_HASH" ]; then
+  # A sourceless manual rerun by the lock owner (typically after a truncated
+  # startup) stands in for the startup source, but only once per lock owner.
+  if [ -z "$SESSION_SOURCE" ] && [ "$COMPLETION_RECORDED" -eq 1 ] \
+    && [ "$(sed -n '1p' "$AGENTS_BASELINE_FILE" 2>/dev/null || true)" = "$COMPLETION_PID" ]; then
+    AGENTS_START_HASH=
+  fi
+  if { [ "$SESSION_SOURCE" = startup ] || [ -z "$SESSION_SOURCE" ]; } && [ "$COMPLETION_RECORDED" -eq 1 ] && [ -n "$AGENTS_START_HASH" ]; then
     if ! write_agents_baseline "$COMPLETION_PID" "$AGENTS_START_HASH"; then
       printf '\nSESSION_START_AGENTS_BASELINE: not recorded - a later supported rebuild will re-emit AGENTS.md.\n'
     fi
