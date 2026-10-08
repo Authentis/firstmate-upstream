@@ -5,6 +5,7 @@
 # isolated Herdr lab session.
 # It exercises the end-user command shape against metadata written by a real
 # fm-spawn.sh --secondmate launch, captures Pi's before_agent_start prompt bytes,
+# mocks first-call readiness to keep this transport test token-free,
 # and proves both sides of the routing boundary:
 #   - exact task id through explicit FM_HOME receives exactly one marker;
 #   - direct terminal input remains unmarked.
@@ -89,17 +90,23 @@ EOF
 
 # A separate explicit Pi extension grants session-only project trust, records
 # before_agent_start prompt bytes, and aborts before any provider request.
+# Readiness is mocked through the generated hook with a fake Pi event, because
+# this test verifies marker delivery rather than provider availability.
 # The PATH wrapper adds only that test resource while preserving the production
 # secondmate launch and its own extension arguments unchanged.
 CAPTURE_JSON=$(printf '%s' "$CAPTURE" | jq -Rs .)
 CAPTURE_EXTENSION="$TMP_ROOT/fm-send-marker-capture.ts"
+FIRST_CALL_FAKE_JSON=$(printf '%s' "$ROOT/tests/assets/pi-first-call-fake.mjs" | jq -Rs .)
+FIRST_CALL_EXT_JSON=$(printf '%s' "$SENDER_HOME/state/$ID.pi-ext.ts" | jq -Rs .)
 cat > "$CAPTURE_EXTENSION" <<EOF
 import { appendFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 const capturePath = $CAPTURE_JSON;
 export default function (pi: any) {
   pi.on("project_trust", () => ({ trusted: "yes", remember: false }));
   pi.on("before_agent_start", (event, ctx) => {
     appendFileSync(capturePath, \`\${JSON.stringify({ prompt: event.prompt, hex: Buffer.from(event.prompt, "utf8").toString("hex") })}\\n\`);
+    execFileSync("node", [$FIRST_CALL_FAKE_JSON, $FIRST_CALL_EXT_JSON]);
     ctx.abort();
   });
 }

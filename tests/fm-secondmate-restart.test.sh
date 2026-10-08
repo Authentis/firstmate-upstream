@@ -50,6 +50,14 @@ set -u
 D=$FM_FAKE_DIR
 case "${1:-}" in
   send-keys)
+    if [ "${!#}" = Enter ]; then
+      for ext in "$FM_STATE_OVERRIDE"/*.pi-ext.ts; do
+        [ -f "$ext" ] || continue
+        id=${ext##*/}; id=${id%.pi-ext.ts}
+        grep -q '^kind=secondmate$' "$FM_STATE_OVERRIDE/$id.meta" || continue
+        node "$FM_ROOT_OVERRIDE/tests/assets/pi-first-call-fake.mjs" "$ext" || exit
+      done
+    fi
     shift
     literal=0
     target=
@@ -846,6 +854,28 @@ test_already_current_unprovable_mate_stays_on_the_nudge_path() {
   assert_no_grep '^/exit$' "$dir/fake/literal" "nothing may be stopped on the nudge path"
   pass "T16 an already-current mate with an unprovable runtime keeps the honest nudge path"
 }
+
+test_remote_restart_uses_id_specific_profile() {
+  local dir out rc relaunch_line
+  dir=$(new_case remote-keyed)
+  setup_remote_case "$dir" sm2 ok
+  export FM_FAKE_ANSWER_STATUS="$dir/home/state/sm2.status"
+  printf 'codex fallback high\nsm2 pi anthropic/claude-opus-5-5 low\n' > "$dir/home/config/secondmate-harness"
+  out=$(run_restart "$dir" sm2); rc=$?
+  unset FM_FAKE_ANSWER_STATUS
+  expect_code 0 "$rc" "keyed remote restart failed: $out"
+  relaunch_line=$(grep '^fm-remote-secondmate-control.sh relaunch' "$dir/ssh.log" | head -1)
+  [ "$relaunch_line" = 'fm-remote-secondmate-control.sh relaunch sm2 pi anthropic/claude-opus-5-5 low' ] || fail "remote restart lost id pin: $relaunch_line"
+  assert_contains "$out" 'restarted: sm2 on remote-mac (pi)' 'remote restart did not confirm pinned harness'
+  pass "persist-gated remote restart resolves the secondmate id pin and sends explicit model/thinking values"
+}
+
+if [ "${FM_SM_PIN_TEST_ONLY:-0}" = 1 ]; then
+  test_remote_restart_uses_id_specific_profile
+  exit 0
+fi
+
+test_remote_restart_uses_id_specific_profile
 
 test_persist_gates_and_asks_only_for_open_records
 test_persist_precedes_restart

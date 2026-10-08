@@ -176,7 +176,7 @@
 #   harness (config/secondmate-harness -> config/crew-harness -> own), so the
 #   secondmate-vs-crewmate split is DURABLE across every respawn (recovery,
 #   /updatefirstmate, restart). A bare adapter name (claude|codex|opencode|pi|pi-signed|grok|kimi|cursor|gemini|muse|rovo|omp|agy|devin|commandcode)
-#   overrides it for this spawn (either kind). A non-flag string containing
+#   overrides it for this spawn unless a keyed secondmate pin applies. A string containing
 #   whitespace is treated as a RAW launch command - the escape hatch for verifying
 #   new adapters. For pi and pi-signed, fm-spawn resolves the selected executable
 #   name from PATH once, probes that concrete path with --help, and launches the
@@ -231,15 +231,14 @@
 #   all and relies on omp auto-discovering the home's tracked .omp/extensions/
 #   (verified, omp 18.1.11: a file named both ways loads twice, and discovery is
 #   cwd-only with no trust dialog).
-#   config/secondmate-harness may also carry an optional model and effort as extra
-#   whitespace-separated tokens ("<harness> [<model>] [<effort>]"). For a
-#   --secondmate spawn, those tokens apply only when this spawn also resolves its
-#   harness from config/secondmate-harness. An explicit per-spawn --harness,
-#   positional harness arg, or raw launch command starts with clean model/effort
-#   defaults unless the caller also passes explicit --model/--effort flags. When
-#   the file governs the spawn, its model/effort tokens are re-resolved on every
-#   respawn exactly like the harness axis, and explicit --model/--effort flags
-#   still win over the file's tokens.
+#   Secondmate profile resolution is owned by fm-harness.sh's keyed/default
+#   config contract. A matching keyed pin is authoritative on every launch and
+#   relaunch, including over stale metadata or caller defaults. Without a keyed
+#   pin, legacy explicit per-launch profile overrides are preserved.
+#   Pi secondmates load a first-call hook alongside their primary extensions;
+#   launch succeeds only after its first assistant response succeeds, within
+#   fm-pi-first-call.sh's bounded readiness window. Provider errors are returned
+#   through ordinary spawn/relaunch failure and watcher wake plumbing.
 #   A --secondmate spawn also propagates the primary's declared inherited local
 #   material, so the secondmate's OWN crewmates inherit primary config and the
 #   secondmate receives the primary's read-only shared captain-preference file
@@ -972,7 +971,7 @@ spawn_remote_secondmate() {
   elif [ -n "$positional" ]; then
     harness=$positional
   else
-    harness=$("$FM_ROOT/bin/fm-harness.sh" secondmate)
+    harness=$("$FM_ROOT/bin/fm-harness.sh" secondmate "$id")
   fi
   case "$harness" in
   claude | codex | opencode | pi | pi-signed | grok | kimi | cursor) ;;
@@ -987,11 +986,11 @@ spawn_remote_secondmate() {
   effort=${EFFORT:--}
   if [ -z "$HARNESS_ARG" ] && [ -z "$positional" ]; then
     if [ "$MODEL_SET" -eq 0 ]; then
-      model=$("$SCRIPT_DIR/fm-harness.sh" secondmate-model)
+      model=$("$SCRIPT_DIR/fm-harness.sh" secondmate-model "$id")
       [ -n "$model" ] || model=-
     fi
     if [ "$EFFORT_SET" -eq 0 ]; then
-      effort=$("$SCRIPT_DIR/fm-harness.sh" secondmate-effort)
+      effort=$("$SCRIPT_DIR/fm-harness.sh" secondmate-effort "$id")
       [ -n "$effort" ] || effort=-
     fi
   fi
@@ -1532,6 +1531,18 @@ if [ "${#POS[@]}" -gt 0 ] && [ "${POS[0]}" != "$idpart" ] && case "$idpart" in *
   exit "$rc"
 fi
 ID=${POS[0]}
+# A keyed pin is authoritative even when relaunch callers carry stale metadata.
+spawn_resolve_secondmate_pin() {
+  if [ "$KIND" = secondmate ]; then
+    SM_PIN=$("$SCRIPT_DIR/fm-harness.sh" secondmate-pin "$ID") || return
+    if [ -n "$SM_PIN" ]; then
+      read -r HARNESS_ARG MODEL EFFORT <<< "$SM_PIN"
+      HARNESS_SET=1 MODEL_SET=1 EFFORT_SET=1
+    fi
+  fi
+}
+spawn_resolve_secondmate_pin || exit
+
 fm_task_id_creation_valid "$ID" || {
   echo "error: invalid task id" >&2
   exit 2
@@ -1862,6 +1873,7 @@ if [ "$RELAUNCH" -eq 1 ]; then
   # crew or secondmate default currently says. Choosing a different harness is
   # the caller's explicit decision, made with --harness (bin/fm-control.sh
   # resolves that decision, including a secondmate's durable pin).
+  spawn_resolve_secondmate_pin || exit
   ARG3=${HARNESS_ARG:-$RELAUNCH_PRIOR_HARNESS}
   [ -n "$ARG3" ] || {
     echo "error: task $ID has no recorded harness; pass --harness to relaunch it" >&2
@@ -2115,7 +2127,7 @@ launch_template() {
   pi | pi-signed)
     printf '%s' '__PIBIN____PITUIMODE____PIAPPROVE____PIRESUME__'
     if [ "$kind" = secondmate ]; then
-      printf '%s' ' __MODELFLAG____EFFORTFLAG__-e __PITURNEND__ -e __PIWATCH__ "$(__OPINPUT__ encode launch-brief < __BRIEF__)"'
+      printf '%s' ' __MODELFLAG____EFFORTFLAG__-e __PIEXT__ -e __PITURNEND__ -e __PIWATCH__ "$(__OPINPUT__ encode launch-brief < __BRIEF__)"'
     else
       printf '%s' ' __MODELFLAG____EFFORTFLAG__-e __PIEXT__ "$(__OPINPUT__ encode launch-brief < __BRIEF__)"'
     fi
@@ -2317,7 +2329,7 @@ case "$ARG3" in
   # The launch_template lookup below is the unverified-adapter guard for both
   # kinds: a harness with no template aborts the spawn.
   if [ "$KIND" = secondmate ]; then
-    HARNESS=$("$FM_ROOT/bin/fm-harness.sh" secondmate)
+    HARNESS=$("$FM_ROOT/bin/fm-harness.sh" secondmate "$ID")
     harness_src='config/secondmate-harness (falling back to config/crew-harness)'
   else
     if [ -f "$CONFIG/crew-dispatch.json" ]; then
@@ -2448,11 +2460,11 @@ esac
 # --model/--effort flags still win over the file's tokens.
 if [ "$KIND" = secondmate ] && [ -z "$ARG3" ]; then
   if [ "$MODEL_SET" -eq 0 ]; then
-    SM_MODEL=$("$SCRIPT_DIR/fm-harness.sh" secondmate-model)
+    SM_MODEL=$("$SCRIPT_DIR/fm-harness.sh" secondmate-model "$ID")
     [ -z "$SM_MODEL" ] || MODEL=$SM_MODEL
   fi
   if [ "$EFFORT_SET" -eq 0 ]; then
-    SM_EFFORT=$("$SCRIPT_DIR/fm-harness.sh" secondmate-effort)
+    SM_EFFORT=$("$SCRIPT_DIR/fm-harness.sh" secondmate-effort "$ID")
     if [ -n "$SM_EFFORT" ]; then
       case "$SM_EFFORT" in
       low | medium | high | xhigh | max | ultra) EFFORT=$SM_EFFORT ;;
@@ -5031,6 +5043,24 @@ EOF
   esac
 fi
 
+# Secondmates use primary supervision extensions instead of worker busy wiring.
+# Install only the first-call readiness hook for that path, with a fresh receipt
+# so a prior incarnation's successful call can never satisfy this launch.
+PI_FIRST_CALL_RECEIPT=
+if [ "$KIND" = secondmate ]; then
+  case "$HARNESS" in
+    pi|pi-signed)
+      PI_FIRST_CALL_RECEIPT=$(mktemp "$STATE_REAL/$ID.pi-first-call.XXXXXXXXXXXX")
+      rm -f -- "$PI_FIRST_CALL_RECEIPT"
+      {
+        printf 'export default function(pi) {\n'
+        "$SCRIPT_DIR/fm-pi-first-call.sh" hook "$PI_FIRST_CALL_RECEIPT"
+        printf '}\n'
+      } > "$STATE/$ID.pi-ext.ts"
+      ;;
+  esac
+fi
+
 # Per-task git hooksPath that strips AI commit trailers at the commit object.
 # Installed for every kind, including secondmate, unless the home opts in to
 # keeping trailers. Cursor and other non-Claude runtimes inject the trailer
@@ -5670,6 +5700,15 @@ if [ "$HARNESS" = agy ]; then
     fi
     exit 1
   fi
+fi
+
+if [ "$KIND" = secondmate ]; then
+  case "$HARNESS" in
+    pi|pi-signed)
+      "$SCRIPT_DIR/fm-pi-first-call.sh" wait "$PI_FIRST_CALL_RECEIPT" "$MODEL" || exit 1
+      rm -f -- "$PI_FIRST_CALL_RECEIPT"
+      ;;
+  esac
 fi
 
 if [ "$KIND" = secondmate ] && [ "${FM_SKIP_SECONDMATE_INHERIT:-0}" != 1 ]; then

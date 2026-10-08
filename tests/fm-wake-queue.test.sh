@@ -3525,6 +3525,45 @@ SH
   pass "watch: hung remote round trips stay off the poll, so the beacon stays fresh and signals still surface"
 }
 
+test_secondmate_first_call_failure_wakes_with_model_error() {
+  local dir state pid ledger out
+  dir=$(make_secondmate_liveness_case first-call-failure)
+  state="$dir/state"
+  ledger="$state/.secondmate-relaunch-sm1"
+  mkdir -p "$dir/code/bin"
+  ln -s "$ROOT"/bin/*.sh "$dir/code/bin/"
+  rm "$dir/code/bin/fm-spawn.sh"
+  printf 'pi\nsm1 pi anthropic/claude-opus-5-5 low\n' > "$dir/config/secondmate-harness"
+  printf 'error: 403 forbidden\n' > "$dir/receipt"
+  cat > "$dir/code/bin/fm-spawn.sh" <<'SH'
+#!/usr/bin/env bash
+set -eu
+[ "$1" = sm1 ] && [ "$2" = --secondmate ] || exit 2
+profile=$("$FM_ROOT_OVERRIDE/bin/fm-harness.sh" secondmate-pin "$1")
+read -r harness model effort <<< "$profile"
+[ "$harness" = pi ] && [ "$effort" = low ] || exit 2
+printf 'warning: sync skipped before launch\n' >&2
+"$FM_ROOT_OVERRIDE/bin/fm-pi-first-call.sh" wait "$FM_HOME/receipt" "$model" 1
+SH
+  chmod +x "$dir/code/bin/fm-spawn.sh"
+  run_liveness_leg "$dir" provider-error FM_FAKE_TMUX_CURRENT_COMMAND=zsh FM_ROOT_OVERRIDE="$dir/code"; pid=$LIVENESS_PID
+  wait_for_exit "$pid" 300 || fail "watcher did not wake on first-call failure"
+  out=$(cat "$dir/watch-provider-error.out")
+  assert_contains "$out" 'auto-relaunch failed' 'provider failure was not surfaced as failed recovery'
+  assert_contains "$out" 'model anthropic/claude-opus-5-5 first call failed: error: 403 forbidden' 'watcher hid the model/provider error behind a sync warning'
+  assert_not_contains "$out" 'auto-relaunched' 'watcher claimed a failed model call relaunched successfully'
+  [ "$(awk -F '\t' '$2 == "failed" {n++} END {print n+0}' "$ledger")" = 1 ] || fail 'failed first call was not ledgered'
+  [ "$(grep -c 'secondmate-relaunch-failed-sm1-' "$state/.wake-queue")" = 1 ] || fail 'provider error wake not queued once'
+  pass "watcher first-call failure queues one wake naming the model and provider error after earlier warnings"
+}
+
+if [ "${FM_SM_PIN_TEST_ONLY:-0}" = 1 ]; then
+  test_secondmate_first_call_failure_wakes_with_model_error
+  exit 0
+fi
+
+test_secondmate_first_call_failure_wakes_with_model_error
+
 test_self_held_lock_reclaims_instead_of_deadlocking
 test_subshell_lock_ownership_without_bashpid
 test_bounded_lock_handoff_after_contention

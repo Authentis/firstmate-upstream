@@ -85,6 +85,14 @@ fm_sm_live_first_line() {
   printf '%s\n' "$1" | sed -n '1s/[[:space:]]\{1,\}/ /g;1p'
 }
 
+# Keep provider failures visible even after earlier sync/inheritance warnings.
+fm_sm_live_launch_failure() {
+  local error
+  error=$(printf '%s\n' "$1" | sed -n '/^error:/p' | tail -1)
+  if [ -n "$error" ]; then printf '%s\n' "$error"; else fm_sm_live_first_line "$1"; fi
+}
+
+
 # One line per relaunch attempt and one per outcome, keyed by epoch, plus a
 # `rearmed` row when a live probe lifts a parked mate. The watcher bound counts
 # `attempt` rows inside its window and after the last `rearmed` row; the whole
@@ -264,6 +272,7 @@ fm_secondmate_liveness_probe() {  # <meta> <id> <full|poll>
 # read or the attempt row cannot be appended, nothing is killed or spawned: the verdict becomes
 # FM_SM_LIVE_STATUS=skipped with FM_SM_LIVE_REASON set and this returns 1.
 # Caller holds the liveness lock and owns reporting.
+
 fm_secondmate_liveness_relaunch() {  # <meta> <id> [timeout-secs]
   local meta=$1 id=$2 timeout=${3:-}
   FM_SM_LIVE_OUT='' FM_SM_LIVE_RC=0

@@ -824,19 +824,26 @@ When it is absent or contains `default`, crewmates mirror the firstmate's own ha
 
 ### Choose the secondmate harness
 
-`config/secondmate-harness` is a separate local, gitignored file containing the adapter the primary uses to launch secondmate agents, optionally followed by model and effort tokens on the same line.
-The first non-empty, non-comment line is parsed as `<harness> [<model>] [<effort>]`.
+`config/secondmate-harness` is the primary's local, gitignored config for secondmate profiles.
+It accepts one unkeyed default line `<harness> [<model>] [<effort>]` alongside per-secondmate lines `<id> <harness> <model> <effort>`.
+Blank lines and lines starting with `#` are ignored.
+A keyed line must contain a concrete harness, model, and effort; `default` or `-` model values and absent or default effort values are refused.
+Duplicate ids, duplicate defaults, and malformed lines fail before launch or relaunch rather than selecting around them.
 
-A bare `<harness>` preserves the previous behavior: harness only, with no model or effort launch flag.
-When the harness token is absent or `default`, secondmate launch falls back through `config/crew-harness` and then the primary's own harness, and no model or effort is read from that file.
+A matching id pin governs initial spawn, local control-plane relaunch, remote relaunch, and watcher recovery, including when metadata or caller arguments carry an empty, default, or stale profile.
+Without a matching id, the unkeyed line preserves the single-line format's existing behavior and per-launch override rules.
+A bare default harness supplies no model or effort flag.
+When the default harness token is absent or `default`, resolution falls back through `config/crew-harness` and then the primary's own harness, and no model or effort is read from that default line.
 
-`fm-harness.sh secondmate-model` and `fm-harness.sh secondmate-effort` expose only the optional tokens from `config/secondmate-harness`; `config/crew-harness` remains a bare adapter-name file.
-Changing this pin affects the next secondmate spawn or control-plane relaunch; the relaunch profile rules are owned by [`docs/agent-control.md`](agent-control.md#transactional-relaunch).
+The id-aware lookup commands and parser mechanics are owned by [`bin/fm-harness.sh`](../bin/fm-harness.sh)'s header; `config/crew-harness` remains a bare adapter-name file.
+Changing a pin affects the next spawn or control-plane relaunch; [transactional relaunch](agent-control.md#transactional-relaunch) owns its checkpoint and stop guarantees.
+Pi and pi-signed secondmate launches also require a successful first model response through [`bin/fm-pi-first-call.sh`](../bin/fm-pi-first-call.sh)'s bounded readiness hook.
+A provider error or an unconfirmed response refuses launch, and watcher recovery queues a failure wake naming the model and error.
 
 ### Per-launch overrides and inherited defaults
 
-An explicit harness argument to `fm-spawn.sh` still overrides either config file for that spawn only.
-An explicit `--model` or `--effort` overrides the matching token from `config/secondmate-harness`; for a local route, an explicit harness or raw launch command starts with clean model and effort defaults unless those flags are also passed.
+An explicit harness argument to `fm-spawn.sh` overrides the unkeyed default for that spawn only; keyed secondmate pins follow the [secondmate profile contract](#choose-the-secondmate-harness).
+Without a matching keyed pin, an explicit `--model` or `--effort` overrides the matching default token from `config/secondmate-harness`; for a local route, an explicit harness or raw launch command starts with clean model and effort defaults unless those flags are also passed.
 
 Remote secondmate routes accept verified harness adapters only and reject raw launch commands.
 When `config/crew-dispatch.json` exists, crewmate and scout spawns require an explicit resolved harness instead of automatically falling back to `config/crew-harness`.

@@ -4,6 +4,10 @@
 #
 # Usage: fm-remote-secondmate-relaunch.sh <id> <harness> <model|default|-> <effort|default|->
 #
+# A matching keyed pin in this parent's config/secondmate-harness replaces the
+# supplied profile before transport; no matching pin preserves explicit arguments.
+# Malformed parent config refuses before any remote lifecycle operation.
+#
 # bin/fm-remote-secondmate-control.sh's relaunch verb runs entirely on the
 # secondmate's own host and can only rewrite that host's own endpoint record;
 # this parent's route record (state/<id>.meta here, marked remote_host=... to
@@ -39,6 +43,13 @@ HARNESS=$2
 MODEL=$3
 EFFORT=$4
 case "$ID" in ''|*[!A-Za-z0-9._-]*) die "invalid secondmate id: $ID" ;; esac
+
+# The parent owns the pin, not the remote host's non-inherited config.
+# Resolve before invoking any lifecycle operation; a malformed pin refuses.
+PIN=$("$SCRIPT_DIR/fm-harness.sh" secondmate-pin "$ID")
+if [ -n "$PIN" ]; then
+  read -r HARNESS MODEL EFFORT <<< "$PIN"
+fi
 
 META="$STATE/$ID.meta"
 [ -f "$META" ] && [ ! -L "$META" ] || die "no metadata for $ID at $META"

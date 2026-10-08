@@ -2411,6 +2411,54 @@ test_relaunch_moves_a_drifted_item_back_in_flight() {
   pass "relaunch heals an item that drifted out of In flight while the task stayed live"
 }
 
+test_secondmate_relaunch_keyed_pin_overrides_stale_profile() {
+  local dir home out rc
+  dir=$(new_case smpin sm3)
+  home="$dir/home"
+  mkdir -p "$home/config"
+  printf 'pi\nsm3 codex some-model high\n' > "$home/config/secondmate-harness"
+  mkdir -p "$home/data/sm3"
+  printf '# secondmate brief\n' > "$home/data/sm3/brief.md"
+  fm_git_worktree "$dir/proj" "$dir/smhome" sm-branch
+  mkdir -p "$dir/smhome/state" "$dir/smhome/data" "$dir/smhome/bin"
+  printf 'sm3\n' > "$dir/smhome/.fm-secondmate-home"
+  printf '# agents\n' > "$dir/smhome/AGENTS.md"
+  {
+    echo "window=fmses:fm-sm3"
+    echo "endpoint_task_id=sm3"
+    echo "worktree=$dir/smhome"
+    echo "project=$dir/smhome"
+    echo "harness=claude"
+    echo "kind=secondmate"
+    echo "mode=secondmate"
+    echo "yolo=off"
+    echo "model=default"
+    echo "effort=default"
+    echo "home=$dir/smhome"
+  } > "$home/state/sm3.meta"
+  printf '%s\n' "fm-sm3" > "$dir/fake/windows"
+  printf '%s' "$dir/smhome" > "$dir/fake/cwd"
+  printf 'codex' > "$dir/fake/becomes"
+  out=$(run_control "$dir" sm3 relaunch --harness claude --model stale --effort low); rc=$?
+  expect_code 0 "$rc" "a configured secondmate harness should relaunch"$'\n'"$out"
+  [ "$(journal_field "$dir" sm3 to_harness)" = codex ] \
+    || fail "a secondmate relaunch should pick up the configured harness pin, got '$(journal_field "$dir" sm3 to_harness)'"
+  [ "$(journal_field "$dir" sm3 to_model)" = some-model ] \
+    || fail "the configured model token should come with the pin"
+  [ "$(journal_field "$dir" sm3 to_effort)" = high ] \
+    || fail "the configured effort token should come with the pin"
+  assert_not_contains "$out" "not a verified harness" "codex is a verified harness"
+  chmod u+w "$dir/home/state/sm3.git-hooks"
+  pass "fm-control relaunch: a secondmate relaunch re-resolves its keyed pin despite stale explicit profile"
+}
+
+if [ "${FM_SM_PIN_TEST_ONLY:-0}" = 1 ]; then
+  test_secondmate_relaunch_keyed_pin_overrides_stale_profile
+  exit 0
+fi
+
+test_secondmate_relaunch_keyed_pin_overrides_stale_profile
+
 test_same_harness_relaunch_keeps_identity_and_reuses_the_endpoint
 test_relaunch_launches_claude_without_the_child_session_marker
 test_relaunch_refuses_before_exit_when_the_composer_holds_pending_text
@@ -2427,6 +2475,7 @@ test_harness_switch_resolves_a_prefixed_recorded_harness
 test_prefixed_recorded_harness_requires_explicit_replacement
 test_same_harness_relaunch_keeps_the_profile_axes
 test_native_ultra_relaunch_preserves_profile_and_rejects_before_stop
+
 test_signed_out_worker_account_pin_refuses_before_stop
 test_worker_account_pin_follows_the_relaunch
 test_explicit_model_wins_over_the_recorded_one

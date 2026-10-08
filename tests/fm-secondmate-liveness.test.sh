@@ -208,7 +208,9 @@ test_agent_state_dispatcher_and_compatibility() {
 make_toolchain() {
   local dir=$1 fakebin
   fakebin=$(fm_fakebin "$dir")
-  fm_fake_exit0 "$fakebin" node chrome-devtools-axi pi-signed
+  fm_fake_exit0 "$fakebin" chrome-devtools-axi pi-signed
+  # Pi readiness executes a generated event hook, so Node must interpret it.
+  ln -sf "$(command -v node)" "$fakebin/node"
   fm_fake_version_tool "$fakebin" lavish-axi FM_FAKE_LAVISH_AXI_VERSION 0.1.80
   cat > "$fakebin/gh-axi" <<'SH'
 #!/usr/bin/env bash
@@ -274,6 +276,15 @@ make_liveness_tmux() {
 set -u
 mode=${FM_TEST_PANE_CMD:-zsh}
 case "${1:-}" in
+  send-keys)
+    if [ "${!#}" = Enter ]; then
+      for ext in "${FM_STATE_OVERRIDE:-$FM_HOME/state}"/*.pi-ext.ts; do
+        [ -f "$ext" ] || continue
+        node "$FM_TEST_PI_FIRST_CALL_FAKE" "$ext" || exit
+      done
+    fi
+    exit 0
+    ;;
   display-message)
     for a in "$@"; do
       case "$a" in
@@ -352,7 +363,7 @@ add_sm_home() {
 run_bootstrap() {  # <fakebin> <home> <pane-cmd> <call-log> [extra env...] -> stdout
   local fb=$1 home=$2 cmd=$3 log=$4; shift 4
   PATH="$fb:$BASE_PATH" TMUX='' FM_BACKEND=tmux FM_HOME="$home" \
-    FM_TEST_PANE_CMD="$cmd" FM_TMUX_CALL_LOG="$log" \
+    FM_TEST_PANE_CMD="$cmd" FM_TMUX_CALL_LOG="$log" FM_TEST_PI_FIRST_CALL_FAKE="$ROOT/tests/assets/pi-first-call-fake.mjs" \
     env "$@" "$ROOT/bin/fm-bootstrap.sh" 2>&1
 }
 
@@ -701,6 +712,27 @@ test_remote_poll_probe_unreachable_preserves_route() {
     || fail "a non-transport remote probe failure must stay inconclusive, got: $out"
   pass "poll probe: unreachable or inconclusive remote reads preserve the route"
 }
+
+test_sweep_relaunches_keyed_signed_pi_after_first_call_success() {
+  local w fb tmuxfb log out
+  w=$(new_world sweep-keyed-pi-signed)
+  printf 'codex\nsm1 pi-signed openai/gpt-6.1-sol low\n' > "$w/home/config/secondmate-harness"
+  add_sm_home "$w" sm1 firstmate:fm-sm1 pi-signed
+  printf 'model=default\neffort=default\n' >> "$w/home/state/sm1.meta"
+  fb=$(make_toolchain "$w"); tmuxfb=$(make_liveness_tmux "$w")
+  log="$w/calls.log"; : > "$log"
+  out=$(run_bootstrap "$tmuxfb:$fb" "$w/home" missing "$log")
+  assert_not_contains "$out" 'respawn failed' "signed Pi fake first-call gate failed: $out"
+  assert_grep 'model=openai/gpt-6.1-sol' "$w/home/state/sm1.meta" 'bootstrap retained the stale model'
+  assert_grep 'effort=low' "$w/home/state/sm1.meta" 'bootstrap retained the stale effort'
+  assert_grep 'relaunched' "$w/home/state/.secondmate-relaunch-sm1" 'signed Pi first-call success was not confirmed'
+  pass "bootstrap signed Pi recovery resolves the id pin and requires a successful fake first model call"
+}
+if [ "${FM_SM_PIN_TEST_ONLY:-0}" = 1 ]; then
+  test_sweep_relaunches_keyed_signed_pi_after_first_call_success
+  exit 0
+fi
+test_sweep_relaunches_keyed_signed_pi_after_first_call_success
 
 test_tmux_agent_state_classifies
 test_tmux_agent_state_rejects_malformed_targets_before_probe
