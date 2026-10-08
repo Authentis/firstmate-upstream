@@ -1174,23 +1174,26 @@ test_housekeeping_paused_resurfaces_and_resets() {
 # Away mode: a paused: line older than FM_PAUSED_NO_GATE_SECS with no live gate
 # run escalates once, like blocked:, well before the long recheck cadence; a live
 # gate run keeps it quiet.
-paused_overdue_housekeeping() {  # <case> <crew-state> -> sets PH_STATE PH_KEY
-  local dir fakebin win pane task
+paused_overdue_housekeeping() {  # <case> <crew-state> -> sets PH_STATE PH_KEY PH_FAKEBIN PH_WIN PH_PANE
+  local dir task
   dir=$(make_supercase "$1")
-  PH_STATE="$dir/state"; fakebin="$dir/fakebin"; task="parked-w12"
-  win="sess:fm-$task"; pane="$dir/pane.txt"
-  make_fake_crew_state "$fakebin" >/dev/null
+  PH_STATE="$dir/state"; PH_FAKEBIN="$dir/fakebin"; task="parked-w12"
+  PH_WIN="sess:fm-$task"; PH_PANE="$dir/pane.txt"
+  make_fake_crew_state "$PH_FAKEBIN" >/dev/null
   printf 'paused: PR https://example.test/pr/9 published, parked\n' > "$PH_STATE/$task.status"
   touch -t "$(date -r $(( $(date +%s) - 7300 )) +%Y%m%d%H%M.%S 2>/dev/null \
     || date -d "@$(( $(date +%s) - 7300 ))" +%Y%m%d%H%M.%S)" "$PH_STATE/$task.status"
-  printf 'idle prompt $\n' > "$pane"
+  printf 'idle prompt $\n' > "$PH_PANE"
   PH_KEY=$(printf '%s' "$task" | tr ':/.' '___')
   echo $(( $(date +%s) - 600 )) > "$PH_STATE/.subsuper-paused-$PH_KEY"
-  for _ in 1 2; do
-    PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$win" FM_FAKE_TMUX_CAPTURE="$pane" \
-      FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_FAKE_CREW_STATE="$2" \
-      FM_STATE_OVERRIDE="$PH_STATE" housekeeping "$PH_STATE"
-  done
+  paused_overdue_tick "$2"
+  paused_overdue_tick "$2"
+}
+
+paused_overdue_tick() {  # <crew-state>
+  PATH="$PH_FAKEBIN:$PATH" FM_FAKE_TMUX_WINDOW="$PH_WIN" FM_FAKE_TMUX_CAPTURE="$PH_PANE" \
+    FM_CREW_STATE_BIN="$PH_FAKEBIN/fm-crew-state.sh" FM_FAKE_CREW_STATE="$1" \
+    FM_STATE_OVERRIDE="$PH_STATE" housekeeping "$PH_STATE"
 }
 
 test_housekeeping_paused_overdue_without_gate_run_escalates_once() {
@@ -1205,7 +1208,11 @@ test_housekeeping_paused_overdue_with_live_gate_run_stays_quiet() {
   paused_overdue_housekeeping paused-overdue-away-live 'state: working · source: run-step · validating (running)'
   [ ! -s "$PH_STATE/.subsuper-escalations" ] \
     || fail "an overdue paused: lane with a live gate run escalated: $(cat "$PH_STATE/.subsuper-escalations")"
-  pass "away mode keeps an overdue paused: lane with a live gate run quiet"
+  paused_overdue_tick 'state: paused · source: status-log · run ended, parked'
+  paused_overdue_tick 'state: paused · source: status-log · run ended, parked'
+  [ "$(grep -c "no live gate run" "$PH_STATE/.subsuper-escalations" 2>/dev/null)" = 1 ] \
+    || fail "an overdue paused: lane did not escalate exactly once after its gate run ended: $(cat "$PH_STATE/.subsuper-escalations" 2>/dev/null || true)"
+  pass "away mode keeps an overdue paused: lane quiet while its gate run is live, then escalates once it ends"
 }
 
 # The other half of quieting a captain-held task: it must NOT be silenced outright.
