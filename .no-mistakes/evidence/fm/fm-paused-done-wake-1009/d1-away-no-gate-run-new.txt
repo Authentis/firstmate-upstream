@@ -1,0 +1,30 @@
+
+===== d1b-new away mode, young paused: line (code: /Users/lundi/.no-mistakes/worktrees/0d3d213d42f1/01M4ENXW8A7JBN417QMRZKMF6C, crew mode: none) =====
+status line: paused: PR https://example.test/pr/9 published, parked
+status age:  601s
+pane:
+  | PR https://example.test/pr/9 published
+  | bash-5.3$
+crew-state: state: unknown · source: pane · harness state unavailable (unknown missing)
+after 25s on the young line: 'no live gate run' escalations buffered for the supervisor: 0
+
+===== d1b-new status line pushed past 2h =====
+status line: paused: PR https://example.test/pr/9 published, parked
+status age:  7300s
+pane:
+  | PR https://example.test/pr/9 published
+  | bash-5.3$
+crew-state: state: unknown · source: pane · harness state unavailable (unknown missing)
+after 40s overdue: 'no live gate run' escalations buffered for the supervisor: 1
+20s later (must not repeat): 'no live gate run' escalations buffered for the supervisor: 1
+
+===== d1b-new buffered supervisor escalations (state/.subsuper-escalations) =====
+  > paused 7303s with no live gate run (parked, not waiting; finish it with done: or unblock it): lab:fm-parked
+
+===== d1b-new daemon log tail =====
+[2026-10-09T01:50:58+0400] daemon starting (pid 25662); target=lab:sup; target_source=FM_SUPERVISOR_TARGET; backend=tmux; backend_source=FM_SUPERVISOR_BACKEND; afk=on; inject_skip='heartbeat'; stale_escalate=240s; batch=0s
+[2026-10-09T01:51:30+0400] wake: signal: /tmp/fmlab-pw/state/parked.status
+[2026-10-09T01:51:32+0400] self-handle: signal: /tmp/fmlab-pw/state/parked.status -> routine signal: parked.status: paused: PR https://example.test/pr/9 published, parked
+[2026-10-09T01:51:38+0400] wake: stale: lab:fm-parked
+[2026-10-09T01:51:39+0400] self-handle (paused): stale: lab:fm-parked -> paused (awaiting external), rechecked on a long cadence: paused: PR https://example.test/pr/9 published, parked
+[2026-10-09T01:52:24+0400] daemon shutting down

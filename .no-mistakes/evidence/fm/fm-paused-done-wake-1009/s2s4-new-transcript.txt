@@ -1,0 +1,30 @@
+
+===== s2s4-new young lane (code: /Users/lundi/.no-mistakes/worktrees/0d3d213d42f1/01M4ENXW8A7JBN417QMRZKMF6C) =====
+status line: paused: PR https://example.test/pr/9 published, parked
+status age:  601s
+pane:
+  | PR https://example.test/pr/9 published
+  | bash-5.3$
+crew-state: state: unknown · source: pane · harness state unavailable (unknown missing)
+
+===== s2s4-new phase A: watcher on the young (<2h) paused: line, 60s window =====
+  watcher run 0 exited after 3s: signal: /tmp/fmlab-pw/state/parked.status 
+  watcher run 1 still running, no stale wake within 60s total
+RESULT A: no stale wake for the young paused: line
+pause-cadence flag .paused-lab_fm-parked present: yes
+absorbed hash .stale-lab_fm-parked present: yes
+
+===== s2s4-new phase B: same frozen pane, status line pushed past 2h, 90s window =====
+status line: paused: PR https://example.test/pr/9 published, parked
+status age:  7300s
+pane:
+  | PR https://example.test/pr/9 published
+  | bash-5.3$
+crew-state: state: unknown · source: pane · harness state unavailable (unknown missing)
+  watcher run 0 exited after 1s: check: rearm-resurface 
+  watcher run 1 exited after 5s: signal: /tmp/fmlab-pw/state/parked.status 
+  watcher run 2 exited after 8s: stale: lab:fm-parked 
+    drain> 1791495640	5	stale	lab:fm-parked	stale: lab:fm-parked
+    drain> WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 5 --recovery-generation 81511.1791495640.eggNVz
+    drain> WARNING: queued wakes pending - drain them with bin/fm-wake-drain.sh before anything else.
+RESULT B: stale wake for the overdue line

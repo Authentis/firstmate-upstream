@@ -1,0 +1,23 @@
+
+===== s3-new young lane with future until (code: /Users/lundi/.no-mistakes/worktrees/0d3d213d42f1/01M4ENXW8A7JBN417QMRZKMF6C) =====
+status line: paused: waiting on upstream release until 2026-10-09T21:43Z
+status age:  601s
+pane:
+  | PR https://example.test/pr/9 published
+  | bash-5.3$
+crew-state: state: unknown · source: pane · harness state unavailable (unknown missing)
+  watcher run 0 exited after 3s: signal: /tmp/fmlab-pw/state/parked.status 
+  watcher run 1 still running, no stale wake within 45s total
+RESULT A: no stale wake
+
+===== s3-new status line pushed past 2h, until still ahead, 90s window =====
+status line: paused: waiting on upstream release until 2026-10-09T21:43Z
+status age:  7300s
+pane:
+  | PR https://example.test/pr/9 published
+  | bash-5.3$
+crew-state: state: unknown · source: pane · harness state unavailable (unknown missing)
+  watcher run 0 exited after 1s: check: rearm-resurface 
+  watcher run 1 exited after 5s: signal: /tmp/fmlab-pw/state/parked.status 
+  watcher run 2 still running, no stale wake within 90s total
+RESULT B: no stale wake (future until keeps it quiet)

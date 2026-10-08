@@ -1,0 +1,18 @@
+
+===== S1 lane before the watcher run =====
+status line: paused: PR https://example.test/pr/9 published, parked
+status age:  7304s
+pane:
+  | PR https://example.test/pr/9 published
+  | bash-5.3$
+crew-state: state: unknown · source: pane · harness state unavailable (unknown missing)
+
+===== S1 real bin/fm-watch.sh run (FM_PAUSED_NO_GATE_SECS default 7200) =====
+watcher exited rc=0 after ~5s
+watcher stdout:
+  > stale: lab:fm-parked
+wake drain:
+WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 5 --recovery-generation 31678.1791495326.eYbuD1
+WARNING: queued wakes pending - drain them with bin/fm-wake-drain.sh before anything else.
+  > 1791495330	4	signal	parked.status	signal: /tmp/fmlab-pw/state/parked.status
+  > 1791495337	5	stale	lab:fm-parked	stale: lab:fm-parked

@@ -1,0 +1,34 @@
+
+===== s4-new young lane (code: /Users/lundi/.no-mistakes/worktrees/0d3d213d42f1/01M4ENXW8A7JBN417QMRZKMF6C) =====
+status line: paused: PR https://example.test/pr/9 published, parked
+status age:  604s
+pane:
+  | PR https://example.test/pr/9 published
+  | bash-5.3$
+crew-state: state: unknown · source: pane · harness state unavailable (unknown missing)
+
+===== s4-new phase A: watcher on the young (<2h) paused: line, up to 45s =====
+watcher still running after 45s (no wake)
+quiet for 45s
+pause-cadence flag .paused-lab_fm-parked present: yes
+absorbed hash .stale-lab_fm-parked present: yes
+pane unchanged:
+  | PR https://example.test/pr/9 published
+  | bash-5.3$
+
+===== s4-new phase B: same frozen pane, status line now pushed past 2h =====
+(absorbed the touch-induced status signal: check: rearm-resurface)
+status line: paused: PR https://example.test/pr/9 published, parked
+status age:  7302s
+pane:
+  | PR https://example.test/pr/9 published
+  | bash-5.3$
+crew-state: state: unknown · source: pane · harness state unavailable (unknown missing)
+watcher exited rc=0 after ~3s
+watcher stdout:
+  > signal: /tmp/fmlab-pw/state/parked.status
+wake drain:
+  > 1791495530	6	signal	parked.status	signal: /tmp/fmlab-pw/state/parked.status
+  > WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 6 --recovery-generation 49197.1791495530.nY6t9Z
+  > wake annotation: latest wake-EVENT observed at drain, not current state: parked.status: paused: PR https://example.test/pr/9 published, parked
+  > WARNING: queued wakes pending - drain them with bin/fm-wake-drain.sh before anything else.

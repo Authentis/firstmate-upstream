@@ -1,0 +1,4 @@
+1791495571	2	signal	parked.status	signal: /tmp/fmlab-pw/state/parked.status
+WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 2 --recovery-generation 54241.1791495571.m1IWb2
+wake annotation: latest wake-EVENT observed at drain, not current state: parked.status: paused: PR https://example.test/pr/9 published, parked
+WARNING: queued wakes pending - drain them with bin/fm-wake-drain.sh before anything else.

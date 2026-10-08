@@ -1,0 +1,3 @@
+1791496106	1	stale	lab:fm-parked	stale: lab:fm-parked
+WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 1 --recovery-generation 2826.1791496106.hHtHl5
+WARNING: queued wakes pending - drain them with bin/fm-wake-drain.sh before anything else.

@@ -1,0 +1,33 @@
+
+===== s5-new young lane, gate run live (code: /Users/lundi/.no-mistakes/worktrees/0d3d213d42f1/01M4ENXW8A7JBN417QMRZKMF6C) =====
+status line: paused: own pipeline run
+status age:  601s
+pane:
+  | PR https://example.test/pr/9 published
+  | bash-5.3$
+crew-state: state: unknown · source: pane · harness state unavailable (unknown missing)
+crew verdict fed to the watcher: state: working · source: run-step · validating (running)
+  watcher run 0 still running, no stale wake within 40s total
+RESULT A: no stale wake
+
+===== s5-new line pushed past 2h, gate run still live, 75s window =====
+status line: paused: own pipeline run
+status age:  7300s
+pane:
+  | PR https://example.test/pr/9 published
+  | bash-5.3$
+crew-state: state: unknown · source: pane · harness state unavailable (unknown missing)
+  watcher run 0 exited after 1s: check: rearm-resurface 
+  watcher run 1 still running, no stale wake within 75s total
+RESULT B: no stale wake while the gate run is live
+
+===== s5-new gate run ends; pane stays frozen; 90s window =====
+crew verdict fed to the watcher: state: paused · source: status-log · run ended
+  | PR https://example.test/pr/9 published
+  | bash-5.3$
+  watcher run 0 exited after 1s: check: rearm-resurface 
+  watcher run 1 exited after 5s: stale: lab:fm-parked 
+    drain> 1791496106	1	stale	lab:fm-parked	stale: lab:fm-parked
+    drain> WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through 1 --recovery-generation 2826.1791496106.hHtHl5
+    drain> WARNING: queued wakes pending - drain them with bin/fm-wake-drain.sh before anything else.
+RESULT C: stale wake after the run ended

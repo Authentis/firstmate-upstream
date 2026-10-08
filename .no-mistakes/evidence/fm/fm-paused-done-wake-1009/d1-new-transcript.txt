@@ -1,0 +1,61 @@
+
+===== d1-new away mode, young paused: line (code: /Users/lundi/.no-mistakes/worktrees/0d3d213d42f1/01M4ENXW8A7JBN417QMRZKMF6C, crew mode: none) =====
+status line: paused: PR https://example.test/pr/9 published, parked
+status age:  600s
+pane:
+  | PR https://example.test/pr/9 published
+  | bash-5.3$
+crew-state: state: unknown · source: pane · harness state unavailable (unknown missing)
+after 25s on the young line: 'no live gate run' lines typed to supervisor pane: 0
+
+===== d1-new status line pushed past 2h =====
+status line: paused: PR https://example.test/pr/9 published, parked
+status age:  7300s
+pane:
+  | PR https://example.test/pr/9 published
+  | bash-5.3$
+crew-state: state: unknown · source: pane · harness state unavailable (unknown missing)
+after 40s overdue: 'no live gate run' lines typed to supervisor pane: 0
+20s later (must not repeat): 'no live gate run' lines typed to supervisor pane: 0
+
+===== d1-new supervisor pane (lab cat) transcript =====
+
+===== d1-new daemon log tail =====
+.
+..
+.afk
+.count-lab_fm-parked
+.hash-lab_fm-parked
+.hb-surfaced-parked
+.heartbeat-streak
+.inactive-outcome-reconcile
+.last-check
+.last-heartbeat
+.last-watcher-beat
+.parked.open-decisions-cursor
+.secondmate-liveness-tick
+.seen-parked_status
+.stale-lab_fm-parked
+.status-presentation-cursor
+.subsuper-escalations
+.subsuper-escalations.since
+.subsuper-last-housekeep
+.subsuper-last-scan
+.subsuper-pause-overdue-parked
+.subsuper-paused-parked
+.subsuper-seen-status-parked
+.supervise-daemon.lock
+.supervise-daemon.lock.owner.tjtZs9
+.supervise-daemon.log
+.supervise-daemon.pid
+.supervise-daemon.watcher.err
+.wake-queue
+.wake-queue.seq
+.watch-deliveries.log
+.watch.lock
+.watch.lock.owner.2QnT5B
+.watcher-down
+home-summary.json
+parked.meta
+parked.status
+terminal-outcomes

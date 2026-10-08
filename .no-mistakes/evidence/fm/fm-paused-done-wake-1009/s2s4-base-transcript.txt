@@ -1,0 +1,27 @@
+
+===== s2s4-base young lane (code: /tmp/fmlab-pw-base) =====
+status line: paused: PR https://example.test/pr/9 published, parked
+status age:  601s
+pane:
+  | PR https://example.test/pr/9 published
+  | bash-5.3$
+crew-state: state: unknown · source: pane · harness state unavailable (unknown missing)
+
+===== s2s4-base phase A: watcher on the young (<2h) paused: line, 60s window =====
+  watcher run 0 exited after 3s: signal: /tmp/fmlab-pw/state/parked.status 
+  watcher run 1 still running, no stale wake within 60s total
+RESULT A: no stale wake for the young paused: line
+pause-cadence flag .paused-lab_fm-parked present: yes
+absorbed hash .stale-lab_fm-parked present: yes
+
+===== s2s4-base phase B: same frozen pane, status line pushed past 2h, 90s window =====
+status line: paused: PR https://example.test/pr/9 published, parked
+status age:  7300s
+pane:
+  | PR https://example.test/pr/9 published
+  | bash-5.3$
+crew-state: state: unknown · source: pane · harness state unavailable (unknown missing)
+  watcher run 0 exited after 1s: check: rearm-resurface 
+  watcher run 1 exited after 5s: signal: /tmp/fmlab-pw/state/parked.status 
+  watcher run 2 still running, no stale wake within 90s total
+RESULT B: no stale wake for the overdue line
