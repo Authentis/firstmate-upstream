@@ -1391,12 +1391,79 @@ EOF
 
   printf 'window=fm-sess:live-window\nkind=ship\n' > "$home/state/task-live.meta"
   printf 'window=fm-sess:dead-window\nkind=ship\n' > "$home/state/task-dead.meta"
+  printf 'working [at=1]: x\n' > "$home/state/task-dead.status"
 
   out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
   assert_contains "$out" "endpoint: alive (backend=tmux window=fm-sess:live-window)" "live tmux endpoint not reported alive"
   assert_contains "$out" "endpoint: dead (backend=tmux window=fm-sess:dead-window)" "dead tmux endpoint not reported dead"
 
   pass "tmux endpoint liveness is reported per task: alive for a live window, dead for a gone one"
+}
+
+test_work_under_way_collapses_dead_records_without_status() {
+  local rec root home fakebin out i
+  rec=$(new_world work-collapse)
+  IFS='|' read -r root home fakebin <<EOF
+$rec
+EOF
+  make_fake_toolchain "$fakebin"
+  make_fake_ps_claude "$fakebin"
+  make_fake_tmux "$fakebin" "fm-sess:live-window"
+
+  i=0
+  while [ "$i" -lt 60 ]; do
+    i=$((i + 1))
+    printf 'window=fm-sess:gone-%s\nkind=ship\n' "$i" > "$home/state/stale-$i.meta"
+  done
+  printf 'window=fm-sess:live-window\nkind=ship\n' > "$home/state/live-nostatus.meta"
+  printf 'window=fm-sess:gone-s\nkind=ship\n' > "$home/state/dead-withstatus.meta"
+  printf 'working [at=1]: x\n' > "$home/state/dead-withstatus.status"
+  printf 'kind=ship\n' > "$home/state/nowindow.meta"
+
+  out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
+  assert_contains "$out" "60 record(s) with a dead endpoint and no status file collapsed" "stale records were not counted"
+  assert_contains "$out" "(+20 more)" "collapsed ids were not bounded with a disclosed remainder"
+  assert_not_contains "$out" "--- stale-1 ---" "a collapsed record still printed in full"
+  assert_contains "$out" "--- live-nostatus ---" "a live endpoint without status was collapsed"
+  assert_contains "$out" "--- dead-withstatus ---" "a record with a status file was collapsed"
+  assert_contains "$out" "--- nowindow ---" "an unknown-window record was collapsed"
+
+  pass "dead-endpoint records without a status file collapse to a bounded count while every other record stays whole"
+}
+
+test_reemit_work_under_way_is_size_bounded() {
+  local rec root home fakebin out i
+  rec=$(new_world work-reemit-cap)
+  IFS='|' read -r root home fakebin <<EOF
+$rec
+EOF
+  make_fake_toolchain "$fakebin"
+  make_fake_ps_claude "$fakebin"
+  mkdir -p "$home/other-secondmate/state"
+
+  i=0
+  while [ "$i" -lt 30 ]; do
+    i=$((i + 1))
+    printf 'window=\nkind=ship\nnote=%0300d\n' 0 > "$home/state/ship-$i.meta"
+    printf 'working [at=1]: x\n' > "$home/state/ship-$i.status"
+  done
+  fm_write_secondmate_meta "$home/state/zz-sm.meta" "$home/other-secondmate" "firstmate:fm-zz-sm" alpha
+
+  out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$root" FM_FAKE_HARNESS_PID=$$ PATH="$fakebin:$BASE_PATH" \
+    FM_SESSION_START_REEMIT_WORK_MAX_BYTES=3000 \
+    env -u CLAUDECODE -u PI_CODING_AGENT -u FM_PI_HARNESS -u GROK_AGENT \
+    "$SESSION_START" --reemit)
+  assert_contains "$out" "CONTEXT RE-EMIT TRUNCATED" "the capped re-emit carried no truncation banner"
+  assert_contains "$out" "bin/fm-crew-state.sh" "the banner did not say how to read the omitted records"
+  assert_contains "$out" "--- zz-sm ---" "a secondmate record was dropped by the size bound"
+  assert_contains "$out" "--- ship-1 ---" "the first records were not kept"
+  assert_not_contains "$out" "--- ship-30 ---" "the size bound did not omit later records"
+
+  out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
+  assert_not_contains "$out" "CONTEXT RE-EMIT TRUNCATED" "a full session start was size-capped"
+  assert_contains "$out" "--- ship-30 ---" "a full session start dropped a record"
+
+  pass "a context re-emit bounds its work-under-way section with a truncation banner and always keeps secondmates"
 }
 
 test_endpoint_liveness_herdr() {
@@ -1412,6 +1479,8 @@ EOF
   printf 'window=sess:p-live\nkind=ship\nbackend=herdr\n' > "$home/state/task-live.meta"
   printf 'window=sess:p-dead\nkind=ship\nbackend=herdr\n' > "$home/state/task-dead.meta"
   printf 'window=sess:p-odd\nkind=ship\nbackend=herdr\n' > "$home/state/task-odd.meta"
+  printf 'working [at=1]: x\n' > "$home/state/task-dead.status"
+  printf 'working [at=1]: x\n' > "$home/state/task-odd.status"
 
   out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
   assert_contains "$out" "endpoint: alive (backend=herdr window=sess:p-live)" "live herdr endpoint not reported alive"
@@ -3079,6 +3148,8 @@ test_status_tail_bounding
 test_status_tail_line_cap
 test_orphan_status_logs_are_printed
 test_endpoint_liveness_tmux
+test_work_under_way_collapses_dead_records_without_status
+test_reemit_work_under_way_is_size_bounded
 test_endpoint_liveness_herdr
 test_endpoint_read_death_is_isolated_and_reported
 test_endpoint_read_hang_is_bounded_and_reported

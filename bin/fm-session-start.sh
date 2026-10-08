@@ -879,7 +879,8 @@ fi
 stage read-once
 section "READ-ONCE CONTRACT"
 cat <<'EOF'
-Everything below is printed in full for this session start: every state/*.meta,
+Everything below is printed in full for this session start: every state/*.meta
+(dead-endpoint records with no status file are collapsed to a count and ids),
 a compact data/backlog.md listing, a bounded tail of every state/*.status,
 data/projects.md, data/secondmates.md, data/captain.md, data/captain-shared.md,
 and data/learnings.md.
@@ -909,16 +910,29 @@ section "FLEET STATE"
 print_backlog_compact "$DATA/backlog.md" "data/backlog.md"
 
 subsection "Work under way (state/*.meta)"
+# A home can hold hundreds of finished ship records. Full detail is kept for
+# secondmates, records with a status file, and any endpoint that is not
+# provably dead; a dead-endpoint record with no status file is only counted and
+# named. A context re-emit is additionally bounded by
+# FM_SESSION_START_REEMIT_WORK_MAX_BYTES so the re-injected message stays small.
+WORK_MAX_BYTES=${FM_SESSION_START_REEMIT_WORK_MAX_BYTES:-40000}
+WORK_IDS_MAX=${FM_SESSION_START_COLLAPSED_IDS_MAX:-40}
 META_FOUND=0
+WORK_BYTES=0
+COLLAPSED_COUNT=0
+COLLAPSED_IDS=
+OMITTED_COUNT=0
+OMITTED_IDS=
 for meta in "$STATE"/*.meta; do
   [ -f "$meta" ] || continue
   META_FOUND=1
   id=$(basename "$meta" .meta)
-  printf '\n--- %s ---\n' "$id"
-  cat "$meta"
+  kind=$(fm_meta_get "$meta" kind)
+  status="$STATE/$id.status"
 
   window=$(fm_meta_get "$meta" window)
   target=$(fm_backend_target_of_meta "$meta")
+  endpoint_dead=0
   if [ -n "$window" ]; then
     backend=$(fm_backend_of_meta "$meta")
     endpoint_rc=0
@@ -927,25 +941,56 @@ for meta in "$STATE"/*.meta; do
     # the bound firing and >=128 is a signal death. Every other nonzero status
     # is the probe's own verdict that the endpoint is gone.
     if [ "$endpoint_rc" -eq 0 ]; then
-      printf 'endpoint: alive (backend=%s window=%s)\n' "$backend" "$window"
+      endpoint_line=$(printf 'endpoint: alive (backend=%s window=%s)' "$backend" "$window")
     elif [ "$endpoint_rc" -eq 124 ] || [ "$endpoint_rc" -ge 128 ]; then
-      printf 'endpoint: error (backend=%s window=%s - the endpoint read died or hit its %ss bound; the digest continued past it)\n' \
-        "$backend" "$window" "$ENDPOINT_TIMEOUT"
+      endpoint_line=$(printf 'endpoint: error (backend=%s window=%s - the endpoint read died or hit its %ss bound; the digest continued past it)' \
+        "$backend" "$window" "$ENDPOINT_TIMEOUT")
     else
-      printf 'endpoint: dead (backend=%s window=%s)\n' "$backend" "$window"
+      endpoint_line=$(printf 'endpoint: dead (backend=%s window=%s)' "$backend" "$window")
+      endpoint_dead=1
     fi
   else
-    printf 'endpoint: unknown (no window recorded)\n'
+    endpoint_line='endpoint: unknown (no window recorded)'
   fi
 
-  status="$STATE/$id.status"
-  if [ -f "$status" ]; then
-    print_status_tail "$status"
-  else
-    printf 'status tail: (no status file yet: %s)\n' "$status"
+  if [ "$kind" != secondmate ] && [ ! -f "$status" ] && [ "$endpoint_dead" -eq 1 ]; then
+    COLLAPSED_COUNT=$((COLLAPSED_COUNT + 1))
+    [ "$COLLAPSED_COUNT" -gt "$WORK_IDS_MAX" ] || COLLAPSED_IDS="$COLLAPSED_IDS $id"
+    continue
   fi
+
+  record=$(
+    printf '\n--- %s ---\n' "$id"
+    cat "$meta"
+    printf '%s\n' "$endpoint_line"
+    if [ -f "$status" ]; then
+      print_status_tail "$status"
+    else
+      printf 'status tail: (no status file yet: %s)\n' "$status"
+    fi
+  )
+  if [ "$REEMIT" -eq 1 ] && [ "$kind" != secondmate ] \
+    && [ $((WORK_BYTES + ${#record})) -gt "$WORK_MAX_BYTES" ]; then
+    OMITTED_COUNT=$((OMITTED_COUNT + 1))
+    [ "$OMITTED_COUNT" -gt "$WORK_IDS_MAX" ] || OMITTED_IDS="$OMITTED_IDS $id"
+    continue
+  fi
+  WORK_BYTES=$((WORK_BYTES + ${#record}))
+  printf '%s\n' "$record"
 done
 [ "$META_FOUND" -eq 1 ] || printf '(none)\n'
+if [ "$COLLAPSED_COUNT" -gt 0 ]; then
+  printf '\n%s record(s) with a dead endpoint and no status file collapsed (finished or never started):%s' \
+    "$COLLAPSED_COUNT" "$COLLAPSED_IDS"
+  [ "$COLLAPSED_COUNT" -le "$WORK_IDS_MAX" ] || printf ' ... (+%s more)' $((COLLAPSED_COUNT - WORK_IDS_MAX))
+  printf '\nRead one on demand: cat %s/<id>.meta\n' "$STATE"
+fi
+if [ "$OMITTED_COUNT" -gt 0 ]; then
+  printf '\n●  CONTEXT RE-EMIT TRUNCATED - %s more record(s) omitted to keep this section under %s bytes:%s' \
+    "$OMITTED_COUNT" "$WORK_MAX_BYTES" "$OMITTED_IDS"
+  [ "$OMITTED_COUNT" -le "$WORK_IDS_MAX" ] || printf ' ... (+%s more)' $((OMITTED_COUNT - WORK_IDS_MAX))
+  printf '\n●  Read on demand: bin/fm-crew-state.sh, or cat %s/<id>.meta and %s/<id>.status.\n' "$STATE" "$STATE"
+fi
 
 subsection "Orphan status logs (state/*.status without matching .meta)"
 ORPHAN_STATUS_FOUND=0
