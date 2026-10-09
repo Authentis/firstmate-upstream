@@ -87,11 +87,59 @@ fm_timeout_mechanism() {
   fi
 }
 
+# fm_sweep_stale_tmp <prefix> [minutes]
+#   Delete this user's leftovers named <prefix>.* directly under ${TMPDIR:-/tmp}
+#   that are older than [minutes] (default 60). A KILLed run cannot trap its own
+#   cleanup, so each tool that creates <prefix>.* paths sweeps its own prefix
+#   before creating a new one. Only that exact prefix, only this uid.
+fm_sweep_stale_tmp() {
+  local prefix=$1 minutes=${2:-60} root=${TMPDIR:-/tmp}
+  case "$prefix" in ''|*/*|*'*'*|*'?'*|*'['*) return 0 ;; esac
+  [ -d "$root" ] || return 0
+  find "$root" -maxdepth 1 -name "$prefix.*" -user "$(id -u)" -mmin "+$minutes" \
+    -exec rm -r -f -- {} + 2>/dev/null || true
+}
+
+# The timeout lib is sourced by many short callers; sweep once per process tree.
+fm_sweep_timeout_tmp_once() {
+  [ -z "${_FM_TIMEOUT_TMP_SWEPT:-}" ] || return 0
+  _FM_TIMEOUT_TMP_SWEPT=1
+  export _FM_TIMEOUT_TMP_SWEPT
+  fm_sweep_stale_tmp fm-timeout-status
+  fm_sweep_stale_tmp fm-bash-timeout-command
+}
+
+# Signal handling for the two runners: clean the temp paths and the bounded
+# group promptly, restore the caller's traps, and exit with 128+signal.
+_fm_timeout_signal_cleanup() {  # <signal-number>
+  [ -z "${_FM_TMO_GROUP:-}" ] || kill -TERM -- "-$_FM_TMO_GROUP" 2>/dev/null || true
+  # shellcheck disable=SC2086  # space-separated mktemp paths, no spaces inside
+  [ -z "${_FM_TMO_FILES:-}" ] || rm -f -- $_FM_TMO_FILES 2>/dev/null || true
+  eval "${_FM_TMO_SAVED_TRAPS:-trap - TERM INT HUP}" 2>/dev/null || true
+  exit $((128 + $1))
+}
+
+_fm_timeout_traps_set() {  # <temp-path>...
+  _FM_TMO_FILES=$*
+  _FM_TMO_SAVED_TRAPS=$(trap -p TERM INT HUP)
+  [ -n "$_FM_TMO_SAVED_TRAPS" ] || _FM_TMO_SAVED_TRAPS='trap - TERM INT HUP'
+  trap '_fm_timeout_signal_cleanup 15' TERM
+  trap '_fm_timeout_signal_cleanup 2' INT
+  trap '_fm_timeout_signal_cleanup 1' HUP
+}
+
+_fm_timeout_traps_clear() {
+  eval "${_FM_TMO_SAVED_TRAPS:-trap - TERM INT HUP}" 2>/dev/null || true
+  _FM_TMO_GROUP='' _FM_TMO_FILES='' _FM_TMO_SAVED_TRAPS=''
+}
+
 fm_run_bash_timeout() {
   local seconds=$1 command_status deadline_status child_pid watchdog_pid command_rc recorded_rc monitor_was_on=0
   shift
+  fm_sweep_timeout_tmp_once
   command_status=$(mktemp "${TMPDIR:-/tmp}/fm-bash-timeout-command.XXXXXX" 2>/dev/null) || return 124
   deadline_status="${command_status}.deadline"
+  _fm_timeout_traps_set "$command_status" "$deadline_status"
   case $- in *m*) monitor_was_on=1 ;; esac
   set -m
   (
@@ -102,6 +150,7 @@ fm_run_bash_timeout() {
     exit "$command_rc"
   ) &
   child_pid=$!
+  _FM_TMO_GROUP=$child_pid
   (
     set +m
     sleep "$seconds"
@@ -129,13 +178,16 @@ fm_run_bash_timeout() {
     case "$recorded_rc" in ''|*[!0-9]*) ;; *) command_rc=$recorded_rc ;; esac
   fi
   rm -f "$command_status" "$deadline_status" 2>/dev/null || true
+  _fm_timeout_traps_clear
   return "$command_rc"
 }
 
 fm_run_external_timeout() {
   local runner=$1 seconds=$2 status_file runner_pid runner_rc command_rc
   shift 2
+  fm_sweep_timeout_tmp_once
   status_file=$(mktemp "${TMPDIR:-/tmp}/fm-timeout-status.XXXXXX" 2>/dev/null) || return 124
+  _fm_timeout_traps_set "$status_file"
   # Run timeout asynchronously so its pid - also the process-group id created
   # by GNU/BSD timeout without --foreground - remains available for cleanup.
   # A shell wrapper can exit promptly on TERM while one of its descendants
@@ -151,6 +203,7 @@ fm_run_external_timeout() {
     exit "$command_rc"
   ' _ "$status_file" "$@" &
   runner_pid=$!
+  _FM_TMO_GROUP=$runner_pid
   if wait "$runner_pid"; then
     runner_rc=0
   else
@@ -158,6 +211,7 @@ fm_run_external_timeout() {
   fi
   command_rc=$(cat "$status_file" 2>/dev/null || true)
   rm -f "$status_file" 2>/dev/null || true
+  _fm_timeout_traps_clear
   case "$command_rc" in
     ''|*[!0-9]*) ;;
     *)
