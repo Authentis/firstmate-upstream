@@ -1,0 +1,74 @@
+=== S1: eight red checks, all eight waived by name ===
+$ fm-pr-merge.sh task-x1 https://github.com/example/repo/pull/88 --allow-red lint --allow-red unit --allow-red e2e --allow-red build --allow-red docs --allow-red typecheck --allow-red integration --allow-red security\ scan
+exit=0
+armed: state/task-x1.check.sh
+verified: https://github.com/example/repo/pull/88 is merged (state=MERGED, merged=true, isInMergeQueue=false)
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  watcher supervision needs Stop-owned automatic recovery; inspect the hook registration and startup status before ending the turn.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+verified: https://github.com/example/repo/pull/88 is open and mergeable, with every unwaived required check reported and every unwaived check green at head c0ffeec0ffeec0ffeec0ffeec0ffeec0ffeec0ff
+--- forge merge calls:
+pr merge 88 --repo example/repo --match-head-commit c0ffeec0ffeec0ffeec0ffeec0ffeec0ffeec0ff --squash
+--- task meta pr fields:
+project=/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-pr-merge-tests.4GGVgM/eight/project
+pr=https://github.com/example/repo/pull/88
+pr_head=c0ffeec0ffeec0ffeec0ffeec0ffeec0ffeec0ff
+
+=== S2: eight red checks, only seven waived (adversarial) ===
+$ fm-pr-merge.sh task-x1 https://github.com/example/repo/pull/89 --allow-red lint --allow-red unit --allow-red e2e --allow-red build --allow-red docs --allow-red typecheck --allow-red integration
+exit=1
+armed: state/task-x1.check.sh
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  watcher supervision needs Stop-owned automatic recovery; inspect the hook registration and startup status before ending the turn.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+error: refusing to merge https://github.com/example/repo/pull/89
+  - check 'security scan' is not green
+error: these checks are not green: security scan
+--- forge merge call count:
+0
+
+=== S3: waiver names must match exactly (adversarial: Lint vs lint) ===
+$ fm-pr-merge.sh task-x1 https://github.com/example/repo/pull/90 --allow-red Lint --allow-red unit
+exit=1
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  watcher supervision needs Stop-owned automatic recovery; inspect the hook registration and startup status before ending the turn.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+error: refusing to merge https://github.com/example/repo/pull/90
+  - check 'lint' is not green
+error: these checks are not green: lint
+--- forge merge call count:
+0
+
+=== S4: --allow-missing stays single-use (recorded decision) ===
+$ fm-pr-merge.sh task-x1 https://github.com/example/repo/pull/91 --allow-missing a --allow-missing b
+exit=2
+error: --allow-missing may be specified only once
+
+=== S5: a repeated --allow-red with no name, or the equals alias, is still refused ===
+$ fm-pr-merge.sh task-x1 https://github.com/example/repo/pull/92 --allow-red lint --allow-red
+exit=2
+error: --allow-red requires a check name
+$ fm-pr-merge.sh task-x1 https://github.com/example/repo/pull/92 --allow-red lint --allow-red=unit
+exit=2
+error: --allow-red requires a separate check name argument
+--- forge merge call count:
+0
+
+=== S6: repeated --allow-red is refused under away authority ===
+$ fm-pr-merge.sh task-x1 https://github.com/example/repo/pull/93 --allow-red lint --allow-red unit
+exit=2
+error: --allow-red is attended-only; while the away-posture record exists the green check is absolute
+--- forge merge call count:
+0
