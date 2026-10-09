@@ -471,6 +471,8 @@ A backend spawn refusal from a missing dependency, version gate, or unauthentica
 Task meta records `backend=` only for a non-default backend; an absent `backend=` means `tmux`, preserving existing default-path meta files.
 
 - Every new task records `endpoint_task_id=` as the cleanup binding between the metadata filename and its opaque runtime endpoint.
+- Every fresh spawn records `spawn_first=<epoch>`, the task's first-incarnation time; a relaunch keeps it while writing a new `spawn_gen=`. `bin/fm-pr-discover.sh` ignores a merged PR created before it (falling back to the `spawn_gen=` epoch for a record without `spawn_first=`).
+- A crewmate or scout whose slot was taken as a Treehouse lease (`treehouse get --lease --json`, used whenever the installed Treehouse offers it) also records `lease_id=`; teardown returns exactly that lease with `--if-lease-id` (adding `--force` only for an explicit `--force` teardown, a scout, or a retiring secondmate's child slot) and otherwise reports a refusal naming the slot, lease, and blocking files instead of forcing it, while a task with no `lease_id=` keeps the unbound return.
 
 - A herdr task additionally records `herdr_session=`, `herdr_workspace_id=`, `herdr_tab_id=`, and `herdr_pane_id=`.
 

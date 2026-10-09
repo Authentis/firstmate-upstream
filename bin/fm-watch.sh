@@ -2996,6 +2996,13 @@ while :; do
     triage_log "inactive-outcome reconciliation unavailable"
   fi
 
+  # A ship whose worker opened a PR but never recorded it has no merge poll;
+  # this bounded, self-gated scan finds the PR on the forge and records it
+  # through bin/fm-pr-check.sh. Silent unless it recorded something.
+  pr_discover_out=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
+    "$SCRIPT_DIR/fm-pr-discover.sh" scan 2>/dev/null) || true
+  [ -z "$pr_discover_out" ] || triage_log "recorded unreported PRs: $(printf '%s' "$pr_discover_out" | tr '\n' ';')"
+
   # Slow per-task checks (firstmate writes these, e.g. a merged-PR poll).
   # Time-based via .last-check mtime so the cadence survives watcher restarts.
   # Evaluated BEFORE the signal scan: wake() exits the cycle, so a check placed
