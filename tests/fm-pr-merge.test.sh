@@ -108,6 +108,20 @@ write_github_red_json() {
 JSON
 }
 
+# Several red checks at one head. Args: case_dir head name...
+write_github_multi_red_json() {
+  local case_dir=$1 head=$2 name rollup='' sep=''
+  shift 2
+  for name in "$@"; do
+    rollup="$rollup$sep{\"__typename\":\"CheckRun\",\"name\":\"$name\",\"status\":\"COMPLETED\",\"conclusion\":\"FAILURE\"}"
+    sep=,
+  done
+  printf '%s\n' "$head" > "$case_dir/github-head"
+  cat > "$case_dir/github-view.json" <<JSON
+{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","headRefOid":"$head","baseRefName":"main","statusCheckRollup":[$rollup]}
+JSON
+}
+
 # One CheckRun rollup entry the way GitHub reports it. A conclusion or timestamp
 # of "-" is emitted as JSON null. Args: name status conclusion [startedAt]
 # [completedAt]
@@ -2952,7 +2966,7 @@ test_quiet_record_keeps_merges_attended() {
   pass "fm-pr-merge keeps a quiet-mode home's merges attended, the named red-check waiver included"
 }
 
-test_allow_red_requires_one_separate_name() {
+test_allow_red_requires_separate_names() {
   local case_dir rc head
   head=afafafafafafafafafafafafafafafafafafafaf
 
@@ -2969,19 +2983,32 @@ test_allow_red_requires_one_separate_name() {
   assert_no_grep 'pr merge' "$case_dir/gh.log" \
     "github-allow-red-equals: gh pr merge ran for the equals alias"
 
-  case_dir=$(make_case github-allow-red-duplicate)
+  case_dir=$(make_case github-allow-red-two)
   mkdir -p "$case_dir/wt"
   add_gh_mocks "$case_dir" "$head"
-  write_github_red_json "$case_dir" "$head" lint
-  set +e
+  write_github_multi_red_json "$case_dir" "$head" lint unit
   run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/88 \
+    --allow-red lint --allow-red unit --allow-red lint > "$case_dir/stdout" 2> "$case_dir/stderr" \
+    || fail "github-allow-red-two: two named waivers should merge: $(cat "$case_dir/stderr")"
+  assert_logged_gh_merge "$case_dir" 88 example/repo --squash
+
+  case_dir=$(make_case github-allow-red-two-third)
+  mkdir -p "$case_dir/wt"
+  add_gh_mocks "$case_dir" "$head"
+  write_github_multi_red_json "$case_dir" "$head" lint unit e2e
+  set +e
+  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/89 \
     --allow-red lint --allow-red unit > "$case_dir/stdout" 2> "$case_dir/stderr"
   rc=$?
   set -e
-  expect_code 2 "$rc" "github-allow-red-duplicate: duplicate waiver must be refused"
+  expect_code 1 "$rc" "github-allow-red-two-third: an unwaived third red check must refuse"
+  assert_grep "check 'e2e' is not green" "$case_dir/stderr" \
+    "github-allow-red-two-third: the unwaived check was not named"
+  assert_no_grep "check 'lint' is not green" "$case_dir/stderr" \
+    "github-allow-red-two-third: a waived check was still reported"
   assert_no_grep 'pr merge' "$case_dir/gh.log" \
-    "github-allow-red-duplicate: gh pr merge ran for duplicate waivers"
-  pass "fm-pr-merge accepts exactly one separately named red-check waiver"
+    "github-allow-red-two-third: gh pr merge ran with an unwaived red check"
+  pass "fm-pr-merge accepts repeated separately named red-check waivers"
 }
 
 test_away_record_permits_any_green_merge_under_away_authority() {
@@ -3864,7 +3891,7 @@ test_undated_runs_never_supersede
 test_allow_red_still_waives_only_the_current_failure
 test_allow_red_is_refused_while_away
 test_quiet_record_keeps_merges_attended
-test_allow_red_requires_one_separate_name
+test_allow_red_requires_separate_names
 test_away_record_permits_any_green_merge_under_away_authority
 test_away_branch_actor_merges_green_under_the_record
 test_away_branch_refuses_when_record_archived_during_preflight
