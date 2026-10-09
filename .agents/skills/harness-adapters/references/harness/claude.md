@@ -67,6 +67,11 @@ A worker or secondmate is a top-level session, so the spawn and every relaunch c
 The spawn disables Claude's `/bug` and `/feedback` model-drafted feedback flow for every Claude worker and secondmate, preventing a fleet-launched agent from queuing or submitting a bug report on the captain's behalf.
 The controls are scoped to the launched process and never modify the captain's global Claude settings; `launch_template()` in `../../../../../bin/fm-spawn.sh` owns their exact mechanics and defense-in-depth rationale.
 
+## Worker notifications
+
+A Claude task worker's git-excluded `.claude/settings.local.json` sets `inputNeededNotifEnabled` and `agentPushNotifEnabled` to `false`, so a fleet of workers never raises its own input-needed or push notifications to the captain; Firstmate owns that channel.
+The file is worktree-local and never modifies the captain's global Claude settings; `../../../../../bin/fm-spawn.sh` owns the generator, and `../../../../../tests/fm-busy-adapter-wiring.test.sh` asserts both flags.
+
 ## Task control channel
 
 A Claude task worker's launch brief and Firstmate steering-inbox messages arrive as file-shaped content that is otherwise indistinguishable from indirect prompt injection.
