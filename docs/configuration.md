@@ -471,6 +471,7 @@ A backend spawn refusal from a missing dependency, version gate, or unauthentica
 Task meta records `backend=` only for a non-default backend; an absent `backend=` means `tmux`, preserving existing default-path meta files.
 
 - Every new task records `endpoint_task_id=` as the cleanup binding between the metadata filename and its opaque runtime endpoint.
+- A crewmate or scout whose slot was taken as a Treehouse lease (`treehouse get --lease --json`, used whenever the installed Treehouse offers it) also records `lease_id=`; teardown returns exactly that lease with `--if-lease-id` and reports a refusal instead of forcing it, while a task with no `lease_id=` keeps the unbound return.
 
 - A herdr task additionally records `herdr_session=`, `herdr_workspace_id=`, `herdr_tab_id=`, and `herdr_pane_id=`.
 

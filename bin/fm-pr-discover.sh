@@ -1,0 +1,141 @@
+#!/usr/bin/env bash
+# fm-pr-discover.sh - bounded discovery of a task's PR that was never recorded.
+#
+# Usage:
+#   fm-pr-discover.sh scan
+#
+# A worker can open a PR and never report it, so its task record gets no pr=
+# line and no merge poll is armed. This scan finds ship tasks in this home whose
+# record has a branch= but no pr=, asks the forge once per candidate whether that
+# branch has an open or merged pull request, and records it through
+# bin/fm-pr-check.sh, the single owner of pr= and the static merge poll. Every
+# fm-pr-check.sh refusal (draft, head not reachable, bad URL) leaves the record
+# untouched. Nothing here arms a poll, writes meta, or merges by itself.
+#
+# It is an adjunct to the existing watcher poll loop (bin/fm-watch.sh calls it
+# next to bin/fm-inactive-reconcile.sh), not a watcher of its own. It is cheap by
+# construction:
+#   - a scan runs at most once per FM_PR_DISCOVER_SECS (default 600, valid
+#     60..3600), gated by the mtime of state/.pr-discover;
+#   - a scan makes at most FM_PR_DISCOVER_MAX forge queries (default 4, valid
+#     1..20), each bounded by FM_PR_DISCOVER_QUERY_SECS (default 20, valid
+#     1..60), and resumes after the last candidate it visited (the cursor lives
+#     in that same marker) so a long candidate list is covered over several scans;
+#   - only GitHub is queried: `gh pr list --head <branch> --state all` run from
+#     the project clone. A task with no branch=, a scout, a secondmate, a
+#     local-only task, a task whose project is gone, or a record that already
+#     has pr= is skipped without a query. A closed-unmerged PR and a PR from a
+#     fork are ignored; an open PR is preferred over a merged one.
+# Output: one `recorded <task-id> <pr-url>` line per recorded PR, nothing else
+# when quiet. Exit status is 0 on every ordinary path, including a missing gh.
+set -u
+export LC_ALL=C
+
+SCRIPT_DIR="$(d=${BASH_SOURCE[0]%/*}; [ "$d" != "${BASH_SOURCE[0]}" ] || d=.; cd "${d:-/}" && pwd)"
+FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}}"
+STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
+MARKER="$STATE/.pr-discover"
+PR_CHECK="${FM_PR_DISCOVER_CHECK_BIN:-$SCRIPT_DIR/fm-pr-check.sh}"
+
+# shellcheck source=bin/fm-pr-lib.sh
+. "$SCRIPT_DIR/fm-pr-lib.sh"
+# shellcheck source=bin/fm-timeout-lib.sh
+. "$SCRIPT_DIR/fm-timeout-lib.sh"
+
+[ "${1:-}" = scan ] && [ "$#" -eq 1 ] || {
+  echo "usage: fm-pr-discover.sh scan" >&2
+  exit 2
+}
+
+bounded_int() { # <name> <value> <min> <max>
+  case "$2" in ''|*[!0-9]*) echo "fm-pr-discover: $1 must be a whole number from $3 to $4" >&2; exit 2 ;; esac
+  if [ "$2" -lt "$3" ] || [ "$2" -gt "$4" ]; then
+    echo "fm-pr-discover: $1 must be a whole number from $3 to $4" >&2
+    exit 2
+  fi
+}
+SECS=${FM_PR_DISCOVER_SECS:-600}
+MAX=${FM_PR_DISCOVER_MAX:-4}
+QUERY_SECS=${FM_PR_DISCOVER_QUERY_SECS:-20}
+bounded_int FM_PR_DISCOVER_SECS "$SECS" 60 3600
+bounded_int FM_PR_DISCOVER_MAX "$MAX" 1 20
+bounded_int FM_PR_DISCOVER_QUERY_SECS "$QUERY_SECS" 1 60
+
+if [ "$(uname)" = Darwin ]; then
+  file_mtime() { /usr/bin/stat -f %m "$1" 2>/dev/null; }
+else
+  file_mtime() { stat -c %Y "$1" 2>/dev/null; }
+fi
+
+command -v gh >/dev/null 2>&1 && command -v jq >/dev/null 2>&1 || exit 0
+[ -d "$STATE" ] || exit 0
+
+now=$(date +%s)
+if [ -f "$MARKER" ] && [ ! -L "$MARKER" ]; then
+  last=$(file_mtime "$MARKER") || last=0
+  case "$last" in ''|*[!0-9]*) last=0 ;; esac
+  [ $((now - last)) -ge "$SECS" ] || exit 0
+fi
+
+meta_get() { grep "^$2=" "$1" 2>/dev/null | tail -1 | cut -d= -f2- || true; }
+
+cursor=
+[ ! -f "$MARKER" ] || cursor=$(grep '^cursor=' "$MARKER" 2>/dev/null | tail -1 | cut -d= -f2- || true)
+
+# Candidates in id order, starting after the cursor and wrapping around once.
+candidates=()
+wrapped=()
+for meta in "$STATE"/*.meta; do
+  [ -f "$meta" ] && [ ! -L "$meta" ] || continue
+  id=$(basename "$meta" .meta)
+  fm_pr_task_id_valid "$id" || continue
+  case "$(meta_get "$meta" kind)" in ''|ship) ;; *) continue ;; esac
+  [ "$(meta_get "$meta" mode)" != local-only ] || continue
+  [ -n "$(meta_get "$meta" branch)" ] || continue
+  [ -z "$(meta_get "$meta" pr)" ] || continue
+  if [ -n "$cursor" ] && ! [[ "$id" > "$cursor" ]]; then
+    wrapped+=("$id")
+  else
+    candidates+=("$id")
+  fi
+done
+candidates+=("${wrapped[@]+"${wrapped[@]}"}")
+
+queried=0
+last_visited=$cursor
+for id in "${candidates[@]+"${candidates[@]}"}"; do
+  [ "$queried" -lt "$MAX" ] || break
+  meta="$STATE/$id.meta"
+  branch=$(meta_get "$meta" branch)
+  project=$(meta_get "$meta" project)
+  base=$(meta_get "$meta" base_branch)
+  [ -d "$project" ] || { last_visited=$id; continue; }
+  queried=$((queried + 1))
+  last_visited=$id
+  out=$(cd "$project" && fm_run_timed "$QUERY_SECS" gh pr list --head "$branch" --state all --limit 5 \
+    --json url,state,headRefName,baseRefName,isCrossRepository 2>/dev/null) || continue
+  url=$(printf '%s\n' "$out" | jq -r --arg b "$branch" --arg base "$base" '
+    [ .[] | select(.headRefName == $b and (.isCrossRepository | not)
+        and (.state == "OPEN" or .state == "MERGED")
+        and ($base == "" or .baseRefName == $base)) ]
+    | (map(select(.state == "OPEN")) + map(select(.state == "MERGED")))
+    | (.[0].url // empty)' 2>/dev/null) || continue
+  [ -n "$url" ] && fm_pr_url_parse "$url" && [ "$FM_PR_PROVIDER" = github ] || continue
+  # Re-read the record: the worker or firstmate may have recorded it meanwhile.
+  [ -z "$(meta_get "$meta" pr)" ] || continue
+  if "$PR_CHECK" "$id" "$FM_PR_URL" >/dev/null 2>&1; then
+    printf 'recorded %s %s\n' "$id" "$FM_PR_URL"
+  fi
+done
+
+# A scan that reached the end of the list restarts from the top next time.
+if [ "$queried" -lt "$MAX" ]; then
+  last_visited=
+fi
+marker_tmp=$(mktemp "$STATE/.pr-discover.XXXXXX") || exit 0
+if printf 'cursor=%s\n' "$last_visited" > "$marker_tmp"; then
+  mv -f -- "$marker_tmp" "$MARKER" || rm -f -- "$marker_tmp"
+else
+  rm -f -- "$marker_tmp"
+fi
+exit 0

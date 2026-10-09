@@ -1,0 +1,277 @@
+#!/usr/bin/env bash
+# Behavioural tests for the Treehouse lease a crewmate spawn takes and the
+# lease-bound return teardown makes (bin/fm-spawn.sh, bin/fm-teardown.sh).
+#
+# A slot taken by the interactive `treehouse get` is reclaimed by process
+# presence, so ending its agent strands it. A spawn that takes
+# `treehouse get --lease --json` instead records the lease id as lease_id= in
+# the task meta, and teardown returns exactly that lease with --if-lease-id: a
+# slot since handed to anyone else is refused, never forced.
+# The fake treehouse below honours the lease identity the way the real one does
+# (it refuses a return whose --if-lease-id differs from the lease on the slot),
+# so a refusal is observed through teardown rather than assumed.
+set -u
+
+# shellcheck source=tests/fixtures.sh
+. "$(dirname "${BASH_SOURCE[0]}")/fixtures.sh"
+fm_git_identity fmtest fmtest@example.invalid
+
+TEARDOWN="$ROOT/bin/fm-teardown.sh"
+TMP_ROOT=$(fm_test_tmproot fm-treehouse-lease)
+
+# make_fake_treehouse <fakebin>
+# Env the fake reads: FM_FAKE_TH_LOG (one line per invocation),
+# FM_FAKE_LEASE_PATH / FM_FAKE_LEASE_ID (what `get --lease --json` reports),
+# FM_FAKE_SLOT_LEASE (the lease currently on the slot, for return),
+# FM_FAKE_TH_NOLEASE=1 (an old treehouse whose help lacks --lease/--json).
+make_fake_treehouse() {
+  cat > "$1/treehouse" <<'SH'
+#!/usr/bin/env bash
+[ -z "${FM_FAKE_TH_LOG:-}" ] || printf '%s\n' "$*" >> "$FM_FAKE_TH_LOG"
+case "${1:-}" in
+  get)
+    case " $* " in
+      *" --help "*)
+        if [ "${FM_FAKE_TH_NOLEASE:-0}" = 1 ]; then
+          printf 'Usage:\n  treehouse get [flags]\n      --base string   Branch\n'
+        else
+          printf 'Usage:\n  treehouse get [flags]\n      --json   Print lease allocation as JSON\n      --lease   Durably lease a worktree\n      --lease-holder string   label\n'
+        fi
+        exit 0 ;;
+    esac
+    if [ "${FM_FAKE_TH_NOLEASE:-0}" != 1 ]; then
+      printf '{"path":"%s","lease_id":"%s","lease_holder":"fm","base_branch":"main"}\n' \
+        "$FM_FAKE_LEASE_PATH" "$FM_FAKE_LEASE_ID"
+    fi
+    exit 0 ;;
+  return)
+    shift
+    want=
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --if-lease-id) want=$2; shift ;;
+      esac
+      shift
+    done
+    if [ -n "$want" ] && [ "$want" != "${FM_FAKE_SLOT_LEASE:-}" ]; then
+      echo "failed to return worktree: lease precondition failed: lease identity does not match worktree" >&2
+      exit 1
+    fi
+    exit 0 ;;
+esac
+exit 0
+SH
+  chmod +x "$1/treehouse"
+}
+
+# --- spawn ------------------------------------------------------------------
+
+make_spawn_case() {
+  local name=$1 id=$2 case_dir home project origin pool fakebin initial
+  case_dir="$TMP_ROOT/$name"
+  home="$case_dir/home"
+  project="$case_dir/project"
+  origin="$case_dir/origin.git"
+  pool="$case_dir/pool"
+  fakebin=$(make_spawn_fakebin "$case_dir/fake" gh)
+  make_fake_treehouse "$fakebin"
+  mkdir -p "$home/data/$id" "$home/projects" "$home/state" "$home/config"
+  printf 'codex\n' > "$home/config/crew-harness"
+  fm_test_spawn_brief "$home" "$id"
+  touch "$home/state/.last-watcher-beat"
+  git init --quiet -b main "$project"
+  printf 'base\n' > "$project/README.md"
+  git -C "$project" add README.md
+  git -C "$project" commit -qm initial
+  git clone --quiet --bare "$project" "$origin"
+  git -C "$project" remote add origin "file://$origin"
+  initial=$(git -C "$project" rev-parse HEAD)
+  git -C "$project" worktree add --quiet --detach "$pool" "$initial"
+  printf '%s\n' "$case_dir|$home|$project|$pool|$fakebin"
+}
+
+read_spawn_case() {
+  IFS='|' read -r CASE_DIR HOME_DIR PROJECT_DIR POOL_DIR FAKEBIN_DIR <<EOF
+$1
+EOF
+}
+
+run_spawn() {
+  local id=$1
+  shift
+  FM_FAKE_TH_LOG="$CASE_DIR/treehouse.log" FM_FAKE_LEASE_PATH="$POOL_DIR" \
+    FM_FAKE_LEASE_ID="${LEASE_ID:-lease0123abcd}" \
+    fm_test_run_spawn "$HOME_DIR" "$POOL_DIR" "$FAKEBIN_DIR" \
+    "$id" "$PROJECT_DIR" --mode no-mistakes --yolo off "$@"
+}
+
+test_spawn_takes_a_lease_and_records_its_id() {
+  local rec id out status
+  id=lease-spawn-a1
+  rec=$(make_spawn_case lease-spawn "$id")
+  read_spawn_case "$rec"
+  out=$(run_spawn "$id")
+  status=$?
+  expect_code 0 "$status" "a lease spawn should succeed"$'\n'"$out"
+  assert_grep "get --lease --json --lease-holder fm-$id" "$CASE_DIR/treehouse.log" \
+    "spawn did not take the slot as a durable lease held under its task label"
+  assert_grep "lease_id=lease0123abcd" "$HOME_DIR/state/$id.meta" \
+    "the lease identity was not recorded in the task meta"
+  assert_grep "worktree=$POOL_DIR" "$HOME_DIR/state/$id.meta" \
+    "the leased path was not recorded as the task worktree"
+  pass "a spawn takes a durable lease and records its identity beside the worktree"
+}
+
+test_spawn_without_lease_support_keeps_the_interactive_path() {
+  local rec id out status
+  id=lease-spawn-old-a2
+  rec=$(make_spawn_case lease-old "$id")
+  read_spawn_case "$rec"
+  out=$(FM_FAKE_TH_NOLEASE=1 run_spawn "$id")
+  status=$?
+  expect_code 0 "$status" "a spawn on a treehouse without lease support should still succeed"$'\n'"$out"
+  assert_no_grep "lease_id=" "$HOME_DIR/state/$id.meta" \
+    "a slot taken without a lease must not claim a lease identity"
+  assert_no_grep "get --lease" "$CASE_DIR/treehouse.log" \
+    "spawn asked for a lease from a treehouse that does not offer one"
+  pass "a treehouse without get --lease keeps today's interactive acquire and records no lease"
+}
+
+test_aborted_spawn_returns_its_unrecorded_lease() {
+  local rec id out status
+  id=lease-spawn-abort-a3
+  rec=$(make_spawn_case lease-abort "$id")
+  read_spawn_case "$rec"
+  # A lease that reports the spawning project itself fails the isolation guard.
+  out=$(FM_FAKE_TH_LOG="$CASE_DIR/treehouse.log" FM_FAKE_LEASE_PATH="$PROJECT_DIR" \
+    FM_FAKE_LEASE_ID=lease-abort-77 FM_FAKE_SLOT_LEASE=lease-abort-77 \
+    fm_test_run_spawn "$HOME_DIR" "$PROJECT_DIR" "$FAKEBIN_DIR" \
+    "$id" "$PROJECT_DIR" --mode no-mistakes --yolo off)
+  status=$?
+  [ "$status" -ne 0 ] || fail "a lease on the primary checkout must not launch"$'\n'"$out"
+  assert_absent "$HOME_DIR/state/$id.meta" "a refused spawn must not publish a task record"
+  assert_grep "return --if-lease-id lease-abort-77 $PROJECT_DIR" "$CASE_DIR/treehouse.log" \
+    "a spawn that aborted before recording its lease must give the lease back, bound to its identity"
+  pass "a spawn that aborts before its record exists returns the lease it took"
+}
+
+# --- teardown ---------------------------------------------------------------
+
+make_teardown_case() {
+  local name=$1 case_dir fakebin
+  case_dir="$TMP_ROOT/$name"
+  fakebin="$case_dir/fakebin"
+  mkdir -p "$case_dir/state" "$case_dir/config" "$case_dir/data" "$fakebin"
+  make_fake_treehouse "$fakebin"
+  fm_fake_exit0 "$fakebin" tmux gh no-mistakes
+  cat > "$fakebin/gh-axi" <<'SH'
+#!/usr/bin/env bash
+case "${1:-} ${2:-}" in
+  "pr list") printf '%s\n' "count: 0 (showing first 0)" "pull_requests[]: []" ; exit 0 ;;
+  "pr view") echo "error: pull request not found" >&2 ; exit 1 ;;
+esac
+exit 0
+SH
+  chmod +x "$fakebin/gh-axi"
+  git init -q --bare "$case_dir/origin.git"
+  git -C "$case_dir/origin.git" symbolic-ref HEAD refs/heads/main
+  git clone -q "$case_dir/origin.git" "$case_dir/_seed" 2>/dev/null
+  git -C "$case_dir/_seed" -c user.email=t@t -c user.name=t commit -q --allow-empty -m baseline
+  git -C "$case_dir/_seed" push -q origin main
+  git clone -q "$case_dir/origin.git" "$case_dir/project"
+  git -C "$case_dir/project" remote set-head origin main 2>/dev/null || true
+  git -C "$case_dir/project" worktree add -q -b fm/task-x1 "$case_dir/wt" main
+  git -C "$case_dir/wt" -c user.email=t@t -c user.name=t commit -q --allow-empty -m "shippable work"
+  git -C "$case_dir/wt" push -q origin fm/task-x1
+  git -C "$case_dir/project" fetch -q origin
+  touch "$case_dir/state/.last-watcher-beat"
+  printf '%s\n' "$case_dir"
+}
+
+write_teardown_meta() { # <case> [extra key=val...]
+  local case_dir=$1
+  shift
+  fm_write_meta "$case_dir/state/task-x1.meta" \
+    "window=firstmate:fm-task-x1" \
+    "endpoint_task_id=task-x1" \
+    "worktree=$case_dir/wt" \
+    "project=$case_dir/project" \
+    "kind=ship" \
+    "mode=no-mistakes" \
+    "spawn_gen=teardown-test-task-x1" \
+    "$@"
+}
+
+run_teardown() {
+  local case_dir=$1
+  FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$case_dir/state" \
+    FM_DATA_OVERRIDE="$case_dir/data" FM_CONFIG_OVERRIDE="$case_dir/config" \
+    FM_TEST_UNUSED=1 FM_FAKE_TH_LOG="$case_dir/treehouse.log" \
+    PATH="$case_dir/fakebin:$PATH" \
+    "$TEARDOWN" task-x1 2>&1
+}
+
+test_teardown_returns_exactly_the_recorded_lease() {
+  local case_dir out status
+  case_dir=$(make_teardown_case td-lease)
+  write_teardown_meta "$case_dir" "lease_id=lease0123abcd"
+  out=$(FM_FAKE_SLOT_LEASE=lease0123abcd run_teardown "$case_dir")
+  status=$?
+  expect_code 0 "$status" "teardown of a leased task should return its slot"$'\n'"$out"
+  assert_grep "return --force --if-lease-id lease0123abcd $case_dir/wt" "$case_dir/treehouse.log" \
+    "teardown did not return the slot bound to its recorded lease"
+  assert_absent "$case_dir/state/task-x1.meta" "a returned task keeps no live record"
+  pass "teardown returns the slot bound to the lease id its record carries"
+}
+
+test_teardown_without_a_lease_returns_as_before() {
+  local case_dir out status
+  case_dir=$(make_teardown_case td-nolease)
+  write_teardown_meta "$case_dir"
+  out=$(run_teardown "$case_dir")
+  status=$?
+  expect_code 0 "$status" "a record without a lease should tear down as before"$'\n'"$out"
+  assert_grep "return --force $case_dir/wt" "$case_dir/treehouse.log" \
+    "teardown did not return the slot"
+  assert_no_grep "if-lease-id" "$case_dir/treehouse.log" \
+    "a record with no lease must not invent a lease-bound return"
+  pass "a record with no lease id keeps today's unbound return"
+}
+
+test_teardown_reports_a_changed_lease_and_forces_nothing() {
+  local case_dir out status calls
+  case_dir=$(make_teardown_case td-changed)
+  write_teardown_meta "$case_dir" "lease_id=lease0123abcd"
+  out=$(FM_FAKE_SLOT_LEASE=someone-elses-lease run_teardown "$case_dir")
+  status=$?
+  [ "$status" -ne 0 ] || fail "a return refused for a changed lease must abort teardown"$'\n'"$out"
+  assert_contains "$out" "lease precondition failed" "teardown hid treehouse's refusal"
+  assert_contains "$out" "nothing was forced" "teardown did not report the refusal as unforced"
+  assert_present "$case_dir/state/task-x1.meta" "a refused return must keep the task record"
+  assert_present "$case_dir/wt" "a refused return must leave the worktree in place"
+  calls=$(grep -c '^return ' "$case_dir/treehouse.log")
+  [ "$calls" -eq 1 ] || fail "a lease refusal must not be retried or worked around ($calls return calls)"
+  pass "a return refused because the lease changed is reported, kept, and never forced"
+}
+
+test_teardown_refuses_a_malformed_lease_id() {
+  local case_dir out status
+  case_dir=$(make_teardown_case td-malformed)
+  write_teardown_meta "$case_dir" 'lease_id=bad;touch pwned'
+  out=$(run_teardown "$case_dir")
+  status=$?
+  [ "$status" -ne 0 ] || fail "a malformed lease identity must abort teardown"$'\n'"$out"
+  assert_absent "$case_dir/treehouse.log" "teardown must not call treehouse with a malformed lease id"
+  assert_present "$case_dir/state/task-x1.meta" "a refused teardown must keep the task record"
+  pass "a malformed lease id is refused before any treehouse call"
+}
+
+test_spawn_takes_a_lease_and_records_its_id
+test_spawn_without_lease_support_keeps_the_interactive_path
+test_aborted_spawn_returns_its_unrecorded_lease
+test_teardown_returns_exactly_the_recorded_lease
+test_teardown_without_a_lease_returns_as_before
+test_teardown_reports_a_changed_lease_and_forces_nothing
+test_teardown_refuses_a_malformed_lease_id
+
+echo "# all fm-treehouse-lease tests passed"

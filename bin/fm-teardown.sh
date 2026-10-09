@@ -5,6 +5,12 @@
 # scout tasks before reporting success (a secondmate teardown transitions none,
 # since secondmates are not backlog items), then refresh/prune the project's
 # clone for PR-based ship tasks.
+# A task record carrying lease_id= (a slot taken by `treehouse get --lease`, see
+# bin/fm-spawn.sh) is returned with `treehouse return --force --if-lease-id <id>`:
+# the landed-work and dirt checks above still decide whether to return at all,
+# and the lease binding only refuses to release a slot whose lease changed. That
+# refusal is reported, aborts teardown with the record and worktree kept, and is
+# never retried or forced; a record with no lease_id= returns unbound as before.
 # An endpoint whose close could not do its job REFUSES before any record naming
 # it is removed: those records are the only thing that names what survived, so
 # reporting such a close as a completed cleanup strands the endpoint instead of
@@ -1803,21 +1809,30 @@ cleanup_stale_lock_for_safety_check() {
   return "$TEARDOWN_TREEHOUSE_LOCK_REFUSED"
 }
 
+TEARDOWN_RETURN_LEASE_ID=
 # Return a worktree/home via `treehouse return --force`, tolerating a transient or
 # stale git index.lock left by a killed crew process. See the script header.
 teardown_treehouse_return() {
   local dir=$1 cd_dir=$2 label=$3 post_cleanup_check=${4:-}
   local out lock attempt=0 max_retries lock_desc
+  # A task whose slot was taken as a lease (lease_id= in its record) returns
+  # exactly that lease, so a slot since handed to anyone else is refused rather
+  # than released. TEARDOWN_RETURN_LEASE_ID is set only for the task's own slot.
+  local -a lease_args=()
+  [ -z "$TEARDOWN_RETURN_LEASE_ID" ] || lease_args=(--if-lease-id "$TEARDOWN_RETURN_LEASE_ID")
 
   # Capture stdout+stderr so non-lock failures stay visible and lock failures can
   # be matched by signature even when the lock file is already gone mid-check.
-  if out=$( ( cd "$cd_dir" && treehouse return --force "$dir" ) 2>&1 ); then
+  if out=$( ( cd "$cd_dir" && treehouse return --force "${lease_args[@]}" "$dir" ) 2>&1 ); then
     [ -n "$out" ] && printf '%s\n' "$out"
     return 0
   fi
   [ -n "$out" ] && printf '%s\n' "$out" >&2
 
   if ! treehouse_return_is_index_lock_error "$out"; then
+    if [ -n "$TEARDOWN_RETURN_LEASE_ID" ]; then
+      echo "teardown: $label return was not performed; treehouse refused the lease-bound return of lease $TEARDOWN_RETURN_LEASE_ID (a lease precondition refusal means the slot's lease changed); the slot was not released and nothing was forced" >&2
+    fi
     return 1
   fi
 
@@ -1836,7 +1851,7 @@ teardown_treehouse_return() {
     echo "teardown: $label return failed with transient git lock ($lock_desc); waiting ${TREEHOUSE_RETURN_LOCK_RETRY_WAIT_SECS}s and retrying ($attempt/${max_retries})" >&2
     sleep "$TREEHOUSE_RETURN_LOCK_RETRY_WAIT_SECS"
 
-    if out=$( ( cd "$cd_dir" && treehouse return --force "$dir" ) 2>&1 ); then
+    if out=$( ( cd "$cd_dir" && treehouse return --force "${lease_args[@]}" "$dir" ) 2>&1 ); then
       [ -n "$out" ] && printf '%s\n' "$out"
       echo "teardown: $label return succeeded on retry; lock cleared on its own" >&2
       return 0
@@ -1863,7 +1878,7 @@ teardown_treehouse_return() {
           return 1
         fi
       fi
-      if out=$( ( cd "$cd_dir" && treehouse return --force "$dir" ) 2>&1 ); then
+      if out=$( ( cd "$cd_dir" && treehouse return --force "${lease_args[@]}" "$dir" ) 2>&1 ); then
         [ -n "$out" ] && printf '%s\n' "$out"
         echo "teardown: $label return succeeded after stale-lock cleanup" >&2
         return 0
@@ -3615,10 +3630,18 @@ elif [ -d "$WT" ] && [ "$KIND" != secondmate ]; then
   if [ "$FORCE" != "--force" ] && [ "$KIND" != scout ] && [ "$KIND" != secondmate ]; then
     post_lock_cleanup_check=validate_worktree_teardown_safety
   fi
+  TEARDOWN_RETURN_LEASE_ID=$(meta_value "$META" lease_id)
+  case "$TEARDOWN_RETURN_LEASE_ID" in
+  *[!A-Za-z0-9_-]*)
+    echo "error: the task record's lease_id is not a valid lease identity; teardown aborted without returning worktree $WT" >&2
+    exit 1
+    ;;
+  esac
   teardown_treehouse_return "$WT" "$PROJ" "worktree" "$post_lock_cleanup_check" || {
     echo "error: treehouse return failed for worktree $WT; teardown aborted" >&2
     exit 1
   }
+  TEARDOWN_RETURN_LEASE_ID=
   # The slot is back in the pool, so this task's claim on it is spent. Dropping
   # it here - and only after a return that succeeded - keeps a returned slot
   # unclaimed until its next holder claims it, and leaves the claim in place
