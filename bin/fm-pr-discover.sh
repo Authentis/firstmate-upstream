@@ -46,6 +46,8 @@ PR_CHECK="$SCRIPT_DIR/fm-pr-check.sh"
 
 # shellcheck source=bin/fm-pr-lib.sh
 . "$SCRIPT_DIR/fm-pr-lib.sh"
+# shellcheck source=bin/fm-wake-lib.sh
+. "$SCRIPT_DIR/fm-wake-lib.sh"
 # shellcheck source=bin/fm-timeout-lib.sh
 . "$SCRIPT_DIR/fm-timeout-lib.sh"
 
@@ -121,17 +123,50 @@ bound_for() {
   [ "$1" -le "$left" ] && printf '%s\n' "$1" || printf '%s\n' "$left"
 }
 
+# A registration cut off after fm-pr-check.sh published pr= but before it armed
+# the merge poll would leave pr= and no poll for good, because a task that has
+# pr= is never a candidate. With the registration process gone, take pr= back
+# off the record (only when it is still the PR just registered and no poll is
+# armed) so the next scan registers it again. A lock that cannot be taken in a
+# moment leaves the record alone.
+rollback_unarmed_pr() { # <task-id> <pr-url>
+  local meta="$STATE/$1.meta" lock tmp line
+  [ ! -e "$STATE/$1.check.sh" ] || return 0
+  [ "$(meta_get "$meta" pr)" = "$2" ] || return 0
+  lock=$(fm_meta_lock_path "$meta") || return 0
+  fm_lock_acquire_wait_max "$lock" 2 || return 0
+  tmp=$(mktemp "$STATE/.pr-discover-meta.XXXXXX") || { fm_lock_release "$lock" || true; return 0; }
+  if [ ! -e "$STATE/$1.check.sh" ] && [ -f "$meta" ] && [ ! -L "$meta" ]; then
+    while IFS= read -r line || [ -n "$line" ]; do
+      case "$line" in pr=*|pr_head=*) ;; *) printf '%s\n' "$line" >> "$tmp" ;; esac
+    done < "$meta"
+    if chmod 0600 "$tmp"; then
+      mv -f -- "$tmp" "$meta" || rm -f -- "$tmp"
+    else
+      rm -f -- "$tmp"
+    fi
+  else
+    rm -f -- "$tmp"
+  fi
+  fm_lock_release "$lock" || true
+}
+
 queried=0
+stopped=0
+prev_visited=$cursor
 last_visited=$cursor
 for id in "${candidates[@]+"${candidates[@]}"}"; do
-  [ "$queried" -lt "$MAX" ] || break
-  bound_for "$QUERY_SECS" >/dev/null || break
+  if [ "$queried" -ge "$MAX" ] || ! bound_for "$QUERY_SECS" >/dev/null; then
+    stopped=1
+    break
+  fi
   meta="$STATE/$id.meta"
   branch=$(meta_get "$meta" branch)
   project=$(meta_get "$meta" project)
   base=$(meta_get "$meta" base_branch)
   [ -d "$project" ] || { last_visited=$id; continue; }
   queried=$((queried + 1))
+  prev_visited=$last_visited
   last_visited=$id
   out=$(cd "$project" && fm_run_timed "$(bound_for "$QUERY_SECS")" gh pr list --head "$branch" --state all --limit 5 \
     --json url,state,headRefName,baseRefName,isCrossRepository 2>/dev/null) || continue
@@ -144,14 +179,22 @@ for id in "${candidates[@]+"${candidates[@]}"}"; do
   [ -n "$url" ] && fm_pr_url_parse "$url" && [ "$FM_PR_PROVIDER" = github ] || continue
   # Re-read the record: the worker or firstmate may have recorded it meanwhile.
   [ -z "$(meta_get "$meta" pr)" ] || continue
-  check_bound=$(bound_for "$CHECK_SECS") || break
+  if ! check_bound=$(bound_for "$CHECK_SECS"); then
+    # Found but out of budget: leave it as the next scan's first candidate.
+    last_visited=$prev_visited
+    stopped=1
+    break
+  fi
   if fm_run_timed "$check_bound" "$PR_CHECK" "$id" "$FM_PR_URL" >/dev/null 2>&1; then
     printf 'recorded %s %s\n' "$id" "$FM_PR_URL"
+  else
+    rollback_unarmed_pr "$id" "$FM_PR_URL"
   fi
 done
 
-# A scan that reached the end of the list restarts from the top next time.
-if [ "$queried" -lt "$MAX" ]; then
+# Only a scan that walked the whole list restarts from the top next time; one
+# stopped by its count or time budget resumes after the last candidate visited.
+if [ "$stopped" = 0 ]; then
   last_visited=
 fi
 marker_tmp=$(mktemp "$STATE/.pr-discover.XXXXXX") || exit 0

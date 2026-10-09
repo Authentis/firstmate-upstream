@@ -282,6 +282,39 @@ test_changed_lease_stops_teardown_before_anything_destructive() {
   pass "a changed lease stops teardown before it touches the branch, hooks, or slot"
 }
 
+test_changed_lease_stops_teardown_before_a_stale_lock_is_removed() {
+  local case_dir out status lock mode
+  for mode in matching changed; do
+    case_dir=$(make_teardown_case "td-lock-$mode")
+    write_teardown_meta "$case_dir" "lease_id=lease0123abcd"
+    printf '#!/usr/bin/env bash\ncase " $* " in *" -d cwd "*) exit 0 ;; esac\nexit 1\n' > "$case_dir/fakebin/lsof"
+    chmod +x "$case_dir/fakebin/lsof"
+    # git status cannot run while the index lock exists, which is what sends the
+    # safety check down the stale-lock path.
+    printf '#!/usr/bin/env bash\nif [ -e "${FM_FAKE_LOCK:-/nonexistent}" ]; then for a in "$@"; do [ "$a" = status ] && { echo "fatal: Unable to create index.lock: File exists" >&2; exit 128; }; done; fi\nexec "%s" "$@"\n' "$(command -v git)" > "$case_dir/fakebin/git"
+    chmod +x "$case_dir/fakebin/git"
+    lock=$(git -C "$case_dir/wt" rev-parse --git-path index.lock)
+    case "$lock" in /*) ;; *) lock="$(cd "$case_dir/wt" && pwd -P)/$lock" ;; esac
+    mkdir -p "$(dirname "$lock")"
+    : > "$lock"
+    touch -t 200001010000 "$lock"
+    if [ "$mode" = matching ]; then
+      out=$(FM_FAKE_LOCK="$lock" FM_STALE_WORKTREE_LOCK_RETRY_WAIT_SECS=0 FM_STALE_WORKTREE_LOCK_AGE_SECS=1 \
+        FM_FAKE_SLOT_LEASE=lease0123abcd run_teardown "$case_dir")
+      # Control: the scenario really reaches the stale-lock removal when the lease holds.
+      assert_contains "$out" "removed provably-stale git lock" "control: a matching lease should let the stale lock be cleared"
+    else
+      out=$(FM_FAKE_LOCK="$lock" FM_STALE_WORKTREE_LOCK_RETRY_WAIT_SECS=0 FM_STALE_WORKTREE_LOCK_AGE_SECS=1 \
+        FM_FAKE_SLOT_LEASE=someone-elses-lease run_teardown "$case_dir")
+      status=$?
+      [ "$status" -ne 0 ] || fail "a changed lease must abort teardown"$'\n'"$out"
+      assert_present "$lock" "a changed lease must stop teardown before it deletes a stale index lock"
+      assert_contains "$out" "lease changed" "teardown did not report the changed lease"
+    fi
+  done
+  pass "a changed lease stops teardown before a stale index lock is removed"
+}
+
 test_unconfirmable_lease_stops_teardown_before_anything_destructive() {
   local case_dir out status mode
   for mode in absent unreadable; do
@@ -338,6 +371,7 @@ test_aborted_spawn_returns_its_unrecorded_lease
 test_teardown_returns_exactly_the_recorded_lease_without_force
 test_teardown_without_a_lease_returns_as_before
 test_changed_lease_stops_teardown_before_anything_destructive
+test_changed_lease_stops_teardown_before_a_stale_lock_is_removed
 test_unconfirmable_lease_stops_teardown_before_anything_destructive
 test_dirty_slot_return_is_refused_not_forced
 test_teardown_refuses_a_malformed_lease_id

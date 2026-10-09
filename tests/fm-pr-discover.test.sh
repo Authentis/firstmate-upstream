@@ -228,7 +228,40 @@ test_whole_scan_is_held_to_its_budget() {
   elapsed=$(( $(date +%s) - start ))
   [ "$elapsed" -lt 9 ] || fail "the scan overran its 5s budget (${elapsed}s)"
   [ "$(grep -c '^pr list' "$c/gh.log")" -le 2 ] || fail "the scan kept starting queries after its budget was spent"
-  pass "a scan of stalled queries stops at its whole-scan budget"
+  # A scan stopped by time, not by count, must resume after the candidates it
+  # reached, so stalled early tasks cannot starve the later ones forever.
+  : > "$c/gh.log"
+  age_marker "$c"
+  run_scan "$c" FM_PR_DISCOVER_MAX=2 >/dev/null
+  assert_grep "--head fm/t3" "$c/gh.log" "after a budget stop the next scan did not resume at the unreached tasks"
+  assert_no_grep "--head fm/t1" "$c/gh.log" "after a budget stop the next scan restarted from the first task"
+  pass "a scan of stalled queries stops at its whole-scan budget and the next one continues past it"
+}
+
+test_registration_cut_off_after_pr_is_published_is_taken_back_and_retried() {
+  local c holder i
+  c=$(make_case rollback)
+  add_task "$c" t1 fm/t1
+  forge "$c" fm/t1 "$(pr_json OPEN 41 fm/t1)"
+  # Hold the poll-publication lock, so fm-pr-check.sh publishes pr= and then
+  # waits for it until the scan's registration bound kills it.
+  bash -c '. "$1"; STATE="$2"; fm_lock_acquire_wait "$2/.pr-poll-publish-t1.lock"; sleep 60' _ \
+    "$ROOT/bin/fm-wake-lib.sh" "$c/state" &
+  holder=$!
+  for i in 1 2 3 4 5 6 7 8 9 10; do
+    [ -e "$c/state/.pr-poll-publish-t1.lock" ] && break
+    sleep 0.3
+  done
+  run_scan "$c" FM_PR_DISCOVER_CHECK_SECS=2 >/dev/null
+  kill "$holder" 2>/dev/null
+  wait "$holder" 2>/dev/null
+  assert_no_grep "pr=" "$c/state/t1.meta" "a registration cut off before its poll armed must not leave pr= behind"
+  assert_absent "$c/state/t1.check.sh" "no poll should be armed by a cut-off registration"
+  age_marker "$c"
+  run_scan "$c" >/dev/null
+  assert_grep "pr=https://github.com/acme/widgets/pull/41" "$c/state/t1.meta" "the next scan did not register the PR again"
+  assert_present "$c/state/t1.check.sh" "the next scan did not arm the merge poll"
+  pass "a registration cut off between publishing pr= and arming the poll is taken back and retried"
 }
 
 test_open_pr_is_recorded
@@ -240,5 +273,6 @@ test_scan_is_rate_limited
 test_registration_makes_bounded_reads_and_never_arms_a_second_poll
 test_hanging_or_failing_forge_calls_cannot_hold_the_scan
 test_whole_scan_is_held_to_its_budget
+test_registration_cut_off_after_pr_is_published_is_taken_back_and_retried
 
 echo "# all fm-pr-discover tests passed"

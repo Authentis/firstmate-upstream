@@ -3498,6 +3498,12 @@ if [ "$BACKEND" = orca ] && [ "$KIND" != scout ] && [ "$KIND" != secondmate ] &&
   ORCA_PATH_MATCH_VERIFIED=1
 fi
 
+# The lease is confirmed before ANY slot mutation, including the stale index
+# lock removal inside the safety check below.
+if [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ] && teardown_owns_worktree; then
+  teardown_verify_slot_lease || exit 1
+fi
+
 if teardown_owns_worktree && [ -d "$WT" ] && [ "$FORCE" != "--force" ]; then
   if validate_worktree_teardown_safety; then
     :
@@ -3604,10 +3610,6 @@ else
   else
     BACKLOG_SKIP_REASON=$TEARDOWN_BACKLOG_SKIP_REASON
   fi
-fi
-
-if [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ] && teardown_owns_worktree; then
-  teardown_verify_slot_lease || exit 1
 fi
 
 # Every landed/discard-work refusal above has now passed (or --force skipped
