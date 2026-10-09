@@ -401,19 +401,22 @@ mkdir -p "$EXEC_RUNNER"
 printf '#!/bin/sh\nshift 3\nexec "$@"\n' > "$EXEC_RUNNER/timeout"
 chmod +x "$EXEC_RUNNER/timeout"
 
-# term_leaves_no_tmp <label> <mechanism-override>: TERM a bounded run mid-flight
-# and assert it exits 143 with its own temp path gone, and still gone after the
-# bound would have fired.
+# term_leaves_no_tmp <label> <mechanism-override> [monitor]: TERM a bounded run
+# mid-flight and assert it exits 143 with its own temp path gone, and still gone
+# after the bound would have fired. With "monitor", the run is launched from a
+# shell with job control on (set -m).
 term_leaves_no_tmp() {
-  local label=$1 override=$2 tmpd rc=0 pid i=0
+  local label=$1 override=$2 monitor=${3:-} tmpd rc=0 pid i=0
   tmpd="$TMP_ROOT/term-$label"
   mkdir -p "$tmpd"
+  [ -z "$monitor" ] || set -m
   (
     . "$ROOT/bin/fm-timeout-lib.sh"
     export TMPDIR="$tmpd" FM_TIMEOUT_MECHANISM_OVERRIDE="$override"
     PATH="$EXEC_RUNNER:$PATH" fm_run_timed 3 sleep 30
   ) &
   pid=$!
+  [ -z "$monitor" ] || set +m
   while [ -z "$(ls "$tmpd" 2>/dev/null)" ]; do
     i=$((i + 1))
     [ "$i" -lt 500 ] || fail "$label: the bounded run never created its temp path"
@@ -430,7 +433,8 @@ term_leaves_no_tmp() {
 test_term_mid_run_removes_the_temp_path() {
   term_leaves_no_tmp external ""
   term_leaves_no_tmp bash bash
-  pass 'a TERM mid-run removes the runner temp path and exits 143 (external and bash runners)'
+  term_leaves_no_tmp external-monitor "" monitor
+  pass 'a TERM mid-run removes the runner temp path and exits 143 (external and bash runners, with and without caller job control)'
 }
 
 test_stale_leftovers_are_swept_and_fresh_ones_kept() {

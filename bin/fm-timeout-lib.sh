@@ -106,6 +106,9 @@ fm_sweep_stale_tmp() {
 # and exit with 128+signal.
 _fm_timeout_signal_cleanup() {  # <signal-number>
   local group
+  # Ignore further TERM/INT/HUP while cleaning up: with caller job control on
+  # (set -m), bash re-runs the pending trap during the kill and recurses.
+  trap '' TERM INT HUP
   for group in ${_FM_TMO_GROUP:-}; do
     kill -TERM -- "-$group" 2>/dev/null || true
   done
