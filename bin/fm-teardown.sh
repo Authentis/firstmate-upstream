@@ -1849,7 +1849,7 @@ teardown_verify_slot_lease() {
   return 1
 }
 
-# Return a worktree/home via `treehouse return --force`, tolerating a transient or
+# Return a worktree/home via `treehouse return` (see return_args), tolerating a transient or
 # stale git index.lock left by a killed crew process. See the script header.
 teardown_treehouse_return() {
   local dir=$1 cd_dir=$2 label=$3 post_cleanup_check=${4:-}
