@@ -32,6 +32,9 @@
 #   <task>.inbox/.busy-state   consecutive busy deferrals: "<msg>\t<count>"
 #   <task>.inbox/.escalated    oldest-message name already surfaced as stale,
 #                              so later polls suppress another escalation
+#   <task>.inbox/.busy-escalated  oldest-message name escalated as stuck-busy
+#                              and still owed its one post-busy ring
+#                              (fm_task_inbox_record_busy_escalated)
 #   <task>.inbox/.retry-ring   name of a fire-and-forget record still owed its
 #                              one retry ring (fm_task_inbox_mark_retry)
 #
@@ -65,7 +68,10 @@
 # by a busy pane consume a separate durable consecutive-poll budget,
 # FM_TASK_INBOX_BUSY_MAX. At that bound the same escalation path surfaces a
 # stuck-busy reason without typing. A non-busy due check or acknowledgement resets
-# this budget. Fire-and-forget retries remain outside escalation. A positively
+# this budget. A stuck-busy escalation also owes the record one post-busy ring
+# (due action `postbusy`): the caller rings it the first time it observes the
+# lane non-busy, never while busy, and spends the mark by that attempt, so a
+# busy lane that goes idle still receives the doorbell its busy turn swallowed. Fire-and-forget retries remain outside escalation. A positively
 # dead or missing endpoint skips delivery and the ladder and escalates directly.
 # This library owns the schedule, durable budgets, and escalation marker.
 # If delivery-attempt or busy-deferral bookkeeping fails while the record remains unhandled,
@@ -531,6 +537,8 @@ fm_task_inbox_clear_retry() {  # <state-dir> <task-id> <record-path>
 #                             or already escalated for the current oldest)
 #   ring <record-path>        one doorbell re-ring is due
 #   escalate <record-path> <count>   attempt budget spent; surface as stale
+#   postbusy <record-path>    a stuck-busy escalation's one ring is owed once
+#                             the lane is next observed non-busy
 #   retry <record-path>       a fire-and-forget record's one retry ring is due
 # An empty inbox also resets the ladder bookkeeping so the next message starts
 # a fresh ladder.
@@ -538,7 +546,7 @@ fm_task_inbox_due_action() {  # <state-dir> <task-id>
   local dir oldest base now grace max ladder rec_base count last
   dir=$(fm_task_inbox_dir "$1" "$2")
   if ! oldest=$(fm_task_inbox_oldest_unhandled "$1" "$2"); then
-    rm -f "$dir/.ring-state" "$dir/.escalated" "$dir/.busy-state" 2>/dev/null || true
+    rm -f "$dir/.ring-state" "$dir/.escalated" "$dir/.busy-state" "$dir/.busy-escalated" 2>/dev/null || true
     # The one retry ring exists only while config/wait-no-turns is present.
     # Absent, a mark is left untouched and the inbox stays quiet, as before.
     if [ -e "${FM_CONFIG_OVERRIDE:-${FM_HOME:-}/config}/wait-no-turns" ]; then
@@ -572,6 +580,10 @@ EOF
   case "$count" in ''|*[!0-9]*) count=0 ;; esac
   case "$last" in ''|*[!0-9]*) last=0 ;; esac
   if [ "$(cat "$dir/.escalated" 2>/dev/null || true)" = "$base" ]; then
+    if [ "$(cat "$dir/.busy-escalated" 2>/dev/null || true)" = "$base" ]; then
+      printf 'postbusy %s' "$oldest"
+      return 0
+    fi
     printf 'quiet'
     return 0
   fi
@@ -625,6 +637,22 @@ fm_task_inbox_record_escalated() {  # <state-dir> <task-id> <record-path>
     [ -d "$dir" ] || return 0
     return 1
   fi
+}
+
+# Owe a stuck-busy-escalated record its one post-busy ring, and spend that mark
+# once the ring was attempted. Both are quiet no-ops for a removed inbox.
+fm_task_inbox_record_busy_escalated() {  # <state-dir> <task-id> <record-path>
+  local dir
+  dir=$(fm_task_inbox_dir "$1" "$2")
+  [ -d "$dir" ] || return 0
+  if ! { printf '%s\n' "${3##*/}" > "$dir/.busy-escalated"; } 2>/dev/null; then
+    [ -d "$dir" ] || return 0
+    return 1
+  fi
+}
+
+fm_task_inbox_clear_busy_escalated() {  # <state-dir> <task-id>
+  rm -f "$(fm_task_inbox_dir "$1" "$2")/.busy-escalated" 2>/dev/null
 }
 
 # Acknowledge one record by its numeric sequence: move <task>.inbox/NNN.msg into
@@ -683,7 +711,7 @@ fm_task_inbox_acknowledge() {  # <state-dir> <task-id> <seq>
   fi
   rec_base=$(cut -f1 "$dir/.ring-state" 2>/dev/null || true)
   [ "$rec_base" != "$base" ] || rm -f "$dir/.ring-state" 2>/dev/null || true
-  for mark in .escalated .retry-ring; do
+  for mark in .escalated .busy-escalated .retry-ring; do
     [ "$(cat "$dir/$mark" 2>/dev/null || true)" != "$base" ] || rm -f "$dir/$mark" 2>/dev/null || true
   done
   printf 'handled %s\n' "$base"

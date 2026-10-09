@@ -731,6 +731,43 @@ test_watcher_waits_on_busy_pane() {
   pass "watcher: busy deferrals survive restart, escalate once at the bound, and never type"
 }
 
+test_watcher_rings_once_after_stuck_busy_lane_goes_idle() {
+  local dir rings
+  dir=$(busy_case busy-then-idle)
+  busy_steer_check "$dir"
+  busy_steer_check "$dir"
+  grep -q 'stuck-busy' "$dir/state/.wake-queue" || fail "busy lane did not escalate"
+  # Still busy after the escalation: no ring, no second wake.
+  busy_steer_check "$dir"
+  busy_steer_check "$dir"
+  [ ! -s "$dir/send.log" ] || fail "an escalated lane was rung while still busy"
+  [ "$(wc -l < "$dir/state/.wake-queue" | tr -d ' ')" = 1 ] || fail "still-busy polls woke firstmate again"
+  # The lane goes idle: exactly one ring, then quiet.
+  busy_steer_check "$dir" "$(idle_capture "$dir")"
+  rings=$(grep -c 'Firstmate instruction waiting' "$dir/send.log")
+  [ "$rings" = 1 ] || fail "idle transition after a stuck-busy escalation rang $rings times, wanted 1"
+  busy_steer_check "$dir" "$(idle_capture "$dir")"
+  busy_steer_check "$dir" "$(idle_capture "$dir")"
+  rings=$(grep -c 'Firstmate instruction waiting' "$dir/send.log")
+  [ "$rings" = 1 ] || fail "post-busy ring repeated: $rings"
+  [ "$(wc -l < "$dir/state/.wake-queue" | tr -d ' ')" = 1 ] || fail "post-busy ring woke firstmate again"
+  [ ! -e "$dir/state/t1.inbox/.busy-escalated" ] || fail "the spent post-busy mark was kept"
+  pass "watcher: a stuck-busy escalation still owes one ring when the lane goes idle, and only one"
+}
+
+test_watcher_post_busy_ring_is_silent_when_acknowledged() {
+  local dir
+  dir=$(busy_case busy-acked)
+  busy_steer_check "$dir"
+  busy_steer_check "$dir"
+  grep -q 'stuck-busy' "$dir/state/.wake-queue" || fail "busy lane did not escalate"
+  mv "$dir/state/t1.inbox/001.msg" "$dir/state/t1.inbox/handled/"
+  busy_steer_check "$dir" "$(idle_capture "$dir")"
+  [ ! -s "$dir/send.log" ] || fail "an acknowledged record was rung after the lane went idle"
+  [ ! -e "$dir/state/t1.inbox/.busy-escalated" ] || fail "acknowledging kept the post-busy mark"
+  pass "watcher: an acknowledged stuck-busy record is never rung"
+}
+
 test_watcher_busy_budget_resets_on_ring_and_ack() {
   local dir rec
   dir=$(busy_case busy-reset)
@@ -1199,6 +1236,8 @@ test_ring_ladder_policy
 test_watcher_rerings_idle_pane_quietly
 test_watcher_waits_on_busy_pane
 test_watcher_busy_budget_resets_on_ring_and_ack
+test_watcher_rings_once_after_stuck_busy_lane_goes_idle
+test_watcher_post_busy_ring_is_silent_when_acknowledged
 test_watcher_busy_bookkeeping_failure_surfaces
 test_watcher_successor_busy_reset_failure_surfaces idle
 test_watcher_successor_busy_reset_failure_surfaces busy
