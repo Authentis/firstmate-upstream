@@ -223,11 +223,12 @@ write_teardown_meta() { # <case> [extra key=val...]
 
 run_teardown() {
   local case_dir=$1
+  shift
   FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$case_dir/state" \
     FM_DATA_OVERRIDE="$case_dir/data" FM_CONFIG_OVERRIDE="$case_dir/config" \
     FM_FAKE_POOL_PATH="${FM_FAKE_POOL_PATH-$case_dir/wt}" FM_FAKE_TH_LOG="$case_dir/treehouse.log" \
     PATH="$case_dir/fakebin:$PATH" \
-    "$TEARDOWN" task-x1 2>&1
+    "$TEARDOWN" task-x1 "$@" 2>&1
 }
 
 add_hook() { # <case>: a hook file teardown removes only once it proceeds
@@ -350,15 +351,44 @@ test_dirty_slot_return_is_refused_not_forced() {
   local case_dir out status calls
   case_dir=$(make_teardown_case td-dirty)
   write_teardown_meta "$case_dir" "lease_id=lease0123abcd"
+  # Untracked .claude/ files pass the ship safety filter but still block an unforced return.
+  mkdir -p "$case_dir/wt/.claude"
+  printf 'scratch\n' > "$case_dir/wt/.claude/notes.md"
   out=$(FM_FAKE_SLOT_DIRTY=1 FM_FAKE_SLOT_LEASE=lease0123abcd run_teardown "$case_dir")
   status=$?
   [ "$status" -ne 0 ] || fail "a return treehouse refuses must abort teardown"$'\n'"$out"
   assert_contains "$out" "nothing was forced" "teardown did not report the refusal as unforced"
+  assert_contains "$out" "slot $case_dir/wt under lease lease0123abcd" "the refusal must name the slot and its lease"
+  assert_contains "$out" ".claude/notes.md" "the refusal must name the files blocking the return"
   assert_present "$case_dir/state/task-x1.meta" "a refused return must keep the task record"
   calls=$(grep -c '^return ' "$case_dir/treehouse.log")
   [ "$calls" -eq 1 ] || fail "a refused lease-bound return must not be retried or forced ($calls return calls)"
   ! grep -F -- "--force" "$case_dir/treehouse.log" >/dev/null || fail "a refused lease-bound return must never be forced"
   pass "a slot treehouse will not return unforced is reported and left, never forced"
+}
+
+test_forced_and_scout_teardowns_force_the_lease_bound_return() {
+  local case_dir out status mode
+  for mode in forced scout; do
+    case_dir=$(make_teardown_case "td-force-$mode")
+    printf 'scratch\n' > "$case_dir/wt/scratch.txt"
+    if [ "$mode" = forced ]; then
+      write_teardown_meta "$case_dir" "lease_id=lease0123abcd"
+      out=$(FM_FAKE_SLOT_DIRTY=1 FM_FAKE_SLOT_LEASE=lease0123abcd run_teardown "$case_dir" --force)
+    else
+      write_teardown_meta "$case_dir" "lease_id=lease0123abcd" "kind=scout" \
+        "decisions_reviewed=1" "decision_keys="
+      mkdir -p "$case_dir/data/task-x1"
+      printf 'scout findings\n' > "$case_dir/data/task-x1/report.md"
+      out=$(FM_FAKE_SLOT_DIRTY=1 FM_FAKE_SLOT_LEASE=lease0123abcd run_teardown "$case_dir")
+    fi
+    status=$?
+    expect_code 0 "$status" "$mode: a dirty leased slot should be returned"$'\n'"$out"
+    assert_grep "return --force --if-lease-id lease0123abcd $case_dir/wt" "$case_dir/treehouse.log" \
+      "$mode: the return must force while staying bound to the recorded lease"
+    assert_absent "$case_dir/state/task-x1.meta" "$mode: a returned task keeps no live record"
+  done
+  pass "an explicit --force teardown and a scout return a dirty slot forced, still lease-bound"
 }
 
 test_teardown_refuses_a_malformed_lease_id() {
@@ -384,6 +414,7 @@ test_changed_lease_stops_teardown_before_anything_destructive
 test_changed_lease_stops_teardown_before_a_stale_lock_is_removed
 test_unconfirmable_lease_stops_teardown_before_anything_destructive
 test_dirty_slot_return_is_refused_not_forced
+test_forced_and_scout_teardowns_force_the_lease_bound_return
 test_teardown_refuses_a_malformed_lease_id
 
 echo "# all fm-treehouse-lease tests passed"

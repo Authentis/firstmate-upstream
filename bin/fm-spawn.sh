@@ -1475,7 +1475,7 @@ spawn_abort_cleanup() {
   # The lease-bound return cannot release a slot handed to anyone else.
   if [ -n "$SPAWN_LEASE_ID" ] && [ -n "${WT:-}" ] &&
     [ ! -e "$STATE/$ID.meta" ] && [ ! -L "$STATE/$ID.meta" ]; then
-    (cd "$PROJ_ABS" && treehouse return --if-lease-id "$SPAWN_LEASE_ID" "$WT" >/dev/null 2>&1) ||
+    (cd "$PROJ_ABS" && treehouse return --if-lease-id "$SPAWN_LEASE_ID" "$WT" </dev/null >/dev/null 2>&1) ||
       echo "warning: task $ID's spawn aborted holding Treehouse lease $SPAWN_LEASE_ID on $WT; return it with: treehouse return --if-lease-id $SPAWN_LEASE_ID $WT" >&2
     SPAWN_LEASE_ID=
   fi
@@ -4271,7 +4271,7 @@ spawn_acquire_leased_slot() {
   case "$lease_id" in '' | *[!A-Za-z0-9_-]*) lease_id= ;; esac
   if [ -z "$path" ] || [ -z "$lease_id" ] || [ ! -d "$path" ]; then
     [ -z "$lease_id" ] || [ -z "$path" ] ||
-      (cd "$PROJ_ABS" && treehouse return --if-lease-id "$lease_id" "$path" >/dev/null 2>&1) || true
+      (cd "$PROJ_ABS" && treehouse return --if-lease-id "$lease_id" "$path" </dev/null >/dev/null 2>&1) || true
     echo "error: treehouse get --lease did not report a usable path and lease id for project '$PROJ_ABS'; refusing to launch" >&2
     exit 1
   fi

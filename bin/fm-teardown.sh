@@ -9,11 +9,12 @@
 # bin/fm-spawn.sh) is handled in two lease-bound steps. Before any destructive
 # step, a read-only `treehouse status --json` must still show that lease on the
 # slot; a changed, missing, or unreadable lease refuses with nothing touched.
-# The return itself is `treehouse return --if-lease-id <id>` with no --force, so
-# a slot that became dirty after the safety checks is refused by treehouse
-# instead of reset. A refusal is reported, aborts teardown with the record kept,
-# and is never retried or forced; a record with no lease_id= returns unbound
-# (`--force`) as before.
+# The return itself is `treehouse return --if-lease-id <id>`, with --force added
+# only for an explicit --force teardown or a scout; otherwise a slot left with
+# files after the safety checks is refused by treehouse instead of reset. A
+# refusal is reported with the slot, lease, and blocking files, aborts teardown
+# with the record kept, and is never retried or forced; a record with no
+# lease_id= returns unbound (`--force`) as before.
 # An endpoint whose close could not do its job REFUSES before any record naming
 # it is removed: those records are the only thing that names what survived, so
 # reporting such a close as a completed cleanup strands the endpoint instead of
@@ -1856,11 +1857,17 @@ teardown_treehouse_return() {
   # A task whose slot was taken as a lease (lease_id= in its record) returns
   # exactly that lease, so a slot since handed to anyone else is refused rather
   # than released. TEARDOWN_RETURN_LEASE_ID is set only for the task's own slot.
-  # A lease-bound return never forces: treehouse then keeps its own confirmation
-  # before discarding changes, which a non-interactive teardown cannot give, so a
-  # slot that became dirty after the safety checks is refused rather than reset.
+  # A lease-bound return forces only for an explicit --force teardown or a scout
+  # (declared scratch); otherwise treehouse keeps its own confirmation before
+  # discarding changes, which a non-interactive teardown cannot give, so a slot
+  # left with files after the safety checks is refused rather than reset.
   local -a return_args=(--force)
-  [ -z "$TEARDOWN_RETURN_LEASE_ID" ] || return_args=(--if-lease-id "$TEARDOWN_RETURN_LEASE_ID")
+  if [ -n "$TEARDOWN_RETURN_LEASE_ID" ]; then
+    return_args=(--if-lease-id "$TEARDOWN_RETURN_LEASE_ID")
+    if [ "$FORCE" = --force ] || [ "$KIND" = scout ]; then
+      return_args=(--force --if-lease-id "$TEARDOWN_RETURN_LEASE_ID")
+    fi
+  fi
 
   # Capture stdout+stderr so non-lock failures stay visible and lock failures can
   # be matched by signature even when the lock file is already gone mid-check.
@@ -1872,7 +1879,14 @@ teardown_treehouse_return() {
 
   if ! treehouse_return_is_index_lock_error "$out"; then
     if [ -n "$TEARDOWN_RETURN_LEASE_ID" ]; then
-      echo "teardown: $label return was not performed; treehouse refused the lease-bound return of lease $TEARDOWN_RETURN_LEASE_ID (its lease changed, or the slot was no longer clean); the slot was not released and nothing was forced" >&2
+      echo "teardown: $label return was not performed; treehouse refused the lease-bound return of slot $dir under lease $TEARDOWN_RETURN_LEASE_ID (its lease changed, or the slot was no longer clean); the slot was not released and nothing was forced" >&2
+      if [ "${return_args[0]}" != --force ]; then
+        local blocking
+        blocking=$(git -C "$dir" status --porcelain --untracked-files=all 2>/dev/null) || blocking=
+        if [ -n "$blocking" ]; then
+          printf 'files blocking the return of %s:\n%s\n' "$dir" "$blocking" >&2
+        fi
+      fi
     fi
     return 1
   fi
