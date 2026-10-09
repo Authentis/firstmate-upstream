@@ -25,8 +25,11 @@
 #      and the send keeps the loud exit-1 verdict=unknown refusal.
 #   4. agy target whose busy footer never renders: no confirmation is
 #      fabricated - exit 1 verdict=unknown.
-#   5. claude target, same late-busy pane: the shared 3-retry default is
-#      untouched, so the send still exits 1 verdict=unknown.
+#   5. claude target, same pane: the agy idle shape is not a claude empty
+#      prompt, so the pre-typing screen guard refuses it untyped and the agy
+#      budget never applies.
+# The first plain capture is that guard's pre-typing screen read, so a busy
+# footer at the Nth poll is the (N+2)th plain capture.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -113,11 +116,11 @@ run_send() {  # <harness> <busy-at> [env=val ...]
   )
 }
 
-# agy, default budget, busy footer renders at the 5th poll (the 6th plain
+# agy, default budget, busy footer renders at the 5th poll (the 7th plain
 # capture): the raised default (20 retries) must reach that read and exit 0.
 # Under the old shared default (3 retries) this exact shape exited 1
 # "verdict=unknown" - the regression this suite pins.
-out=$(run_send agy 6)
+out=$(run_send agy 7)
 expect_code 0 "$(printf '%s' "$out" | sed -n 's/^rc //p')" \
   "agy typed send with late busy footer confirms idle-to-busy and exits 0"
 grep -q 'not submitted' "$TMP_ROOT"/*/err 2>/dev/null && \
@@ -133,7 +136,7 @@ pass "agy typed send: sleep log shows the confirm poll running to the late busy 
 # agy with an explicit FM_SEND_RETRIES=3: the operator knob wins over the agy
 # default, the budget expires before the late footer, and the loud refusal
 # boundary is preserved.
-out=$(run_send agy 6 'FM_SEND_RETRIES=3')
+out=$(run_send agy 7 'FM_SEND_RETRIES=3')
 expect_code 1 "$(printf '%s' "$out" | sed -n 's/^rc //p')" \
   "agy typed send honors an explicit FM_SEND_RETRIES=3"
 grep -q 'verdict=unknown' "$TMP_ROOT"/*/err || fail "agy typed send FM_SEND_RETRIES=3: expected verdict=unknown refusal"
@@ -150,16 +153,19 @@ pass "agy typed send: never-rendering busy footer still refuses with verdict=unk
 # agy, busy footer renders only at the 15th poll: the live long-brief case.
 # The default budget must still reach that read and exit 0; under the shared
 # 3-retry default this shape refused for a message that landed.
-out=$(run_send agy 16)
+out=$(run_send agy 17)
 expect_code 0 "$(printf '%s' "$out" | sed -n 's/^rc //p')" \
   "agy typed send with long-brief late busy footer confirms and exits 0"
 pass "agy typed send: long-brief render (15th poll) still confirms idle-to-busy"
 
-# claude on the identical late-busy pane: the shared 3-retry default is
-# untouched, so the same latency still refuses - the raised budget is
-# agy-scoped, not a global slowdown.
-out=$(run_send claude 6)
+# claude on the identical pane: agy's idle shape is not a claude empty prompt,
+# so the screen guard refuses it before anything is typed - the agy idle
+# recognition and its raised budget are agy-scoped.
+out=$(run_send claude 7)
 expect_code 1 "$(printf '%s' "$out" | sed -n 's/^rc //p')" \
-  "claude typed send keeps the shared 3-retry default"
-grep -q 'verdict=unknown' "$TMP_ROOT"/*/err || fail "claude typed send: expected verdict=unknown refusal"
-pass "claude typed send: late busy footer still refuses (agy budget is agy-scoped)"
+  "claude typed send onto the agy idle shape is refused"
+case_dir=$(ls -td "$TMP_ROOT"/case-* | head -1)
+grep -q 'blocked on a prompt: the prompt is not a recognised empty prompt' "$case_dir/err" \
+  || fail "claude typed send: expected the screen guard refusal, got: $(cat "$case_dir/err")"
+[ -s "$case_dir/sleep.log" ] && fail "claude typed send: the refused send still slept (submitted)"
+pass "claude typed send: the agy idle shape is refused untyped (agy recognition is agy-scoped)"

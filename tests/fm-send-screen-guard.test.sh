@@ -18,6 +18,10 @@
 #      recovery is pinned in tests/fm-task-inbox.test.sh.
 #   6. Claude, codex, opencode and pi each positively recognise their real
 #      captured idle prompt and refuse their captured draft.
+#   7. agy, whose bare `>` composer the classifier reads as `unknown`, is
+#      recognised by its documented idle shape (docs/verification/agy.md): the
+#      idle prompt is typed into and rung, a draft and a busy turn are refused
+#      untyped, and the same shape under another harness is refused.
 set -u
 
 # shellcheck source=tests/wake-helpers.sh
@@ -194,6 +198,29 @@ ring_fixture() {  # <dir> <fixture> <harness>
   RING_ERR=$(cat "$dir/ring-err.log")
 }
 
+test_agy_idle_prompt_is_recognised() {
+  local dir
+  dir=$(new_dir agy)
+  submit "$dir" "$FX/agy-idle.txt" agy
+  grep -q '^TYPED: hello worker$' "$dir/send.log" \
+    || fail "agy: the idle bare-> prompt must be typed into (rc $SUBMIT_RC, err: $SUBMIT_ERR)"
+  submit "$dir" "$FX/agy-draft.txt" agy
+  [ "$SUBMIT_RC" = 1 ] && [ ! -s "$dir/send.log" ] \
+    || fail "agy: a draft must be refused untyped (rc $SUBMIT_RC)"
+  submit "$dir" "$FX/agy-busy.txt" agy
+  [ "$SUBMIT_RC" = 1 ] && [ ! -s "$dir/send.log" ] \
+    || fail "agy: a busy turn must be refused untyped (rc $SUBMIT_RC)"
+  submit "$dir" "$FX/agy-idle.txt" pi
+  [ "$SUBMIT_RC" = 1 ] && [ ! -s "$dir/send.log" ] \
+    || fail "the agy idle shape must not pass for another harness (rc $SUBMIT_RC)"
+  RING_REC=$(lib "$dir/state" fm_task_inbox_write "$dir/state" t1 "please continue")
+  ring_fixture "$dir" "$FX/agy-idle.txt" agy
+  [ "$RING_RC" = 0 ] || fail "agy: the ring on an idle prompt must deliver, got rc $RING_RC ($RING_ERR)"
+  grep -q '^TYPED: : Firstmate instruction waiting' "$dir/send.log" \
+    || fail "agy: the ring did not type the doorbell:"$'\n'"$(cat "$dir/send.log")"
+  pass "guard: agy's idle prompt is recognised, and its draft, busy turn and foreign use are refused"
+}
+
 test_production_ring_refuses_without_touching_the_screen() {
   local dir state name fixture harness
   dir=$(new_dir ringrefuse)
@@ -252,5 +279,6 @@ test_draft_is_refused
 test_empty_prompt_is_accepted
 test_unrecognised_screen_is_refused_for_every_harness
 test_real_captures_per_harness
+test_agy_idle_prompt_is_recognised
 test_production_ring_refuses_without_touching_the_screen
 test_refused_ring_keeps_the_record_and_retries

@@ -1923,6 +1923,27 @@ fm_composer_open_menu() {  # <screen>
   '
 }
 
+# fm_composer_agy_idle_prompt: succeed when the screen ends on agy's idle
+# composer, which the shared classifier reads as `unknown` under the dead-shell
+# rule (docs/verification/agy.md): the last non-blank row is the `? for
+# shortcuts` status row and the nearest row above it that is not a `─` rule
+# holds only the bare `>` glyph. A draft (`> text`) or any other row fails.
+fm_composer_agy_idle_prompt() {  # <screen>
+  local screen=${1-}
+  [ -n "$screen" ] || return 1
+  printf '%s\n' "$screen" | fm_composer_strip_ansi | awk '
+    /[^ \t\r]/ { n++; rows[n] = $0 }
+    END {
+      if (n < 2 || rows[n] !~ /^[ \t]*\? for shortcuts/) exit 1
+      for (i = n - 1; i > 0; i--) {
+        if (rows[i] ~ /^[ \t\r]*(─)+[ \t\r]*$/) continue
+        exit (rows[i] ~ /^[ \t]*>[ \t\r]*$/) ? 0 : 1
+      }
+      exit 1
+    }
+  '
+}
+
 # fm_composer_send_refusal: the ONE pre-typing verdict. Prints the reason and
 # returns 0 when text plus Enter must NOT be typed into this screen; returns 1
 # (printing nothing) when typing is allowed. An open menu or picker is refused
@@ -1930,7 +1951,9 @@ fm_composer_open_menu() {  # <screen>
 # recognised plain empty prompt: only the composer verdict `empty` passes, so a
 # draft, an unproven prompt, and an unreadable screen are all refused for every
 # harness. Positive recognition is the shared classifier's, recorded from real
-# captures on 2026-10-09 for claude 2.1.295, codex, opencode, and pi.
+# captures on 2026-10-09 for claude 2.1.295, codex, opencode, and pi; agy's
+# bare `>` composer reads `unknown`, so agy is recognised by its documented
+# idle shape instead (fm_composer_agy_idle_prompt).
 fm_composer_send_refusal() {  # <screen> <composer-state> [harness]
   local screen=${1-} state=${2-} harness=${3-}
   if fm_composer_open_menu "$screen"; then
@@ -1945,6 +1968,9 @@ fm_composer_send_refusal() {  # <screen> <composer-state> [harness]
       ;;
     empty) return 1 ;;
   esac
+  if [ "$harness" = agy ] && fm_composer_agy_idle_prompt "$screen"; then
+    return 1
+  fi
   printf '%s' 'the prompt is not a recognised empty prompt'
   return 0
 }

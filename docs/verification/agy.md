@@ -139,6 +139,7 @@ agy stays out of the session-lock name vocabulary in `bin/fm-session-lock-lib.sh
 
 Byte-level capture of the idle pane shows a bare unstyled `>` between two full-width `─` rules, with an unstyled `? for shortcuts` cell and a dim (`SGR 2`) model cell in the status row below.
 The shared classifier reads that bare `>` as `unknown` under the dead-shell rule, never `empty`.
+The pre-typing send guard (`fm_composer_send_refusal`) therefore recognises agy's empty prompt from this shape instead: the last row is `? for shortcuts` and the composer row above it holds only `>`, so a draft, the busy `esc to cancel` row, or any other screen is refused untyped (`tests/fm-send-screen-guard.test.sh`).
 Steering still confirms delivery: the Herdr submit core leads with the native `idle`-to-`working` transition, which agy performs, and the delivery footer regex covers the tmux path.
 agy renders the busy footer late for that confirm loop - about 1.5 s after Enter for a short steer and 4-5 s for a realistic longer brief, measured live on `agy 1.2.1` (2026-09-12) against the shared budget's 3 x 0.4 s - so `bin/fm-send.sh` gives agy typed targets a longer default submit-confirm budget (20 retries, about 8 s at the default cadence); an explicit `FM_SEND_RETRIES` still wins and every other harness keeps the shared 3-retry default.
 `tests/fm-send-agy-confirm.test.sh` pins the raised default and `tests/fm-agy-harness.test.sh` pins the Herdr transition path.
