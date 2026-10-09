@@ -140,6 +140,8 @@ test_spawn_takes_a_lease_and_records_its_id() {
     "the lease identity was not recorded in the task meta"
   assert_grep "worktree=$POOL_DIR" "$HOME_DIR/state/$id.meta" \
     "the leased path was not recorded as the task worktree"
+  grep -q '^spawn_first=[0-9][0-9]*$' "$HOME_DIR/state/$id.meta" \
+    || fail "a fresh spawn did not record its first-incarnation epoch"
   pass "a spawn takes a durable lease and records its identity beside the worktree"
 }
 

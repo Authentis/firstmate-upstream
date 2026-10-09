@@ -147,6 +147,18 @@ test_merged_pr_from_before_the_spawn_is_ignored() {
   pass "a merged PR created before the task's spawn is ignored; one created after is recorded"
 }
 
+test_merged_pr_from_before_a_relaunch_is_recorded() {
+  local c out
+  c=$(make_case relaunched)
+  # First spawned 2026-10-09T12:00:00Z, PR opened at 13:00, relaunched at 14:00, merged later.
+  add_task "$c" t1 fm/t1 spawn_first=1791547200 spawn_gen=s1791554400.100.1
+  forge "$c" fm/t1 '[{"url":"https://github.com/acme/widgets/pull/7","state":"MERGED","headRefName":"fm/t1","baseRefName":"main","isCrossRepository":false,"createdAt":"2026-10-09T13:00:00Z"}]'
+  out=$(run_scan "$c")
+  assert_contains "$out" "recorded t1 https://github.com/acme/widgets/pull/7" "a relaunch must not hide a merged PR opened by the task's first incarnation"
+  assert_grep "pr=https://github.com/acme/widgets/pull/7" "$c/state/t1.meta" "the merged PR was not recorded"
+  pass "a merged PR opened before a relaunch but after the first spawn is recorded"
+}
+
 test_only_unrecorded_ship_tasks_are_queried() {
   local c
   c=$(make_case skipped)
@@ -284,6 +296,7 @@ test_open_pr_is_recorded
 test_merged_pr_is_recorded_and_open_is_preferred
 test_unusable_pull_requests_are_ignored
 test_merged_pr_from_before_the_spawn_is_ignored
+test_merged_pr_from_before_a_relaunch_is_recorded
 test_only_unrecorded_ship_tasks_are_queried
 test_scan_is_bounded_and_resumes_after_its_cursor
 test_scan_is_rate_limited

@@ -33,7 +33,8 @@
 #     local-only task, a task whose project is gone, or a record that already
 #     has pr= is skipped without a query. A closed-unmerged PR and a PR from a
 #     fork are ignored, as is a merged PR created before the task's spawn
-#     (the epoch in its spawn_gen=), which belongs to an earlier task that
+#     (its spawn_first= epoch, kept across relaunch; a record without it
+#     falls back to the epoch in spawn_gen=), which belongs to an earlier task that
 #     reused the id; an open PR is preferred over a merged one.
 # Output: one `recorded <task-id> <pr-url>` line per recorded PR, nothing else
 # when quiet. Exit status is 0 on every ordinary path, including a missing gh.
@@ -166,9 +167,12 @@ for id in "${candidates[@]+"${candidates[@]}"}"; do
   branch=$(meta_get "$meta" branch)
   project=$(meta_get "$meta" project)
   base=$(meta_get "$meta" base_branch)
-  since=$(meta_get "$meta" spawn_gen)
-  since=${since#s}
-  since=${since%%.*}
+  since=$(meta_get "$meta" spawn_first)
+  if [ -z "$since" ]; then
+    since=$(meta_get "$meta" spawn_gen)
+    since=${since#s}
+    since=${since%%.*}
+  fi
   case "$since" in ''|*[!0-9]*) since=0 ;; esac
   [ -d "$project" ] || { last_visited=$id; continue; }
   queried=$((queried + 1))
