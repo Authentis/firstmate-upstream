@@ -797,7 +797,8 @@ test_snapshot_cleans_its_temp_paths_on_term_and_sweeps_stale_ones() {
   printf '#!/usr/bin/env bash\nsleep 3\n' > "$fakebin/tmux"
   tmpd="$TMP_ROOT/tmp-cleanup-tmpdir"
   mkdir -p "$tmpd/fm-fleet-snapshot.STALE1" "$tmpd/fm-fleet-snapshot.FRESH1" "$tmpd/other-prefix.STALE1"
-  touch -t 200001010000 "$tmpd/fm-fleet-snapshot.STALE1" "$tmpd/other-prefix.STALE1"
+  : > "$tmpd/fm-timeout-status.STALE1"
+  touch -t 200001010000 "$tmpd/fm-fleet-snapshot.STALE1" "$tmpd/other-prefix.STALE1" "$tmpd/fm-timeout-status.STALE1"
   PATH="$fakebin:$PATH" FM_HOME="$home" TMPDIR="$tmpd" "$SNAPSHOT" --json >/dev/null 2>&1 &
   pid=$!
   while [ -z "$(find "$tmpd" -maxdepth 1 -newer "$tmpd/fm-fleet-snapshot.FRESH1" -name 'fm-fleet-*' 2>/dev/null)" ]; do
@@ -811,6 +812,7 @@ test_snapshot_cleans_its_temp_paths_on_term_and_sweeps_stale_ones() {
   out=$(find "$tmpd" -maxdepth 1 -name 'fm-fleet-*' | sort)
   [ "$out" = "$tmpd/fm-fleet-snapshot.FRESH1" ] || fail "unexpected temp paths after TERM: $out"
   [ -e "$tmpd/other-prefix.STALE1" ] || fail 'another prefix was swept'
+  [ ! -e "$tmpd/fm-timeout-status.STALE1" ] || fail 'a stale timeout-runner leftover was not swept'
   pass 'TERM removes the snapshot temp paths; stale own-prefix leftovers are swept, fresh and foreign kept'
 }
 

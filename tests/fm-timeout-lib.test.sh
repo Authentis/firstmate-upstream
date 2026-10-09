@@ -444,9 +444,9 @@ test_stale_leftovers_are_swept_and_fresh_ones_kept() {
   (
     . "$ROOT/bin/fm-timeout-lib.sh"
     export TMPDIR="$tmpd"
-    unset _FM_TIMEOUT_TMP_SWEPT
-    PATH="$EXEC_RUNNER:$PATH" fm_run_timed 5 true
-  ) || fail 'the sweeping run failed'
+    fm_sweep_stale_tmp fm-timeout-status
+    fm_sweep_stale_tmp fm-bash-timeout-command
+  ) || fail 'the sweep failed'
   [ ! -e "$tmpd/fm-timeout-status.OLD123" ] || fail 'a stale status file was not swept'
   [ ! -e "$tmpd/fm-bash-timeout-command.OLDDIR" ] || fail 'a stale bash-runner leftover was not swept'
   [ -e "$tmpd/fm-timeout-status.NEW123" ] || fail 'a fresh live-run status file was removed'

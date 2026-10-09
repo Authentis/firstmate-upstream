@@ -90,23 +90,15 @@ fm_timeout_mechanism() {
 # fm_sweep_stale_tmp <prefix> [minutes]
 #   Delete this user's leftovers named <prefix>.* directly under ${TMPDIR:-/tmp}
 #   that are older than [minutes] (default 60). A KILLed run cannot trap its own
-#   cleanup, so each tool that creates <prefix>.* paths sweeps its own prefix
-#   before creating a new one. Only that exact prefix, only this uid.
+#   cleanup, so a tool sweeps its prefixes at startup, outside any bounded run
+#   (an unbounded find must never delay a fm_run_timed bound). Only that exact
+#   prefix, only this uid.
 fm_sweep_stale_tmp() {
   local prefix=$1 minutes=${2:-60} root=${TMPDIR:-/tmp}
   case "$prefix" in ''|*/*|*'*'*|*'?'*|*'['*) return 0 ;; esac
   [ -d "$root" ] || return 0
   find "$root" -maxdepth 1 -name "$prefix.*" -user "$(id -u)" -mmin "+$minutes" \
     -exec rm -r -f -- {} + 2>/dev/null || true
-}
-
-# The timeout lib is sourced by many short callers; sweep once per process tree.
-fm_sweep_timeout_tmp_once() {
-  [ -z "${_FM_TIMEOUT_TMP_SWEPT:-}" ] || return 0
-  _FM_TIMEOUT_TMP_SWEPT=1
-  export _FM_TIMEOUT_TMP_SWEPT
-  fm_sweep_stale_tmp fm-timeout-status
-  fm_sweep_stale_tmp fm-bash-timeout-command
 }
 
 # Signal handling for the two runners: clean the temp paths, stop the bounded
@@ -140,7 +132,6 @@ _fm_timeout_traps_clear() {
 fm_run_bash_timeout() {
   local seconds=$1 command_status deadline_status child_pid watchdog_pid command_rc recorded_rc monitor_was_on=0
   shift
-  fm_sweep_timeout_tmp_once
   command_status=$(mktemp "${TMPDIR:-/tmp}/fm-bash-timeout-command.XXXXXX" 2>/dev/null) || return 124
   deadline_status="${command_status}.deadline"
   _fm_timeout_traps_set "$command_status" "$deadline_status"
@@ -190,7 +181,6 @@ fm_run_bash_timeout() {
 fm_run_external_timeout() {
   local runner=$1 seconds=$2 status_file runner_pid runner_rc command_rc
   shift 2
-  fm_sweep_timeout_tmp_once
   status_file=$(mktemp "${TMPDIR:-/tmp}/fm-timeout-status.XXXXXX" 2>/dev/null) || return 124
   _fm_timeout_traps_set "$status_file"
   # Run timeout asynchronously so its pid - also the process-group id created
