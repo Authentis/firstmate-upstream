@@ -1856,7 +1856,8 @@ teardown_treehouse_return() {
   local out lock attempt=0 max_retries lock_desc
   # A task whose slot was taken as a lease (lease_id= in its record) returns
   # exactly that lease, so a slot since handed to anyone else is refused rather
-  # than released. TEARDOWN_RETURN_LEASE_ID is set only for the task's own slot.
+  # than released. TEARDOWN_RETURN_LEASE_ID is set only for the task's own slot
+  # and, during a forced secondmate cleanup, for each child's own slot.
   # A lease-bound return forces only for an explicit --force teardown or a scout
   # (declared scratch); otherwise treehouse keeps its own confirmation before
   # discarding changes, which a non-interactive teardown cannot give, so a slot
@@ -3273,7 +3274,7 @@ endpoint_close_refusal() {  # <subject> <backend> <target> <honors-force>
 }
 
 cleanup_firstmate_home_children() {
-  local home=$1 sub_state child_meta child_id child_t child_wt child_proj child_kind child_home child_backend child_orca_worktree_id child_return_rc child_busy_gen child_owner_rc
+  local home=$1 sub_state child_meta child_id child_t child_wt child_proj child_kind child_home child_backend child_orca_worktree_id child_return_rc child_busy_gen child_owner_rc child_lease
   sub_state="$home/state"
   [ -d "$sub_state" ] || return 0
   for child_meta in "$sub_state"/*.meta; do
@@ -3350,13 +3351,16 @@ cleanup_firstmate_home_children() {
           "$child_wt/.opencode/plugins/fm-busy-state.js" \
           "$child_wt/.fm-grok-turnend" "$child_wt/.fm-kimi-turnend"
         if [ -n "$child_proj" ] && [ -d "$child_proj" ] && command -v treehouse >/dev/null 2>&1; then
-          if teardown_treehouse_return "$child_wt" "$child_proj" "child worktree"; then
+          child_lease=$(meta_value "$child_meta" lease_id)
+          child_return_rc=0
+          TEARDOWN_RETURN_LEASE_ID=$child_lease
+          teardown_treehouse_return "$child_wt" "$child_proj" "child worktree" || child_return_rc=$?
+          TEARDOWN_RETURN_LEASE_ID=
+          if [ "$child_return_rc" -eq 0 ]; then
             fm_treehouse_slot_owner_release "$child_wt" "$child_id"
+          elif [ "$child_return_rc" -eq "$TEARDOWN_TREEHOUSE_LOCK_REFUSED" ] || [ -n "$child_lease" ]; then
+            return "$child_return_rc"
           else
-            child_return_rc=$?
-            if [ "$child_return_rc" -eq "$TEARDOWN_TREEHOUSE_LOCK_REFUSED" ]; then
-              return "$child_return_rc"
-            fi
             safe_rm_rf_child_worktree "$child_wt" "$child_proj"
           fi
         else
