@@ -3811,33 +3811,6 @@ fm_backend_herdr_list_live() {  # <session>
   done < <(printf '%s' "$tabs" | jq -r '.result.tabs[]? | select(.label | startswith("fm-")) | "\(.tab_id)\t\(.label)"' 2>/dev/null)
 }
 
-# fm_backend_herdr_rebind_target: recover a task's pane when the recorded pane
-# id no longer resolves, for example after a relaunch into a new pane.
-# Looks up the EXACT <label> tab (fm-<id>) inside the SAME session the recorded
-# target names, never another session, and prints "<session>:<pane_id>" only
-# for a single unambiguous match. Read-only; prints nothing (nonzero) when the
-# recorded pane still exists, the label is absent or ambiguous, or any read
-# fails, so a caller keeps its recorded target.
-fm_backend_herdr_rebind_target() {  # <target> <label>
-  local target=$1 label=$2 session tabs tab_id wsid pane_id count
-  [ -n "$label" ] || return 1
-  fm_backend_herdr_parse_target "$target" || return 1
-  session=$FM_BACKEND_HERDR_SESSION
-  [ "$(fm_backend_herdr_pane_presence_state "$session" "$FM_BACKEND_HERDR_PANE")" = dead ] || return 1
-  tabs=$(fm_backend_herdr_cli "$session" tab list 2>/dev/null) || return 1
-  count=$(printf '%s' "$tabs" | jq -r --arg want "$label" \
-    '[.result.tabs[]? | select(.label == $want)] | length' 2>/dev/null) || return 1
-  [ "$count" = 1 ] || return 1
-  tab_id=$(printf '%s' "$tabs" | jq -r --arg want "$label" \
-    '.result.tabs[]? | select(.label == $want) | .tab_id' 2>/dev/null)
-  wsid=$(printf '%s' "$tabs" | jq -r --arg want "$label" \
-    '.result.tabs[]? | select(.label == $want) | .workspace_id' 2>/dev/null)
-  [ -n "$tab_id" ] && [ -n "$wsid" ] || return 1
-  pane_id=$(fm_backend_herdr_pane_for_tab "$session" "$wsid" "$tab_id") || return 1
-  [ -n "$pane_id" ] || return 1
-  printf '%s:%s' "$session" "$pane_id"
-}
-
 # --- native event push: pane.agent_status_changed subscriber -----------------
 #
 # The push half of the immediate blocked-state escalation (AGENTS.md section 8,
