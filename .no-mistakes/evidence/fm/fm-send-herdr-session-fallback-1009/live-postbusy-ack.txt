@@ -1,0 +1,22 @@
+== scenario=ack record=001.msg (real tmux socket fm-lab-postbusy-32547, real fm-watch.sh)
+[poll busy-1 ] pane=busy wakes=0 busy-state=001.msg:1 .escalated=- .busy-escalated=- doorbells-typed=0
+[poll busy-2 ] pane=busy wakes=1 busy-state=001.msg:2 .escalated=001.msg .busy-escalated=001.msg doorbells-typed=0
+[poll busy-3 ] pane=busy wakes=1 busy-state=001.msg:2 .escalated=001.msg .busy-escalated=001.msg doorbells-typed=0
+[poll busy-4 ] pane=busy wakes=1 busy-state=001.msg:2 .escalated=001.msg .busy-escalated=001.msg doorbells-typed=0
+-- wake-queue after busy polls:
+   1791535129	1	stale	fmlab:fm-t1	stale: fmlab:fm-t1 (unread firstmate instruction: stuck-busy after 2 consecutive busy-deferred due doorbells; /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-lab-postbusy.iGhfCC/state/t1.inbox/001.msg stays unhandled and no doorbell was typed; inspect the worker)
+-- worker acknowledged 001.msg (mv into handled/) while still busy
+-- lane goes idle
+/Users/lundi/.no-mistakes/evidence/01M4FWSC0HM1Q78J5819VDBDDD/live-postbusy-drive.sh: line 36: /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-lab-postbusy.iGhfCC/state/t1.inbox/.busy-state: No such file or directory
+[poll idle-1 ] pane=idle wakes=1 busy-state=- .escalated=- .busy-escalated=- doorbells-typed=0
+/Users/lundi/.no-mistakes/evidence/01M4FWSC0HM1Q78J5819VDBDDD/live-postbusy-drive.sh: line 36: /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-lab-postbusy.iGhfCC/state/t1.inbox/.busy-state: No such file or directory
+[poll idle-2 ] pane=idle wakes=1 busy-state=- .escalated=- .busy-escalated=- doorbells-typed=0
+/Users/lundi/.no-mistakes/evidence/01M4FWSC0HM1Q78J5819VDBDDD/live-postbusy-drive.sh: line 36: /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-lab-postbusy.iGhfCC/state/t1.inbox/.busy-state: No such file or directory
+[poll idle-3 ] pane=idle wakes=1 busy-state=- .escalated=- .busy-escalated=- doorbells-typed=0
+-- typed.log (everything the pane received, including any keys typed while busy):
+-- pane capture:
+   idle worker ready
+-- triage log lines:
+-- check.out:
+   stale: fmlab:fm-t1 (unread firstmate instruction: stuck-busy after 2 consecutive busy-deferred due doorbells; /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-lab-postbusy.iGhfCC/state/t1.inbox/001.msg stays unhandled and no doorbell was typed; inspect the worker)
+== final doorbells-typed=0 wakes=1

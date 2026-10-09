@@ -1,0 +1,22 @@
+== scenario=idle record=001.msg (real tmux socket fm-lab-postbusy-16139, real fm-watch.sh)
+[poll busy-1 ] pane=busy wakes=0 busy-state=001.msg:1 .escalated=- .busy-escalated=- doorbells-typed=0
+[poll busy-2 ] pane=busy wakes=1 busy-state=001.msg:2 .escalated=001.msg .busy-escalated=001.msg doorbells-typed=0
+[poll busy-3 ] pane=busy wakes=1 busy-state=001.msg:2 .escalated=001.msg .busy-escalated=001.msg doorbells-typed=0
+[poll busy-4 ] pane=busy wakes=1 busy-state=001.msg:2 .escalated=001.msg .busy-escalated=001.msg doorbells-typed=0
+-- wake-queue after busy polls:
+   1791535118	1	stale	fmlab:fm-t1	stale: fmlab:fm-t1 (unread firstmate instruction: stuck-busy after 2 consecutive busy-deferred due doorbells; /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-lab-postbusy.ViPcnf/state/t1.inbox/001.msg stays unhandled and no doorbell was typed; inspect the worker)
+-- lane goes idle
+[poll idle-1 ] pane=idle wakes=1 busy-state=001.msg:2 .escalated=001.msg .busy-escalated=- doorbells-typed=1
+[poll idle-2 ] pane=idle wakes=1 busy-state=001.msg:2 .escalated=001.msg .busy-escalated=- doorbells-typed=1
+[poll idle-3 ] pane=idle wakes=1 busy-state=001.msg:2 .escalated=001.msg .busy-escalated=- doorbells-typed=1
+-- typed.log (everything the pane received, including any keys typed while busy):
+   : Firstmate instruction waiting: list "$FM_TASK_INBOX"/*.msg in your 't1.inbox' steering inbox, read and act on each in numeric order, then mv each into its handled/.
+-- pane capture:
+   idle worker ready
+   : Firstmate instruction waiting: list "$FM_TASK_INBOX"/*.msg in your 't1.inbox' steering inbox, read and act on each in numeric order, then mv each into its handled/.
+   got: : Firstmate instruction waiting: list "$FM_TASK_INBOX"/*.msg in your 't1.inbox' steering inbox, read and act on each in numeric order, then mv each into its handled/.
+-- triage log lines:
+   [2026-10-09T12:38:42+0400] steer-inbox post-busy ring: t1 001.msg result=0
+-- check.out:
+   stale: fmlab:fm-t1 (unread firstmate instruction: stuck-busy after 2 consecutive busy-deferred due doorbells; /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-lab-postbusy.ViPcnf/state/t1.inbox/001.msg stays unhandled and no doorbell was typed; inspect the worker)
+== final doorbells-typed=1 wakes=1
