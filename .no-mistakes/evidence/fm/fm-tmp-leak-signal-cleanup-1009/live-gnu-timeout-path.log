@@ -1,0 +1,14 @@
+================ base (mechanism: timeout) ================
+[fm_run_timed TERM] rc=143 leftovers=[fm-timeout-status.pQUpOz ]
+    after bound passed: leftovers=[fm-timeout-status.pQUpOz ] orphan-sleep41=0
+[snapshot group TERM, KILL +1s] rc=143 leftovers-now=[fm-timeout-status.o2tsDb ]
+    8s later: leftovers=[fm-timeout-status.o2tsDb ]
+[snapshot pid TERM, KILL +1s] rc=143 leftovers-now=[fm-timeout-status.OWbh8O ]
+    8s later: leftovers=[]
+================ head (mechanism: timeout) ================
+[fm_run_timed TERM] rc=143 leftovers=[]
+    after bound passed: leftovers=[] orphan-sleep41=0
+[snapshot group TERM, KILL +1s] rc=143 leftovers-now=[]
+    8s later: leftovers=[]
+[snapshot pid TERM, KILL +1s] rc=143 leftovers-now=[fm-timeout-status.g8F4ON ]
+    8s later: leftovers=[]

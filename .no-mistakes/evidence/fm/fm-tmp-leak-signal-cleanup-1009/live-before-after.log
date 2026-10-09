@@ -1,0 +1,27 @@
+lab home: /tmp/fm-lab.dyUPIJ
+================ base ================
+[normal] rc=0 schema="schema": "fm-fleet-snapshot.v1" leftovers=[]
+[TERM pid] rc=143 exit-latency=.03s leftovers-now=[]
+[TERM pid] leftovers after 5s=[]
+[group TERM, KILL +1s] rc=143 leftovers=[]
+[KILL] leftovers=[fm-fleet-snapshot.dfaLNA fm-fleet-tasks.ULvtjH ]
+[next run after KILL, stale backdated] rc=0 leftovers=[fm-fleet-snapshot.FRESHLIVE fm-fleet-snapshot.dfaLNA fm-fleet-tasks.ULvtjH ] other-tool.OLD=kept
+[fm_run_timed mech=perl] TERM rc=143 leftovers=[]
+    after bound passed: leftovers=[] orphan-watchdog-sleep6=0 orphan-sleep37=0
+[fm_run_timed mech=bash] TERM rc=143 leftovers=[fm-bash-timeout-command.ZCCWYi ]
+    after bound passed: leftovers=[fm-bash-timeout-command.ZCCWYi fm-bash-timeout-command.ZCCWYi.deadline ] orphan-watchdog-sleep6=0 orphan-sleep37=0
+================ head ================
+[normal] rc=0 schema="schema": "fm-fleet-snapshot.v1" leftovers=[]
+[TERM pid] rc=143 exit-latency=.02s leftovers-now=[]
+[TERM pid] leftovers after 5s=[]
+[group TERM, KILL +1s] rc=143 leftovers=[]
+[KILL] leftovers=[fm-fleet-snapshot.HojJ5n fm-fleet-tasks.1sA4eY ]
+[next run after KILL, stale backdated] rc=0 leftovers=[fm-fleet-snapshot.FRESHLIVE ] other-tool.OLD=kept
+[fm_run_timed mech=perl] TERM rc=143 leftovers=[]
+    after bound passed: leftovers=[] orphan-watchdog-sleep6=0 orphan-sleep37=0
+[fm_run_timed mech=bash] TERM rc=143 leftovers=[]
+    after bound passed: leftovers=[] orphan-watchdog-sleep6=0 orphan-sleep37=0
+================ head: normal-path contract ================
+status passthrough rc=7 out=hi caller-trap-after=[trap -- 'echo caller-term' SIGTERM] leftovers=[]
+bound fires rc=124 leftovers=[]
+lab removed: yes
