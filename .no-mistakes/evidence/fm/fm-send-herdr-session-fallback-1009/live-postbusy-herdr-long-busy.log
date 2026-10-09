@@ -1,0 +1,60 @@
+[19:47:59] lab session fm-lab-pb-long-21206-10881 provisioned; code under test: /Users/lundi/.no-mistakes/worktrees/0d3d213d42f1/01M4GMZXZA2W0YM66J6T6XS0A3/bin
+[19:48:03] Claude 2.1.295 (Claude Code) idle in herdr pane w1:p1 (session fm-lab-pb-long-21206-10881)
+[19:48:04] steer record written: state/t1.inbox/001.msg
+[19:48:06] lane busy (agent_status=working); polling the watcher while busy
+/Users/lundi/.no-mistakes/evidence/01M4GMZXZA2W0YM66J6T6XS0A3/live-postbusy-herdr.sh: line 81: /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-lab.oFH5A6/state/.wake-queue: No such file or directory
+[19:48:07] watcher poll done: agent_status=working next-due=[ring /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-lab.oFH5A6/state/t1.inbox/001.msg] wakes= busy-escalated-mark=none doorbells-in-pane=0
+[19:48:11] watcher poll done: agent_status=working next-due=[postbusy /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-lab.oFH5A6/state/t1.inbox/001.msg] wakes=1 busy-escalated-mark=001.msg doorbells-in-pane=0
+[19:48:11] wake-queue after the busy polls:
+1791560891	1	stale	fm-lab-pb-long-21206-10881:w1:p1	stale: fm-lab-pb-long-21206-10881:w1:p1 (unread firstmate instruction: stuck-busy after 2 consecutive busy-deferred due doorbells; /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-lab.oFH5A6/state/t1.inbox/001.msg stays unhandled and no doorbell was typed; inspect the worker)
+[19:48:15] watcher poll done: agent_status=working next-due=[postbusy /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-lab.oFH5A6/state/t1.inbox/001.msg] wakes=1 busy-escalated-mark=001.msg doorbells-in-pane=0
+[19:48:19] watcher poll done: agent_status=working next-due=[postbusy /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-lab.oFH5A6/state/t1.inbox/001.msg] wakes=1 busy-escalated-mark=001.msg doorbells-in-pane=0
+[19:48:23] watcher poll done: agent_status=working next-due=[postbusy /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-lab.oFH5A6/state/t1.inbox/001.msg] wakes=1 busy-escalated-mark=001.msg doorbells-in-pane=0
+[19:48:28] watcher poll done: agent_status=working next-due=[postbusy /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-lab.oFH5A6/state/t1.inbox/001.msg] wakes=1 busy-escalated-mark=001.msg doorbells-in-pane=0
+[19:48:33] watcher poll done: agent_status=working next-due=[postbusy /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-lab.oFH5A6/state/t1.inbox/001.msg] wakes=1 busy-escalated-mark=001.msg doorbells-in-pane=0
+[19:48:38] watcher poll done: agent_status=working next-due=[postbusy /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-lab.oFH5A6/state/t1.inbox/001.msg] wakes=1 busy-escalated-mark=001.msg doorbells-in-pane=0
+[19:48:43] watcher poll done: agent_status=working next-due=[postbusy /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-lab.oFH5A6/state/t1.inbox/001.msg] wakes=1 busy-escalated-mark=001.msg doorbells-in-pane=0
+[19:48:49] watcher poll done: agent_status=idle next-due=[postbusy /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-lab.oFH5A6/state/t1.inbox/001.msg] wakes=1 busy-escalated-mark=001.msg doorbells-in-pane=0
+[19:48:49] waiting for the lane to go idle
+[19:48:51] lane idle (agent_status=idle); polling the watcher
+[19:48:54] watcher poll done: agent_status=working next-due=[quiet] wakes=1 busy-escalated-mark=none doorbells-in-pane=1
+[19:49:21] watcher poll done: agent_status=idle next-due=[quiet] wakes=1 busy-escalated-mark=none doorbells-in-pane=1
+[19:49:25] watcher poll done: agent_status=idle next-due=[quiet] wakes=1 busy-escalated-mark=none doorbells-in-pane=1
+[19:49:25] triage log (steer-inbox lines):
+[2026-10-09T19:48:54+0400] steer-inbox post-busy ring: t1 001.msg result=0
+[19:49:25] watcher stderr/stdout:
+stale: fm-lab-pb-long-21206-10881:w1:p1 (unread firstmate instruction: stuck-busy after 2 consecutive busy-deferred due doorbells; /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-lab.oFH5A6/state/t1.inbox/001.msg stays unhandled and no doorbell was typed; inspect the worker)
+[19:49:25] final wake-queue:
+1791560891	1	stale	fm-lab-pb-long-21206-10881:w1:p1	stale: fm-lab-pb-long-21206-10881:w1:p1 (unread firstmate instruction: stuck-busy after 2 consecutive busy-deferred due doorbells; /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-lab.oFH5A6/state/t1.inbox/001.msg stays unhandled and no doorbell was typed; inspect the worker)
+[19:49:25] pane screen (recent, non-blank):
+ ▐▛███▛█   Claude Code v2.1.295
+▝▜██████▀  Opus 5.5 with medium effort · Claude Max
+ ▝▝   ▝▝   /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-lab.oFH5A6
+❯ Use the Bash tool in the foreground (not background) to run exactly: for i in $(seq 1 9); do sleep 4; echo tick $i;
+  done . Then reply with the single word TICKED.
+  Ran 1 shell command
+⏺ TICKED
+✻ Brewed for 43s · done 7:48 PM
+❯ : Firstmate instruction waiting: list "$FM_TASK_INBOX"/*.msg in your 't1.inbox' steering inbox, read and act on each
+  in numeric order, then mv each into its handled/.
+  Read 1 file, listed 1 directory, ran 4 shell commands
+⏺ I've read the one inbox message. Moving it to handled/ now and reporting what I found.
+  Ran 1 shell command
+⏺ The inbox had one message, and I've moved it to handled/, but I couldn't actually do what it asked.
+  001.msg says: "Gate run is waiting: please run the review fix"
+  There's nothing here to run a review fix on:
+  - $FM_TASK_INBOX was empty in my shell. I found the inbox at state/t1.inbox instead.
+  - This lab directory isn't a git repo. projects/, config/ and data/ are all empty, and there's no diff, gate run or
+    review output anywhere.
+  - t1.meta lists the task as kind=ship on herdr pane w1:p1, but doesn't say which project or branch.
+  I moved the message as instructed, so handled/ doesn't mean the fix was done. If a real gate run is waiting, tell me
+  the project path or branch and I'll run the fix there.
+  state/.wake-queue still has a stale flag saying 001.msg sat unread for two busy-deferred doorbells. That was during
+  the earlier 36-second foreground tick loop, which finished. You may want to clear the flag on the firstmate side.
+✻ Brewed for 24s · done 7:49 PM
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents
+[19:49:25] RESULT label=long doorbells-in-pane=1 wakes=1
+[19:49:27] teardown ok: fm-lab-pb-long-21206-10881

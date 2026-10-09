@@ -1,0 +1,37 @@
+[19:49:33] lab session fm-lab-pb-ack-89657-1275 provisioned; code under test: /Users/lundi/.no-mistakes/worktrees/0d3d213d42f1/01M4GMZXZA2W0YM66J6T6XS0A3/bin
+[19:49:38] Claude 2.1.295 (Claude Code) idle in herdr pane w1:p1 (session fm-lab-pb-ack-89657-1275)
+[19:49:38] steer record written: state/t1.inbox/001.msg
+[19:49:40] lane busy (agent_status=working); polling the watcher while busy
+/Users/lundi/.no-mistakes/evidence/01M4GMZXZA2W0YM66J6T6XS0A3/live-postbusy-herdr.sh: line 81: /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-lab.80iQ6Q/state/.wake-queue: No such file or directory
+[19:49:42] watcher poll done: agent_status=working next-due=[ring /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-lab.80iQ6Q/state/t1.inbox/001.msg] wakes= busy-escalated-mark=none doorbells-in-pane=0
+[19:49:46] watcher poll done: agent_status=working next-due=[postbusy /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-lab.80iQ6Q/state/t1.inbox/001.msg] wakes=1 busy-escalated-mark=001.msg doorbells-in-pane=0
+[19:49:46] wake-queue after the busy polls:
+1791560986	1	stale	fm-lab-pb-ack-89657-1275:w1:p1	stale: fm-lab-pb-ack-89657-1275:w1:p1 (unread firstmate instruction: stuck-busy after 2 consecutive busy-deferred due doorbells; /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-lab.80iQ6Q/state/t1.inbox/001.msg stays unhandled and no doorbell was typed; inspect the worker)
+[19:49:50] watcher poll done: agent_status=working next-due=[postbusy /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-lab.80iQ6Q/state/t1.inbox/001.msg] wakes=1 busy-escalated-mark=001.msg doorbells-in-pane=0
+[19:49:53] watcher poll done: agent_status=working next-due=[postbusy /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-lab.80iQ6Q/state/t1.inbox/001.msg] wakes=1 busy-escalated-mark=001.msg doorbells-in-pane=0
+[19:49:53] ADVERSARIAL: record acknowledged while the lane is still busy (agent_status=working)
+[19:49:53] waiting for the lane to go idle
+[19:50:13] lane idle (agent_status=idle); polling the watcher
+[19:50:13] watcher poll done: agent_status=idle next-due=[quiet] wakes=1 busy-escalated-mark=none doorbells-in-pane=0
+[19:50:40] watcher poll done: agent_status=idle next-due=[quiet] wakes=1 busy-escalated-mark=none doorbells-in-pane=0
+[19:50:44] watcher poll done: agent_status=idle next-due=[quiet] wakes=1 busy-escalated-mark=none doorbells-in-pane=0
+[19:50:44] triage log (steer-inbox lines):
+[19:50:44] watcher stderr/stdout:
+stale: fm-lab-pb-ack-89657-1275:w1:p1 (unread firstmate instruction: stuck-busy after 2 consecutive busy-deferred due doorbells; /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-lab.80iQ6Q/state/t1.inbox/001.msg stays unhandled and no doorbell was typed; inspect the worker)
+[19:50:44] final wake-queue:
+1791560986	1	stale	fm-lab-pb-ack-89657-1275:w1:p1	stale: fm-lab-pb-ack-89657-1275:w1:p1 (unread firstmate instruction: stuck-busy after 2 consecutive busy-deferred due doorbells; /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-lab.80iQ6Q/state/t1.inbox/001.msg stays unhandled and no doorbell was typed; inspect the worker)
+[19:50:44] pane screen (recent, non-blank):
+ ▐▛███▛█   Claude Code v2.1.295
+▝▜██████▀  Opus 5.5 with medium effort · Claude Max
+ ▝▝   ▝▝   /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-lab.80iQ6Q
+❯ Use the Bash tool in the foreground (not background) to run exactly: for i in $(seq 1 6); do sleep 4; echo tick $i;
+  done . Then reply with the single word TICKED.
+  Ran 1 shell command
+⏺ TICKED
+✻ Sautéed for 30s · done 7:50 PM
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents
+[19:50:45] RESULT label=ack doorbells-in-pane=0 wakes=1
+[19:50:47] teardown ok: fm-lab-pb-ack-89657-1275
