@@ -18,6 +18,8 @@ fm_git_identity fmtest fmtest@example.invalid
 
 TEARDOWN="$ROOT/bin/fm-teardown.sh"
 TMP_ROOT=$(fm_test_tmproot fm-treehouse-lease)
+FM_REAL_GIT=$(command -v git)
+export FM_REAL_GIT
 
 # make_fake_treehouse <fakebin>
 # Env the fake reads: FM_FAKE_TH_LOG (one line per invocation),
@@ -291,7 +293,15 @@ test_changed_lease_stops_teardown_before_a_stale_lock_is_removed() {
     chmod +x "$case_dir/fakebin/lsof"
     # git status cannot run while the index lock exists, which is what sends the
     # safety check down the stale-lock path.
-    printf '#!/usr/bin/env bash\nif [ -e "${FM_FAKE_LOCK:-/nonexistent}" ]; then for a in "$@"; do [ "$a" = status ] && { echo "fatal: Unable to create index.lock: File exists" >&2; exit 128; }; done; fi\nexec "%s" "$@"\n' "$(command -v git)" > "$case_dir/fakebin/git"
+    cat > "$case_dir/fakebin/git" <<'SH'
+#!/usr/bin/env bash
+if [ -e "${FM_FAKE_LOCK:-/nonexistent}" ]; then
+  for a in "$@"; do
+    [ "$a" = status ] && { echo "fatal: Unable to create index.lock: File exists" >&2; exit 128; }
+  done
+fi
+exec "$FM_REAL_GIT" "$@"
+SH
     chmod +x "$case_dir/fakebin/git"
     lock=$(git -C "$case_dir/wt" rev-parse --git-path index.lock)
     case "$lock" in /*) ;; *) lock="$(cd "$case_dir/wt" && pwd -P)/$lock" ;; esac
