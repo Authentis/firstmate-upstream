@@ -607,6 +607,9 @@ IFS= read -r -d '' SHARED_INFRA_RULE <<'EOF' || true
      that it is free, and returning your own worktree is firstmate's job at cleanup, not yours.
    If you genuinely need a second checkout, another slot, or the daemon touched, append
    `blocked [at=<epoch>]: {what you need}` and stop; firstmate arranges it.
+8. Live tests of an interactive terminal UI (a menu, picker, composer, or any typed keystrokes) run only in a scratch pane your own test launched.
+   Never type or send keys into a real worker, firstmate, or chief pane, and never into an open menu: one stray Enter on a menu can change settings shared by every agent on the machine.
+   Before every send, read the target screen and send only when it shows a plain empty prompt.
 EOF
 SHARED_INFRA_RULE=${SHARED_INFRA_RULE%$'\n'}
 

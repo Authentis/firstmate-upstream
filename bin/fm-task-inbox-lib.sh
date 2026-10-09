@@ -360,14 +360,18 @@ fm_task_inbox_doorbell_line() {  # <record-path>
 # composer pre-check, then the backend's submit machinery with a minimal retry
 # budget, verdict discarded.
 # Returns 0 rang, 1 skipped because the composer PROVENLY holds pending text
-# other than our own doorbell, or a Command Code checkpoint picker stays open
-# after its one Escape (the watcher re-rings later), 2 the backend send
+# other than our own doorbell, a Command Code checkpoint picker stays open
+# after its one Escape, or the send guard refused the screen (an open menu or
+# picker, or on claude a prompt that is not a readable empty prompt; the
+# refusal reason goes to stderr and nothing is typed), so the watcher re-rings
+# later; 2 the backend send
 # failed, 3 skipped because the endpoint is positively dead or missing (nothing
 # typed; recovery owns the record). No return value is delivery proof; the
 # acknowledgement move is the only delivery signal.
 # The skip is deliberately narrow: only an exact `pending` verdict can defer,
 # because there our Enter could submit someone's real half-typed content.
-# `pending-unproven` and `unknown` still ring - the worst outcome is a garbled
+# Beyond the open-menu and claude refusals above, `pending-unproven` and
+# `unknown` still ring - the worst outcome is a garbled
 # CONSTANT line the worker recovers semantically, while skipping on ambiguous
 # verdicts would starve a harness whose idle screen the classifier cannot
 # positively identify (that classifier is advisory here by design).
@@ -382,7 +386,7 @@ fm_task_inbox_doorbell_line() {  # <record-path>
 # skips as before, so a draft that may be the captain's own is never touched on
 # another adapter, and a running turn is never cancelled by the clear.
 fm_task_inbox_ring() {  # <backend> <target> <record-path> [expected-label] [harness]
-  local backend=$1 target=$2 rec=$3 label=${4:-} harness=${5:-} line cstate verdict
+  local backend=$1 target=$2 rec=$3 label=${4:-} harness=${5:-} line cstate verdict errf
   case "$(fm_backend_agent_state "$backend" "$target" 2>/dev/null || true)" in
     dead|missing) return 3 ;;
   esac
@@ -413,9 +417,20 @@ fm_task_inbox_ring() {  # <backend> <target> <record-path> [expected-label] [har
   # steps, so an agent exiting after the liveness check could leave a bare
   # shell only a suffix; the `: ` prefix protects complete lines only. Do not
   # add process-bound atomic delivery here unless an incident reopens this.
-  if ! verdict=$(fm_backend_send_text_submit "$backend" "$target" "$line" 2 0.4 0.3 "$label" 2>/dev/null); then
+  errf=$(mktemp "${TMPDIR:-/tmp}/fm-ring-err.XXXXXX") || return 2
+  if ! verdict=$(fm_backend_send_text_submit "$backend" "$target" "$line" 2 0.4 0.3 "$label" "$harness" 2>"$errf"); then
+    # A screen the guard refuses (open menu, draft, unreadable claude prompt)
+    # typed nothing: skip like a pending composer so the watcher re-rings, and
+    # name the reason on stderr, which the watcher logs.
+    if grep -q '^error: blocked on a prompt: ' "$errf" 2>/dev/null; then
+      echo "fm-ring: doorbell refused for $target: $(sed -n 's/^error: blocked on a prompt: //p' "$errf" | head -n 1); the steer stays durably recorded at $rec and will be re-rung" >&2
+      rm -f "$errf"
+      return 1
+    fi
+    rm -f "$errf"
     return 2
   fi
+  rm -f "$errf"
   # The verdict is read only to report a failed keystroke; every other value
   # (empty, pending, unknown, ...) is deliberately ignored, never proof.
   [ "$verdict" != send-failed ] || return 2

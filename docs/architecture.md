@@ -216,6 +216,8 @@ Pane existence, busy checks, composer checks, capture, and verified submit route
 The retries-exhausted queued-Enter decision is owned by `fm_composer_queued_enter_verdict` in `bin/fm-composer-lib.sh`; tmux and herdr provide only their backend-specific busy signals.
 Composer classification has one shared owner, `bin/fm-composer-lib.sh`: tmux, herdr, Zellij, Orca, and cmux contribute only a screen capture plus declarative styled, cursor, identity, and row capabilities, while the shared classifier owns every shape and the `empty`/`pending`/`pending-unproven`/`unknown` verdict.
 `fm-spawn.sh` also routes Kimi launch readiness through that classifier instead of carrying another shape copy.
+Every text-typing path goes through `fm_backend_send_text_submit`, which reads the target screen first and types nothing when an open menu or picker is showing; callers that name the harness (the fm-send doorbell and the watcher re-ring) also require a plain empty prompt, so a draft is refused and so is an unreadable prompt on claude.
+`fm_composer_send_refusal` in `bin/fm-composer-lib.sh` owns that rule, a refused doorbell leaves the inbox record unhandled for the watcher's re-ring, and the claude open-menu footer was recorded on Claude Code 2.1.295.
 The daemon injects only into an affirmatively `empty` composer, so every other or future verdict defers; positive container proof is required, and a blank unidentified row or bare dead-shell prompt cannot receive an escalation.
 The current operator boundary is in [Composer and injection safety](herdr-backend.md#composer-and-injection-safety).
 Unsupported supervisor backends refuse at daemon startup.
