@@ -1174,12 +1174,13 @@ test_housekeeping_paused_resurfaces_and_resets() {
 # Away mode: a paused: line older than FM_PAUSED_NO_GATE_SECS with no live gate
 # run escalates once, like blocked:, well before the long recheck cadence; a live
 # gate run keeps it quiet.
-paused_overdue_housekeeping() {  # <case> <crew-state> -> sets PH_STATE PH_KEY PH_FAKEBIN PH_WIN PH_PANE
+paused_overdue_housekeeping() {  # <case> <crew-state> [kind] -> sets PH_STATE PH_KEY PH_FAKEBIN PH_WIN PH_PANE
   local dir task
   dir=$(make_supercase "$1")
   PH_STATE="$dir/state"; PH_FAKEBIN="$dir/fakebin"; task="parked-w12"
   PH_WIN="sess:fm-$task"; PH_PANE="$dir/pane.txt"
   make_fake_crew_state "$PH_FAKEBIN" >/dev/null
+  printf 'window=%s\nkind=%s\n' "$PH_WIN" "${3:-ship}" > "$PH_STATE/$task.meta"
   printf 'paused: PR https://example.test/pr/9 published, parked\n' > "$PH_STATE/$task.status"
   touch -t "$(date -r $(( $(date +%s) - 7300 )) +%Y%m%d%H%M.%S 2>/dev/null \
     || date -d "@$(( $(date +%s) - 7300 ))" +%Y%m%d%H%M.%S)" "$PH_STATE/$task.status"
@@ -1219,6 +1220,14 @@ test_housekeeping_paused_overdue_with_live_gate_run_stays_quiet() {
   [ "$(grep -c "no live gate run" "$PH_STATE/.subsuper-escalations" 2>/dev/null)" = 1 ] \
     || fail "an overdue paused: lane did not escalate exactly once after its gate run ended: $(cat "$PH_STATE/.subsuper-escalations" 2>/dev/null || true)"
   pass "away mode keeps an overdue paused: lane quiet while its gate run is live, then escalates once it ends"
+}
+
+test_housekeeping_paused_overdue_secondmate_stays_quiet() {
+  paused_overdue_housekeeping paused-overdue-away-secondmate 'state: paused · source: status-log · waiting on upstream release' secondmate
+  grep -F "no live gate run" "$PH_STATE/.subsuper-escalations" >/dev/null 2>&1 \
+    && fail "an overdue secondmate paused: line escalated as parked: $(cat "$PH_STATE/.subsuper-escalations")"
+  [ -e "$PH_STATE/.subsuper-paused-$PH_KEY" ] || fail "an overdue secondmate paused: line lost its long recheck cadence"
+  pass "away mode keeps an overdue secondmate paused: line on the ordinary pause cadence"
 }
 
 # The other half of quieting a captain-held task: it must NOT be silenced outright.
@@ -3306,6 +3315,7 @@ test_housekeeping_resumed_stale_cleared
 test_housekeeping_paused_resurfaces_and_resets
 test_housekeeping_paused_overdue_without_gate_run_escalates_once
 test_housekeeping_paused_overdue_with_live_gate_run_stays_quiet
+test_housekeeping_paused_overdue_secondmate_stays_quiet
 test_housekeeping_captain_held_resurfaces_and_resets
 test_housekeeping_captain_held_silenced_only_by_an_away_record
 test_housekeeping_paused_resumed_cleared

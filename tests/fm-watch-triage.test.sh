@@ -2351,11 +2351,11 @@ test_stale_terminal_status_overridden_by_active_run() {
 # than FM_PAUSED_NO_GATE_SECS with no live gate run (crew_is_provably_working,
 # the one liveness detector) is surfaced; a live run, a younger line, or an
 # `until` time not yet reached stays quiet exactly as before.
-paused_overdue_case() {  # <name> <line> <age-secs> <crew-state> -> sets PO_* vars
+paused_overdue_case() {  # <name> <line> <age-secs> <crew-state> [kind] -> sets PO_* vars
   PO_DIR=$(make_case "$1"); PO_STATE="$PO_DIR/state"; PO_FAKEBIN="$PO_DIR/fakebin"
   PO_OUT="$PO_DIR/watch.out"; PO_WINDOW="test:fm-parked"
   printf 'idle after publishing the PR' > "$PO_DIR/pane.txt"
-  printf 'window=%s\nkind=ship\n' "$PO_WINDOW" > "$PO_STATE/parked.meta"
+  printf 'window=%s\nkind=%s\n' "$PO_WINDOW" "${5:-ship}" > "$PO_STATE/parked.meta"
   printf '%s\n' "$2" > "$PO_STATE/parked.status"
   set_mtime $(( $(date +%s) - $3 )) "$PO_STATE/parked.status"
   printf '%s' "$(seen_sig "$PO_STATE/parked.status")" > "$PO_STATE/.seen-parked_status"
@@ -2392,6 +2392,20 @@ test_paused_overdue_stays_quiet_with_live_gate_run() {
   ack_stopped_cycle "$PO_STATE" || fail "could not acknowledge the intentional watcher stop"
   unset FM_FAKE_CREW_STATE
   pass "a paused: lane past the limit WITH a live gate run stays quiet"
+}
+
+test_paused_overdue_secondmate_stays_quiet() {
+  paused_overdue_case paused-overdue-secondmate 'paused: waiting on upstream release' 7300 \
+    'state: paused · source: status-log · waiting on upstream release' secondmate
+  if ! wait_poll_cycle "$PO_STATE" "$PO_PID"; then
+    reap "$PO_PID"; fail "an overdue secondmate paused: line woke: $(cat "$PO_OUT")"
+  fi
+  [ ! -s "$PO_OUT" ] || fail "overdue secondmate paused: line printed a wake"
+  [ ! -s "$PO_STATE/.wake-queue" ] || fail "overdue secondmate paused: line enqueued a wake"
+  reap "$PO_PID"
+  ack_stopped_cycle "$PO_STATE" || fail "could not acknowledge the intentional watcher stop"
+  unset FM_FAKE_CREW_STATE
+  pass "an overdue secondmate paused: line keeps the ordinary pause cadence"
 }
 
 test_paused_under_limit_stays_quiet() {
@@ -2462,7 +2476,10 @@ test_paused_overdue_classifier() {
   stale_is_terminal "sess:fm-until" "$state" && fail "paused with a future until classified terminal"
   printf 'paused: parked\n' > "$state/new.status"
   stale_is_terminal "sess:fm-new" "$state" && fail "fresh paused classified terminal"
-  pass "stale_is_terminal: overdue paused fires; fresh, future-until, and overridden limit stay quiet"
+  printf 'kind=secondmate\n' > "$state/mate.meta"
+  printf 'paused: waiting on upstream release\n' > "$state/mate.status"; set_mtime $(( $(date +%s) - 7300 )) "$state/mate.status"
+  stale_is_terminal "sess:fm-mate" "$state" && fail "overdue secondmate paused classified terminal"
+  pass "stale_is_terminal: overdue paused fires; fresh, future-until, overridden limit, and secondmate stay quiet"
 }
 
 # --- non-terminal stale, crew provably working: absorbed, then wedge-escalated ---
@@ -6820,6 +6837,7 @@ test_nonterminal_stale_not_working_surfaced
 test_paused_overdue_classifier
 test_paused_overdue_without_gate_run_wakes
 test_paused_overdue_stays_quiet_with_live_gate_run
+test_paused_overdue_secondmate_stays_quiet
 test_paused_under_limit_stays_quiet
 test_paused_absorbed_then_overdue_wakes
 test_paused_overdue_wakes_when_live_gate_run_ends

@@ -2875,10 +2875,12 @@ stale_is_terminal() {  # <window> <state>
 # time-and-line test: gate-run liveness is NOT read here, because the watcher's
 # terminal branch already lets crew_is_provably_working override a terminal
 # verdict with a live run (the one detector), so a paused lane with a live gate
-# run stays quiet exactly as before.
+# run stays quiet exactly as before. A secondmate is a coordinator with no gate
+# run of its own, so its declared waits keep the ordinary pause cadence.
 status_paused_overdue() {  # <status-line> <status-file>
   local line=$1 f=$2 limit mtime now until
   status_is_paused "$line" || return 1
+  [ "$(_fm_status_kind "$f")" != secondmate ] || return 1
   limit=${FM_PAUSED_NO_GATE_SECS:-$FM_PAUSED_NO_GATE_SECS_DEFAULT}
   case "$limit" in ''|*[!0-9]*) limit=$FM_PAUSED_NO_GATE_SECS_DEFAULT ;; esac
   mtime=$(_fm_status_file_mtime "$f") || return 1
