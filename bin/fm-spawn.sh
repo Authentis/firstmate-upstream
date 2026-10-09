@@ -4672,7 +4672,9 @@ if [ "$KIND" != secondmate ]; then
     # legacy fm-send --key Escape path records idle/fm-interrupt. Stop keeps
     # the turn-ended NOTIFICATION touch for the watcher. Every
     # hook command tolerates a refused event (|| true) so a stale-gen writer
-    # can never break Claude's own lifecycle.
+    # can never break Claude's own lifecycle. The same file turns off the
+    # worker's input-needed and push notifications so a fleet of workers
+    # does not notify the captain directly; Firstmate owns that channel.
     mkdir -p "$WT/.claude"
     busy_cmd_prefix="$(shell_quote "$FM_ROOT/bin/fm-busy-event.sh") apply $(shell_quote "$STATE_REAL") $(shell_quote "$ID")"
     busy_suffix="--gen $(shell_quote "$BUSY_GEN") --source claude-hook"
