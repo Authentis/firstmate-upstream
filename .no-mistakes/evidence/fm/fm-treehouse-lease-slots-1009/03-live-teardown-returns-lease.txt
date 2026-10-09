@@ -1,0 +1,23 @@
+$ fm-teardown.sh lease-ship-1   (clean leased slot, no --force)
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fmlab9
+teardown: reaping leaked worktree process(es) for lease-ship-1: 24518 77208
+teardown: force-killing leaked worktree process(es) for lease-ship-1: 77208
+🌳 Worktree returned to pool.
+teardown lease-ship-1 complete (window firstmate:fm-lease-ship-1, worktree /tmp/fmlab9/pool/.treehouse/proj-b20278/1/proj)
+Backlog: lease-ship-1 just finished (this home keeps no markdown backlog at /private/tmp/fmlab9/data/backlog.md). Update /private/tmp/fmlab9/data/backlog.md - move lease-ship-1 to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+EXIT=0
+$ treehouse status --json (after teardown)
+[
+  {
+    "name": "1",
+    "path": "/tmp/fmlab9/pool/.treehouse/proj-b20278/1/proj",
+    "status": "available",
+    "branch": "",
+    "detached": true,
+    "flavor": "git",
+    "lease_id": "",
+    "lease_holder": "",
+    "leased_at": null,
+    "processes": []
+  }
+]

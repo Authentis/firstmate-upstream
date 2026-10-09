@@ -1,0 +1,29 @@
+$ fm-teardown.sh lease-dirty-2 --force
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fmlab9
+teardown: reaping leaked worktree process(es) for lease-dirty-2: 99785
+🌳 Worktree returned to pool.
+teardown lease-dirty-2 complete (window firstmate:fm-lease-dirty-2, worktree /tmp/fmlab9/pool/.treehouse/proj-b20278/1/proj)
+Backlog: lease-dirty-2 just finished (this home keeps no markdown backlog at /private/tmp/fmlab9/data/backlog.md). Update /private/tmp/fmlab9/data/backlog.md - move lease-dirty-2 to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+EXIT=0
+$ treehouse argv log (pass-through shim in front of real treehouse)
+16:28:24 | get --help
+16:28:24 | get --lease --json --lease-holder fm-lease-dirty-2
+16:28:34 | status --json
+16:28:40 | return --if-lease-id 0cb2253520a022728475e3b3018ea9eb /tmp/fmlab9/pool/.treehouse/proj-b20278/1/proj
+16:28:50 | status --json
+16:28:54 | return --force --if-lease-id 0cb2253520a022728475e3b3018ea9eb /tmp/fmlab9/pool/.treehouse/proj-b20278/1/proj
+$ treehouse status --json
+[
+  {
+    "name": "1",
+    "path": "/tmp/fmlab9/pool/.treehouse/proj-b20278/1/proj",
+    "status": "available",
+    "branch": "",
+    "detached": true,
+    "flavor": "git",
+    "lease_id": "",
+    "lease_holder": "",
+    "leased_at": null,
+    "processes": []
+  }
+]

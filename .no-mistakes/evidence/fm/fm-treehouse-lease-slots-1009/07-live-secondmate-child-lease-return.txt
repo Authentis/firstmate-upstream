@@ -1,0 +1,21 @@
+# lab secondmate "domain" (home /tmp/fmlab9sub) with child record whose slot was leased by real treehouse (lease 37df58f2...) and has child-scratch.txt
+## case 1: child record names a stale lease (stale00000000lease)
+$ fm-teardown.sh domain --force
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fmlab9
+failed to return worktree: lease precondition failed: lease identity does not match worktree /tmp/fmlab9pool/.treehouse/alpha-b20278/1/alpha
+teardown: child worktree return was not performed; treehouse refused the forced lease-bound return of slot /tmp/fmlab9pool/.treehouse/alpha-b20278/1/alpha under lease stale00000000lease (its lease changed); the slot was not released
+EXIT=1
+## case 2: child record names its real lease
+$ fm-teardown.sh domain --force
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fmlab9
+🌳 Worktree returned to pool.
+teardown domain complete (window firstmate:fm-domain, worktree /tmp/fmlab9sub)
+EXIT=0
+$ treehouse argv log
+16:30:35 | return --force --if-lease-id stale00000000lease /tmp/fmlab9pool/.treehouse/alpha-b20278/1/alpha
+16:30:46 | return --force --if-lease-id 37df58f29c257004d21fb013918f9503 /tmp/fmlab9pool/.treehouse/alpha-b20278/1/alpha
+$ ls -a <child slot> (after case 2)
+.
+..
+.git
+README.md

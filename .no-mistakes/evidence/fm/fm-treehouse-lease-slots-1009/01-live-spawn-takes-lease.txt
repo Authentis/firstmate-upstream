@@ -1,0 +1,63 @@
+$ fm-spawn.sh lease-ship-1 <lab-project> --mode local-only --yolo off --harness claude   (FM_HOME=lab, real treehouse v3.1.2, TREEHOUSE_ROOT=lab pool, lab tmux socket)
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fmlab9
+notice: lease-ship-1 ships mode=local-only while the standing posture for proj is no-mistakes - less rigor than the captain's standing posture; proceed only on a current explicit captain instruction or an intake judgment you can state
+🌳 Setting up worktree...
+🌳 Leased worktree at /tmp/fmlab9/pool/.treehouse/proj-b20278/1/proj. Run 'treehouse return /tmp/fmlab9/pool/.treehouse/proj-b20278/1/proj' to release it.
+spawned lease-ship-1 harness=claude kind=ship mode=local-only yolo=off window=firstmate:fm-lease-ship-1 worktree=/tmp/fmlab9/pool/.treehouse/proj-b20278/1/proj
+EXIT=0
+
+$ cat state/lease-ship-1.meta
+window=firstmate:fm-lease-ship-1
+endpoint_task_id=lease-ship-1
+worktree=/tmp/fmlab9/pool/.treehouse/proj-b20278/1/proj
+lease_id=317c0dea1d5360ce41151ab7f80ee197
+project=/tmp/fmlab9/work/proj
+harness=claude
+kind=ship
+mode=local-only
+yolo=off
+branch=fm/lease-ship-1
+tasktmp=/tmp/fm-lease-ship-1
+model=default
+effort=default
+busy_gen=g1791548850.79668.7526
+spawn_gen=s1791548851.75981.454
+spawn_first=1791548851
+
+$ treehouse status --json (after spawn)
+[
+  {
+    "name": "1",
+    "path": "/tmp/fmlab9/pool/.treehouse/proj-b20278/1/proj",
+    "status": "leased",
+    "branch": "",
+    "detached": true,
+    "flavor": "git",
+    "lease_id": "317c0dea1d5360ce41151ab7f80ee197",
+    "lease_holder": "fm-lease-ship-1",
+    "leased_at": "2026-10-09T16:27:29.227306+04:00",
+    "processes": [
+      {
+        "pid": 77208,
+        "name": "zsh"
+      },
+      {
+        "pid": 83906,
+        "name": "2.1.295"
+      },
+      {
+        "pid": 86664,
+        "name": "caffeinate"
+      }
+    ]
+  }
+]
+$ worker pane
+ ▐▛███▛█   Claude Code v2.1.295
+▝▜██████▀  Opus 5.5 with medium effort · Claude Max
+ ▝▝   ▝▝   /private/tmp/fmlab9/pool/.treehouse/proj-b20278/1/proj
+❯ : Firstmate operational input waiting: read '/private/tmp/fmlab9/state/operational-inbox/1791548851-0fd2c28d026e8a4f.msg' and handle its contents as Firstmate operational input.
+  Read 1 file, ran 1 shell command
+⏺ ready
+✻ Cogitated for 10s · done 4:27 PM
+                                                                                                     tmux detected · scroll with PgUp/PgDn · or add 'set -g mouse on' to ~/.tmux.conf for wheel scroll

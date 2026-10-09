@@ -1,0 +1,21 @@
+$ kill <claude pid 83906>   # end the worker agent process
+$ treehouse status --json (agent ended)
+[
+  {
+    "name": "1",
+    "path": "/tmp/fmlab9/pool/.treehouse/proj-b20278/1/proj",
+    "status": "leased",
+    "branch": "",
+    "detached": true,
+    "flavor": "git",
+    "lease_id": "317c0dea1d5360ce41151ab7f80ee197",
+    "lease_holder": "fm-lease-ship-1",
+    "leased_at": "2026-10-09T16:27:29.227306+04:00",
+    "processes": [
+      {
+        "pid": 77208,
+        "name": "zsh"
+      }
+    ]
+  }
+]

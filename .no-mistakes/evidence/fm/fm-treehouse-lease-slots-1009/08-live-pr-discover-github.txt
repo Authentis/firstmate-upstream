@@ -1,0 +1,23 @@
+# lab records (ship, no-mistakes, branch=, no pr=); forge = real GitHub (read-only gh pr list / fm-pr-check reads)
+# pd-open-1: branch of OPEN Authentis/firstmate-upstream#7
+# pd-merged-relaunched-2: branch of MERGED Authentis/firstmate#2 (created 2026-09-04); spawn_first=2026-09-01 (before PR) but spawn_gen=now (relaunched later)
+# pd-merged-reused-3: same merged branch, spawn_first=now (task id reused after the PR merged)
+# pd-merged-legacy-4: same merged branch, no spawn_first, spawn_gen=now (fallback cutoff)
+$ fm-pr-discover.sh scan
+recorded pd-merged-relaunched-2 https://github.com/Authentis/firstmate/pull/2
+recorded pd-open-1 https://github.com/Authentis/firstmate-upstream/pull/7
+EXIT=0
+$ grep ^pr state/pd-*.meta
+/tmp/fmlab9/state/pd-merged-legacy-4.meta:project=/tmp/fmlab9/work/fork
+/tmp/fmlab9/state/pd-open-1.meta:project=/tmp/fmlab9/work/up
+/tmp/fmlab9/state/pd-open-1.meta:pr=https://github.com/Authentis/firstmate-upstream/pull/7
+/tmp/fmlab9/state/pd-open-1.meta:pr_head=210abc970c1e6d5bc153dcfc24f038bc9b606e85
+/tmp/fmlab9/state/pd-merged-relaunched-2.meta:project=/tmp/fmlab9/work/fork
+/tmp/fmlab9/state/pd-merged-relaunched-2.meta:pr=https://github.com/Authentis/firstmate/pull/2
+/tmp/fmlab9/state/pd-merged-relaunched-2.meta:pr_head=6eeb2fdf3a3eba28886f6a1e71101bb16fd5e348
+/tmp/fmlab9/state/pd-merged-reused-3.meta:project=/tmp/fmlab9/work/fork
+$ ls state/*.check.sh
+/tmp/fmlab9/state/pd-merged-relaunched-2.check.sh
+/tmp/fmlab9/state/pd-open-1.check.sh
+$ fm-pr-discover.sh scan   (immediately again: cadence gate, expect silence)
+EXIT=0

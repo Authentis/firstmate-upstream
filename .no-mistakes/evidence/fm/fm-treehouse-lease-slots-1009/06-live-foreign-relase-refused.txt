@@ -1,0 +1,39 @@
+$ fm-spawn.sh lease-steal-3 ... (real treehouse)
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fmlab9
+notice: lease-steal-3 ships mode=local-only while the standing posture for proj is no-mistakes - less rigor than the captain's standing posture; proceed only on a current explicit captain instruction or an intake judgment you can state
+🌳 Setting up worktree...
+🌳 Leased worktree at /tmp/fmlab9/pool/.treehouse/proj-b20278/1/proj. Run 'treehouse return /tmp/fmlab9/pool/.treehouse/proj-b20278/1/proj' to release it.
+spawned lease-steal-3 harness=claude kind=ship mode=local-only yolo=off window=firstmate:fm-lease-steal-3 worktree=/tmp/fmlab9/pool/.treehouse/proj-b20278/1/proj
+EXIT=0
+# outside firstmate: treehouse return + treehouse get --lease --lease-holder intruder (same slot), then write intruder.txt in it
+$ fm-teardown.sh lease-steal-3
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fmlab9
+REFUSED: Treehouse no longer reports lease e4db2089c0787670ef9bf00925d6b523 on /tmp/fmlab9/pool/.treehouse/proj-b20278/1/proj (the slot's lease changed); the slot may belong to someone else now, so nothing was reaped, detached, deleted, or returned
+EXIT=1
+$ fm-teardown.sh lease-steal-3 --force
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fmlab9
+REFUSED: Treehouse no longer reports lease e4db2089c0787670ef9bf00925d6b523 on /tmp/fmlab9/pool/.treehouse/proj-b20278/1/proj (the slot's lease changed); the slot may belong to someone else now, so nothing was reaped, detached, deleted, or returned
+EXIT=1
+$ treehouse argv log tail
+16:29:03 | get --lease --json --lease-holder fm-lease-steal-3
+16:29:23 | status --json
+16:29:25 | status --json
+$ treehouse status (intruder lease intact)
+[
+  {
+    "name": "1",
+    "path": "/tmp/fmlab9/pool/.treehouse/proj-b20278/1/proj",
+    "status": "leased",
+    "branch": "",
+    "detached": true,
+    "flavor": "git",
+    "lease_id": "789fb86088c0ea421c812052d217bd7a",
+    "lease_holder": "intruder",
+    "leased_at": "2026-10-09T16:29:17.913519+04:00",
+    "processes": []
+  }
+]
+$ cat <slot>/intruder.txt
+intruder-file
+$ ls state/*.meta
+/tmp/fmlab9/state/lease-steal-3.meta

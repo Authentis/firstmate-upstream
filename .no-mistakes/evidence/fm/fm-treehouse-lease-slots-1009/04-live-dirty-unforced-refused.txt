@@ -1,0 +1,35 @@
+$ fm-spawn.sh lease-dirty-2 ... (real treehouse)
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fmlab9
+notice: lease-dirty-2 ships mode=local-only while the standing posture for proj is no-mistakes - less rigor than the captain's standing posture; proceed only on a current explicit captain instruction or an intake judgment you can state
+🌳 Setting up worktree...
+🌳 Leased worktree at /tmp/fmlab9/pool/.treehouse/proj-b20278/1/proj. Run 'treehouse return /tmp/fmlab9/pool/.treehouse/proj-b20278/1/proj' to release it.
+spawned lease-dirty-2 harness=claude kind=ship mode=local-only yolo=off window=firstmate:fm-lease-dirty-2 worktree=/tmp/fmlab9/pool/.treehouse/proj-b20278/1/proj
+EXIT=0
+$ echo scratch >> <slot>/.claude/notes.md
+$ fm-teardown.sh lease-dirty-2   (no --force)
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fmlab9
+teardown: reaping leaked worktree process(es) for lease-dirty-2: 60953 66886 69100 76117 76163 76246
+teardown: force-killing leaked worktree process(es) for lease-dirty-2: 60953
+Worktree has uncommitted changes. Clean and return? [Y/n] 🌳 worktree not returned: it has uncommitted changes and the confirmation could not be answered (stdin reached EOF); prune will not reclaim this slot. Use treehouse return --force '/tmp/fmlab9/pool/.treehouse/proj-b20278/1/proj' to clean and return it
+teardown: worktree return was not performed; treehouse refused the lease-bound return of slot /tmp/fmlab9/pool/.treehouse/proj-b20278/1/proj under lease 0cb2253520a022728475e3b3018ea9eb (its lease changed, or the slot was no longer clean); the slot was not released and nothing was forced
+files blocking the return of /tmp/fmlab9/pool/.treehouse/proj-b20278/1/proj:
+?? .claude/notes.md
+error: treehouse return failed for worktree /tmp/fmlab9/pool/.treehouse/proj-b20278/1/proj; teardown aborted
+EXIT=1
+$ ls state/*.meta
+/tmp/fmlab9/state/lease-dirty-2.meta
+$ treehouse status --json
+[
+  {
+    "name": "1",
+    "path": "/tmp/fmlab9/pool/.treehouse/proj-b20278/1/proj",
+    "status": "leased",
+    "branch": "",
+    "detached": true,
+    "flavor": "git",
+    "lease_id": "0cb2253520a022728475e3b3018ea9eb",
+    "lease_holder": "fm-lease-dirty-2",
+    "leased_at": "2026-10-09T16:28:25.036984+04:00",
+    "processes": []
+  }
+]
