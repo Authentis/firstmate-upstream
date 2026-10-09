@@ -28,6 +28,9 @@
 #   5. claude target, same pane: the agy idle shape is not a claude empty
 #      prompt, so the pre-typing screen guard refuses it untyped and the agy
 #      budget never applies.
+#   6. claude target whose recorded idle prompt passes that guard, then the
+#      same late busy footer: the shared 3-retry default stops after 3 polls
+#      and the send exits 1 verdict=unknown.
 # The first plain capture is that guard's pre-typing screen read, so a busy
 # footer at the Nth poll is the (N+2)th plain capture.
 set -u
@@ -45,7 +48,9 @@ TMP_ROOT=$(fm_test_tmproot fm-send-agy-confirm)
 # (verdict `unknown`); the plain capture - the one fm_pane_busy_state polls -
 # shows the idle screen until its BUSY_AT-th call and the verified `esc to
 # cancel` busy row from then on. The BUSY_AT threshold is read from the
-# per-case dir so cases are independent.
+# per-case dir so cases are independent. A case that records pre.screen and
+# pre.cursor in its dir shows that screen to every read until the first
+# send-keys, so the pre-typing guard can read a recorded idle prompt.
 make_stubs() {  # <dir> <busy-at> -> echoes fakebin dir
   local dir=$1 busy_at=$2 fb="$1/fakebin"
   mkdir -p "$fb"
@@ -54,11 +59,13 @@ make_stubs() {  # <dir> <busy-at> -> echoes fakebin dir
 set -u
 cnt_file="$dir/plain.count"
 case "\${1:-}" in
-  send-keys) exit 0 ;;
+  send-keys) : > "$dir/typed"; exit 0 ;;
   display-message)
     for a in "\$@"; do
       case "\$a" in
-        *cursor_y*) printf '0\n'; exit 0 ;;
+        *cursor_y*)
+          if [ -f "$dir/pre.cursor" ] && [ ! -f "$dir/typed" ]; then cat "$dir/pre.cursor"; else printf '0\n'; fi
+          exit 0 ;;
         *pane_tty*) printf '\n'; exit 0 ;;
       esac
     done
@@ -66,6 +73,10 @@ case "\${1:-}" in
   capture-pane)
     styled=0
     for a in "\$@"; do [ "\$a" = -e ] && styled=1; done
+    if [ -f "$dir/pre.screen" ] && [ ! -f "$dir/typed" ]; then
+      cat "$dir/pre.screen"
+      exit 0
+    fi
     if [ "\$styled" = 1 ]; then
       printf '> \n? for shortcuts\n'
       exit 0
@@ -107,6 +118,10 @@ run_send() {  # <harness> <busy-at> [env=val ...]
   fb=$(make_stubs "$dir" "$busy_at")
   log="$dir/sleep.log"; : > "$log"
   fm_write_meta "$dir/state/agyw.meta" "window=sess:win" "harness=$harness"
+  if [ -n "${PRE_FIXTURE:-}" ]; then
+    cp "$PRE_FIXTURE" "$dir/pre.screen"
+    cp "${PRE_FIXTURE%.txt}.cursor" "$dir/pre.cursor"
+  fi
   (
     export FM_GATE_REFUSE_BYPASS=1 FM_SEND_SETTLE=0
     export PATH="$fb:$PATH" FM_ROOT_OVERRIDE="$dir" FM_HOME="$dir" FM_SLEEP_LOG="$log"
@@ -169,3 +184,16 @@ grep -q 'blocked on a prompt: the prompt is not a recognised empty prompt' "$cas
   || fail "claude typed send: expected the screen guard refusal, got: $(cat "$case_dir/err")"
 [ -s "$case_dir/sleep.log" ] && fail "claude typed send: the refused send still slept (submitted)"
 pass "claude typed send: the agy idle shape is refused untyped (agy recognition is agy-scoped)"
+
+# claude whose recorded idle prompt passes the pre-typing guard, then the same
+# late busy footer: the shared 3-retry default is untouched, so the confirm
+# poll stops after 3 waits and the send exits 1 verdict=unknown - the raised
+# budget is agy-scoped, not a global slowdown.
+out=$(PRE_FIXTURE="$ROOT/tests/fixtures/send-guard/claude-idle.txt" run_send claude 7)
+expect_code 1 "$(printf '%s' "$out" | sed -n 's/^rc //p')" \
+  "claude typed send keeps the shared 3-retry default"
+case_dir=$(ls -td "$TMP_ROOT"/case-* | head -1)
+grep -q 'verdict=unknown' "$case_dir/err" || fail "claude typed send: expected verdict=unknown refusal, got: $(cat "$case_dir/err")"
+waits=$(grep -c '^0\.4$' "$case_dir/sleep.log" || true)
+[ "$waits" = 3 ] || fail "claude typed send: expected the shared 3-retry budget (3 x 0.4s), got $waits"
+pass "claude typed send: a recognised idle prompt with a late busy footer refuses after the shared 3 polls"
