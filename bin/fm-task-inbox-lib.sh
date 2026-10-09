@@ -382,9 +382,20 @@ fm_task_inbox_doorbell_line() {  # <record-path>
 # skips as before, so a draft that may be the captain's own is never touched on
 # another adapter, and a running turn is never cancelled by the clear.
 fm_task_inbox_ring() {  # <backend> <target> <record-path> [expected-label] [harness]
-  local backend=$1 target=$2 rec=$3 label=${4:-} harness=${5:-} line cstate verdict
+  local backend=$1 target=$2 rec=$3 label=${4:-} harness=${5:-} line cstate verdict rebound
   case "$(fm_backend_agent_state "$backend" "$target" 2>/dev/null || true)" in
-    dead|missing) return 3 ;;
+    dead|missing)
+      # A herdr pane id can go stale (server restart) while the task's fm-<id>
+      # tab still lives in the same session: ring that pane, as recovery does.
+      [ "$backend" = herdr ] || return 3
+      fm_backend_source herdr || return 3
+      rebound=$(fm_backend_herdr_rebind_target "$target" "$label" 2>/dev/null) || return 3
+      [ -n "$rebound" ] || return 3
+      target=$rebound
+      case "$(fm_backend_agent_state "$backend" "$target" 2>/dev/null || true)" in
+        dead|missing) return 3 ;;
+      esac
+      ;;
   esac
   if ! line=$(fm_task_inbox_doorbell_line "$rec"); then
     return 2
