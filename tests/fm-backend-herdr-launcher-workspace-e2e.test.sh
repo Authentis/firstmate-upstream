@@ -145,16 +145,8 @@ spawn_from_launcher() {
   return 0
 }
 
-record_worktree() {  # <meta>
-  local wt
-  wt=$(grep '^worktree=' "$1" 2>/dev/null | cut -d= -f2-)
-  case "$wt" in
-    "$TREEHOUSE_ROOT"/*) : ;;
-    *) fail "worktree escaped the test Treehouse root: $wt" ;;
-  esac
-  [ -n "$wt" ] && WORKTREES+=("$wt")
-  return 0
-}
+# shellcheck source=tests/treehouse-test-cleanup.sh
+. "$ROOT/tests/treehouse-test-cleanup.sh"
 
 LAB_SOCKET=$(lab session list --json 2>/dev/null \
   | jq -r --arg s "$HERDR_LAB_SESSION" '.sessions[]? | select(.name == $s) | .socket_path' 2>/dev/null)
