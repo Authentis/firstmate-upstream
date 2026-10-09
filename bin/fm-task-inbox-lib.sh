@@ -385,8 +385,11 @@ fm_task_inbox_ring() {  # <backend> <target> <record-path> [expected-label] [har
   local backend=$1 target=$2 rec=$3 label=${4:-} harness=${5:-} line cstate verdict rebound
   case "$(fm_backend_agent_state "$backend" "$target" 2>/dev/null || true)" in
     dead|missing)
-      # A herdr pane id can go stale (server restart) while the task's fm-<id>
-      # tab still lives in the same session: ring that pane, as recovery does.
+      # A recorded herdr pane id that no longer resolves in the recorded
+      # session (for example after a relaunch into a new pane) is rebound to
+      # the task's fm-<id> tab there, as recovery does; a server restart keeps
+      # ids. A present pane with no agent is deliberately not rung and is left
+      # to stuck-worker recovery.
       [ "$backend" = herdr ] || return 3
       fm_backend_source herdr || return 3
       rebound=$(fm_backend_herdr_rebind_target "$target" "$label" 2>/dev/null) || return 3

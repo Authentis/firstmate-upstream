@@ -3812,7 +3812,7 @@ fm_backend_herdr_list_live() {  # <session>
 }
 
 # fm_backend_herdr_rebind_target: recover a task's pane when the recorded pane
-# id no longer resolves (ids are not stable across every server lifecycle).
+# id no longer resolves, for example after a relaunch into a new pane.
 # Looks up the EXACT <label> tab (fm-<id>) inside the SAME session the recorded
 # target names, never another session, and prints "<session>:<pane_id>" only
 # for a single unambiguous match. Read-only; prints nothing (nonzero) when the
