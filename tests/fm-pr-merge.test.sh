@@ -3804,24 +3804,15 @@ test_allow_missing_follows_the_allow_red_rules() {
   assert_no_grep 'pr merge' "$case_dir/gh.log" \
     "allow-missing-equals: gh pr merge ran for the equals form"
 
-  case_dir=$(make_case github-allow-missing-two)
+  case_dir=$(make_case github-allow-missing-duplicate)
   add_gh_mocks "$case_dir" "$head"
   write_github_required "$case_dir" ruleset:validate ruleset:e2e
-  run_required_case "$case_dir" 101 --allow-missing validate --allow-missing e2e --allow-missing validate
-  expect_code 0 "$RC" "allow-missing-two: two named waivers should merge: $(cat "$case_dir/stderr")"
-  assert_logged_gh_merge "$case_dir" 101 example/repo --squash
-
-  case_dir=$(make_case github-allow-missing-two-third)
-  add_gh_mocks "$case_dir" "$head"
-  write_github_required "$case_dir" ruleset:validate ruleset:e2e ruleset:deploy
-  run_required_case "$case_dir" 104 --allow-missing validate --allow-missing e2e
-  expect_code 1 "$RC" "allow-missing-two-third: an unwaived third unreported check must refuse"
-  assert_grep "required check 'deploy' has not reported" "$case_dir/stderr" \
-    "allow-missing-two-third: the unwaived check was not named"
-  assert_no_grep "required check 'validate'" "$case_dir/stderr" \
-    "allow-missing-two-third: a waived check was still reported"
+  run_required_case "$case_dir" 101 --allow-missing validate --allow-missing e2e
+  expect_code 2 "$RC" "allow-missing-duplicate: a second waiver must be refused"
+  assert_grep '--allow-missing may be specified only once' "$case_dir/stderr" \
+    "allow-missing-duplicate: the refusal did not say single use"
   assert_no_grep 'pr merge' "$case_dir/gh.log" \
-    "allow-missing-two-third: gh pr merge ran with an unwaived unreported check"
+    "allow-missing-duplicate: gh pr merge ran for two waivers"
 
   case_dir=$(make_case github-allow-missing-away)
   add_gh_mocks "$case_dir" "$head"
