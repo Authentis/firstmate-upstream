@@ -1,0 +1,46 @@
+{
+  "inputNeededNotifEnabled": false,
+  "agentPushNotifEnabled": false,
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "'/Users/lundi/.no-mistakes/worktrees/0d3d213d42f1/01M4FVSPA6747KN6Q2R5CG8CHZ/bin/fm-busy-event.sh' apply '/private/tmp/fmlive.Nz6k/c/home/state' 'notif-live-1' busy --gen 'g1791533971.83239.23990' --source claude-hook --event user-prompt-submit 2>/dev/null || true"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "touch '/private/tmp/fmlive.Nz6k/c/home/state/notif-live-1.turn-ended'; '/Users/lundi/.no-mistakes/worktrees/0d3d213d42f1/01M4FVSPA6747KN6Q2R5CG8CHZ/bin/fm-busy-event.sh' apply '/private/tmp/fmlive.Nz6k/c/home/state' 'notif-live-1' idle --gen 'g1791533971.83239.23990' --source claude-hook --event stop 2>/dev/null || true"
+          }
+        ]
+      }
+    ],
+    "StopFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "'/Users/lundi/.no-mistakes/worktrees/0d3d213d42f1/01M4FVSPA6747KN6Q2R5CG8CHZ/bin/fm-busy-event.sh' apply '/private/tmp/fmlive.Nz6k/c/home/state' 'notif-live-1' idle --gen 'g1791533971.83239.23990' --source claude-hook --event stop-failure 2>/dev/null || true"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "'/Users/lundi/.no-mistakes/worktrees/0d3d213d42f1/01M4FVSPA6747KN6Q2R5CG8CHZ/bin/fm-busy-event.sh' apply '/private/tmp/fmlive.Nz6k/c/home/state' 'notif-live-1' idle --gen 'g1791533971.83239.23990' --source claude-hook --event session-end 2>/dev/null || true"
+          }
+        ]
+      }
+    ]
+  }
+}

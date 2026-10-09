@@ -1,0 +1,13 @@
+# busy-state in fresh claude worker (real Claude 2.1.295)
+after spawn: seq=1 state=busy source=fm-spawn event=launch-brief
+on prompt submit: seq=2 state=busy source=claude-hook event=user-prompt-submit
+after turn: v1 gen=g1791533971.83239.23990 seq=3 state=idle source=claude-hook event=stop ts=1791534093
+notif-live-1.turn-ended
+  ⎿  Disabled auto-compact
+❯ Reply with just the word ok
+⏺ ok
+✻ Sautéed for 3s · done 12:21 PM
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents

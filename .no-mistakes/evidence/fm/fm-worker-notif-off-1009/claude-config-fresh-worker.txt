@@ -1,0 +1,9 @@
+ ▝▝   ▝▝   /private/tmp/fmlive.Nz6k/c/wt
+▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔ tmux focus-events off · add 'set -g focus-events on' to ~/.tmux.conf and reattach for focus tracking ▔
+   Settings  Status   Config   Usage   Stats
+   ╭────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+   │ ⌕ push                                                                                                                                                 │
+   ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+   ❯ Push when actions required  false
+     Push when Claude decides    false
+   Type to filter · Enter/↓ to select · ↑ to tabs · Esc to clear
