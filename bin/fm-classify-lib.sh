@@ -124,9 +124,9 @@ FM_CLASSIFY_PAUSED_VERB_DEFAULT='paused'
 FM_PAUSE_RESURFACE_SECS_DEFAULT=14400
 
 # A `paused:` lane with no live gate run for longer than this is parked, not
-# waiting: stale_is_terminal below treats it like `blocked:` so the watcher
-# surfaces it, and the away-mode daemon's pause recheck escalates it, unless the
-# crew's authoritative state shows a live run. Two hours
+# waiting: status_paused_overdue below lets the watcher and the away-mode
+# daemon's pause recheck wake on it like `blocked:`, unless the crew's
+# authoritative state shows a live run. Two hours
 # by default; FM_PAUSED_NO_GATE_SECS overrides it. A paused line naming an
 # `until` time not yet reached stays quiet.
 FM_PAUSED_NO_GATE_SECS_DEFAULT=7200
@@ -2865,17 +2865,14 @@ signal_crew_provably_working() {  # <file> ...
 stale_is_terminal() {  # <window> <state>
   local win=$1 state=$2 last
   last=$(last_status_line "$state/$(window_to_task "$win" "$state").status")
-  [ -n "$last" ] || return 1
-  status_is_captain_relevant "$last" && return 0
-  status_paused_overdue "$last" "$state/$(window_to_task "$win" "$state").status"
+  [ -n "$last" ] && status_is_captain_relevant "$last"
 }
 
 # 0 if a status line is a `paused:` declaration whose status file has not moved
 # for FM_PAUSED_NO_GATE_SECS and that names no `until` time still ahead. Pure
-# time-and-line test: gate-run liveness is NOT read here, because the watcher's
-# terminal branch already lets crew_is_provably_working override a terminal
-# verdict with a live run (the one detector), so a paused lane with a live gate
-# run stays quiet exactly as before. A secondmate is a coordinator with no gate
+# time-and-line test: gate-run liveness is NOT read here; each caller asks
+# crew_is_provably_working (the one detector) only once this holds, so a paused
+# lane with a live gate run stays quiet exactly as before. A secondmate is a coordinator with no gate
 # run of its own, so its declared waits keep the ordinary pause cadence.
 status_paused_overdue() {  # <status-line> <status-file>
   local line=$1 f=$2 limit mtime now until
