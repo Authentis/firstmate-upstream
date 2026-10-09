@@ -1,0 +1,20 @@
+[F1 normal] rc=0 json-bytes=2072 leftovers=[]
+[F2 TERM] during run: [fm-fleet-snapshot.fxNoIb fm-fleet-tasks.NjKDFo ]
+[F2 TERM] signalled process: bash /Users/lundi/.no-mistakes/worktrees/0d3d213d42f1/01M4FZH3B1FBNZBK
+[F2 TERM] pid=30502 comm= rc=143 after 0s leftovers=[]
+[F2 INT] during run: [fm-fleet-snapshot.NbyX5D fm-fleet-tasks.MkAaCG ]
+[F2 INT] signalled process: bash /Users/lundi/.no-mistakes/worktrees/0d3d213d42f1/01M4FZH3B1FBNZBK
+[F2 INT] pid=30837 comm= rc=130 after 0s leftovers=[]
+[F2 HUP] during run: [fm-fleet-snapshot.G16dg4 fm-fleet-tasks.OKqURl ]
+[F2 HUP] signalled process: bash /Users/lundi/.no-mistakes/worktrees/0d3d213d42f1/01M4FZH3B1FBNZBK
+[F2 HUP] pid=31132 comm= rc=129 after 0s leftovers=[]
+[F3 kill] took 1s
+[F3 kill] bounded caller rc=0 (KILLed run) dir now: [other-tool.OLDLEAK ]
+[F3 kill] note: the day-old *.OLDLEAK own-prefix entries were already swept at this run's startup
+[F3 kill] fresh leftovers from the KILLed run: []
+[F3 next run after aging] rc=0 dir now: [other-tool.OLDLEAK ]
+[F4 fresh kept] rc=0 dir now: [fm-fleet-tasks.LIVE fm-timeout-status.LIVE ]
+[F3 kill] startup sweep already ran; dir during run: [fm-fleet-snapshot.9kISKV fm-fleet-tasks.2Ra85A other-tool.OLDLEAK ]
+[F3 kill] SIGKILLed run rc=137
+[F3 kill] fresh leftovers from the KILLed run: [fm-fleet-snapshot.9kISKV fm-fleet-tasks.2Ra85A ]
+[F3 next run after aging] rc=0 dir now: [other-tool.OLDLEAK ]

@@ -1,0 +1,28 @@
+bash: 5.3.15(1)-release
+[external set -m] during run: 
+[external set -m] rc=143 after TERM: []
+  orphan 'sleep 21' still alive
+[bash set -m] during run: fm-bash-timeout-command.Gk6Jyt 
+[bash set -m] rc=143 after TERM: []
+  orphan 'sleep 21' still alive
+[stub find, mech=default] rc=124 elapsed=3s find calls=0 tmp left=[]
+[stub find, mech=bash] rc=124 elapsed=2s find calls=0 tmp left=[]
+bash: 5.3.15(1)-release (no GNU timeout on host; external runner driven via perl stand-in)
+[external, set -m] during run TMPDIR holds: fm-timeout-status.PiVIdl 
+[external, set -m] caller rc=143 (139 would be the old stack-overflow crash); TMPDIR after TERM: []
+  bounded command pid 20721 stopped
+  watchdog sleep orphaned
+[bash, set -m] during run TMPDIR holds: fm-bash-timeout-command.afdAOm 
+[bash, set -m] caller rc=143 (139 would be the old stack-overflow crash); TMPDIR after TERM: []
+  bounded command pid 24289 stopped
+  watchdog sleep orphaned
+bash: 5.3.15(1)-release (no GNU timeout on host; external runner driven via perl stand-in)
+[external, set -m] during run TMPDIR holds: fm-timeout-status.Xcqo5u 
+[external, set -m] caller rc=143 (139 would be the old stack-overflow crash); TMPDIR after TERM: []
+  bounded command pid 56576 stopped
+  no orphaned watchdog 'sleep 30'
+[bash, set -m] during run TMPDIR holds: fm-bash-timeout-command.vC4BQw 
+[bash, set -m] caller rc=143 (139 would be the old stack-overflow crash); TMPDIR after TERM: []
+  bounded command pid 60574 stopped
+  no orphaned watchdog 'sleep 30'
+[c64effec lib, external, set -m] caller rc=143 TMPDIR after: []

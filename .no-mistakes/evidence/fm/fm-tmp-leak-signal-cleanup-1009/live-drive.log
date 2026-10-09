@@ -1,0 +1,57 @@
+== S1: normal snapshot run leaves no temp paths ==
+  rc=0
+  TMPDIR after:
+  (end)
+== S2-TERM: TERM mid-run while bash waits on a 3s foreground child ==
+  TMPDIR during run:
+    fm-fleet-snapshot.wIyBMz
+    fm-fleet-tasks.TlVaIF
+  rc=143, exited 0s after the signal
+  TMPDIR after TERM:
+  (end)
+== S2-INT: INT mid-run while bash waits on a 3s foreground child ==
+  TMPDIR during run:
+    fm-fleet-snapshot.XbgjaT
+    fm-fleet-tasks.NgPwTn
+  rc=130, exited 0s after the signal
+  TMPDIR after INT:
+  (end)
+== S2-HUP: HUP mid-run while bash waits on a 3s foreground child ==
+  TMPDIR during run:
+    fm-contributions.GQMNub
+    fm-fleet-snapshot.JjNhgR
+    fm-fleet-tasks.nlEybF
+  rc=129, exited 0s after the signal
+  TMPDIR after HUP:
+  (end)
+== S3: bounded caller TERM then KILL 1s later (timeout -k 1 shape), then the next run sweeps ==
+  TERM+KILL rc=143
+  TMPDIR after TERM then KILL 1s later:
+  bare KILL rc=137
+  TMPDIR after KILL (a KILLed process cannot trap, so leftovers are expected here):
+    fm-fleet-snapshot.j7Oi6W
+    fm-fleet-tasks.jmtlO1
+  aged the leftovers 2h, planted fresh/stale/foreign entries; before next run:
+    fm-bash-timeout-command.STALEDIR
+    fm-fleet-snapshot.j7Oi6W
+    fm-fleet-tasks.jmtlO1
+    fm-timeout-status.FRESHLIVE
+    fm-timeout-status.STALEOLD
+    other-tool.STALE
+  next run rc=0
+  TMPDIR after next run:
+    fm-timeout-status.FRESHLIVE
+    other-tool.STALE
+  (end)
+== S4: fm_run_timed TERM mid-run, external-timeout and bash runners ==
+  [timeout] during: [fm-timeout-status.r30TKW ]
+  [timeout] rc=143  right after TERM: []  'sleep 31' procs: 0
+  [timeout] after the 4s bound would have fired: []  'sleep 31' procs: 0
+  [bash] during: [fm-bash-timeout-command.o1rP16 ]
+  [bash] rc=143  right after TERM: []  'sleep 31' procs: 0
+  [bash] after the 4s bound would have fired: []  'sleep 31' procs: 0
+== S5: fm_run_timed normal completion restores the caller's TERM trap ==
+  run rc=0 trap now: trap -- 'echo "  caller-trap-ran"; exit 7' SIGTERM
+  TMPDIR: []
+  caller-trap-ran
+  subshell rc=7

@@ -15,7 +15,8 @@ ok - a scout still parked at a decision stays pending (terminal clear does not o
 ok - snapshot includes durable scout reports after teardown
 ok - snapshot transports long status lines and deep decision sets by file
 ok - snapshot parses tasks-axi rows and respects operational overrides
-/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-fleet-snapshot.yCRcil/tmp-cleanup-bin/fakebin
+/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-fleet-snapshot.tOPBxT/tmp-cleanup-bin/fakebin
 ok - TERM removes the snapshot temp paths; stale own-prefix leftovers are swept, fresh and foreign kept
 ok - fleet view renders the snapshot without secondmate peek guidance
 ok - fleet view renders secondmate agent liveness
+taskpolicy -b /bin/bash tests/fm-fleet-snapshot-view.test.sh  19.01s user 31.73s system 60% cpu 1:24.52 total

@@ -18,4 +18,5 @@ ok - fm_exec_timed refuses instead of running unbounded when no mechanism exists
 ok - fm_exec_timed rejects a zero, padded, non-numeric, or missing bound and a missing command
 ok - fm_exec_timed's GNU timeout fallback (skipped: no timeout binary on this host)
 ok - fm_timed_out accepts 124 and 137 and nothing else
-_: line 6: /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-timeout-lib.hNpKUo/term-external/fm-timeout-status.JYHYrg: No such file or directory
+taskpolicy -b bash tests/fm-timeout-lib.test.sh  0.80s user 0.85s system 7% cpu 23.495 total
+_: line 6: /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-timeout-lib.KL8aIE/term-external/fm-timeout-status.d7bTjE: No such file or directory

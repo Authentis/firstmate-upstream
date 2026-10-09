@@ -1,0 +1,30 @@
+[external-gnu] mechanism=timeout
+[external-gnu] during run: fm-timeout-status.DOrPAg 
+[external-gnu] after TERM: rc=143 leftovers=[]
+[external-gnu] after bound (+5s): leftovers=[] stray-sleep30=0
+[external-gnu-setm] mechanism=timeout
+[external-gnu-setm] during run: fm-timeout-status.4tc0CA 
+[external-gnu-setm] after TERM: rc=143 leftovers=[]
+[external-gnu-setm] after bound (+5s): leftovers=[] stray-sleep30=0
+[bash-watchdog] mechanism=bash
+[bash-watchdog] during run: fm-bash-timeout-command.LRY9XM 
+[bash-watchdog] after TERM: rc=143 leftovers=[]
+[bash-watchdog] after bound (+5s): leftovers=[] stray-sleep30=0
+[bash-watchdog-setm] mechanism=bash
+[bash-watchdog-setm] during run: fm-bash-timeout-command.tWBHqJ 
+[bash-watchdog-setm] after TERM: rc=143 leftovers=[]
+[bash-watchdog-setm] after bound (+5s): leftovers=[] stray-sleep30=0
+[normal mech=timeout] rc=0 (7 expected)
+[bound mech=timeout] rc=0 (124 expected)
+[normal mech=bash] rc=0 (7 expected)
+[bound mech=bash] rc=0 (124 expected)
+[normal+bound] leftovers=[]
+[trap-restore] trap after run: trap -- 'echo "[trap-restore] caller handler ran"; exit 99' SIGTERM
+[trap-restore] caller handler ran
+[trap-restore] rc=99 (99 expected)
+[normal+bound] leftovers=[fm-bash-timeout-command.MoJXUG]
+[normal mech=timeout] rc=7 (7 expected)
+[bound mech=timeout] rc=124 (124 expected)
+[normal mech=bash] rc=7 (7 expected)
+[bound mech=bash] rc=124 (124 expected)
+[normal+bound] leftovers=[]

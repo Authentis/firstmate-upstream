@@ -1,0 +1,4 @@
+/tmp/fmlab-drv/drive-slowfind.sh: line 11: /tmp/fmlab-drv/slowfind/calls: No such file or directory
+[slow-find mech=timeout] rc=124 elapsed=2s find-calls=0
+/tmp/fmlab-drv/drive-slowfind.sh: line 11: /tmp/fmlab-drv/slowfind/calls: No such file or directory
+[slow-find mech=bash] rc=124 elapsed=2s find-calls=0
