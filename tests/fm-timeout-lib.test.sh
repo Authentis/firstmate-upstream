@@ -6,7 +6,7 @@
 # bound. Most cases pin the perl watchdog, the preferred mechanism and the only
 # one a stock macOS host has, under a PATH that holds no timeout variant; the
 # GNU fallback case runs only where a real timeout exists.
-# shellcheck disable=SC2016 # each bounded bash -c script expands its own arguments
+# shellcheck disable=SC2016,SC2030,SC2031 # subshell env is deliberate; each bounded bash -c script expands its own arguments
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -64,6 +64,35 @@ test_passes_the_command_status_and_output_through() {
   pass "fm_exec_timed passes a command's status and output through unchanged"
 }
 
+# Exercise the installed system Bash explicitly, including stock macOS 3.2:
+# neither a top-level call nor a subshell may abort before starting its command.
+# Unset BASHPID so newer system Bash also covers the missing-variable case.
+test_system_bash_preserves_completion_and_signal_statuses() {
+  local mode status command out rc
+  for mode in top-level subshell; do
+    for status in 0 7 137 143; do
+      case "$status" in
+        137) command='echo ran; kill -KILL $$' ;;
+        143) command='echo ran; kill -TERM $$' ;;
+        *) command="echo ran; exit $status" ;;
+      esac
+      rc=0
+      out=$(PATH=$PERL_ONLY /bin/bash -c '
+        . "$1/bin/fm-timeout-lib.sh"
+        unset BASHPID
+        if [ "$2" = subshell ]; then
+          ( fm_exec_timed 5 1 bash -c "$3" )
+        else
+          fm_exec_timed 5 1 bash -c "$3"
+        fi
+      ' _ "$ROOT" "$mode" "$command" 2>&1) || rc=$?
+      [ "$rc" -eq "$status" ] || fail "system Bash $mode lost command status $status (rc=$rc: $out)"
+      [ "$out" = ran ] || fail "system Bash $mode did not run the command cleanly: $out"
+    done
+  done
+  pass "system Bash top-level and subshell calls preserve success, failure, and signal status"
+}
+
 # A command that honors TERM ends at the bound, long before the grace would
 # have forced it, and is gone afterwards.
 test_term_ends_a_cooperative_command_at_the_bound() {
@@ -109,7 +138,7 @@ test_the_bound_replaces_the_calling_shell() {
     rm -f "$dir/caller" "$dir/parent"
     (
       . "$ROOT/bin/fm-timeout-lib.sh"
-      printf '%s\n' "$BASHPID" > "$dir/caller"
+      perl -e 'print getppid(), "\n"' > "$dir/caller"
       PATH=$path fm_exec_timed 5 1 bash -c 'echo "$PPID" > "$1"' _ "$dir/parent"
     ) || fail "the bounded probe failed under PATH=$path"
     caller=$(cat "$dir/caller")
@@ -204,16 +233,16 @@ test_a_named_owner_that_is_gone_ends_the_command() {
 # fm_exec_timed - the watchdog then starts already reparented - is still
 # detected instead of leaving the command running to its bound.
 test_an_owner_that_dies_during_startup_ends_the_command() {
-  local dir watchdog started
+  local dir watchdog started pid
   dir="$TMP_ROOT/startup-owner"
   mkdir -p "$dir"
   # shellcheck disable=SC2016
   PATH=$PERL_ONLY bash -c '
     . "$1/bin/fm-timeout-lib.sh"
     (
-      echo "$BASHPID" > "$2/watchdog"
+      perl -e "print getppid(), qq(\\n)" > "$2/watchdog"
       while kill -0 "$$" 2>/dev/null; do sleep 0.05; done
-      fm_exec_timed 60 1 bash -c "exec sleep 300"
+      fm_exec_timed 60 1 bash -c "echo \$\$ > \"\$1\"; exec sleep 300" _ "$2/pid"
     ) >/dev/null 2>&1 &
     exit 0
   ' _ "$ROOT" "$dir"
@@ -222,12 +251,50 @@ test_an_owner_that_dies_during_startup_ends_the_command() {
   started=$SECONDS
   while kill -0 "$watchdog" 2>/dev/null; do
     if [ "$((SECONDS - started))" -ge 15 ]; then
+      if [ -s "$dir/pid" ]; then
+        pid=$(cat "$dir/pid")
+        kill -KILL -- "-$pid" 2>/dev/null || true
+      fi
       kill -KILL "$watchdog" 2>/dev/null || true
       fail "a watchdog whose owner died during startup ran on toward its bound"
     fi
     sleep 0.02
   done
   pass "fm_exec_timed ends the command when its owner dies during watchdog startup"
+}
+
+# A top-level calling shell has its own PID in $$, unlike a Bash subshell.
+# Capture its parent before exec: that parent can exit while the top-level
+# shell is still on its way into the watchdog.
+test_a_top_level_parent_that_dies_during_startup_ends_the_command() {
+  local dir watchdog started pid
+  dir="$TMP_ROOT/top-level-parent"
+  mkdir -p "$dir"
+  PATH=$PERL_ONLY bash -c '
+    bash -c '\''
+      . "$1/bin/fm-timeout-lib.sh"
+      echo "$$" > "$2/watchdog"
+      while kill -0 "$PPID" 2>/dev/null; do sleep 0.05; done
+      fm_exec_timed 60 1 bash -c "echo \$\$ > \"\$1\"; exec sleep 300" _ "$2/pid"
+    '\'' _ "$1" "$2" >/dev/null 2>&1 &
+    while [ ! -s "$2/watchdog" ]; do sleep 0.02; done
+    exit 0
+  ' _ "$ROOT" "$dir"
+  wait_for_file "$dir/watchdog"
+  watchdog=$(cat "$dir/watchdog")
+  started=$SECONDS
+  while kill -0 "$watchdog" 2>/dev/null; do
+    if [ "$((SECONDS - started))" -ge 15 ]; then
+      if [ -s "$dir/pid" ]; then
+        pid=$(cat "$dir/pid")
+        kill -KILL -- "-$pid" 2>/dev/null || true
+      fi
+      kill -KILL "$watchdog" 2>/dev/null || true
+      fail "top-level watchdog lost its pre-exec parent and ran toward its bound"
+    fi
+    sleep 0.02
+  done
+  pass "fm_exec_timed preserves a top-level shell's parent across exec startup"
 }
 
 # perl is preferred whenever it exists, because only its watchdog can reap a
@@ -327,7 +394,74 @@ test_run_timed_passes_a_natural_exit_through_a_fired_bound() {
   pass 'fm_run_timed passes a natural exit through when the bound fired after completion'
 }
 
+# A runner stub that execs the command, so the external-timeout path (which owns
+# the fm-timeout-status.* file) runs on any host.
+EXEC_RUNNER="$TMP_ROOT/exec-runner-bin"
+mkdir -p "$EXEC_RUNNER"
+printf '#!/bin/sh\nshift 3\nexec "$@"\n' > "$EXEC_RUNNER/timeout"
+chmod +x "$EXEC_RUNNER/timeout"
+
+# term_leaves_no_tmp <label> <mechanism-override> [monitor]: TERM a bounded run
+# mid-flight and assert it exits 143 with its own temp path gone, and still gone
+# after the bound would have fired. With "monitor", the run is launched from a
+# shell with job control on (set -m).
+term_leaves_no_tmp() {
+  local label=$1 override=$2 monitor=${3:-} tmpd rc=0 pid i=0
+  tmpd="$TMP_ROOT/term-$label"
+  mkdir -p "$tmpd"
+  [ -z "$monitor" ] || set -m
+  (
+    . "$ROOT/bin/fm-timeout-lib.sh"
+    export TMPDIR="$tmpd" FM_TIMEOUT_MECHANISM_OVERRIDE="$override"
+    PATH="$EXEC_RUNNER:$PATH" fm_run_timed 3 sleep 30
+  ) &
+  pid=$!
+  [ -z "$monitor" ] || set +m
+  while [ -z "$(ls "$tmpd" 2>/dev/null)" ]; do
+    i=$((i + 1))
+    [ "$i" -lt 500 ] || fail "$label: the bounded run never created its temp path"
+    sleep 0.02
+  done
+  kill -TERM "$pid"
+  wait "$pid" || rc=$?
+  [ "$rc" -eq 143 ] || fail "$label: TERM did not exit with the conventional status (rc=$rc)"
+  [ -z "$(ls -A "$tmpd")" ] || fail "$label: TERM left a temp path behind: $(ls -A "$tmpd")"
+  sleep 3.5
+  [ -z "$(ls -A "$tmpd")" ] || fail "$label: a leftover watchdog recreated a temp path: $(ls -A "$tmpd")"
+}
+
+test_term_mid_run_removes_the_temp_path() {
+  term_leaves_no_tmp external ""
+  term_leaves_no_tmp bash bash
+  term_leaves_no_tmp external-monitor "" monitor
+  pass 'a TERM mid-run removes the runner temp path and exits 143 (external and bash runners, with and without caller job control)'
+}
+
+test_stale_leftovers_are_swept_and_fresh_ones_kept() {
+  local tmpd="$TMP_ROOT/sweep"
+  mkdir -p "$tmpd"
+  : > "$tmpd/fm-timeout-status.OLD123"
+  mkdir "$tmpd/fm-bash-timeout-command.OLDDIR"
+  : > "$tmpd/fm-timeout-status.NEW123"
+  : > "$tmpd/unrelated-prefix.OLD123"
+  touch -t 200001010000 "$tmpd/fm-timeout-status.OLD123" "$tmpd/fm-bash-timeout-command.OLDDIR" "$tmpd/unrelated-prefix.OLD123"
+  (
+    . "$ROOT/bin/fm-timeout-lib.sh"
+    export TMPDIR="$tmpd"
+    fm_sweep_stale_tmp fm-timeout-status
+    fm_sweep_stale_tmp fm-bash-timeout-command
+  ) || fail 'the sweep failed'
+  [ ! -e "$tmpd/fm-timeout-status.OLD123" ] || fail 'a stale status file was not swept'
+  [ ! -e "$tmpd/fm-bash-timeout-command.OLDDIR" ] || fail 'a stale bash-runner leftover was not swept'
+  [ -e "$tmpd/fm-timeout-status.NEW123" ] || fail 'a fresh live-run status file was removed'
+  [ -e "$tmpd/unrelated-prefix.OLD123" ] || fail 'a file of another prefix was removed'
+  pass 'stale own-prefix leftovers are swept; fresh and other-prefix paths are kept'
+}
+
 test_passes_the_command_status_and_output_through
+test_system_bash_preserves_completion_and_signal_statuses
+test_term_mid_run_removes_the_temp_path
+test_stale_leftovers_are_swept_and_fresh_ones_kept
 test_run_timed_reports_the_bound_when_the_wrapper_records_a_signal_death
 test_run_timed_passes_a_natural_exit_through_a_fired_bound
 test_term_ends_a_cooperative_command_at_the_bound
@@ -337,6 +471,7 @@ test_a_descendant_holding_the_output_cannot_outlast_the_bound
 test_a_signal_to_the_bounding_process_reaches_the_command
 test_a_named_owner_that_is_gone_ends_the_command
 test_an_owner_that_dies_during_startup_ends_the_command
+test_a_top_level_parent_that_dies_during_startup_ends_the_command
 test_perl_is_preferred_over_timeout
 test_refuses_rather_than_running_unbounded
 test_rejects_malformed_bounds_before_running_anything
