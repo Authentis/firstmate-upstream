@@ -554,6 +554,7 @@ test_lock_wait_default_is_thirty_seconds_and_env_wins() {
   elapsed=$(( $(date +%s) - start ))
   [ "$rc" -ne 0 ] && [ "$elapsed" -lt 5 ] \
     || fail "FM_TASK_INBOX_LOCK_WAIT_SECS=1 should override the default and give up fast (rc=$rc, ${elapsed}s)"
+  # shellcheck disable=SC2016 # $1/$2 expand in the child shell.
   env -u FM_TASK_INBOX_LOCK_WAIT_SECS bash -c '
     . "$1"
     fm_task_inbox_lock_acquire "$2"
