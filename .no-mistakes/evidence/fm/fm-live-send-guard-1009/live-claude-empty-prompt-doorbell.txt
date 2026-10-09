@@ -1,0 +1,25 @@
+================ SCENARIO: plain empty prompt, fm-send doorbell ring ================
+--- screen BEFORE send ---
+ ▝▝   ▝▝   ~/.no-mistakes/worktrees/0d3d213d42f1/01M4GFSTRRNQHWTNEANQFRJT3F
+❯ Reply with exactly the word PONG and nothing else. Do not use tools.
+⏺ PONG
+✻ Churned for 4s · done 7:53 PM
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents
+$ fm-send.sh fm-t1 "Steer: no action needed, acknowledge only."
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-lab.Fo8Saz
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+exit=
+--- screen AFTER send ---
+✻ Churned for 4s · done 7:53 PM
+❯ : Firstmate instruction waiting: list "$FM_TASK_INBOX"/*.msg in your 't1.inbox' steering inbox, read and act on each
+  in numeric order, then mv each into its handled/.
+⏺ Running 1 shell command…
+✻ Hyperspacing… (2s · ↓ 63 tokens · thinking with medium effort)
+  ⎿  Tip: Name your conversations with /rename to find them easily in /resume later
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ auto mode on (shift+tab to cycle) · esc to interrupt · ← for agents

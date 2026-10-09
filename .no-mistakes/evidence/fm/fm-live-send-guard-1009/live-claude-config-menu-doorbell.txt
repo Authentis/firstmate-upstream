@@ -1,0 +1,45 @@
+
+================ SCENARIO: /config menu open, fm-send typed text ================
+--- screen BEFORE send ---
+     Show turn duration                          true
+     Time format                                 auto ›
+     Default permission mode                     Manual
+     Worktree base ref                           fresh
+     Use auto mode during plan                   true
+     Respect .gitignore in file picker           true
+     Skip the /copy picker                       false
+     Copy on select                              true
+     Auto-scroll                                 true
+     Open agents view by default                 false
+     ← opens agents                              true
+     Auto-update channel                         latest ›
+     Theme                                       Light mode ›
+     ↓ 17 more
+   Type to filter · Enter/↓ to select · ↑ to tabs · Esc to clear
+settings.json sha BEFORE: 5a348e98a74f3f766065a18cf80fe4375568bee0
+$ fm-send.sh fm-t1 zzqxnomatch
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-lab.Fo8Saz
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+fm-ring: doorbell refused for scratch:fm-t1: an open menu or picker is showing; the steer stays durably recorded at /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-lab.Fo8Saz/state/t1.inbox/001.msg and will be re-rung
+fm-send: doorbell skipped (the prompt is not a recognised empty prompt: an open menu or picker, a draft, or an unknown harness); the steer is durably recorded at /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-lab.Fo8Saz/state/t1.inbox/001.msg and the watcher will re-ring
+exit=0
+--- screen AFTER send ---
+     Show turn duration                          true
+     Time format                                 auto ›
+     Default permission mode                     Manual
+     Worktree base ref                           fresh
+     Use auto mode during plan                   true
+     Respect .gitignore in file picker           true
+     Skip the /copy picker                       false
+     Copy on select                              true
+     Auto-scroll                                 true
+     Open agents view by default                 false
+     ← opens agents                              true
+     Auto-update channel                         latest ›
+     Theme                                       Light mode ›
+     ↓ 17 more
+   Type to filter · Enter/↓ to select · ↑ to tabs · Esc to clear
+settings.json sha AFTER:  5a348e98a74f3f766065a18cf80fe4375568bee0
+RESULT: no text typed into the menu
+--- inbox state after refused ring ---
+t1.inbox/001.msg

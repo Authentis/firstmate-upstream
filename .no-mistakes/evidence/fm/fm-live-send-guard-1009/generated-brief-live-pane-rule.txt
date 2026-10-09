@@ -1,0 +1,4 @@
+83-   `blocked [at=<epoch>]: {what you need}` and stop; firstmate arranges it.
+84:8. Live tests of an interactive terminal UI (a menu, picker, composer, or any typed keystrokes) run only in a scratch pane your own test launched.
+85-   Never type or send keys into a real worker, firstmate, or chief pane, and never into an open menu: one stray Enter on a menu can change settings shared by every agent on the machine.
+86-   Before every send, read the target screen and send only when it shows a plain empty prompt.

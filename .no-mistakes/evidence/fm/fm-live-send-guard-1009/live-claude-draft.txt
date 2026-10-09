@@ -1,0 +1,46 @@
+
+================ SCENARIO: half-typed draft in the prompt, fm-send typed text ================
+--- screen BEFORE send ---
+ ▝▝   ▝▝   ~/.no-mistakes/worktrees/0d3d213d42f1/01M4GFSTRRNQHWTNEANQFRJT3F
+                                                                                                    ◐ medium · /effort
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ half typed draft do not submit
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ auto mode on (shift+tab to cycle)
+$ fm-send.sh scratch:fm-t1 zzqxinjected
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-lab.Fo8Saz
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+error: blocked on a prompt: the prompt already holds a draft or an unrecognised overlay
+error: text not sent to scratch:fm-t1 (tmux send failed; tried explicit target 'scratch:fm-t1' matched /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-lab.Fo8Saz/state/t1.meta; backend=tmux)
+exit=1
+--- screen AFTER send ---
+ ▝▝   ▝▝   ~/.no-mistakes/worktrees/0d3d213d42f1/01M4GFSTRRNQHWTNEANQFRJT3F
+                                                                                                    ◐ medium · /effort
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ half typed draft do not submit
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ auto mode on (shift+tab to cycle)
+RESULT: draft untouched, nothing typed or submitted
+
+================ SCENARIO: half-typed draft in the prompt, fm-send typed text ================
+--- screen BEFORE send ---
+ ▝▝   ▝▝   ~/.no-mistakes/worktrees/0d3d213d42f1/01M4GFSTRRNQHWTNEANQFRJT3F
+                                                                                          Ctrl+Y to paste deleted text
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ half typed draft do not submit
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ auto mode on (shift+tab to cycle)
+$ fm-send.sh fm-t1 zzqxinjected
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-lab.Fo8Saz
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+fm-ring: doorbell refused for scratch:fm-t1: the prompt already holds a draft that is not ours; the steer stays durably recorded at /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-lab.Fo8Saz/state/t1.inbox/002.msg and will be re-rung
+fm-send: doorbell skipped (the prompt is not a recognised empty prompt: an open menu or picker, a draft, or an unknown harness); the steer is durably recorded at /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-lab.Fo8Saz/state/t1.inbox/002.msg and the watcher will re-ring
+exit=0
+--- screen AFTER send ---
+ ▝▝   ▝▝   ~/.no-mistakes/worktrees/0d3d213d42f1/01M4GFSTRRNQHWTNEANQFRJT3F
+                                                                                                    ◐ medium · /effort
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ half typed draft do not submit
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ auto mode on (shift+tab to cycle)
+RESULT: draft untouched, nothing typed or submitted

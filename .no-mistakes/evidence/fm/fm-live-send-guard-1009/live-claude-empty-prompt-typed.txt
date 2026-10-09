@@ -1,0 +1,24 @@
+
+================ SCENARIO: plain empty prompt, fm-send typed text ================
+--- screen BEFORE send ---
+ ▝▝   ▝▝   ~/.no-mistakes/worktrees/0d3d213d42f1/01M4GFSTRRNQHWTNEANQFRJT3F
+                                                                                                    ◐ medium · /effort
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents
+$ fm-send.sh scratch:fm-t1 Reply with exactly the word PONG and nothing else. Do not use tools.
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-lab.Fo8Saz
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+exit=0
+--- screen AFTER send ---
+ ▐▛███▛█   Claude Code v2.1.295
+▝▜██████▀  Opus 5.5 with medium effort · Claude Max
+ ▝▝   ▝▝   ~/.no-mistakes/worktrees/0d3d213d42f1/01M4GFSTRRNQHWTNEANQFRJT3F
+❯ Reply with exactly the word PONG and nothing else. Do not use tools.
+✻ Manifesting…
+                                                                                                    ◐ medium · /effort
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ auto mode on (shift+tab to cycle) · esc to interrupt · ← for agents
