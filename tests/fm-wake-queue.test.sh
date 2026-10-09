@@ -809,12 +809,12 @@ install_secondmate_alive_tmux() {  # <fakebin>
 set -u
 case "${1:-}" in
   list-windows) printf '%s\n' 'fm-mate' ;;
-  capture-pane) exit 0 ;;
+  capture-pane) cat __CLAUDE_IDLE_SCREEN__ ;;
   display-message)
     case "$*" in
       *pane_current_command*) printf 'claude\n' ;;
       *pane_tty*) exit 1 ;;
-      *cursor_y*) printf '0\n' ;;
+      *cursor_y*) printf '37\n' ;;
       *) printf '0\n' ;;
     esac
     ;;
@@ -835,6 +835,9 @@ case "${1:-}" in
   *) exit 0 ;;
 esac
 SH
+  # The pane replays a real captured Claude idle prompt (the send guard
+  # requires a positively recognised empty prompt before any ring types).
+  sed -i.bak "s|__CLAUDE_IDLE_SCREEN__|$ROOT/tests/fixtures/send-guard/claude-idle.txt|" "$fakebin/tmux" && rm -f "$fakebin/tmux.bak"
   chmod +x "$fakebin/tmux"
 }
 

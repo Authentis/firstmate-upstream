@@ -69,7 +69,7 @@ The extended live guard completed with exit 0 on 2026-10-03 against `1.74.0`; th
 
 ```text
 ok - commandcode 1.74.0: interrupt empties a stuck multi-line draft and a pasted block, keeping the agent
-ok - commandcode 1.74.0: fm-send clears a stale draft, rings, and the worker acknowledges
+ok - commandcode 1.74.0: fm-send clears a stale draft, rings, and the worker acknowledges (superseded 2026-10-09: the doorbell now refuses a foreign draft untouched; only `interrupt` and `exit` clear one)
 ok - commandcode 1.74.0: interrupting a running turn that holds a draft leaves an empty composer (draft=cleared)
 ok - commandcode 1.74.0: /exit through the control plane, with a stuck draft cleared first
 ```

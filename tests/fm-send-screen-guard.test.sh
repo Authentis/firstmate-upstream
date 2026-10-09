@@ -12,8 +12,12 @@
 #   3. A plain empty prompt is accepted and delivered.
 #   4. A refused doorbell ring leaves the inbox record unhandled, names the
 #      reason, and the next ring on a clean prompt delivers it.
-#   5. An unreadable claude prompt is refused, while an unreadable prompt on
-#      another harness still rings (the classifier is advisory there).
+#   5. An unrecognised screen is refused for every harness, and the production
+#      ring path (fm_task_inbox_ring) refuses a foreign draft, an open picker,
+#      an unknown screen and a missing harness untouched. The own-doorbell
+#      recovery is pinned in tests/fm-task-inbox.test.sh.
+#   6. Claude, codex, opencode and pi each positively recognise their real
+#      captured idle prompt and refuse their captured draft.
 set -u
 
 # shellcheck source=tests/wake-helpers.sh
@@ -49,7 +53,10 @@ case "${1:-}" in
     fi
     exit 0 ;;
   display-message)
-    case "$*" in *cursor_y*) printf '%s\n' "${FM_FAKE_CURSOR:-0}"; exit 0 ;; esac
+    case "$*" in
+      *cursor_y*) printf '%s\n' "${FM_FAKE_CURSOR:-0}"; exit 0 ;;
+      *pane_current_command*) printf '%s\n' "${FM_FAKE_COMM:-fakepane}"; exit 0 ;;
+    esac
     printf 'fakepane\n'; exit 0 ;;
   capture-pane) cat "$FM_FAKE_SCREEN"; exit 0 ;;
   list-windows) printf 'fm-t1\n'; exit 0 ;;
@@ -59,9 +66,14 @@ SH
   chmod +x "$1/fakebin/tmux"
 }
 
-# Row of the "❯" composer line in a fixture, zero-based like #{cursor_y}.
+# The pane's real #{cursor_y}, recorded beside each capture; fixtures without
+# one (menus, dialogs) fall back to the first "❯" row, else 0.
 composer_row() {  # <fixture>
-  awk '/^❯/ { print NR - 1; exit }' "$1"
+  if [ -f "${1%.txt}.cursor" ]; then
+    cat "${1%.txt}.cursor"
+  else
+    awk '/^❯/ { print NR - 1; exit }' "$1"
+  fi
 }
 
 # Run one library function in a subshell that sources the production library.
@@ -84,7 +96,7 @@ submit() {
   : > "$dir/send.log"
   SUBMIT_RC=0
   SUBMIT_OUT=$(PATH="$dir/fakebin:$PATH" FM_SEND_LOG="$dir/send.log" FM_FAKE_SCREEN="$fixture" \
-    FM_FAKE_CURSOR="${cursor:-0}" lib "$dir/state" fm_backend_send_text_submit \
+    FM_FAKE_CURSOR="${cursor:-0}" FM_FAKE_COMM="$harness" lib "$dir/state" fm_backend_send_text_submit \
     tmux sess:fm-t1 'hello worker' 1 0 0 fm-t1 "$harness" 2> "$dir/err.log") || SUBMIT_RC=$?
   SUBMIT_ERR=$(cat "$dir/err.log")
 }
@@ -136,22 +148,73 @@ test_empty_prompt_is_accepted() {
   pass "guard: a plain empty prompt is accepted and typed into"
 }
 
-test_unreadable_prompt_depends_on_harness() {
-  local dir screen
+test_unrecognised_screen_is_refused_for_every_harness() {
+  local dir screen h
   dir=$(new_dir unreadable)
   screen="$dir/blank.txt"
   printf 'some output\nmore output\n' > "$screen"
-  submit "$dir" "$screen" claude
+  for h in claude codex opencode pi unknown; do
+    submit "$dir" "$screen" "$h"
+    [ "$SUBMIT_RC" = 1 ] && [ ! -s "$dir/send.log" ] \
+      || fail "an unrecognised screen must be refused untyped for $h (rc $SUBMIT_RC)"
+    case "$SUBMIT_ERR" in
+      *'not a recognised empty prompt'*) ;;
+      *) fail "the refusal must name the unrecognised prompt for $h, got: $SUBMIT_ERR" ;;
+    esac
+  done
+  pass "guard: an unrecognised screen is refused for every harness"
+}
+
+test_real_captures_per_harness() {
+  local dir h
+  dir=$(new_dir captures)
+  for h in claude codex opencode pi; do
+    submit "$dir" "$FX/$h-idle.txt" "$h"
+    grep -q '^TYPED: hello worker$' "$dir/send.log" \
+      || fail "$h: the real idle capture must be typed into (rc $SUBMIT_RC, err: $SUBMIT_ERR)"
+    submit "$dir" "$FX/$h-draft.txt" "$h"
+    [ "$SUBMIT_RC" = 1 ] && [ ! -s "$dir/send.log" ] \
+      || fail "$h: the real draft capture must be refused untyped (rc $SUBMIT_RC)"
+  done
+  submit "$dir" "$FX/codex-dialog.txt" codex
   [ "$SUBMIT_RC" = 1 ] && [ ! -s "$dir/send.log" ] \
-    || fail "an unreadable claude prompt must be refused untyped (rc $SUBMIT_RC)"
-  case "$SUBMIT_ERR" in
-    *'not a readable empty prompt'*) ;;
-    *) fail "the refusal must name the unreadable prompt, got: $SUBMIT_ERR" ;;
-  esac
-  submit "$dir" "$screen" codex
-  grep -q '^TYPED: hello worker$' "$dir/send.log" \
-    || fail "an unreadable prompt on another harness must still be typed into (advisory classifier)"
-  pass "guard: an unreadable claude prompt is refused, other harnesses keep ringing"
+    || fail "codex: a startup dialog must be refused untyped (rc $SUBMIT_RC)"
+  pass "guard: claude, codex, opencode and pi accept their real idle prompt and refuse their real draft"
+}
+
+# The production ring path (fm_task_inbox_ring) against the fake pane.
+ring_fixture() {  # <dir> <fixture> <harness>
+  local dir=$1 fixture=$2 harness=$3 cursor
+  cursor=$(composer_row "$fixture")
+  : > "$dir/send.log"
+  RING_RC=0
+  PATH="$dir/fakebin:$PATH" FM_SEND_LOG="$dir/send.log" FM_FAKE_SCREEN="$fixture" \
+    FM_FAKE_CURSOR="${cursor:-0}" FM_FAKE_COMM="$harness" lib "$dir/state" fm_task_inbox_ring tmux sess:fm-t1 "$RING_REC" fm-t1 "$harness" \
+    2> "$dir/ring-err.log" || RING_RC=$?
+  RING_ERR=$(cat "$dir/ring-err.log")
+}
+
+test_production_ring_refuses_without_touching_the_screen() {
+  local dir state name fixture harness
+  dir=$(new_dir ringrefuse)
+  state="$dir/state"
+  RING_REC=$(lib "$state" fm_task_inbox_write "$state" t1 "please continue")
+  printf 'some output\n' > "$dir/blank.txt"
+  while IFS='|' read -r name fixture harness; do
+    ring_fixture "$dir" "$fixture" "$harness"
+    [ "$RING_RC" = 1 ] || fail "$name: the ring must skip (rc 1), got $RING_RC"
+    [ ! -s "$dir/send.log" ] \
+      || fail "$name: the ring typed or sent a key into a screen it must not touch:"$'\n'"$(cat "$dir/send.log")"
+    [ -f "$RING_REC" ] || fail "$name: the refused ring lost the durable inbox record"
+    case "$RING_ERR" in *'doorbell refused'*) ;; *) fail "$name: no reason reported: $RING_ERR" ;; esac
+  done <<ROWS
+foreign draft|$FX/claude-draft.txt|claude
+open picker|$FX/claude-config-menu.txt|claude
+codex dialog|$FX/codex-dialog.txt|codex
+unknown screen|$dir/blank.txt|pi
+missing harness|$FX/claude-idle.txt|
+ROWS
+  pass "guard: the production ring refuses a foreign draft, an open picker, a dialog, an unknown screen and a missing harness untouched"
 }
 
 test_refused_ring_keeps_the_record_and_retries() {
@@ -164,7 +227,7 @@ test_refused_ring_keeps_the_record_and_retries() {
     local cursor
     cursor=$(composer_row "$1")
     PATH="$dir/fakebin:$PATH" FM_SEND_LOG="$dir/send.log" FM_FAKE_SCREEN="$1" \
-      FM_FAKE_CURSOR="${cursor:-0}" lib "$state" fm_task_inbox_ring tmux sess:fm-t1 "$rec" fm-t1 claude \
+      FM_FAKE_CURSOR="${cursor:-0}" FM_FAKE_COMM=claude lib "$state" fm_task_inbox_ring tmux sess:fm-t1 "$rec" fm-t1 claude \
       2> "$dir/ring-err.log"
   }
   rc=0; ring "$FX/claude-config-menu.txt" || rc=$?
@@ -187,5 +250,7 @@ test_refused_ring_keeps_the_record_and_retries() {
 test_open_menu_is_refused
 test_draft_is_refused
 test_empty_prompt_is_accepted
-test_unreadable_prompt_depends_on_harness
+test_unrecognised_screen_is_refused_for_every_harness
+test_real_captures_per_harness
+test_production_ring_refuses_without_touching_the_screen
 test_refused_ring_keeps_the_record_and_retries
