@@ -158,12 +158,18 @@ pass "$VERSION: interrupt empties a stuck multi-line draft and a pasted block, k
 draft_multi
 wait_composer pending || fail 'the drafted composer did not read pending before the doorbell'
 "$ROOT/bin/fm-send.sh" "$ID" 'Runtime stale-draft verification: compute 41 times 43 and write only the result to draft-steer.txt. Acknowledge this instruction by moving its .msg file into handled/ as instructed by the doorbell. Do no other work.' > "$LAB/send.log" 2>&1 || fail "steer onto a stuck draft failed: $(cat "$LAB/send.log")"
-! grep -q 'doorbell skipped' "$LAB/send.log" || fail "the doorbell was skipped despite a clearable draft: $(cat "$LAB/send.log")"
+grep -q 'doorbell skipped' "$LAB/send.log" || fail "the doorbell rang over a draft it does not own: $(cat "$LAB/send.log")"
+[ "$(fm_tmux_composer_state "$TARGET")" = pending ] || fail "the refused doorbell touched the draft: $(fm_tmux_composer_state "$TARGET")"
+"$ROOT/bin/fm-control.sh" "$ID" interrupt > "$LAB/draft-interrupt.log" 2>&1 || fail "interrupt with a stuck draft failed: $(cat "$LAB/draft-interrupt.log")"
+wait_composer empty || fail "the composer still reads $(fm_tmux_composer_state "$TARGET") after the draft clear"
+bash -c '. "$1"; fm_task_inbox_ring tmux "$2" "$3" "$4" commandcode' _ \
+  "$ROOT/bin/fm-task-inbox-lib.sh" "$TARGET" "$H/state/$ID.inbox/003.msg" "fm-$ID" \
+  || fail 'the re-ring on the cleared composer did not deliver'
 wait_file "$WT/draft-steer.txt"
 wait_file "$H/state/$ID.inbox/handled/003.msg"
-[ "$(tr -d '[:space:]' < "$WT/draft-steer.txt")" = 1763 ] || fail 'wrong steering result after clearing the stale draft'
+[ "$(tr -d '[:space:]' < "$WT/draft-steer.txt")" = 1763 ] || fail 'wrong steering result after the re-ring'
 wait_idle
-pass "$VERSION: fm-send clears a stale draft, rings, and the worker acknowledges"
+pass "$VERSION: fm-send refuses a foreign draft untouched, and the re-ring after interrupt clears it is acknowledged"
 
 "$ROOT/bin/fm-send.sh" "$ID" 'Runtime busy-draft verification: run sleep 90 in your shell tool, then wait for it to finish. Do not respond before it finishes.' > "$LAB/send.log" 2>&1 || fail 'could not steer busy-draft probe'
 seen_busy=0

@@ -61,9 +61,9 @@ Two Escapes cleared it when the second followed the first within the pairing win
 Ctrl-C leaves `Press Ctrl+C again to exit` under the composer, so a second press would stop the agent, which is why the control plane does not use it.
 Escape twice on an idle empty composer opened nothing in that session, which had not yet run a turn; see "Checkpoint picker" below for what it does once a turn exists.
 A draft typed while a turn was running survived the interrupt Escape, so the interrupt verb needs the clear for it too.
-The same pair on a running turn is an interrupt, so the doorbell sends it only after proving the agent idle.
+The same pair on a running turn is an interrupt, so it is never sent to a pane that is not proven idle.
 A multi-line or pasted draft renders as plain continuation rows below the `❯` row with the reverse-video cursor cell after the last character, pinned byte-exact in `tests/captures/commandcode-v1.74.0/draft-multiline.ansi` and `draft-pasted.ansi`.
-`bin/fm-control-lib.sh` owns the key, count and gap; `fm-control` interrupt and exit and the `fm-task-inbox-lib.sh` doorbell send the clear and require the composer to read empty afterwards.
+`bin/fm-control-lib.sh` owns the key, count and gap; `fm-control` interrupt and exit send the clear and require the composer to read empty afterwards; the `fm-task-inbox-lib.sh` doorbell never sends it and refuses a foreign draft untouched.
 
 The extended live guard completed with exit 0 on 2026-10-03 against `1.74.0`; these four lines are its stuck-draft results:
 
@@ -171,8 +171,8 @@ The guard's worker commit carried no co-author trailer, and `git status --porcel
 ## Coverage and limits
 
 The portable regression drives ancestry identity, lifecycle tables, composer placeholder and draft screens with LF and CR LF row endings, the captured Herdr pane, the placeholder text and frame-colour signals driven apart, busy rows, the generated launch, model refusal, settings and git excludes, the mod's event handling through Node, the trailer-keeping variant, secondmate refusal, and trailer stripping.
-The stuck-draft regression drives the real control plane and doorbell against a stand-in process that replays captured screens and obeys only the Escape-pair rule and the picker rule, asserting which keys were never sent for a busy, unrecorded, rendered-busy, other-adapter, unclearable, empty, or misread pane, that the picker is closed with exactly one Escape and never entered, and that a pair is never repeated once the picker opened.
+The stuck-draft regression drives the real control plane and doorbell against a stand-in process that replays captured screens and obeys only the Escape-pair rule and the picker rule, asserting which keys the control plane never sends for an unclearable, empty, or misread pane, that it closes the picker with exactly one Escape and never enters it, that a pair is never repeated once the picker opened, and that the doorbell refuses a foreign draft or an open picker with no key sent and rings a plain empty composer.
 The tmux liveness regression proves the placeholder reads empty only on an identified Command Code pane, while typed text, typed placeholder words, and a decoy pane do not.
-The live guard checks the brief, model, autonomy, identity, semantic idle, attribution, workspace hygiene, session-only effort, doorbell acknowledgement, idle and busy interruption, interruption and doorbell delivery through a stuck multi-line draft and pasted block, a draft typed during a running turn, the checkpoint picker an Escape pair opens on an empty composer and its single-Escape closure through the control plane, and exit through a stuck draft.
+The live guard checks the brief, model, autonomy, identity, semantic idle, attribution, workspace hygiene, session-only effort, doorbell acknowledgement, idle and busy interruption, interruption through a stuck multi-line draft and pasted block, a doorbell refused untouched on a stuck draft and delivered by the re-ring once interrupt has cleared it, a draft typed during a running turn, the checkpoint picker an Escape pair opens on an empty composer and its single-Escape closure through the control plane, and exit through a stuck draft.
 Command Code's built-in `herdr` mod reports agent state to Herdr when Herdr's pane environment is present; that path, Herdr lifecycle control, and a live Herdr doorbell need a lab-session verification before Herdr dispatch is trusted.
 Linux identity relies on the same vendor process title and has not been run here.
