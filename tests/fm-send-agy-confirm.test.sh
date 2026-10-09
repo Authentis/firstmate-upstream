@@ -109,8 +109,8 @@ SH
 # strips the post-submit pause so the sleep log holds only the popup settle
 # plus the 0.4 submit waits, keeping the poll arithmetic visible. FM_ROOT_OVERRIDE
 # points at the case dir so fm-guard's tangle check stays silent. Emits
-# "rc <exit>" and leaves the send's stderr in $dir/err and the sleep log in
-# $dir/sleep.log for the caller to assert on.
+# "rc <exit>" and "dir <case dir>", and leaves the send's stderr in $dir/err
+# and the sleep log in $dir/sleep.log for the caller to assert on.
 run_send() {  # <harness> <busy-at> [env=val ...]
   local harness=$1 busy_at=$2 dir fb log
   shift 2
@@ -129,6 +129,7 @@ run_send() {  # <harness> <busy-at> [env=val ...]
     "$SEND" sess:win 'Append steer1 line to notes.md' 2>"$dir/err"
     printf 'rc %s\n' "$?"
   )
+  printf 'dir %s\n' "$dir"
 }
 
 # agy, default budget, busy footer renders at the 5th poll (the 7th plain
@@ -179,7 +180,7 @@ pass "agy typed send: long-brief render (15th poll) still confirms idle-to-busy"
 out=$(run_send claude 7)
 expect_code 1 "$(printf '%s' "$out" | sed -n 's/^rc //p')" \
   "claude typed send onto the agy idle shape is refused"
-case_dir=$(ls -td "$TMP_ROOT"/case-* | head -1)
+case_dir=$(printf '%s' "$out" | sed -n 's/^dir //p')
 grep -q 'blocked on a prompt: the prompt is not a recognised empty prompt' "$case_dir/err" \
   || fail "claude typed send: expected the screen guard refusal, got: $(cat "$case_dir/err")"
 [ -s "$case_dir/sleep.log" ] && fail "claude typed send: the refused send still slept (submitted)"
@@ -192,7 +193,7 @@ pass "claude typed send: the agy idle shape is refused untyped (agy recognition 
 out=$(PRE_FIXTURE="$ROOT/tests/fixtures/send-guard/claude-idle.txt" run_send claude 7)
 expect_code 1 "$(printf '%s' "$out" | sed -n 's/^rc //p')" \
   "claude typed send keeps the shared 3-retry default"
-case_dir=$(ls -td "$TMP_ROOT"/case-* | head -1)
+case_dir=$(printf '%s' "$out" | sed -n 's/^dir //p')
 grep -q 'verdict=unknown' "$case_dir/err" || fail "claude typed send: expected verdict=unknown refusal, got: $(cat "$case_dir/err")"
 waits=$(grep -c '^0\.4$' "$case_dir/sleep.log" || true)
 [ "$waits" = 3 ] || fail "claude typed send: expected the shared 3-retry budget (3 x 0.4s), got $waits"
