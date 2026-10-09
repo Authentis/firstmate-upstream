@@ -21,7 +21,10 @@
 #       exit, and is reported as 124 too. Only 137 raised by GNU/BSD timeout's
 #       own KILL escalation, with no status recorded by the bounded command,
 #       also collapses into 124: there it means the bound fired, not that the
-#       command chose to die.
+#       command chose to die. While it runs, the caller's TERM/INT/HUP traps
+#       are replaced: such a signal stops the bounded group, removes the
+#       runner's temp files, and exits the calling shell with 128+n (its EXIT
+#       trap still runs; its own signal traps do not).
 #
 #   fm_exec_timed <seconds> <grace-seconds> <command> [args...]
 #       Replaces the calling shell with the bounded command, so it must be the
