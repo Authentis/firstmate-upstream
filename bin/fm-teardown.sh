@@ -6,11 +6,14 @@
 # since secondmates are not backlog items), then refresh/prune the project's
 # clone for PR-based ship tasks.
 # A task record carrying lease_id= (a slot taken by `treehouse get --lease`, see
-# bin/fm-spawn.sh) is returned with `treehouse return --force --if-lease-id <id>`:
-# the landed-work and dirt checks above still decide whether to return at all,
-# and the lease binding only refuses to release a slot whose lease changed. That
-# refusal is reported, aborts teardown with the record and worktree kept, and is
-# never retried or forced; a record with no lease_id= returns unbound as before.
+# bin/fm-spawn.sh) is handled in two lease-bound steps. Before any destructive
+# step, a read-only `treehouse status --json` must still show that lease on the
+# slot; a changed, missing, or unreadable lease refuses with nothing touched.
+# The return itself is `treehouse return --if-lease-id <id>` with no --force, so
+# a slot that became dirty after the safety checks is refused by treehouse
+# instead of reset. A refusal is reported, aborts teardown with the record kept,
+# and is never retried or forced; a record with no lease_id= returns unbound
+# (`--force`) as before.
 # An endpoint whose close could not do its job REFUSES before any record naming
 # it is removed: those records are the only thing that names what survived, so
 # reporting such a close as a completed cleanup strands the endpoint instead of
@@ -1810,6 +1813,41 @@ cleanup_stale_lock_for_safety_check() {
 }
 
 TEARDOWN_RETURN_LEASE_ID=
+# A leased slot (lease_id= in the record) is verified read-only BEFORE any
+# destructive step: treehouse must still report this task's lease on this path.
+# A slot re-leased outside Firstmate, or no longer leased, belongs to someone
+# else now, so teardown stops with a report instead of reaping processes,
+# detaching HEAD, deleting the branch, or removing hooks inside it.
+teardown_verify_slot_lease() {
+  local lease path_in_pool lease_in_pool real json found=0
+  lease=$(meta_value "$META" lease_id)
+  [ -n "$lease" ] || return 0
+  case "$lease" in
+  *[!A-Za-z0-9_-]*)
+    echo "REFUSED: the task record's lease_id is not a valid lease identity; nothing was changed" >&2
+    return 1
+    ;;
+  esac
+  [ -d "$WT" ] || return 0
+  real=$(canonical_existing_dir "$WT") || real=$WT
+  if ! command -v jq >/dev/null 2>&1 || ! json=$( cd "$PROJ" && treehouse status --json 2>/dev/null </dev/null ); then
+    echo "REFUSED: cannot read the Treehouse pool status to confirm lease $lease still holds $WT; nothing was changed" >&2
+    return 1
+  fi
+  while IFS=$'\t' read -r path_in_pool lease_in_pool; do
+    [ -n "$path_in_pool" ] || continue
+    [ "$(canonical_existing_dir "$path_in_pool" 2>/dev/null || printf '%s' "$path_in_pool")" = "$real" ] || continue
+    found=1
+    [ "$lease_in_pool" = "$lease" ] && { TEARDOWN_RETURN_LEASE_ID=$lease; return 0; }
+  done < <(printf '%s' "$json" | jq -r '.[] | [.path, (.lease_id // "")] | @tsv' 2>/dev/null)
+  if [ "$found" = 1 ]; then
+    echo "REFUSED: Treehouse no longer reports lease $lease on $WT (the slot's lease changed); the slot may belong to someone else now, so nothing was reaped, detached, deleted, or returned" >&2
+  else
+    echo "REFUSED: Treehouse does not list $WT in its pool, so lease $lease cannot be confirmed; nothing was changed" >&2
+  fi
+  return 1
+}
+
 # Return a worktree/home via `treehouse return --force`, tolerating a transient or
 # stale git index.lock left by a killed crew process. See the script header.
 teardown_treehouse_return() {
@@ -1818,12 +1856,15 @@ teardown_treehouse_return() {
   # A task whose slot was taken as a lease (lease_id= in its record) returns
   # exactly that lease, so a slot since handed to anyone else is refused rather
   # than released. TEARDOWN_RETURN_LEASE_ID is set only for the task's own slot.
-  local -a lease_args=()
-  [ -z "$TEARDOWN_RETURN_LEASE_ID" ] || lease_args=(--if-lease-id "$TEARDOWN_RETURN_LEASE_ID")
+  # A lease-bound return never forces: treehouse then keeps its own confirmation
+  # before discarding changes, which a non-interactive teardown cannot give, so a
+  # slot that became dirty after the safety checks is refused rather than reset.
+  local -a return_args=(--force)
+  [ -z "$TEARDOWN_RETURN_LEASE_ID" ] || return_args=(--if-lease-id "$TEARDOWN_RETURN_LEASE_ID")
 
   # Capture stdout+stderr so non-lock failures stay visible and lock failures can
   # be matched by signature even when the lock file is already gone mid-check.
-  if out=$( ( cd "$cd_dir" && treehouse return --force "${lease_args[@]}" "$dir" ) 2>&1 ); then
+  if out=$( ( cd "$cd_dir" && treehouse return "${return_args[@]}" "$dir" </dev/null ) 2>&1 ); then
     [ -n "$out" ] && printf '%s\n' "$out"
     return 0
   fi
@@ -1831,7 +1872,7 @@ teardown_treehouse_return() {
 
   if ! treehouse_return_is_index_lock_error "$out"; then
     if [ -n "$TEARDOWN_RETURN_LEASE_ID" ]; then
-      echo "teardown: $label return was not performed; treehouse refused the lease-bound return of lease $TEARDOWN_RETURN_LEASE_ID (a lease precondition refusal means the slot's lease changed); the slot was not released and nothing was forced" >&2
+      echo "teardown: $label return was not performed; treehouse refused the lease-bound return of lease $TEARDOWN_RETURN_LEASE_ID (its lease changed, or the slot was no longer clean); the slot was not released and nothing was forced" >&2
     fi
     return 1
   fi
@@ -1851,7 +1892,7 @@ teardown_treehouse_return() {
     echo "teardown: $label return failed with transient git lock ($lock_desc); waiting ${TREEHOUSE_RETURN_LOCK_RETRY_WAIT_SECS}s and retrying ($attempt/${max_retries})" >&2
     sleep "$TREEHOUSE_RETURN_LOCK_RETRY_WAIT_SECS"
 
-    if out=$( ( cd "$cd_dir" && treehouse return --force "${lease_args[@]}" "$dir" ) 2>&1 ); then
+    if out=$( ( cd "$cd_dir" && treehouse return "${return_args[@]}" "$dir" </dev/null ) 2>&1 ); then
       [ -n "$out" ] && printf '%s\n' "$out"
       echo "teardown: $label return succeeded on retry; lock cleared on its own" >&2
       return 0
@@ -1878,7 +1919,7 @@ teardown_treehouse_return() {
           return 1
         fi
       fi
-      if out=$( ( cd "$cd_dir" && treehouse return --force "${lease_args[@]}" "$dir" ) 2>&1 ); then
+      if out=$( ( cd "$cd_dir" && treehouse return "${return_args[@]}" "$dir" </dev/null ) 2>&1 ); then
         [ -n "$out" ] && printf '%s\n' "$out"
         echo "teardown: $label return succeeded after stale-lock cleanup" >&2
         return 0
@@ -3565,6 +3606,10 @@ else
   fi
 fi
 
+if [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ] && teardown_owns_worktree; then
+  teardown_verify_slot_lease || exit 1
+fi
+
 # Every landed/discard-work refusal above has now passed (or --force skipped
 # them). Fix 1 and Fix 2 (see script header) run here, unconditionally on
 # --force, and before ANY destructive step below - a still-parked run or a
@@ -3630,13 +3675,6 @@ elif [ -d "$WT" ] && [ "$KIND" != secondmate ]; then
   if [ "$FORCE" != "--force" ] && [ "$KIND" != scout ] && [ "$KIND" != secondmate ]; then
     post_lock_cleanup_check=validate_worktree_teardown_safety
   fi
-  TEARDOWN_RETURN_LEASE_ID=$(meta_value "$META" lease_id)
-  case "$TEARDOWN_RETURN_LEASE_ID" in
-  *[!A-Za-z0-9_-]*)
-    echo "error: the task record's lease_id is not a valid lease identity; teardown aborted without returning worktree $WT" >&2
-    exit 1
-    ;;
-  esac
   teardown_treehouse_return "$WT" "$PROJ" "worktree" "$post_lock_cleanup_check" || {
     echo "error: treehouse return failed for worktree $WT; teardown aborted" >&2
     exit 1

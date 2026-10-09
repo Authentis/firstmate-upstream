@@ -17,10 +17,17 @@
 # construction:
 #   - a scan runs at most once per FM_PR_DISCOVER_SECS (default 600, valid
 #     60..3600), gated by the mtime of state/.pr-discover;
-#   - a scan makes at most FM_PR_DISCOVER_MAX forge queries (default 4, valid
-#     1..20), each bounded by FM_PR_DISCOVER_QUERY_SECS (default 20, valid
-#     1..60), and resumes after the last candidate it visited (the cursor lives
-#     in that same marker) so a long candidate list is covered over several scans;
+#   - a scan visits at most FM_PR_DISCOVER_MAX candidates (default 4, valid
+#     1..20) and resumes after the last one it visited (the cursor lives in
+#     that same marker) so a long candidate list is covered over several scans;
+#   - each candidate costs one `gh pr list` bounded by FM_PR_DISCOVER_QUERY_SECS
+#     (default 20, valid 1..60) plus, only when a PR is found, one registration
+#     through fm-pr-check.sh (which makes its own gh reads) bounded by
+#     FM_PR_DISCOVER_CHECK_SECS (default 30, valid 1..120), and the whole scan
+#     stops starting new work once FM_PR_DISCOVER_BUDGET_SECS (default 45,
+#     valid 5..180) have elapsed, so a stalled forge call can never hold the
+#     watcher: every call is cut off at the lesser of its own bound and what
+#     is left of the budget;
 #   - only GitHub is queried: `gh pr list --head <branch> --state all` run from
 #     the project clone. A task with no branch=, a scout, a secondmate, a
 #     local-only task, a task whose project is gone, or a record that already
@@ -35,7 +42,7 @@ SCRIPT_DIR="$(d=${BASH_SOURCE[0]%/*}; [ "$d" != "${BASH_SOURCE[0]}" ] || d=.; cd
 FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}}"
 STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 MARKER="$STATE/.pr-discover"
-PR_CHECK="${FM_PR_DISCOVER_CHECK_BIN:-$SCRIPT_DIR/fm-pr-check.sh}"
+PR_CHECK="$SCRIPT_DIR/fm-pr-check.sh"
 
 # shellcheck source=bin/fm-pr-lib.sh
 . "$SCRIPT_DIR/fm-pr-lib.sh"
@@ -59,7 +66,11 @@ MAX=${FM_PR_DISCOVER_MAX:-4}
 QUERY_SECS=${FM_PR_DISCOVER_QUERY_SECS:-20}
 bounded_int FM_PR_DISCOVER_SECS "$SECS" 60 3600
 bounded_int FM_PR_DISCOVER_MAX "$MAX" 1 20
+CHECK_SECS=${FM_PR_DISCOVER_CHECK_SECS:-30}
+BUDGET_SECS=${FM_PR_DISCOVER_BUDGET_SECS:-45}
 bounded_int FM_PR_DISCOVER_QUERY_SECS "$QUERY_SECS" 1 60
+bounded_int FM_PR_DISCOVER_CHECK_SECS "$CHECK_SECS" 1 120
+bounded_int FM_PR_DISCOVER_BUDGET_SECS "$BUDGET_SECS" 5 180
 
 if [ "$(uname)" = Darwin ]; then
   file_mtime() { /usr/bin/stat -f %m "$1" 2>/dev/null; }
@@ -101,10 +112,20 @@ for meta in "$STATE"/*.meta; do
 done
 candidates+=("${wrapped[@]+"${wrapped[@]}"}")
 
+# bound_for <own-bound>: the lesser of the bound and the budget left, or empty
+# (and failure) when the budget is spent.
+deadline=$(( $(date +%s) + BUDGET_SECS ))
+bound_for() {
+  local left=$(( deadline - $(date +%s) ))
+  [ "$left" -ge 1 ] || return 1
+  [ "$1" -le "$left" ] && printf '%s\n' "$1" || printf '%s\n' "$left"
+}
+
 queried=0
 last_visited=$cursor
 for id in "${candidates[@]+"${candidates[@]}"}"; do
   [ "$queried" -lt "$MAX" ] || break
+  bound_for "$QUERY_SECS" >/dev/null || break
   meta="$STATE/$id.meta"
   branch=$(meta_get "$meta" branch)
   project=$(meta_get "$meta" project)
@@ -112,7 +133,7 @@ for id in "${candidates[@]+"${candidates[@]}"}"; do
   [ -d "$project" ] || { last_visited=$id; continue; }
   queried=$((queried + 1))
   last_visited=$id
-  out=$(cd "$project" && fm_run_timed "$QUERY_SECS" gh pr list --head "$branch" --state all --limit 5 \
+  out=$(cd "$project" && fm_run_timed "$(bound_for "$QUERY_SECS")" gh pr list --head "$branch" --state all --limit 5 \
     --json url,state,headRefName,baseRefName,isCrossRepository 2>/dev/null) || continue
   url=$(printf '%s\n' "$out" | jq -r --arg b "$branch" --arg base "$base" '
     [ .[] | select(.headRefName == $b and (.isCrossRepository | not)
@@ -123,7 +144,8 @@ for id in "${candidates[@]+"${candidates[@]}"}"; do
   [ -n "$url" ] && fm_pr_url_parse "$url" && [ "$FM_PR_PROVIDER" = github ] || continue
   # Re-read the record: the worker or firstmate may have recorded it meanwhile.
   [ -z "$(meta_get "$meta" pr)" ] || continue
-  if "$PR_CHECK" "$id" "$FM_PR_URL" >/dev/null 2>&1; then
+  check_bound=$(bound_for "$CHECK_SECS") || break
+  if fm_run_timed "$check_bound" "$PR_CHECK" "$id" "$FM_PR_URL" >/dev/null 2>&1; then
     printf 'recorded %s %s\n' "$id" "$FM_PR_URL"
   fi
 done

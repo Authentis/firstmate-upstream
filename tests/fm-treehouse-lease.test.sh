@@ -22,7 +22,9 @@ TMP_ROOT=$(fm_test_tmproot fm-treehouse-lease)
 # make_fake_treehouse <fakebin>
 # Env the fake reads: FM_FAKE_TH_LOG (one line per invocation),
 # FM_FAKE_LEASE_PATH / FM_FAKE_LEASE_ID (what `get --lease --json` reports),
-# FM_FAKE_SLOT_LEASE (the lease currently on the slot, for return),
+# FM_FAKE_SLOT_LEASE (the lease currently on the slot, for status and return),
+# FM_FAKE_POOL_PATH (the slot path `status --json` lists; unset lists nothing),
+# FM_FAKE_SLOT_DIRTY=1 (a slot treehouse will not return without --force),
 # FM_FAKE_TH_NOLEASE=1 (an old treehouse whose help lacks --lease/--json).
 make_fake_treehouse() {
   cat > "$1/treehouse" <<'SH'
@@ -44,15 +46,30 @@ case "${1:-}" in
         "$FM_FAKE_LEASE_PATH" "$FM_FAKE_LEASE_ID"
     fi
     exit 0 ;;
+  status)
+    [ "${FM_FAKE_TH_STATUS_FAIL:-0}" != 1 ] || exit 1
+    if [ -n "${FM_FAKE_POOL_PATH:-}" ]; then
+      printf '[{"name":"1","path":"%s","status":"leased","lease_id":"%s"}]\n' \
+        "$FM_FAKE_POOL_PATH" "${FM_FAKE_SLOT_LEASE:-}"
+    else
+      echo '[]'
+    fi
+    exit 0 ;;
   return)
     shift
     want=
+    force=0
     while [ "$#" -gt 0 ]; do
       case "$1" in
         --if-lease-id) want=$2; shift ;;
+        --force) force=1 ;;
       esac
       shift
     done
+    if [ "${FM_FAKE_SLOT_DIRTY:-0}" = 1 ] && [ "$force" = 0 ]; then
+      echo "worktree has uncommitted changes; refusing to discard without confirmation" >&2
+      exit 1
+    fi
     if [ -n "$want" ] && [ "$want" != "${FM_FAKE_SLOT_LEASE:-}" ]; then
       echo "failed to return worktree: lease precondition failed: lease identity does not match worktree" >&2
       exit 1
@@ -206,22 +223,31 @@ run_teardown() {
   local case_dir=$1
   FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$case_dir/state" \
     FM_DATA_OVERRIDE="$case_dir/data" FM_CONFIG_OVERRIDE="$case_dir/config" \
-    FM_TEST_UNUSED=1 FM_FAKE_TH_LOG="$case_dir/treehouse.log" \
+    FM_FAKE_POOL_PATH="${FM_FAKE_POOL_PATH-$case_dir/wt}" FM_FAKE_TH_LOG="$case_dir/treehouse.log" \
     PATH="$case_dir/fakebin:$PATH" \
     "$TEARDOWN" task-x1 2>&1
 }
 
-test_teardown_returns_exactly_the_recorded_lease() {
+add_hook() { # <case>: a hook file teardown removes only once it proceeds
+  mkdir -p "$1/wt/.claude"
+  printf '{}\n' > "$1/wt/.claude/settings.local.json"
+}
+
+wt_branch() { git -C "$1/wt" rev-parse --abbrev-ref HEAD; }
+
+test_teardown_returns_exactly_the_recorded_lease_without_force() {
   local case_dir out status
   case_dir=$(make_teardown_case td-lease)
   write_teardown_meta "$case_dir" "lease_id=lease0123abcd"
   out=$(FM_FAKE_SLOT_LEASE=lease0123abcd run_teardown "$case_dir")
   status=$?
   expect_code 0 "$status" "teardown of a leased task should return its slot"$'\n'"$out"
-  assert_grep "return --force --if-lease-id lease0123abcd $case_dir/wt" "$case_dir/treehouse.log" \
+  assert_grep "return --if-lease-id lease0123abcd $case_dir/wt" "$case_dir/treehouse.log" \
     "teardown did not return the slot bound to its recorded lease"
+  ! grep -F -- "return" "$case_dir/treehouse.log" | grep -F -- "--force" >/dev/null \
+    || fail "a lease-bound return must never force"
   assert_absent "$case_dir/state/task-x1.meta" "a returned task keeps no live record"
-  pass "teardown returns the slot bound to the lease id its record carries"
+  pass "teardown returns the slot bound to its recorded lease, without --force"
 }
 
 test_teardown_without_a_lease_returns_as_before() {
@@ -235,43 +261,85 @@ test_teardown_without_a_lease_returns_as_before() {
     "teardown did not return the slot"
   assert_no_grep "if-lease-id" "$case_dir/treehouse.log" \
     "a record with no lease must not invent a lease-bound return"
+  assert_no_grep "status" "$case_dir/treehouse.log" "a record with no lease needs no lease query"
   pass "a record with no lease id keeps today's unbound return"
 }
 
-test_teardown_reports_a_changed_lease_and_forces_nothing() {
-  local case_dir out status calls
+test_changed_lease_stops_teardown_before_anything_destructive() {
+  local case_dir out status
   case_dir=$(make_teardown_case td-changed)
   write_teardown_meta "$case_dir" "lease_id=lease0123abcd"
+  add_hook "$case_dir"
   out=$(FM_FAKE_SLOT_LEASE=someone-elses-lease run_teardown "$case_dir")
   status=$?
-  [ "$status" -ne 0 ] || fail "a return refused for a changed lease must abort teardown"$'\n'"$out"
-  assert_contains "$out" "lease precondition failed" "teardown hid treehouse's refusal"
+  [ "$status" -ne 0 ] || fail "a changed lease must abort teardown"$'\n'"$out"
+  assert_contains "$out" "lease changed" "teardown did not report that the lease changed"
+  assert_present "$case_dir/state/task-x1.meta" "a refused teardown must keep the task record"
+  [ "$(wt_branch "$case_dir")" = fm/task-x1 ] || fail "a changed lease must leave the branch checked out"
+  git -C "$case_dir/wt" rev-parse --verify -q fm/task-x1 >/dev/null || fail "the task branch must survive a refused teardown"
+  assert_present "$case_dir/wt/.claude/settings.local.json" "the worker's hooks must survive a refused teardown"
+  assert_no_grep "return" "$case_dir/treehouse.log" "no return may be attempted for a slot whose lease changed"
+  pass "a changed lease stops teardown before it touches the branch, hooks, or slot"
+}
+
+test_unconfirmable_lease_stops_teardown_before_anything_destructive() {
+  local case_dir out status mode
+  for mode in absent unreadable; do
+    case_dir=$(make_teardown_case "td-unconfirmed-$mode")
+    write_teardown_meta "$case_dir" "lease_id=lease0123abcd"
+    add_hook "$case_dir"
+    if [ "$mode" = absent ]; then
+      out=$(FM_FAKE_POOL_PATH='' FM_FAKE_SLOT_LEASE=lease0123abcd run_teardown "$case_dir")
+    else
+      out=$(FM_FAKE_TH_STATUS_FAIL=1 FM_FAKE_SLOT_LEASE=lease0123abcd run_teardown "$case_dir")
+    fi
+    status=$?
+    [ "$status" -ne 0 ] || fail "a lease treehouse cannot confirm ($mode) must abort teardown"$'\n'"$out"
+    assert_present "$case_dir/state/task-x1.meta" "$mode: the task record must be kept"
+    [ "$(wt_branch "$case_dir")" = fm/task-x1 ] || fail "$mode: the branch must stay checked out"
+    assert_present "$case_dir/wt/.claude/settings.local.json" "$mode: the hooks must be kept"
+    assert_no_grep "return" "$case_dir/treehouse.log" "$mode: no return may be attempted"
+  done
+  pass "a lease treehouse does not list or cannot report stops teardown before anything destructive"
+}
+
+test_dirty_slot_return_is_refused_not_forced() {
+  local case_dir out status calls
+  case_dir=$(make_teardown_case td-dirty)
+  write_teardown_meta "$case_dir" "lease_id=lease0123abcd"
+  out=$(FM_FAKE_SLOT_DIRTY=1 FM_FAKE_SLOT_LEASE=lease0123abcd run_teardown "$case_dir")
+  status=$?
+  [ "$status" -ne 0 ] || fail "a return treehouse refuses must abort teardown"$'\n'"$out"
   assert_contains "$out" "nothing was forced" "teardown did not report the refusal as unforced"
   assert_present "$case_dir/state/task-x1.meta" "a refused return must keep the task record"
-  assert_present "$case_dir/wt" "a refused return must leave the worktree in place"
   calls=$(grep -c '^return ' "$case_dir/treehouse.log")
-  [ "$calls" -eq 1 ] || fail "a lease refusal must not be retried or worked around ($calls return calls)"
-  pass "a return refused because the lease changed is reported, kept, and never forced"
+  [ "$calls" -eq 1 ] || fail "a refused lease-bound return must not be retried or forced ($calls return calls)"
+  ! grep -F -- "--force" "$case_dir/treehouse.log" >/dev/null || fail "a refused lease-bound return must never be forced"
+  pass "a slot treehouse will not return unforced is reported and left, never forced"
 }
 
 test_teardown_refuses_a_malformed_lease_id() {
   local case_dir out status
   case_dir=$(make_teardown_case td-malformed)
   write_teardown_meta "$case_dir" 'lease_id=bad;touch pwned'
+  add_hook "$case_dir"
   out=$(run_teardown "$case_dir")
   status=$?
   [ "$status" -ne 0 ] || fail "a malformed lease identity must abort teardown"$'\n'"$out"
   assert_absent "$case_dir/treehouse.log" "teardown must not call treehouse with a malformed lease id"
+  assert_present "$case_dir/wt/.claude/settings.local.json" "a refused teardown must leave the hooks"
   assert_present "$case_dir/state/task-x1.meta" "a refused teardown must keep the task record"
-  pass "a malformed lease id is refused before any treehouse call"
+  pass "a malformed lease id is refused before any treehouse call or destructive step"
 }
 
 test_spawn_takes_a_lease_and_records_its_id
 test_spawn_without_lease_support_keeps_the_interactive_path
 test_aborted_spawn_returns_its_unrecorded_lease
-test_teardown_returns_exactly_the_recorded_lease
+test_teardown_returns_exactly_the_recorded_lease_without_force
 test_teardown_without_a_lease_returns_as_before
-test_teardown_reports_a_changed_lease_and_forces_nothing
+test_changed_lease_stops_teardown_before_anything_destructive
+test_unconfirmable_lease_stops_teardown_before_anything_destructive
+test_dirty_slot_return_is_refused_not_forced
 test_teardown_refuses_a_malformed_lease_id
 
 echo "# all fm-treehouse-lease tests passed"
