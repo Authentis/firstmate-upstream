@@ -109,8 +109,9 @@ fm_sweep_timeout_tmp_once() {
   fm_sweep_stale_tmp fm-bash-timeout-command
 }
 
-# Signal handling for the two runners: clean the temp paths and the bounded
-# group promptly, restore the caller's traps, and exit with 128+signal.
+# Signal handling for the two runners: clean the temp paths, stop the bounded
+# group (and the bash watchdog group) promptly, restore the caller's traps,
+# and exit with 128+signal.
 _fm_timeout_signal_cleanup() {  # <signal-number>
   local group
   for group in ${_FM_TMO_GROUP:-}; do
