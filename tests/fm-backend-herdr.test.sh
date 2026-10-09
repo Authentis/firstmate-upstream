@@ -127,11 +127,12 @@ herdr_submit_claude_prefix() {  # <resp-dir> <typed-text>
 }
 
 # herdr_submit_preflight_prefix: fm_backend_send_text_submit reads the composer
-# once before the adapter types. That read is call 1 and shows an empty
-# composer, so every adapter call moves one slot later.
+# and then the screen once before the adapter types. Those reads are calls 1
+# and 2 and show an empty composer, so every adapter call moves two slots later.
 herdr_submit_preflight_prefix() {  # <resp-dir>
-  herdr_submit_shift "$1" 1
+  herdr_submit_shift "$1" 2
   printf '  \xe2\x9d\xaf\n' > "$1/1.out"
+  printf '  \xe2\x9d\xaf\n' > "$1/2.out"
 }
 
 # make_herdr_server_env_fakebin: a stateful server stub that records only the

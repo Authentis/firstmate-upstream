@@ -81,7 +81,9 @@ case "${1:-}" in
     for a in "$@"; do case "$a" in *cursor_y*) printf '1\n'; exit 0 ;; esac; done
     printf 'fakepane\n'; exit 0 ;;
   capture-pane)
-    if [ "${FM_FAKE_TMUX_PENDING:-0}" = 1 ]; then
+    # A pending pane shows the typed text left in the composer, so the
+    # pre-typing read still sees a plain empty prompt.
+    if [ "${FM_FAKE_TMUX_PENDING:-0}" = 1 ] && [ -s "$FM_SEND_LOG" ]; then
       printf '╭────────────╮\n│ > steer    │\n╰────────────╯\n'
     else
       printf '╭────╮\n│    │\n╰────╯\n'

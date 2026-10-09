@@ -93,15 +93,15 @@ lib() {  # <state> <function> [args...]
 }
 
 # submit <dir> <fixture> <harness> -> runs the shared submit primitive against
-# the fake pane; sets SUBMIT_RC / SUBMIT_ERR / SUBMIT_OUT and the send log.
+# the fake pane; sets SUBMIT_RC / SUBMIT_ERR and the send log.
 submit() {
   local dir=$1 fixture=$2 harness=$3 cursor
   cursor=$(composer_row "$fixture")
   : > "$dir/send.log"
   SUBMIT_RC=0
-  SUBMIT_OUT=$(PATH="$dir/fakebin:$PATH" FM_SEND_LOG="$dir/send.log" FM_FAKE_SCREEN="$fixture" \
+  PATH="$dir/fakebin:$PATH" FM_SEND_LOG="$dir/send.log" FM_FAKE_SCREEN="$fixture" \
     FM_FAKE_CURSOR="${cursor:-0}" FM_FAKE_COMM="$harness" lib "$dir/state" fm_backend_send_text_submit \
-    tmux sess:fm-t1 'hello worker' 1 0 0 fm-t1 "$harness" 2> "$dir/err.log") || SUBMIT_RC=$?
+    tmux sess:fm-t1 'hello worker' 1 0 0 fm-t1 "$harness" > /dev/null 2> "$dir/err.log" || SUBMIT_RC=$?
   SUBMIT_ERR=$(cat "$dir/err.log")
 }
 

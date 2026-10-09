@@ -2301,6 +2301,8 @@ test_config_reread_serializes_concurrent_pushes() {
   w=$(new_world config-reread-serialized-pushes)
   head=$(git -C "$w/main" rev-parse HEAD)
   add_sm_worktree "$w" sm "$head"
+  # The nudge needs a known harness to prove the stub's prompt empty.
+  printf 'harness=claude\n' >> "$w/home/state/sm.meta"
   mkdir -p "$w/sm/config" "$w/sm/state"
   printf 'old\n' > "$w/sm/config/crew-harness"
   printf 'one\n' > "$w/home/config/crew-harness"
