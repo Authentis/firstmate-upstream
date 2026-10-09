@@ -528,6 +528,41 @@ SH
   pass "inbox: a writer retries when a competing lock vanishes after its failed claim"
 }
 
+test_lock_wait_default_is_thirty_seconds_and_env_wins() {
+  local dir lock marker holder i rc start elapsed
+  dir="$TMP_ROOT/lock-wait-default"
+  mkdir -p "$dir"
+  lock="$dir/.held.lock"
+  marker="$dir/held"
+  bash -c '
+    . "$1"
+    fm_lock_acquire_wait "$2"
+    touch "$3"
+    sleep 8
+    fm_lock_release "$2"
+  ' _ "$ROOT/bin/fm-wake-lib.sh" "$lock" "$marker" &
+  holder=$!
+  i=0
+  while [ ! -e "$marker" ] && [ "$i" -lt 100 ]; do
+    sleep 0.05
+    i=$((i + 1))
+  done
+  [ -e "$marker" ] || { kill "$holder" 2>/dev/null; fail "the lock holder did not start"; }
+  start=$(date +%s)
+  FM_TASK_INBOX_LOCK_WAIT_SECS=1 inbox_lib "$dir" fm_task_inbox_lock_acquire "$lock"
+  rc=$?
+  elapsed=$(( $(date +%s) - start ))
+  [ "$rc" -ne 0 ] && [ "$elapsed" -lt 5 ] \
+    || fail "FM_TASK_INBOX_LOCK_WAIT_SECS=1 should override the default and give up fast (rc=$rc, ${elapsed}s)"
+  env -u FM_TASK_INBOX_LOCK_WAIT_SECS bash -c '
+    . "$1"
+    fm_task_inbox_lock_acquire "$2"
+  ' _ "$ROOT/bin/fm-task-inbox-lib.sh" "$lock" \
+    || { kill "$holder" 2>/dev/null; fail "the default wait should outlast an 8s lock hold (old default was 5s)"; }
+  wait "$holder" 2>/dev/null
+  pass "inbox: lock wait defaults to 30s and the env override still wins"
+}
+
 test_ladder_writes_ignore_vanished_inbox() {
   local state rec
   state="$TMP_ROOT/vanished/state"; mkdir -p "$state"
@@ -1228,3 +1263,4 @@ test_watcher_retry_keeps_a_newer_mark
 test_watcher_escalates_once_after_budget
 test_watcher_dead_pane_escalates_once_without_ringing
 test_watcher_dead_pane_ignores_stale_busy_state
+test_lock_wait_default_is_thirty_seconds_and_env_wins
