@@ -1,0 +1,13 @@
+[driver] competing remote script holds the rsm metadata lock for 12s
+[driver] code=change env: <defaults>
+[driver] fm-send rc=0 elapsed=12s ssh_attempts=1
+[driver] fm-send stderr:
+    ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    ●  WATCHER DOWN - SUPERVISION IS OFF
+    ●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+    ●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+    ●  This is a supervision warning only; the requested message WILL still be sent.
+    ●  watcher supervision needs Stop-owned automatic recovery; inspect the hook registration and startup status before ending the turn.
+    ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    notice: doorbell not typed because the agent in fm-remote:p1 has exited; the steer is durably recorded at /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-send-remote-delivery.YOKMbF/hold12-change-rhome/state/parent-route/rsm.inbox/001.msg for recovery
+[driver] remote inbox records: 1

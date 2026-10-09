@@ -1,0 +1,14 @@
+[driver] competing remote script holds the rsm metadata lock for 12s
+[driver] code=base-8d9c436a env: <defaults>
+[driver] fm-send rc=1 elapsed=6s ssh_attempts=1
+[driver] fm-send stderr:
+    ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    ●  WATCHER DOWN - SUPERVISION IS OFF
+    ●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+    ●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+    ●  This is a supervision warning only; the requested message WILL still be sent.
+    ●  watcher supervision needs Stop-owned automatic recovery; inspect the hook registration and startup status before ending the turn.
+    ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    error: remote secondmate endpoint metadata could not be locked for final delivery validation
+    error: steer not sent to remote secondmate rsm (the remote steering-inbox record could not be written; the remote leg's stderr above has the reason)
+[driver] remote inbox records: 0

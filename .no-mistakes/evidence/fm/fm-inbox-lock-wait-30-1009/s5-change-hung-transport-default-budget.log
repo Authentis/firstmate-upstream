@@ -1,0 +1,13 @@
+[driver] code=change env: FM_FAKE_SSH_HANG=90
+[driver] fm-send rc=1 elapsed=62s ssh_attempts=1
+[driver] fm-send stderr:
+    ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    ●  WATCHER DOWN - SUPERVISION IS OFF
+    ●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+    ●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+    ●  This is a supervision warning only; the requested message WILL still be sent.
+    ●  watcher supervision needs Stop-owned automatic recovery; inspect the hook registration and startup status before ending the turn.
+    ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    error: steer to remote secondmate rsm is unconfirmed (the remote transport did not complete within its 60s budget; remote completion unknown). Only the correlation-reusing resend below is idempotent and lands on the same remote inbox record:
+    FM_HOME=/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-send-remote-delivery.ptAQSW/hang-change-13347 FM_PENDING_REPLY_EXISTING_CORR=2f7f323bbd189284 /Users/lundi/.no-mistakes/worktrees/0d3d213d42f1/01M4H2QP7S2E45DNCWDPEADWFC/bin/fm-send.sh rsm please\ rename\ the\ metric
+[driver] remote inbox records: 0
