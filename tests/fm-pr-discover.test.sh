@@ -186,7 +186,8 @@ test_registration_makes_bounded_reads_and_never_arms_a_second_poll() {
   run_scan "$c" >/dev/null
   [ "$(wc -l < "$c/gh.log" | tr -d ' ')" = 3 ] || fail "a recorded task must cost no further forge call"
   cmp -s "$c/first-poll.sh" "$c/state/t1.check.sh" || fail "the merge poll must not be re-armed"
-  [ "$(ls "$c"/state/t1.check.sh* | wc -l | tr -d ' ')" = 1 ] || fail "there must be exactly one merge poll"
+  set -- "$c"/state/t1.check.sh*
+  [ "$#" -eq 1 ] || fail "there must be exactly one merge poll"
   pass "one list and two registration reads arm one poll, and a later scan adds none"
 }
 
