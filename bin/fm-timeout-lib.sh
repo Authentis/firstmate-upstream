@@ -112,7 +112,10 @@ fm_sweep_timeout_tmp_once() {
 # Signal handling for the two runners: clean the temp paths and the bounded
 # group promptly, restore the caller's traps, and exit with 128+signal.
 _fm_timeout_signal_cleanup() {  # <signal-number>
-  [ -z "${_FM_TMO_GROUP:-}" ] || kill -TERM -- "-$_FM_TMO_GROUP" 2>/dev/null || true
+  local group
+  for group in ${_FM_TMO_GROUP:-}; do
+    kill -TERM -- "-$group" 2>/dev/null || true
+  done
   # shellcheck disable=SC2086  # space-separated mktemp paths, no spaces inside
   [ -z "${_FM_TMO_FILES:-}" ] || rm -f -- $_FM_TMO_FILES 2>/dev/null || true
   eval "${_FM_TMO_SAVED_TRAPS:-trap - TERM INT HUP}" 2>/dev/null || true
@@ -161,6 +164,7 @@ fm_run_bash_timeout() {
     exit 124
   ) &
   watchdog_pid=$!
+  _FM_TMO_GROUP="$child_pid $watchdog_pid"
   [ "$monitor_was_on" -eq 1 ] || set +m
 
   if wait "$child_pid" 2>/dev/null; then

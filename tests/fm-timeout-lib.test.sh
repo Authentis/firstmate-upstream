@@ -402,7 +402,8 @@ printf '#!/bin/sh\nshift 3\nexec "$@"\n' > "$EXEC_RUNNER/timeout"
 chmod +x "$EXEC_RUNNER/timeout"
 
 # term_leaves_no_tmp <label> <mechanism-override>: TERM a bounded run mid-flight
-# and assert it exits 143 with its own temp path gone.
+# and assert it exits 143 with its own temp path gone, and still gone after the
+# bound would have fired.
 term_leaves_no_tmp() {
   local label=$1 override=$2 tmpd rc=0 pid i=0
   tmpd="$TMP_ROOT/term-$label"
@@ -410,7 +411,7 @@ term_leaves_no_tmp() {
   (
     . "$ROOT/bin/fm-timeout-lib.sh"
     export TMPDIR="$tmpd" FM_TIMEOUT_MECHANISM_OVERRIDE="$override"
-    PATH="$EXEC_RUNNER:$PATH" fm_run_timed 60 sleep 30
+    PATH="$EXEC_RUNNER:$PATH" fm_run_timed 3 sleep 30
   ) &
   pid=$!
   while [ -z "$(ls "$tmpd" 2>/dev/null)" ]; do
@@ -422,6 +423,8 @@ term_leaves_no_tmp() {
   wait "$pid" || rc=$?
   [ "$rc" -eq 143 ] || fail "$label: TERM did not exit with the conventional status (rc=$rc)"
   [ -z "$(ls -A "$tmpd")" ] || fail "$label: TERM left a temp path behind: $(ls -A "$tmpd")"
+  sleep 3.5
+  [ -z "$(ls -A "$tmpd")" ] || fail "$label: a leftover watchdog recreated a temp path: $(ls -A "$tmpd")"
 }
 
 test_term_mid_run_removes_the_temp_path() {
