@@ -2868,14 +2868,16 @@ stale_is_terminal() {  # <window> <state>
   [ -n "$last" ] && status_is_captain_relevant "$last"
 }
 
-# 0 if a status line is a `paused:` declaration whose status file has not moved
-# for FM_PAUSED_NO_GATE_SECS and that names no `until` time still ahead. Pure
-# time-and-line test: gate-run liveness is NOT read here; each caller asks
-# crew_is_provably_working (the one detector) only once this holds, so a paused
-# lane with a live gate run stays quiet exactly as before. A secondmate is a coordinator with no gate
-# run of its own, so its declared waits keep the ordinary pause cadence.
-status_paused_overdue() {  # <status-line> <status-file>
-  local line=$1 f=$2 limit mtime now until
+# 0 if a status file's declared wait (status_declared_wait_line) is a `paused:`
+# declaration, the file has not moved for FM_PAUSED_NO_GATE_SECS, and the line
+# names no `until` time still ahead. Pure time-and-line test: gate-run liveness
+# is NOT read here; each caller asks crew_is_provably_working (the one detector)
+# only once this holds, so a paused lane with a live gate run stays quiet exactly
+# as before. A secondmate is a coordinator with no gate run of its own, so its
+# declared waits keep the ordinary pause cadence.
+status_paused_overdue() {  # <status-file>
+  local f=$1 line limit mtime now until
+  line=$(status_declared_wait_line "$f")
   status_is_paused "$line" || return 1
   [ "$(_fm_status_kind "$f")" != secondmate ] || return 1
   limit=${FM_PAUSED_NO_GATE_SECS:-$FM_PAUSED_NO_GATE_SECS_DEFAULT}

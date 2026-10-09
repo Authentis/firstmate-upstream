@@ -3252,7 +3252,7 @@ EOF
     # parked, not waiting: wake once per declaration, like blocked:, whatever the
     # pane hash is doing, then leave the lane to the ordinary pause cadence.
     # Away mode is daemon-owned and escalates the same declaration itself.
-    if ! afk_present && status_paused_overdue "$(last_status_line "$STATE/$task.status")" "$STATE/$task.status"; then
+    if ! afk_present && status_paused_overdue "$STATE/$task.status"; then
       overdue_mtime=$(_fm_status_file_mtime "$STATE/$task.status")
       if [ "$(cat "$STATE/.paused-overdue-$key" 2>/dev/null || true)" != "$overdue_mtime" ] \
         && ! crew_is_provably_working "$task"; then

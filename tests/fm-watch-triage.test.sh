@@ -2404,6 +2404,18 @@ test_paused_overdue_without_gate_run_wakes() {
   pass "a paused: lane older than the limit with no live gate run wakes like blocked:"
 }
 
+# A resolved: line for another phase key answers a decision, not the pause, so
+# the standing paused: declaration still parks the lane and still wakes.
+test_paused_overdue_past_unrelated_resolved_wakes() {
+  paused_overdue_case paused-overdue-unrelated-resolved \
+    "$(printf 'paused: awaiting review\nresolved [key=route]: captain answered')" 7300 \
+    'state: paused · source: status-log · awaiting review'
+  wait_for_exit "$PO_PID" 100 || { reap "$PO_PID"; fail "an overdue paused: behind an unrelated resolved: line did not wake"; }
+  paused_overdue_wake_printed || fail "overdue paused: wake not printed past an unrelated resolved: line: $(cat "$PO_OUT")"
+  unset FM_FAKE_CREW_STATE
+  pass "an overdue paused: lane behind an unrelated resolved: line still wakes"
+}
+
 paused_overdue_wake_printed() {
   grep -F "stale: $PO_WINDOW (paused " "$PO_OUT" | grep -F "with no live gate run" >/dev/null
 }
@@ -2537,16 +2549,22 @@ test_paused_overdue_classifier() {
   future=$(date -u -r $(( $(date +%s) + 86400 )) +%Y-%m-%dT%H:%MZ 2>/dev/null \
     || date -u -d "@$(( $(date +%s) + 86400 ))" +%Y-%m-%dT%H:%MZ)
   printf 'paused: parked\n' > "$state/old.status"; set_mtime $(( $(date +%s) - 7300 )) "$state/old.status"
-  status_paused_overdue 'paused: parked' "$state/old.status" || fail "paused over 2h not classified overdue"
-  FM_PAUSED_NO_GATE_SECS=9000 status_paused_overdue 'paused: parked' "$state/old.status" && fail "FM_PAUSED_NO_GATE_SECS override ignored"
+  status_paused_overdue "$state/old.status" || fail "paused over 2h not classified overdue"
+  FM_PAUSED_NO_GATE_SECS=9000 status_paused_overdue "$state/old.status" && fail "FM_PAUSED_NO_GATE_SECS override ignored"
+  printf 'paused: awaiting review\nresolved [key=route]: captain answered\n' > "$state/answered.status"
+  set_mtime $(( $(date +%s) - 7300 )) "$state/answered.status"
+  status_paused_overdue "$state/answered.status" || fail "a standing paused: behind an unrelated resolved: line not classified overdue"
+  printf 'paused: awaiting review\nresolved: the review landed\n' > "$state/retracted.status"
+  set_mtime $(( $(date +%s) - 7300 )) "$state/retracted.status"
+  status_paused_overdue "$state/retracted.status" && fail "a paused: retracted by its own resolved: line classified overdue"
   printf 'paused: waiting until %s\n' "$future" > "$state/until.status"; set_mtime $(( $(date +%s) - 7300 )) "$state/until.status"
-  status_paused_overdue "paused: waiting until $future" "$state/until.status" && fail "paused with a future until classified overdue"
+  status_paused_overdue "$state/until.status" && fail "paused with a future until classified overdue"
   printf 'paused: parked\n' > "$state/new.status"
-  status_paused_overdue 'paused: parked' "$state/new.status" && fail "fresh paused classified overdue"
+  status_paused_overdue "$state/new.status" && fail "fresh paused classified overdue"
   printf 'kind=secondmate\n' > "$state/mate.meta"
   printf 'paused: waiting on upstream release\n' > "$state/mate.status"; set_mtime $(( $(date +%s) - 7300 )) "$state/mate.status"
-  status_paused_overdue 'paused: waiting on upstream release' "$state/mate.status" && fail "overdue secondmate paused classified overdue"
-  pass "status_paused_overdue: overdue paused fires; fresh, future-until, overridden limit, and secondmate stay quiet"
+  status_paused_overdue "$state/mate.status" && fail "overdue secondmate paused classified overdue"
+  pass "status_paused_overdue: overdue paused fires, also behind an unrelated resolved:; retracted, fresh, future-until, overridden limit, and secondmate stay quiet"
 }
 
 # --- non-terminal stale, crew provably working: absorbed, then wedge-escalated ---
@@ -6905,6 +6923,7 @@ test_paused_overdue_classifier
 test_paused_overdue_without_gate_run_wakes
 test_paused_overdue_stays_quiet_with_live_gate_run
 test_paused_overdue_secondmate_stays_quiet
+test_paused_overdue_past_unrelated_resolved_wakes
 test_paused_overdue_churny_pane_wakes_once
 test_paused_overdue_churny_pane_stays_quiet_with_live_gate_run
 test_paused_under_limit_stays_quiet
