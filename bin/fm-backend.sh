@@ -811,13 +811,20 @@ fm_backend_send_key() {  # <backend> <target> <key> [expected-label]
 # fm_backend_send_text_submit: type text once, then submit and verify,
 # retrying only the submission (never retyping). Echoes the backend's
 # proof-carrying verdict; callers require exact empty for confirmed delivery.
-# A pane that already shows the recognised dialog is refused before any
-# adapter types, so that submit neither types the text nor sends Enter.
-fm_backend_send_text_submit() {  # <backend> <target> <text> <retries> <enter-sleep> <settle> [expected-label]
-  local backend=$1 rc=0 target label dialog
+# Nothing is typed unless the target screen is safe to type into: a pane that
+# shows the recognised dialog, or any open menu or picker, is refused before
+# any adapter types, so that submit neither types the text nor sends Enter.
+# The optional [harness] additionally requires a plain empty prompt (a draft
+# in the composer is refused, and so is an unproven or unreadable one); see
+# fm_composer_send_refusal in bin/fm-composer-lib.sh for the one rule. A
+# refusal returns 1 with "error: blocked on a prompt: <reason>" on stderr.
+fm_backend_send_text_submit() {  # <backend> <target> <text> <retries> <enter-sleep> <settle> [expected-label] [harness]
+  local backend=$1 rc=0 target label dialog harness cstate screen reason
   shift
   target=$1
   label=${6:-}
+  harness=${7:-}
+  set -- "${@:1:6}"
   fm_backend_source "$backend" || return 1
   # Every Enter loop below reads the dialog sink, so it must exist before
   # any adapter types: a sink that fails here leaves the composer untouched.
@@ -829,13 +836,26 @@ fm_backend_send_text_submit() {  # <backend> <target> <text> <retries> <enter-sl
   # The classify writes the sink; a named dialog means the next Enter would
   # answer it.
   if [ -n "$label" ]; then
-    fm_backend_composer_state "$backend" "$target" "$label" >/dev/null || true
+    cstate=$(fm_backend_composer_state "$backend" "$target" "$label") || cstate=unknown
   else
-    fm_backend_composer_state "$backend" "$target" >/dev/null || true
+    cstate=$(fm_backend_composer_state "$backend" "$target") || cstate=unknown
   fi
   if dialog=$(fm_composer_blocking_dialog_noted); then
     fm_composer_dialog_sink_release
     echo "error: blocked on a prompt: $dialog" >&2
+    return 1
+  fi
+  # The screen is read after the composer state, from the viewport where the
+  # backend can bound it and from a short tail otherwise; an unreadable screen
+  # leaves only the composer verdict to decide.
+  if fm_backend_visible_capture_supported "$backend"; then
+    screen=$(fm_backend_visible_capture "$backend" "$target" ${label:+"$label"} 2>/dev/null) || screen=
+  else
+    screen=$(fm_backend_capture "$backend" "$target" 40 ${label:+"$label"} 2>/dev/null) || screen=
+  fi
+  if reason=$(fm_composer_send_refusal "$screen" "$cstate" "$harness"); then
+    fm_composer_dialog_sink_release
+    echo "error: blocked on a prompt: $reason" >&2
     return 1
   fi
   case "$backend" in

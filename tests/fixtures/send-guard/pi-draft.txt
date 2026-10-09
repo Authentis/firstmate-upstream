@@ -1,0 +1,40 @@
+
+[38;2;205;154;34m[Extensions][39m
+[38;2;126;136;142m  @ff-labs/pi-fff:src, @tintinweb/pi-subagents:src, agmsg-turn-delivery.ts, extensions, herdr-agent-state.ts,
+muxy-notify.ts, pi-blackhole:dist, pi-unified-exec:src[39m
+
+[38;2;205;154;34m[Extension issues][39m
+[38;2;205;154;34m  ~/.pi/agent/npm/node_modules/@tintinweb/pi-subagents/package.json[39m
+[38;2;205;154;34m    Host-provided extension packages must be declared in peerDependencies with a "*" range, not dependencies:
+@sinclair/typebox, typebox. Installed copies can bypass the extension loader and create duplicate runtime modules.[39m
+
+
+ [38;2;205;154;34mWarning: Extension package "/Users/lundi/.pi/agent/npm/node_modules/@tintinweb/pi-subagents/package.json":
+[39m [38;2;205;154;34mHost-provided extension packages must be declared in peerDependencies with a "*" range, not dependencies:
+[39m [38;2;205;154;34m@sinclair/typebox, typebox. Installed copies can bypass the extension loader and create duplicate runtime modules.[39m
+
+ [38;2;205;154;34mWarning: tmux extended-keys is off. Modified Enter keys may not work. Add `set -g extended-keys on` to ~/.tmux.conf
+[39m [38;2;205;154;34mand restart tmux.[39m
+
+[38;2;205;154;34m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[39m [1m[38;2;205;154;34mUpdate Available[0m
+ [38;2;157;165;169mNew version 1.1.0 is available. Run [38;2;167;152;215mpi update[39m
+ [38;2;157;165;169mChangelog: [38;2;167;152;215mhttps://pi.dev/changelog[39m
+[38;2;205;154;34m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[39m [1m[38;2;205;154;34mPackage Updates Available[0m
+ [38;2;157;165;169mPackage updates are available. Run [38;2;167;152;215mpi update --extensions[39m
+ [38;2;157;165;169mPackages:[39m
+ - github.com/fitchmultz/pi-codex-goal
+ - @tintinweb/pi-subagents
+ - pi-unified-exec
+ - pi-blackhole
+[38;2;205;154;34m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+[38;2;84;137;164m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[39mhalf typed[7m [0m
+[38;2;84;137;164m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[38;2;126;136;142m/private/tmp[39m
+[38;2;126;136;142m$0.000 (sub) 0.0%/272k (auto)                                                           (openai-codex) gpt-5.6-sol • low
+[38;2;104;183;141mbh[39m [38;2;157;165;169mO[38;2;126;136;142m▕░░░░░░░░▏[39m [38;2;157;165;169mP[38;2;126;136;142m▕░░░░░░░░▏[39m [38;2;157;165;169mX[38;2;126;136;142m▕░░░░░░░░▏[39m

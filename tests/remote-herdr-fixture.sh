@@ -12,7 +12,8 @@
 # tab's only pane closes the tab, and agent get reports agent_not_found for a
 # pane no agent has registered on.
 #
-# Beyond that it models the pane IO a real launch performs. A pane reports a
+# Beyond that it models the pane IO a real launch performs. A pane shows the
+# idle codex prompt, so a doorbell ring passes the send guard. A pane reports a
 # registered agent once anything has been typed into it, and submitting starts
 # one turn: the next agent read reports working and the pane settles back to
 # idle, which is the native transition the adapter confirms a submit with.
@@ -97,7 +98,7 @@ case "${1:-} ${2:-}" in
   "pane send-keys")
     [ ! -f "$SEND_FAIL" ] || exit 1
     jq_state --arg p "${3:-}" '.typed[$p] = true | .working[$p] = true' | save ;;
-  "pane read") printf '\n' ;;
+  "pane read") printf '\xe2\x80\xba\n' ;;
   "pane process-info")
     printf '{"result":{"type":"pane_process_info","process_info":{"pane_id":"%s","shell_pid":%s,"foreground_process_group_id":%s,"foreground_processes":[{"pid":%s,"name":"codex","argv0":"codex","argv":["codex"],"cmdline":"codex"}]}}}\n' \
       "$pane" "$$" "$$" "$$" ;;

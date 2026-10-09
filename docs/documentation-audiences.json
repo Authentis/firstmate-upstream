@@ -553,6 +553,66 @@
       "audience": "public-product"
     },
     {
+      "path": "tests/captures/commandcode-v1.74.0/netcup-leaf-idle-plain.txt",
+      "audience": "maintainer-verification"
+    },
+    {
+      "path": "tests/captures/commandcode-v1.74.0/netcup-leaf-rewind-plain.txt",
+      "audience": "maintainer-verification"
+    },
+    {
+      "path": "tests/fixtures/send-guard/agy-busy.txt",
+      "audience": "maintainer-verification"
+    },
+    {
+      "path": "tests/fixtures/send-guard/agy-draft.txt",
+      "audience": "maintainer-verification"
+    },
+    {
+      "path": "tests/fixtures/send-guard/agy-idle.txt",
+      "audience": "maintainer-verification"
+    },
+    {
+      "path": "tests/fixtures/send-guard/claude-config-menu.txt",
+      "audience": "maintainer-verification"
+    },
+    {
+      "path": "tests/fixtures/send-guard/claude-draft.txt",
+      "audience": "maintainer-verification"
+    },
+    {
+      "path": "tests/fixtures/send-guard/claude-idle.txt",
+      "audience": "maintainer-verification"
+    },
+    {
+      "path": "tests/fixtures/send-guard/codex-dialog.txt",
+      "audience": "maintainer-verification"
+    },
+    {
+      "path": "tests/fixtures/send-guard/codex-draft.txt",
+      "audience": "maintainer-verification"
+    },
+    {
+      "path": "tests/fixtures/send-guard/codex-idle.txt",
+      "audience": "maintainer-verification"
+    },
+    {
+      "path": "tests/fixtures/send-guard/opencode-draft.txt",
+      "audience": "maintainer-verification"
+    },
+    {
+      "path": "tests/fixtures/send-guard/opencode-idle.txt",
+      "audience": "maintainer-verification"
+    },
+    {
+      "path": "tests/fixtures/send-guard/pi-draft.txt",
+      "audience": "maintainer-verification"
+    },
+    {
+      "path": "tests/fixtures/send-guard/pi-idle.txt",
+      "audience": "maintainer-verification"
+    },
+    {
       "path": "tests/captures/no-mistakes-v1.70.1/README.md",
       "audience": "maintainer-verification"
     },

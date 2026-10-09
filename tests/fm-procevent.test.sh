@@ -1113,6 +1113,8 @@ lavish_session "$REDELIVER_ART"
 redeliver_id=$("$ROOT/bin/fm-procevent-lavish.sh" source-id "$REDELIVER_ART")
 fm_test_track_procevent_home "$HREDELIVER"
 new_task_endpoint "$HREDELIVER" worker-6
+# The ring needs a known harness to prove the stub's prompt empty.
+printf 'harness=claude\n' >> "$HREDELIVER/state/worker-6.meta"
 RING_LOG="$TMP_ROOT/redeliver-ring.log"; : > "$RING_LOG"
 PATH="$RING_BIN:$ADOPT_BIN:$PATH" FM_SEND_LOG="$RING_LOG" FM_HOME="$HREDELIVER" \
   "$ROOT/bin/fm-procevent-lavish.sh" arm "$REDELIVER_ART" --for worker-6 >/dev/null

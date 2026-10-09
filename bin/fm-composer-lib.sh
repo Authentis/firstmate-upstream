@@ -1896,6 +1896,85 @@ fm_composer_dialog_sink_release() {
   fi
 }
 
+# fm_composer_open_menu: succeed when the screen's last rows are the footer hint
+# of an open menu, picker, or dialog, the surface where typed text plus Enter
+# answers the menu instead of reaching the prompt. The rule is the generic
+# keyboard hint every such TUI prints under the surface ("Esc to cancel",
+# "Enter to confirm", "Enter/↓ to select", "↑/↓ to navigate"), read only from
+# the last four non-blank rows so a menu quoted in scrollback or a diff never
+# matches. "esc to interrupt", the busy-turn footer, is deliberately not one.
+# Recorded 2026-10-09 on Claude Code 2.1.295: /config opens a settings list
+# whose footer is "Type to filter · Enter/↓ to select · ↑ to tabs · Esc to clear".
+fm_composer_open_menu() {  # <screen>
+  local screen=${1-}
+  [ -n "$screen" ] || return 1
+  printf '%s\n' "$screen" | fm_composer_strip_ansi | LC_ALL=C awk '
+    /[^ \t\r]/ { n++; rows[n] = tolower($0) }
+    END {
+      for (i = n; i > 0 && i > n - 4; i--) {
+        r = rows[i]
+        if (r ~ /(esc|escape) to (cancel|clear|exit|close|go back|dismiss)/) exit 0
+        if (r ~ /(enter|return)[^·|]* to (confirm|select|choose|apply)/) exit 0
+        if (r ~ /to navigate/) exit 0
+        if (r ~ /(↑\/↓|↑↓|↓\/↑) to /) exit 0
+      }
+      exit 1
+    }
+  '
+}
+
+# fm_composer_agy_idle_prompt: succeed when the screen ends on agy's idle
+# composer, which the shared classifier reads as `unknown` under the dead-shell
+# rule (docs/verification/agy.md): the last non-blank row is the `? for
+# shortcuts` status row and the nearest row above it that is not a `─` rule
+# holds only the bare `>` glyph. A draft (`> text`) or any other row fails.
+fm_composer_agy_idle_prompt() {  # <screen>
+  local screen=${1-}
+  [ -n "$screen" ] || return 1
+  printf '%s\n' "$screen" | fm_composer_strip_ansi | awk '
+    /[^ \t\r]/ { n++; rows[n] = $0 }
+    END {
+      if (n < 2 || rows[n] !~ /^[ \t]*\? for shortcuts/) exit 1
+      for (i = n - 1; i > 0; i--) {
+        if (rows[i] ~ /^[ \t\r]*(─)+[ \t\r]*$/) continue
+        exit (rows[i] ~ /^[ \t]*>[ \t\r]*$/) ? 0 : 1
+      }
+      exit 1
+    }
+  '
+}
+
+# fm_composer_send_refusal: the ONE pre-typing verdict. Prints the reason and
+# returns 0 when text plus Enter must NOT be typed into this screen; returns 1
+# (printing nothing) when typing is allowed. An open menu or picker is refused
+# for every caller. With <harness> set, the caller also needs a positively
+# recognised plain empty prompt: only the composer verdict `empty` passes, so a
+# draft, an unproven prompt, and an unreadable screen are all refused for every
+# harness. Positive recognition is the shared classifier's, recorded from real
+# captures on 2026-10-09 for claude 2.1.295, codex, opencode, and pi; agy's
+# bare `>` composer reads `unknown`, so agy is recognised by its documented
+# idle shape instead (fm_composer_agy_idle_prompt).
+fm_composer_send_refusal() {  # <screen> <composer-state> [harness]
+  local screen=${1-} state=${2-} harness=${3-}
+  if fm_composer_open_menu "$screen"; then
+    printf '%s' 'an open menu or picker is showing'
+    return 0
+  fi
+  [ -n "$harness" ] || return 1
+  case "$state" in
+    pending|pending-unproven)
+      printf '%s' 'the prompt already holds a draft or an unrecognised overlay'
+      return 0
+      ;;
+    empty) return 1 ;;
+  esac
+  if [ "$harness" = agy ] && fm_composer_agy_idle_prompt "$screen"; then
+    return 1
+  fi
+  printf '%s' 'the prompt is not a recognised empty prompt'
+  return 0
+}
+
 fm_composer_classify_screen() {  # <caps> <screen> [cursor_row] [identity]
   local caps=$1 screen=$2 cy=${3:-} identity=${4:-}
   local styled=0 cursor=0 has_identity=0 kv plain

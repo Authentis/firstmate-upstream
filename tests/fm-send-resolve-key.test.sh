@@ -122,7 +122,7 @@ test_answer_send_closes_open_decision() {
   dir="$TMP_ROOT/closes"; mkdir -p "$dir"
   fb=$(make_stubs "$dir"); log="$dir/send.log"
   home=$(setup_home closes)
-  fm_write_meta "$home/state/t1.meta" "window=sess:fm-t1" "kind=ship"
+  fm_write_meta "$home/state/t1.meta" "window=sess:fm-t1" "harness=claude" "kind=ship"
   printf 'needs-decision [key=api-shape]: pick REST or RPC\n' > "$home/state/t1.status"
   printf 'working: kept busy on an unrelated stream\n' >> "$home/state/t1.status"
 

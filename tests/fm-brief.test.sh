@@ -1509,6 +1509,23 @@ test_crewmate_scaffolds_forbid_pool_administration() {
   pass "fm-brief.sh: every crewmate scaffold forbids administering the shared worktree pool"
 }
 
+test_crewmate_scaffolds_carry_the_live_pane_test_rule() {
+  local home="$TMP_ROOT/livepane" brief
+  mkdir -p "$home/data"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" live-ship alpha --mode no-mistakes >/dev/null 2>&1 \
+    || fail "fm-brief.sh ship exited non-zero"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" live-scout alpha --scout >/dev/null 2>&1 \
+    || fail "fm-brief.sh --scout exited non-zero"
+  for brief in "$home/data/live-ship/brief.md" "$home/data/live-scout/brief.md"; do
+    assert_grep "scratch pane your own test launched" "$brief" \
+      "a crewmate brief lost the live-pane-test rule"
+    assert_grep "send only when it shows a plain empty prompt" "$brief" \
+      "a crewmate brief lost the read-the-screen-before-sending rule"
+  done
+  pass "fm-brief.sh: ship and scout scaffolds carry the live-pane-test rule"
+}
+
+
 test_script_parses
 test_no_heredoc_in_command_substitution
 test_help_includes_entire_header
@@ -1547,3 +1564,4 @@ test_branch_prefix_is_refused_where_it_does_not_apply
 test_branch_prefix_value_is_validated
 test_branch_prefix_command_is_shell_safe
 test_crewmate_scaffolds_forbid_pool_administration
+test_crewmate_scaffolds_carry_the_live_pane_test_rule

@@ -235,47 +235,6 @@ case "$out" in *'did not leave it reading empty'*) ;; *) fail "the refusal must 
 out=$(run_control interrupt) && fail "interrupt must refuse a composer it cannot clear: $out"
 pass "refuses loudly and types nothing when the draft cannot be cleared"
 
-# --- the doorbell: clears a stale draft only on a proven-idle Command Code pane -------------
-ring() {  # <harness> -> prints the return code
-  local rec rc=0
-  rec=$(new_record)
-  fm_task_inbox_ring tmux "$TARGET" "$rec" "$LABEL" "$1" || rc=$?
-  printf '%s' "$rc"
-}
-start_pane draft-pasted.ansi
-set_busy idle
-[ "$(ring commandcode)" = 0 ] || fail 'the doorbell must ring after clearing a stale draft on an idle pane'
-wait_log '^SUBMIT : Firstmate instruction waiting' || fail "the doorbell line was never submitted: $(cat "$LAB/keys.log")"
-[ "$(count_key 'KEY Escape')" = 2 ] || fail "the clear must be exactly one Escape pair, got $(count_key 'KEY Escape')"
-pass "doorbell: a stale draft on an idle Command Code pane is cleared and the ring lands"
-
-start_pane draft-pasted.ansi
-set_busy busy
-[ "$(ring commandcode)" = 1 ] || fail 'a busy semantic record must still skip the ring'
-set_busy idle
-rm -f "$STATE/$ID.busy-state"
-[ "$(ring commandcode)" = 1 ] || fail 'a missing busy record is not proof of idle; the ring must skip'
-[ "$(count_key 'KEY Escape')" = 0 ] || fail 'an unproven-idle pane must not receive any Escape'
-start_pane draft-pasted.ansi FAKE_BUSY=1
-set_busy idle
-[ "$(ring commandcode)" = 1 ] || fail 'a rendered busy row must veto a stale idle record'
-[ "$(count_key 'KEY Escape')" = 0 ] || fail 'a pane that renders busy must not receive any Escape: the pair would cancel its turn'
-pass "doorbell: busy, unrecorded, or rendered-busy panes are skipped without sending a key"
-
-start_pane draft-pasted.ansi
-set_busy idle
-for harness in claude codex muse ''; do
-  [ "$(ring "$harness")" = 1 ] || fail "'${harness:-no harness}' with a pending draft must still skip the ring"
-done
-[ "$(count_key 'KEY Escape')" = 0 ] || fail 'a draft on another adapter, or an unnamed one, must never be cleared'
-pass "doorbell: another adapter's pending draft is left alone and the ring skips as before"
-
-start_pane draft-pasted.ansi FAKE_STUCK=1
-set_busy idle
-[ "$(ring commandcode)" = 1 ] || fail 'a clear that does not empty the composer must skip the ring'
-! grep -q '^SUBMIT' "$LAB/keys.log" || fail 'the doorbell was typed onto a composer that was not cleared'
-pass "doorbell: an unverified clear skips the ring rather than typing onto the draft"
-
 # --- the Escape pair on an EMPTY composer opens the Rewind picker ---------------------------
 picker_open() { tmux_t capture-pane -p -t "$TARGET" | grep -q '^Select a checkpoint to restore your session$'; }
 
@@ -333,23 +292,29 @@ case "$out" in *'Rewind checkpoint picker'*) ;; *) fail "the refusal must name t
 ! grep -q '^PICKER_ENTER\|^SUBMIT' "$LAB/keys.log" || fail "a key reached the stuck picker or composer: $(cat "$LAB/keys.log")"
 pass "exit: a picker one Escape cannot close is refused with nothing else sent"
 
-# The doorbell types a line and Enter, which would select a checkpoint.
+# --- the doorbell: never edits a screen it does not own ------------------------------------
+ring() {  # <harness> -> prints the return code
+  local rec rc=0
+  rec=$(new_record)
+  fm_task_inbox_ring tmux "$TARGET" "$rec" "$LABEL" "$1" 2>/dev/null || rc=$?
+  printf '%s' "$rc"
+}
+start_pane draft-pasted.ansi
+set_busy idle
+[ "$(ring commandcode)" = 1 ] || fail 'the doorbell must skip a foreign draft, even on a proven-idle pane'
+[ "$(count_key 'KEY Escape')" = 0 ] || fail 'the doorbell must not clear a draft it does not own'
+! grep -q '^SUBMIT' "$LAB/keys.log" || fail "the doorbell typed over a foreign draft: $(cat "$LAB/keys.log")"
+pass "doorbell: a foreign draft is refused untouched, with no Escape and no typing"
+
 start_pane - FAKE_START_PICKER=1
 set_busy idle
-[ "$(ring commandcode)" = 0 ] || fail 'the doorbell must ring once the picker is closed'
-wait_log '^SUBMIT : Firstmate instruction waiting' || fail "the doorbell line was never submitted: $(cat "$LAB/keys.log")"
-[ "$(count_key 'KEY Escape')" = 1 ] || fail "the doorbell must close the picker with exactly one Escape, got $(count_key 'KEY Escape')"
-! grep -q '^PICKER_ENTER' "$LAB/keys.log" || fail 'the doorbell sent Enter into the picker'
-start_pane - FAKE_START_PICKER=1 FAKE_PICKER_STUCK=1
-set_busy idle
-[ "$(ring commandcode)" = 1 ] || fail 'the doorbell must skip a picker it cannot close'
-! grep -q '^PICKER_ENTER\|^SUBMIT' "$LAB/keys.log" || fail "a key reached the stuck picker: $(cat "$LAB/keys.log")"
-pass "doorbell: an open picker is closed with one Escape before the ring, or the ring is skipped untouched"
+[ "$(ring commandcode)" = 1 ] || fail 'the doorbell must skip an open picker'
+[ "$(count_key 'KEY Escape')" = 0 ] || fail 'the doorbell must not dismiss a picker it does not own'
+! grep -q '^PICKER_ENTER\|^SUBMIT' "$LAB/keys.log" || fail "a key reached the open picker: $(cat "$LAB/keys.log")"
+pass "doorbell: an open picker is refused untouched, with no Escape, Enter or typing"
 
-start_pane - "FAKE_IDLE=$MISREAD"
+start_pane -
 set_busy idle
-[ "$(ring commandcode)" = 1 ] || fail 'a misread composer must skip the ring'
-! picker_open || fail 'the doorbell left the picker open'
-[ "$(count_key 'PICKER opened')" = 1 ] || fail 'the doorbell repeated the pair after the picker opened'
-! grep -q '^PICKER_ENTER\|^SUBMIT' "$LAB/keys.log" || fail "a key reached the picker or composer: $(cat "$LAB/keys.log")"
-pass "doorbell: a misread empty composer opens the picker once, closes it, and skips the ring"
+[ "$(ring commandcode)" = 0 ] || fail 'the doorbell must ring a plain empty composer'
+wait_log '^SUBMIT : Firstmate instruction waiting' || fail "the doorbell line was never submitted: $(cat "$LAB/keys.log")"
+pass "doorbell: a plain empty composer still receives the ring"
