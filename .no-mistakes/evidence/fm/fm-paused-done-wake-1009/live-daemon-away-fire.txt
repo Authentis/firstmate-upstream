@@ -1,0 +1,37 @@
+== daemon case away-fire: kind=ship status-age=7300s line=[paused: PR https://github.com/example/repo/pull/42 published, parked] (away mode: state/.afk present)
+   crew-state source: REAL bin/fm-crew-state.sh
+-- escalations file (state/.subsuper-escalations):
+   paused 7302s with no live gate run (parked, not waiting; finish it with done: or unblock it): primary:fm-parked
+-- digests delivered:
+-- daemon log lines mentioning the lane:
+   [2026-10-09T04:41:17+0400] daemon starting (pid 37906); target=%0; target_source=FM_SUPERVISOR_TARGET; backend=tmux; backend_source=FM_SUPERVISOR_BACKEND; afk=on; inject_skip='heartbeat'; stale_escalate=240s; batch=0s
+   [2026-10-09T04:41:19+0400] wake: signal: /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-lab.YxzuOR/state/parked.status
+   [2026-10-09T04:41:20+0400] self-handle: signal: /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-lab.YxzuOR/state/parked.status -> routine signal: parked.status: paused: PR https://github.com/example/repo/pull/42 published, parked
+   [2026-10-09T04:41:22+0400] inject deferred: supervisor composer not confirmed-empty (state=unknown: pending input, dead-shell prompt, or unreadable pane)
+   [2026-10-09T04:41:23+0400] inject deferred: supervisor composer not confirmed-empty (state=unknown: pending input, dead-shell prompt, or unreadable pane)
+   [2026-10-09T04:41:24+0400] wake: stale: primary:fm-parked
+   [2026-10-09T04:41:25+0400] self-handle (paused): stale: primary:fm-parked -> paused (awaiting external), rechecked on a long cadence: paused: PR https://github.com/example/repo/pull/42 published, parked
+   [2026-10-09T04:41:27+0400] inject deferred: supervisor composer not confirmed-empty (state=unknown: pending input, dead-shell prompt, or unreadable pane)
+   [2026-10-09T04:41:28+0400] inject deferred: supervisor composer not confirmed-empty (state=unknown: pending input, dead-shell prompt, or unreadable pane)
+   [2026-10-09T04:41:31+0400] inject deferred: supervisor composer not confirmed-empty (state=unknown: pending input, dead-shell prompt, or unreadable pane)
+   [2026-10-09T04:41:32+0400] inject deferred: supervisor composer not confirmed-empty (state=unknown: pending input, dead-shell prompt, or unreadable pane)
+   [2026-10-09T04:41:35+0400] inject deferred: supervisor composer not confirmed-empty (state=unknown: pending input, dead-shell prompt, or unreadable pane)
+   [2026-10-09T04:41:36+0400] inject deferred: supervisor composer not confirmed-empty (state=unknown: pending input, dead-shell prompt, or unreadable pane)
+   [2026-10-09T04:41:39+0400] inject deferred: supervisor composer not confirmed-empty (state=unknown: pending input, dead-shell prompt, or unreadable pane)
+   [2026-10-09T04:41:40+0400] inject deferred: supervisor composer not confirmed-empty (state=unknown: pending input, dead-shell prompt, or unreadable pane)
+   [2026-10-09T04:41:42+0400] inject deferred: supervisor composer not confirmed-empty (state=unknown: pending input, dead-shell prompt, or unreadable pane)
+   [2026-10-09T04:41:44+0400] inject deferred: supervisor composer not confirmed-empty (state=unknown: pending input, dead-shell prompt, or unreadable pane)
+   [2026-10-09T04:41:46+0400] inject deferred: supervisor composer not confirmed-empty (state=unknown: pending input, dead-shell prompt, or unreadable pane)
+   [2026-10-09T04:41:48+0400] inject deferred: supervisor composer not confirmed-empty (state=unknown: pending input, dead-shell prompt, or unreadable pane)
+   [2026-10-09T04:41:50+0400] inject deferred: supervisor composer not confirmed-empty (state=unknown: pending input, dead-shell prompt, or unreadable pane)
+   [2026-10-09T04:41:53+0400] inject deferred: supervisor composer not confirmed-empty (state=unknown: pending input, dead-shell prompt, or unreadable pane)
+   [2026-10-09T04:41:55+0400] inject deferred: supervisor composer not confirmed-empty (state=unknown: pending input, dead-shell prompt, or unreadable pane)
+   [2026-10-09T04:41:58+0400] inject deferred: supervisor composer not confirmed-empty (state=unknown: pending input, dead-shell prompt, or unreadable pane)
+   [2026-10-09T04:42:00+0400] inject deferred: supervisor composer not confirmed-empty (state=unknown: pending input, dead-shell prompt, or unreadable pane)
+   [2026-10-09T04:42:02+0400] inject deferred: supervisor composer not confirmed-empty (state=unknown: pending input, dead-shell prompt, or unreadable pane)
+   [2026-10-09T04:42:02+0400] daemon shutting down
+   WARNING: queued wakes pending - drain them with bin/fm-wake-drain.sh before anything else.
+   WARNING: queued wakes pending - drain them with bin/fm-wake-drain.sh before anything else.
+-- REAL supervisor pane (what firstmate would receive):
+   bash-5.3$ 
+-- overdue marker: 1791499176

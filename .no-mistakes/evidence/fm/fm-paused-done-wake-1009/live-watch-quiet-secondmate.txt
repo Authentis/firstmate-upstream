@@ -1,0 +1,18 @@
+== case quiet-secondmate: kind=secondmate status-age=7300s line=[paused: waiting on upstream release]
+   crew-state source: REAL bin/fm-crew-state.sh
+-- real fm-crew-state.sh verdict: state: paused · source: status-log · waiting on upstream release
+-- watcher round 1
+-- watcher exited after 3s; stdout:
+   signal: /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-lab.d5i9FM/state/parked.status
+-- fm-wake-drain.sh queue:
+   1791506285	2	signal	parked.status	signal: /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-lab.d5i9FM/state/parked.status
+   wake annotation: latest wake-EVENT observed at drain, not current state: parked.status: paused: waiting on upstream release
+-- watcher round 2
+-- watcher still blocking after 30s (absorbed, no wake); stdout: []
+-- fm-wake-drain.sh queue:
+-- real tmux pane:
+   echo "PR published: https://github.com/example/repo/pull/42"
+   builder$ echo "PR published: https://github.com/example/repo/pull/42"
+   PR published: https://github.com/example/repo/pull/42
+   builder$
+-- overdue marker: none

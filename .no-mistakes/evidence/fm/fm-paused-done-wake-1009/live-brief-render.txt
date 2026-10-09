@@ -1,0 +1,21 @@
+### ship-nm: bin/fm-brief.sh ship-nm sample --mode no-mistakes -> data/ship-nm/brief.md
+43-   A mid-task `working:` line (including setup complete) is nonterminal: do not end the
+44-   turn after it; continue the same stage until a defined `done:` gate under Definition of done.
+45:   After publishing your PR, end with `done:`, never `paused:`.
+46-   Use `paused: {why}` - distinct from `blocked:` - when deliberately waiting for work or an external condition expected to clear on its own, including your own validation round.
+   'After publishing your PR' occurrences: 1
+### ship-direct: bin/fm-brief.sh ship-direct sample --mode direct-PR -> data/ship-direct/brief.md
+42-   A mid-task `working:` line (including setup complete) is nonterminal: do not end the
+43-   turn after it; continue the same stage until a defined `done:` gate under Definition of done.
+44:   After publishing your PR, end with `done:`, never `paused:`.
+45-   Use `paused: {why}` - distinct from `blocked:` - when deliberately waiting for work or an external condition expected to clear on its own, including your own validation round.
+   'After publishing your PR' occurrences: 1
+### ship-local: bin/fm-brief.sh ship-local sample --mode local-only -> data/ship-local/brief.md
+42-   A mid-task `working:` line (including setup complete) is nonterminal: do not end the
+43-   turn after it; continue the same stage until a defined `done:` gate under Definition of done.
+44:   After publishing your PR, end with `done:`, never `paused:`.
+45-   Use `paused: {why}` - distinct from `blocked:` - when deliberately waiting for work or an external condition expected to clear on its own, including your own validation round.
+   'After publishing your PR' occurrences: 1
+### scout: bin/fm-brief.sh scout sample --scout -> data/scout/brief.md
+   (no done-after-PR instruction in this brief)
+   'After publishing your PR' occurrences: 0

@@ -1,0 +1,12 @@
+== case quiet-live-gate-run: kind=ship status-age=7300s line=[paused: own pipeline run]
+   crew-state source: STUB state: working · source: run-step · validating (running)
+-- real fm-crew-state.sh verdict: state: unknown · source: pane · harness state unavailable (unknown missing)
+-- watcher round 1
+-- watcher still blocking after 25s (absorbed, no wake); stdout: []
+-- fm-wake-drain.sh queue:
+-- real tmux pane:
+   echo "PR published: https://github.com/example/repo/pull/42"
+   builder$ echo "PR published: https://github.com/example/repo/pull/42"
+   PR published: https://github.com/example/repo/pull/42
+   builder$
+-- overdue marker: none

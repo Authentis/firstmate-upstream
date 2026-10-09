@@ -1,0 +1,24 @@
+== case fire: kind=ship status-age=7300s line=[paused: PR https://github.com/example/repo/pull/42 published, parked]
+   crew-state source: REAL bin/fm-crew-state.sh
+-- real fm-crew-state.sh verdict: state: unknown · source: pane · harness state unavailable (unknown missing)
+-- watcher round 1
+-- watcher exited after 3s; stdout:
+   signal: /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-lab.l7RkSi/state/parked.status
+-- fm-wake-drain.sh queue:
+   1791506020	2	signal	parked.status	signal: /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-lab.l7RkSi/state/parked.status
+   wake annotation: latest wake-EVENT observed at drain, not current state: parked.status: paused: PR https://github.com/example/repo/pull/42 published, parked
+-- watcher round 2
+-- watcher exited after 2s; stdout:
+   stale: lab:fm-parked (paused 7306s with no live gate run - parked, not waiting; finish it with done: or unblock it)
+-- fm-wake-drain.sh queue:
+   1791506024	3	stale	lab:fm-parked	stale: lab:fm-parked (paused 7306s with no live gate run - parked, not waiting; finish it with done: or unblock it)
+   >>> OVERDUE PARKED WAKE FIRED in round 2
+-- watcher round 3
+-- watcher still blocking after 30s (absorbed, no wake); stdout: []
+-- fm-wake-drain.sh queue:
+-- real tmux pane:
+   echo "PR published: https://github.com/example/repo/pull/42"
+   builder$ echo "PR published: https://github.com/example/repo/pull/42"
+   PR published: https://github.com/example/repo/pull/42
+   builder$
+-- overdue marker: 1791498718
