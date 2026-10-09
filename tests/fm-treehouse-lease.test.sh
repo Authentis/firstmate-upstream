@@ -26,6 +26,8 @@ export FM_REAL_GIT
 # FM_FAKE_LEASE_PATH / FM_FAKE_LEASE_ID (what `get --lease --json` reports),
 # FM_FAKE_SLOT_LEASE (the lease currently on the slot, for status and return),
 # FM_FAKE_POOL_PATH (the slot path `status --json` lists; unset lists nothing),
+# FM_FAKE_RETURN_LEASE (the lease on the slot by the time of the return, when it
+# changed after status was read),
 # FM_FAKE_SLOT_DIRTY=1 (a slot treehouse will not return without --force),
 # FM_FAKE_TH_NOLEASE=1 (an old treehouse whose help lacks --lease/--json).
 make_fake_treehouse() {
@@ -72,7 +74,7 @@ case "${1:-}" in
       echo "worktree has uncommitted changes; refusing to discard without confirmation" >&2
       exit 1
     fi
-    if [ -n "$want" ] && [ "$want" != "${FM_FAKE_SLOT_LEASE:-}" ]; then
+    if [ -n "$want" ] && [ "$want" != "${FM_FAKE_RETURN_LEASE:-${FM_FAKE_SLOT_LEASE:-}}" ]; then
       echo "failed to return worktree: lease precondition failed: lease identity does not match worktree" >&2
       exit 1
     fi
@@ -391,6 +393,21 @@ test_forced_and_scout_teardowns_force_the_lease_bound_return() {
   pass "an explicit --force teardown and a scout return a dirty slot forced, still lease-bound"
 }
 
+test_forced_return_refused_by_a_lease_change_is_reported_as_such() {
+  local case_dir out status
+  case_dir=$(make_teardown_case td-force-changed)
+  write_teardown_meta "$case_dir" "lease_id=lease0123abcd"
+  out=$(FM_FAKE_SLOT_LEASE=lease0123abcd FM_FAKE_RETURN_LEASE=someone-elses-lease \
+    run_teardown "$case_dir" --force)
+  status=$?
+  [ "$status" -ne 0 ] || fail "a forced return refused for a lease change must abort teardown"$'\n'"$out"
+  assert_contains "$out" "refused the forced lease-bound return of slot $case_dir/wt under lease lease0123abcd (its lease changed)" \
+    "a refused forced return must name the lease change as its cause"
+  assert_not_contains "$out" "nothing was forced" "a forced return must not be reported as unforced"
+  assert_present "$case_dir/state/task-x1.meta" "a refused return must keep the task record"
+  pass "a forced lease-bound return refused for a lease change is reported as a lease change"
+}
+
 test_teardown_refuses_a_malformed_lease_id() {
   local case_dir out status
   case_dir=$(make_teardown_case td-malformed)
@@ -415,6 +432,7 @@ test_changed_lease_stops_teardown_before_a_stale_lock_is_removed
 test_unconfirmable_lease_stops_teardown_before_anything_destructive
 test_dirty_slot_return_is_refused_not_forced
 test_forced_and_scout_teardowns_force_the_lease_bound_return
+test_forced_return_refused_by_a_lease_change_is_reported_as_such
 test_teardown_refuses_a_malformed_lease_id
 
 echo "# all fm-treehouse-lease tests passed"

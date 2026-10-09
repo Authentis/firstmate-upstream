@@ -1879,8 +1879,10 @@ teardown_treehouse_return() {
 
   if ! treehouse_return_is_index_lock_error "$out"; then
     if [ -n "$TEARDOWN_RETURN_LEASE_ID" ]; then
-      echo "teardown: $label return was not performed; treehouse refused the lease-bound return of slot $dir under lease $TEARDOWN_RETURN_LEASE_ID (its lease changed, or the slot was no longer clean); the slot was not released and nothing was forced" >&2
-      if [ "${return_args[0]}" != --force ]; then
+      if [ "${return_args[0]}" = --force ]; then
+        echo "teardown: $label return was not performed; treehouse refused the forced lease-bound return of slot $dir under lease $TEARDOWN_RETURN_LEASE_ID (its lease changed); the slot was not released" >&2
+      else
+        echo "teardown: $label return was not performed; treehouse refused the lease-bound return of slot $dir under lease $TEARDOWN_RETURN_LEASE_ID (its lease changed, or the slot was no longer clean); the slot was not released and nothing was forced" >&2
         local blocking
         blocking=$(git -C "$dir" status --porcelain --untracked-files=all 2>/dev/null) || blocking=
         if [ -n "$blocking" ]; then

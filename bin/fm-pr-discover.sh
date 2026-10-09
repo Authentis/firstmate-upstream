@@ -32,7 +32,9 @@
 #     the project clone. A task with no branch=, a scout, a secondmate, a
 #     local-only task, a task whose project is gone, or a record that already
 #     has pr= is skipped without a query. A closed-unmerged PR and a PR from a
-#     fork are ignored; an open PR is preferred over a merged one.
+#     fork are ignored, as is a merged PR created before the task's spawn
+#     (the epoch in its spawn_gen=), which belongs to an earlier task that
+#     reused the id; an open PR is preferred over a merged one.
 # Output: one `recorded <task-id> <pr-url>` line per recorded PR, nothing else
 # when quiet. Exit status is 0 on every ordinary path, including a missing gh.
 set -u
@@ -164,15 +166,20 @@ for id in "${candidates[@]+"${candidates[@]}"}"; do
   branch=$(meta_get "$meta" branch)
   project=$(meta_get "$meta" project)
   base=$(meta_get "$meta" base_branch)
+  since=$(meta_get "$meta" spawn_gen)
+  since=${since#s}
+  since=${since%%.*}
+  case "$since" in ''|*[!0-9]*) since=0 ;; esac
   [ -d "$project" ] || { last_visited=$id; continue; }
   queried=$((queried + 1))
   prev_visited=$last_visited
   last_visited=$id
   out=$(cd "$project" && fm_run_timed "$(bound_for "$QUERY_SECS")" gh pr list --head "$branch" --state all --limit 5 \
-    --json url,state,headRefName,baseRefName,isCrossRepository 2>/dev/null) || continue
-  url=$(printf '%s\n' "$out" | jq -r --arg b "$branch" --arg base "$base" '
+    --json url,state,headRefName,baseRefName,isCrossRepository,createdAt 2>/dev/null) || continue
+  url=$(printf '%s\n' "$out" | jq -r --arg b "$branch" --arg base "$base" --argjson since "$since" '
     [ .[] | select(.headRefName == $b and (.isCrossRepository | not)
-        and (.state == "OPEN" or .state == "MERGED")
+        and (.state == "OPEN"
+          or (.state == "MERGED" and (((.createdAt // "") | fromdateiso8601?) // 0) >= $since))
         and ($base == "" or .baseRefName == $base)) ]
     | (map(select(.state == "OPEN")) + map(select(.state == "MERGED")))
     | (.[0].url // empty)' 2>/dev/null) || continue

@@ -131,6 +131,22 @@ test_unusable_pull_requests_are_ignored() {
   pass "closed, forked, mis-headed and wrong-base PRs are ignored"
 }
 
+test_merged_pr_from_before_the_spawn_is_ignored() {
+  local c out
+  c=$(make_case reused-id)
+  # Spawned 2026-10-09T12:00:00Z; a reused task id's branch carries an older merged PR.
+  add_task "$c" t1 fm/t1 spawn_gen=s1791547200.100.1
+  add_task "$c" t2 fm/t2 spawn_gen=s1791547200.100.2
+  forge "$c" fm/t1 '[{"url":"https://github.com/acme/widgets/pull/5","state":"MERGED","headRefName":"fm/t1","baseRefName":"main","isCrossRepository":false,"createdAt":"2026-09-01T00:00:00Z"}]'
+  forge "$c" fm/t2 '[{"url":"https://github.com/acme/widgets/pull/6","state":"MERGED","headRefName":"fm/t2","baseRefName":"main","isCrossRepository":false,"createdAt":"2026-10-09T13:00:00Z"}]'
+  out=$(run_scan "$c")
+  assert_not_contains "$out" "recorded t1" "a merged PR older than the spawn must not be adopted"
+  assert_no_grep "pr=" "$c/state/t1.meta" "a stale merged PR must not be recorded"
+  assert_absent "$c/state/t1.check.sh" "a stale merged PR must not arm a merge poll"
+  assert_contains "$out" "recorded t2 https://github.com/acme/widgets/pull/6" "a merged PR opened after the spawn should be recorded"
+  pass "a merged PR created before the task's spawn is ignored; one created after is recorded"
+}
+
 test_only_unrecorded_ship_tasks_are_queried() {
   local c
   c=$(make_case skipped)
@@ -267,6 +283,7 @@ test_registration_cut_off_after_pr_is_published_is_taken_back_and_retried() {
 test_open_pr_is_recorded
 test_merged_pr_is_recorded_and_open_is_preferred
 test_unusable_pull_requests_are_ignored
+test_merged_pr_from_before_the_spawn_is_ignored
 test_only_unrecorded_ship_tasks_are_queried
 test_scan_is_bounded_and_resumes_after_its_cursor
 test_scan_is_rate_limited
