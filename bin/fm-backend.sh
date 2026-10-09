@@ -815,7 +815,7 @@ fm_backend_send_key() {  # <backend> <target> <key> [expected-label]
 # shows the recognised dialog, or any open menu or picker, is refused before
 # any adapter types, so that submit neither types the text nor sends Enter.
 # The optional [harness] additionally requires a plain empty prompt (a draft
-# in the composer is refused, and so is an unreadable composer on claude); see
+# in the composer is refused, and so is an unproven or unreadable one); see
 # fm_composer_send_refusal in bin/fm-composer-lib.sh for the one rule. A
 # refusal returns 1 with "error: blocked on a prompt: <reason>" on stderr.
 fm_backend_send_text_submit() {  # <backend> <target> <text> <retries> <enter-sleep> <settle> [expected-label] [harness]
