@@ -1539,6 +1539,16 @@ snapshot_cleanup() {
   cleanup_json_files
 }
 trap snapshot_cleanup EXIT
+# Run the same cleanup promptly on TERM/INT/HUP and exit with the conventional
+# signal status; the EXIT trap then finds nothing left to remove.
+snapshot_signal_exit() {  # <signal-number>
+  trap - EXIT
+  snapshot_cleanup
+  exit $((128 + $1))
+}
+trap 'snapshot_signal_exit 15' TERM
+trap 'snapshot_signal_exit 2' INT
+trap 'snapshot_signal_exit 1' HUP
 
 bounded_parent_activities_json() {  # <status-file>
   local f=$1 out rc reason script
@@ -2058,6 +2068,14 @@ scout_report_lines() {
 
 # Large documents (the whole backlog, the whole task set) cross between steps by
 # file only. The transport directory therefore exists before the first read.
+# A KILLed run cannot clean up after itself, so sweep this tool's own stale
+# leftovers (same user, older than an hour) before creating new ones, plus the
+# fm_run_timed runners' prefixes, which cannot sweep inside their own bound.
+fm_sweep_stale_tmp fm-fleet-snapshot
+fm_sweep_stale_tmp fm-fleet-tasks
+fm_sweep_stale_tmp fm-fleet-ledgers
+fm_sweep_stale_tmp fm-timeout-status
+fm_sweep_stale_tmp fm-bash-timeout-command
 JSON_TRANSPORT_DIR=$(mktemp -d "${TMPDIR:-/tmp}/fm-fleet-snapshot.XXXXXX") \
   || { echo "fm-fleet-snapshot: temporary transport directory creation failed" >&2; exit 1; }
 BACKLOG_JSON=$(backlog_json) || { echo "fm-fleet-snapshot: backlog read failed" >&2; exit 1; }
