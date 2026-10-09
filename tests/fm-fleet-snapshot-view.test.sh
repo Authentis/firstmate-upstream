@@ -789,6 +789,31 @@ EOF
   pass "undated captain holds age after a configurable threshold, decided only from structured fields"
 }
 
+test_snapshot_cleans_its_temp_paths_on_term_and_sweeps_stale_ones() {
+  local home fakebin tmpd out rc=0 pid i=0
+  home=$(make_home tmp-cleanup)
+  fakebin="$TMP_ROOT/tmp-cleanup-bin"
+  make_fakebin "$fakebin"
+  printf '#!/usr/bin/env bash\nsleep 3\n' > "$fakebin/tmux"
+  tmpd="$TMP_ROOT/tmp-cleanup-tmpdir"
+  mkdir -p "$tmpd/fm-fleet-snapshot.STALE1" "$tmpd/fm-fleet-snapshot.FRESH1" "$tmpd/other-prefix.STALE1"
+  touch -t 200001010000 "$tmpd/fm-fleet-snapshot.STALE1" "$tmpd/other-prefix.STALE1"
+  PATH="$fakebin:$PATH" FM_HOME="$home" TMPDIR="$tmpd" "$SNAPSHOT" --json >/dev/null 2>&1 &
+  pid=$!
+  while [ -z "$(find "$tmpd" -maxdepth 1 -newer "$tmpd/fm-fleet-snapshot.FRESH1" -name 'fm-fleet-*' 2>/dev/null)" ]; do
+    i=$((i + 1))
+    [ "$i" -lt 500 ] || fail 'the snapshot never created its temp directory'
+    sleep 0.02
+  done
+  kill -TERM "$pid"
+  wait "$pid" || rc=$?
+  [ "$rc" -eq 143 ] || fail "TERM did not give the conventional exit status (rc=$rc)"
+  out=$(find "$tmpd" -maxdepth 1 -name 'fm-fleet-*' | sort)
+  [ "$out" = "$tmpd/fm-fleet-snapshot.FRESH1" ] || fail "unexpected temp paths after TERM: $out"
+  [ -e "$tmpd/other-prefix.STALE1" ] || fail 'another prefix was swept'
+  pass 'TERM removes the snapshot temp paths; stale own-prefix leftovers are swept, fresh and foreign kept'
+}
+
 test_view_renders_snapshot() {
   local home fakebin view
   home=$(make_home view)
@@ -1268,5 +1293,6 @@ test_parked_scout_decision_stays_pending
 test_scout_reports_include_teardown_reports
 test_snapshot_transports_long_status_lines_by_file
 test_backlog_tasks_axi_forms_and_overrides
+test_snapshot_cleans_its_temp_paths_on_term_and_sweeps_stale_ones
 test_view_renders_snapshot
 test_view_renders_dead_secondmate_agent_status

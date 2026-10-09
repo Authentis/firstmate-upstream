@@ -6,7 +6,7 @@
 # bound. Most cases pin the perl watchdog, the preferred mechanism and the only
 # one a stock macOS host has, under a PATH that holds no timeout variant; the
 # GNU fallback case runs only where a real timeout exists.
-# shellcheck disable=SC2016 # each bounded bash -c script expands its own arguments
+# shellcheck disable=SC2016,SC2030,SC2031 # subshell env is deliberate; each bounded bash -c script expands its own arguments
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -327,7 +327,66 @@ test_run_timed_passes_a_natural_exit_through_a_fired_bound() {
   pass 'fm_run_timed passes a natural exit through when the bound fired after completion'
 }
 
+# A runner stub that execs the command, so the external-timeout path (which owns
+# the fm-timeout-status.* file) runs on any host.
+EXEC_RUNNER="$TMP_ROOT/exec-runner-bin"
+mkdir -p "$EXEC_RUNNER"
+printf '#!/bin/sh\nshift 3\nexec "$@"\n' > "$EXEC_RUNNER/timeout"
+chmod +x "$EXEC_RUNNER/timeout"
+
+# term_leaves_no_tmp <label> <mechanism-override>: TERM a bounded run mid-flight
+# and assert it exits 143 with its own temp path gone.
+term_leaves_no_tmp() {
+  local label=$1 override=$2 tmpd rc=0 pid i=0
+  tmpd="$TMP_ROOT/term-$label"
+  mkdir -p "$tmpd"
+  (
+    . "$ROOT/bin/fm-timeout-lib.sh"
+    export TMPDIR="$tmpd" FM_TIMEOUT_MECHANISM_OVERRIDE="$override"
+    PATH="$EXEC_RUNNER:$PATH" fm_run_timed 60 sleep 30
+  ) &
+  pid=$!
+  while [ -z "$(ls "$tmpd" 2>/dev/null)" ]; do
+    i=$((i + 1))
+    [ "$i" -lt 500 ] || fail "$label: the bounded run never created its temp path"
+    sleep 0.02
+  done
+  kill -TERM "$pid"
+  wait "$pid" || rc=$?
+  [ "$rc" -eq 143 ] || fail "$label: TERM did not exit with the conventional status (rc=$rc)"
+  [ -z "$(ls -A "$tmpd")" ] || fail "$label: TERM left a temp path behind: $(ls -A "$tmpd")"
+}
+
+test_term_mid_run_removes_the_temp_path() {
+  term_leaves_no_tmp external ""
+  term_leaves_no_tmp bash bash
+  pass 'a TERM mid-run removes the runner temp path and exits 143 (external and bash runners)'
+}
+
+test_stale_leftovers_are_swept_and_fresh_ones_kept() {
+  local tmpd="$TMP_ROOT/sweep"
+  mkdir -p "$tmpd"
+  : > "$tmpd/fm-timeout-status.OLD123"
+  mkdir "$tmpd/fm-bash-timeout-command.OLDDIR"
+  : > "$tmpd/fm-timeout-status.NEW123"
+  : > "$tmpd/unrelated-prefix.OLD123"
+  touch -t 200001010000 "$tmpd/fm-timeout-status.OLD123" "$tmpd/fm-bash-timeout-command.OLDDIR" "$tmpd/unrelated-prefix.OLD123"
+  (
+    . "$ROOT/bin/fm-timeout-lib.sh"
+    export TMPDIR="$tmpd"
+    unset _FM_TIMEOUT_TMP_SWEPT
+    PATH="$EXEC_RUNNER:$PATH" fm_run_timed 5 true
+  ) || fail 'the sweeping run failed'
+  [ ! -e "$tmpd/fm-timeout-status.OLD123" ] || fail 'a stale status file was not swept'
+  [ ! -e "$tmpd/fm-bash-timeout-command.OLDDIR" ] || fail 'a stale bash-runner leftover was not swept'
+  [ -e "$tmpd/fm-timeout-status.NEW123" ] || fail 'a fresh live-run status file was removed'
+  [ -e "$tmpd/unrelated-prefix.OLD123" ] || fail 'a file of another prefix was removed'
+  pass 'stale own-prefix leftovers are swept; fresh and other-prefix paths are kept'
+}
+
 test_passes_the_command_status_and_output_through
+test_term_mid_run_removes_the_temp_path
+test_stale_leftovers_are_swept_and_fresh_ones_kept
 test_run_timed_reports_the_bound_when_the_wrapper_records_a_signal_death
 test_run_timed_passes_a_natural_exit_through_a_fired_bound
 test_term_ends_a_cooperative_command_at_the_bound
