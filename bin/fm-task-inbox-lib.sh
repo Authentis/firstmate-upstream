@@ -71,8 +71,9 @@
 # this budget. A stuck-busy escalation also owes the record one post-busy ring
 # (due action `postbusy`): the caller rings it the first time it observes the
 # lane non-busy, never while busy, and spends the mark by that attempt, so a
-# busy lane that goes idle still receives the doorbell its busy turn swallowed. Fire-and-forget retries remain outside escalation. A positively
-# dead or missing endpoint skips delivery and the ladder and escalates directly.
+# busy lane that goes idle still receives the doorbell its busy turn swallowed.
+# Fire-and-forget retries remain outside escalation. A positively dead or
+# missing endpoint skips delivery and the ladder and escalates directly.
 # This library owns the schedule, durable budgets, and escalation marker.
 # If delivery-attempt or busy-deferral bookkeeping fails while the record remains unhandled,
 # the caller surfaces that failure instead of retrying silently; a concurrently
