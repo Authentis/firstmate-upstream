@@ -582,7 +582,7 @@ inbox_steer_escalate_unavailable() {  # <window> <task> <record>
 # Runs for secondmates too: their pane-staleness exemption is about quiet panes
 # being healthy, while an unacknowledged instruction can still be a stuck steer.
 inbox_steer_check() {  # <window> <task>
-  local w=$1 task=$2 action verb rec count tail40 reason='' ring_rc backend agent_state
+  local w=$1 task=$2 action verb rec count tail40 reason='' ring_rc backend agent_state busy_escalation=0
   action=$(fm_task_inbox_due_action "$STATE" "$task") || return 0
   verb=${action%% *}
   [ "$verb" != quiet ] || return 0
@@ -603,6 +603,8 @@ inbox_steer_check() {  # <window> <task>
     dead|missing)
       if [ "$verb" = retry ]; then
         fm_task_inbox_clear_retry "$STATE" "$task" "$rec" || true
+      elif [ "$verb" = postbusy ]; then
+        fm_task_inbox_clear_busy_escalated "$STATE" "$task" || true
       else
         inbox_steer_escalate_unavailable "$w" "$task" "$rec"
       fi
@@ -611,6 +613,16 @@ inbox_steer_check() {  # <window> <task>
   esac
   watcher_capture "$backend" "$w" 40 "$(window_label "$w")" || WATCHER_CAPTURE=
   tail40=$WATCHER_CAPTURE
+  if [ "$verb" = postbusy ]; then
+    # The one ring a stuck-busy escalation owes: never while busy, spent by
+    # the first attempt on a non-busy lane.
+    ! window_is_busy "$w" "$tail40" || return 0
+    ring_rc=0
+    fm_task_inbox_ring "$backend" "$w" "$rec" "$(window_label "$w")" "$(window_harness "$w")" || ring_rc=$?
+    fm_task_inbox_clear_busy_escalated "$STATE" "$task" || true
+    triage_log "steer-inbox post-busy ring: $task ${rec##*/} result=$ring_rc"
+    return 0
+  fi
   if window_is_busy "$w" "$tail40"; then
     [ "$verb" != retry ] || return 0
     if ! count=$(fm_task_inbox_record_busy "$STATE" "$task" "$rec"); then
@@ -618,6 +630,7 @@ inbox_steer_check() {  # <window> <task>
       reason="stale: $w (steering-inbox busy bookkeeping unwritable: ${rec%/*}/.busy-state cannot be written while $rec stays unhandled; inspect the inbox directory)"
     elif [ "$count" -ge "$(fm_task_inbox_busy_max)" ]; then
       reason="stale: $w (unread firstmate instruction: stuck-busy after $count consecutive busy-deferred due doorbells; $rec stays unhandled and no doorbell was typed; inspect the worker)"
+      busy_escalation=1
     else
       return 0
     fi
@@ -668,6 +681,7 @@ inbox_steer_check() {  # <window> <task>
         echo "error: stale wake was queued for $task but its inbox escalation marker could not be written" >&2
         exit 1
       fi
+      [ "$busy_escalation" != 1 ] || fm_task_inbox_record_busy_escalated "$STATE" "$task" "$rec" || true
       wake "$reason"
       ;;
   esac
