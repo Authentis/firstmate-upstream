@@ -1171,6 +1171,65 @@ test_housekeeping_paused_resurfaces_and_resets() {
   pass "housekeeping re-surfaces a stale declared pause on the long cadence and resets its window"
 }
 
+# Away mode: a paused: line older than FM_PAUSED_NO_GATE_SECS with no live gate
+# run escalates once, like blocked:, well before the long recheck cadence; a live
+# gate run keeps it quiet.
+paused_overdue_housekeeping() {  # <case> <crew-state> [kind] -> sets PH_STATE PH_KEY PH_FAKEBIN PH_WIN PH_PANE
+  local dir task
+  dir=$(make_supercase "$1")
+  PH_STATE="$dir/state"; PH_FAKEBIN="$dir/fakebin"; task="parked-w12"
+  PH_WIN="sess:fm-$task"; PH_PANE="$dir/pane.txt"
+  make_fake_crew_state "$PH_FAKEBIN" >/dev/null
+  printf 'window=%s\nkind=%s\n' "$PH_WIN" "${3:-ship}" > "$PH_STATE/$task.meta"
+  printf 'paused: PR https://example.test/pr/9 published, parked\n' > "$PH_STATE/$task.status"
+  touch -t "$(date -r $(( $(date +%s) - 7300 )) +%Y%m%d%H%M.%S 2>/dev/null \
+    || date -d "@$(( $(date +%s) - 7300 ))" +%Y%m%d%H%M.%S)" "$PH_STATE/$task.status"
+  printf 'idle prompt $\n' > "$PH_PANE"
+  PH_KEY=$(printf '%s' "$task" | tr ':/.' '___')
+  echo $(( $(date +%s) - 600 )) > "$PH_STATE/.subsuper-paused-$PH_KEY"
+  paused_overdue_tick "$2"
+  paused_overdue_tick "$2"
+}
+
+paused_overdue_tick() {  # <crew-state>
+  PATH="$PH_FAKEBIN:$PATH" FM_FAKE_TMUX_WINDOW="$PH_WIN" FM_FAKE_TMUX_CAPTURE="$PH_PANE" \
+    FM_CREW_STATE_BIN="$PH_FAKEBIN/fm-crew-state.sh" FM_FAKE_CREW_STATE="$1" \
+    FM_STATE_OVERRIDE="$PH_STATE" housekeeping "$PH_STATE"
+}
+
+test_housekeeping_paused_overdue_without_gate_run_escalates_once() {
+  paused_overdue_housekeeping paused-overdue-away 'state: paused · source: status-log · PR published, parked'
+  [ "$(grep -c "no live gate run" "$PH_STATE/.subsuper-escalations" 2>/dev/null)" = 1 ] \
+    || fail "an overdue paused: lane did not escalate exactly once: $(cat "$PH_STATE/.subsuper-escalations" 2>/dev/null || true)"
+  [ -e "$PH_STATE/.subsuper-paused-$PH_KEY" ] || fail "overdue escalation dropped the long recheck cadence"
+  pass "away mode escalates an overdue paused: lane with no live gate run once"
+}
+
+test_housekeeping_paused_overdue_with_live_gate_run_stays_quiet() {
+  paused_overdue_housekeeping paused-overdue-away-live 'state: working · source: run-step · validating (running)'
+  [ ! -s "$PH_STATE/.subsuper-escalations" ] \
+    || fail "an overdue paused: lane with a live gate run escalated: $(cat "$PH_STATE/.subsuper-escalations")"
+  echo $(( $(date +%s) - 20000 )) > "$PH_STATE/.subsuper-paused-$PH_KEY"
+  paused_overdue_tick 'state: working · source: run-step · validating (running)'
+  grep -F "awaiting external" "$PH_STATE/.subsuper-escalations" >/dev/null 2>&1 \
+    || fail "an overdue paused: lane with a live gate run lost its long recheck cadence"
+  grep -F "no live gate run" "$PH_STATE/.subsuper-escalations" >/dev/null 2>&1 \
+    && fail "the long recheck of a live gate run was sent as a no-live-gate-run wake"
+  paused_overdue_tick 'state: paused · source: status-log · run ended, parked'
+  paused_overdue_tick 'state: paused · source: status-log · run ended, parked'
+  [ "$(grep -c "no live gate run" "$PH_STATE/.subsuper-escalations" 2>/dev/null)" = 1 ] \
+    || fail "an overdue paused: lane did not escalate exactly once after its gate run ended: $(cat "$PH_STATE/.subsuper-escalations" 2>/dev/null || true)"
+  pass "away mode keeps an overdue paused: lane quiet while its gate run is live, then escalates once it ends"
+}
+
+test_housekeeping_paused_overdue_secondmate_stays_quiet() {
+  paused_overdue_housekeeping paused-overdue-away-secondmate 'state: paused · source: status-log · waiting on upstream release' secondmate
+  grep -F "no live gate run" "$PH_STATE/.subsuper-escalations" >/dev/null 2>&1 \
+    && fail "an overdue secondmate paused: line escalated as parked: $(cat "$PH_STATE/.subsuper-escalations")"
+  [ -e "$PH_STATE/.subsuper-paused-$PH_KEY" ] || fail "an overdue secondmate paused: line lost its long recheck cadence"
+  pass "away mode keeps an overdue secondmate paused: line on the ordinary pause cadence"
+}
+
 # The other half of quieting a captain-held task: it must NOT be silenced outright.
 # fm-classify-lib.sh's cadence comment is explicit that a forgotten hold cannot rot
 # invisibly, so a held task re-surfaces on the same bounded window as a pause, with
@@ -3254,6 +3313,9 @@ test_housekeeping_seeds_pause_marker_from_status
 test_housekeeping_persistent_stale_escalates
 test_housekeeping_resumed_stale_cleared
 test_housekeeping_paused_resurfaces_and_resets
+test_housekeeping_paused_overdue_without_gate_run_escalates_once
+test_housekeeping_paused_overdue_with_live_gate_run_stays_quiet
+test_housekeeping_paused_overdue_secondmate_stays_quiet
 test_housekeeping_captain_held_resurfaces_and_resets
 test_housekeeping_captain_held_silenced_only_by_an_away_record
 test_housekeeping_paused_resumed_cleared

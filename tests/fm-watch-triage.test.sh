@@ -2345,6 +2345,228 @@ test_stale_terminal_status_overridden_by_active_run() {
   pass "a stale terminal-looking status is overridden and absorbed while a run is actively working, then wedge-escalated"
 }
 
+# --- paused: with no live gate run past the limit: surfaced like blocked: ---
+# A builder that parks on paused: after publishing its PR holds its slot forever
+# because the declared wait is absorbed on a long cadence. A paused: line older
+# than FM_PAUSED_NO_GATE_SECS with no live gate run (crew_is_provably_working,
+# the one liveness detector) is surfaced; a live run, a younger line, or an
+# `until` time not yet reached stays quiet exactly as before.
+# [pane] churn rewrites the pane faster than the poll, like an idle pane with a
+# ticking footer, so no two polls see the same hash; stop it with
+# paused_overdue_churn_stop.
+paused_overdue_case() {  # <name> <line> <age-secs> <crew-state> [kind] [pane] -> sets PO_* vars
+  PO_DIR=$(make_case "$1"); PO_STATE="$PO_DIR/state"; PO_FAKEBIN="$PO_DIR/fakebin"
+  PO_OUT="$PO_DIR/watch.out"; PO_WINDOW="test:fm-parked"
+  printf 'idle after publishing the PR' > "$PO_DIR/pane.txt"
+  printf 'window=%s\nkind=%s\n' "$PO_WINDOW" "${5:-ship}" > "$PO_STATE/parked.meta"
+  printf '%s\n' "$2" > "$PO_STATE/parked.status"
+  set_mtime $(( $(date +%s) - $3 )) "$PO_STATE/parked.status"
+  printf '%s' "$(seen_sig "$PO_STATE/parked.status")" > "$PO_STATE/.seen-parked_status"
+  PO_KEY=$(printf '%s' "$PO_WINDOW" | tr ':/.' '___')
+  printf '%s' "$(hash_text "idle after publishing the PR")" > "$PO_STATE/.hash-$PO_KEY"
+  printf '1\n' > "$PO_STATE/.count-$PO_KEY"
+  PO_CHURN_PID=
+  if [ "${6:-}" = churn ]; then
+    (
+      i=0
+      while :; do
+        printf 'idle after publishing the PR %s' "$i" > "$PO_DIR/pane.tmp" && mv -f "$PO_DIR/pane.tmp" "$PO_DIR/pane.txt"
+        i=$(( i + 1 ))
+        sleep 0.2
+      done
+    ) &
+    PO_CHURN_PID=$!
+  fi
+  export FM_FAKE_CREW_STATE="$4"
+  paused_overdue_launch
+}
+
+paused_overdue_churn_stop() {
+  [ -z "$PO_CHURN_PID" ] || { kill "$PO_CHURN_PID" 2>/dev/null; wait "$PO_CHURN_PID" 2>/dev/null; } || true
+  PO_CHURN_PID=
+}
+
+paused_overdue_launch() {
+  PATH="$PO_FAKEBIN:$PATH" FM_FAKE_TMUX_WINDOW="$PO_WINDOW" FM_FAKE_TMUX_CAPTURE="$PO_DIR/pane.txt" \
+    FM_FAKE_TMUX_CURRENT_COMMAND=zsh FM_STATE_OVERRIDE="$PO_STATE" FM_CREW_STATE_BIN="$PO_FAKEBIN/fm-crew-state.sh" \
+    FM_STALE_ESCALATE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$PO_OUT" &
+  PO_PID=$!
+}
+
+test_paused_overdue_without_gate_run_wakes() {
+  paused_overdue_case paused-overdue-fires 'paused: PR https://example.test/pr/9 published, parked' 7300 \
+    'state: paused · source: status-log · PR published, parked'
+  wait_for_exit "$PO_PID" 100 || { reap "$PO_PID"; fail "an overdue paused: lane with no live gate run did not wake"; }
+  paused_overdue_wake_printed || fail "overdue paused: wake not printed: $(cat "$PO_OUT")"
+  FM_STATE_OVERRIDE="$PO_STATE" "$DRAIN" > "$PO_DIR/drain.out" 2>/dev/null || fail "drain failed"
+  grep "$(printf '\tstale\t')" "$PO_DIR/drain.out" | grep -F "$PO_WINDOW" >/dev/null || fail "overdue paused: wake not queued"
+  unset FM_FAKE_CREW_STATE
+  pass "a paused: lane older than the limit with no live gate run wakes like blocked:"
+}
+
+# A resolved: line for another phase key answers a decision, not the pause, so
+# the standing paused: declaration still parks the lane and still wakes.
+test_paused_overdue_past_unrelated_resolved_wakes() {
+  paused_overdue_case paused-overdue-unrelated-resolved \
+    "$(printf 'paused: awaiting review\nresolved [key=route]: captain answered')" 7300 \
+    'state: paused · source: status-log · awaiting review'
+  wait_for_exit "$PO_PID" 100 || { reap "$PO_PID"; fail "an overdue paused: behind an unrelated resolved: line did not wake"; }
+  paused_overdue_wake_printed || fail "overdue paused: wake not printed past an unrelated resolved: line: $(cat "$PO_OUT")"
+  unset FM_FAKE_CREW_STATE
+  pass "an overdue paused: lane behind an unrelated resolved: line still wakes"
+}
+
+paused_overdue_wake_printed() {
+  grep -F "stale: $PO_WINDOW (paused " "$PO_OUT" | grep -F "with no live gate run" >/dev/null
+}
+
+# An idle pane whose footer ticks changes hash between polls and never sits on
+# one hash for two polls. The overdue wake must not depend on a stable hash, and
+# it fires once per declaration: the relaunched watcher stays quiet.
+test_paused_overdue_churny_pane_wakes_once() {
+  paused_overdue_case paused-overdue-churny 'paused: awaiting review' 7300 \
+    'state: paused · source: status-log · awaiting review' ship churn
+  wait_for_exit "$PO_PID" 100 || { reap "$PO_PID"; paused_overdue_churn_stop; fail "an overdue paused: lane on a churny pane did not wake"; }
+  paused_overdue_wake_printed || { paused_overdue_churn_stop; fail "churny overdue paused: wake not printed: $(cat "$PO_OUT")"; }
+  FM_STATE_OVERRIDE="$PO_STATE" "$DRAIN" > "$PO_DIR/drain.out" 2>/dev/null || { paused_overdue_churn_stop; fail "drain failed"; }
+  paused_overdue_launch
+  for _ in 1 2; do
+    if ! wait_poll_cycle "$PO_STATE" "$PO_PID"; then
+      reap "$PO_PID"; paused_overdue_churn_stop; fail "the same overdue declaration woke twice: $(cat "$PO_OUT")"
+    fi
+  done
+  reap "$PO_PID"
+  paused_overdue_churn_stop
+  [ ! -s "$PO_OUT" ] || fail "the same overdue declaration printed a second wake: $(cat "$PO_OUT")"
+  ack_stopped_cycle "$PO_STATE" || fail "could not acknowledge the intentional watcher stop"
+  unset FM_FAKE_CREW_STATE
+  pass "an overdue paused: lane on a churny pane wakes once per declaration"
+}
+
+test_paused_overdue_churny_pane_stays_quiet_with_live_gate_run() {
+  paused_overdue_case paused-overdue-churny-live 'paused: own pipeline run' 7300 \
+    'state: working · source: run-step · validating (running)' ship churn
+  for _ in 1 2; do
+    if ! wait_poll_cycle "$PO_STATE" "$PO_PID"; then
+      reap "$PO_PID"; paused_overdue_churn_stop; fail "a churny paused: lane with a live gate run woke: $(cat "$PO_OUT")"
+    fi
+  done
+  [ ! -s "$PO_STATE/.wake-queue" ] || { reap "$PO_PID"; paused_overdue_churn_stop; fail "live-gate churny paused: lane enqueued a wake"; }
+  reap "$PO_PID"
+  paused_overdue_churn_stop
+  [ ! -s "$PO_OUT" ] || fail "live-gate churny paused: lane printed a wake"
+  ack_stopped_cycle "$PO_STATE" || fail "could not acknowledge the intentional watcher stop"
+  unset FM_FAKE_CREW_STATE
+  pass "an overdue paused: lane on a churny pane WITH a live gate run stays quiet"
+}
+
+test_paused_overdue_stays_quiet_with_live_gate_run() {
+  paused_overdue_case paused-overdue-live 'paused: own pipeline run' 7300 \
+    'state: working · source: run-step · validating (running)'
+  if ! wait_poll_cycle "$PO_STATE" "$PO_PID"; then
+    reap "$PO_PID"; fail "a paused: lane with a live gate run woke: $(cat "$PO_OUT")"
+  fi
+  [ ! -s "$PO_OUT" ] || fail "live-gate paused: lane printed a wake"
+  [ ! -s "$PO_STATE/.wake-queue" ] || fail "live-gate paused: lane enqueued a wake"
+  reap "$PO_PID"
+  ack_stopped_cycle "$PO_STATE" || fail "could not acknowledge the intentional watcher stop"
+  unset FM_FAKE_CREW_STATE
+  pass "a paused: lane past the limit WITH a live gate run stays quiet"
+}
+
+test_paused_overdue_secondmate_stays_quiet() {
+  paused_overdue_case paused-overdue-secondmate 'paused: waiting on upstream release' 7300 \
+    'state: paused · source: status-log · waiting on upstream release' secondmate
+  if ! wait_poll_cycle "$PO_STATE" "$PO_PID"; then
+    reap "$PO_PID"; fail "an overdue secondmate paused: line woke: $(cat "$PO_OUT")"
+  fi
+  [ ! -s "$PO_OUT" ] || fail "overdue secondmate paused: line printed a wake"
+  [ ! -s "$PO_STATE/.wake-queue" ] || fail "overdue secondmate paused: line enqueued a wake"
+  reap "$PO_PID"
+  ack_stopped_cycle "$PO_STATE" || fail "could not acknowledge the intentional watcher stop"
+  unset FM_FAKE_CREW_STATE
+  pass "an overdue secondmate paused: line keeps the ordinary pause cadence"
+}
+
+test_paused_under_limit_stays_quiet() {
+  paused_overdue_case paused-under-limit 'paused: PR published, waiting' 600 \
+    'state: paused · source: status-log · PR published, waiting'
+  if ! wait_poll_cycle "$PO_STATE" "$PO_PID"; then
+    reap "$PO_PID"; fail "a paused: lane under the limit woke: $(cat "$PO_OUT")"
+  fi
+  [ ! -s "$PO_OUT" ] || fail "young paused: lane printed a wake"
+  reap "$PO_PID"
+  ack_stopped_cycle "$PO_STATE" || fail "could not acknowledge the intentional watcher stop"
+  unset FM_FAKE_CREW_STATE
+  pass "a paused: lane younger than the limit stays quiet"
+}
+
+# The common sequence: the young paused: line is first absorbed on the pause
+# cadence at hash h, the pane stays frozen at h, and the line later crosses the
+# limit. The absorbed hash must not hide the now-overdue line.
+test_paused_absorbed_then_overdue_wakes() {
+  paused_overdue_case paused-absorbed-then-overdue 'paused: PR https://example.test/pr/9 published, parked' 600 \
+    'state: paused · source: status-log · PR published, parked'
+  if ! wait_poll_cycle "$PO_STATE" "$PO_PID"; then
+    reap "$PO_PID"; fail "a young paused: lane woke before it went overdue: $(cat "$PO_OUT")"
+  fi
+  [ -e "$PO_STATE/.paused-$PO_KEY" ] || { reap "$PO_PID"; fail "the young paused: lane was not absorbed on the pause cadence"; }
+  [ ! -s "$PO_OUT" ] || { reap "$PO_PID"; fail "young paused: lane printed a wake"; }
+  set_mtime $(( $(date +%s) - 7300 )) "$PO_STATE/parked.status"
+  printf '%s' "$(seen_sig "$PO_STATE/parked.status")" > "$PO_STATE/.seen-parked_status"
+  wait_for_exit "$PO_PID" 100 || { reap "$PO_PID"; fail "an absorbed paused: lane that went overdue did not wake"; }
+  paused_overdue_wake_printed || fail "overdue wake not printed after absorb: $(cat "$PO_OUT")"
+  unset FM_FAKE_CREW_STATE
+  pass "a paused: lane absorbed while young wakes once it goes overdue at the same pane hash"
+}
+
+# An overdue paused: line first held by a live gate run stays quiet while the run
+# lives, then wakes once the run ends with the pane frozen at the same hash.
+test_paused_overdue_wakes_when_live_gate_run_ends() {
+  paused_overdue_case paused-overdue-run-ends 'paused: own pipeline run' 7300 \
+    'state: working · source: run-step · validating (running)'
+  local ssf="$PO_STATE/.stale-since-$PO_KEY"
+  for _ in 1 2; do
+    if ! wait_poll_cycle "$PO_STATE" "$PO_PID"; then
+      reap "$PO_PID"; fail "an overdue paused: lane woke while its gate run was live: $(cat "$PO_OUT")"
+    fi
+  done
+  [ -e "$ssf" ] || { reap "$PO_PID"; fail "the live gate run did not absorb the overdue paused: lane"; }
+  [ ! -s "$PO_OUT" ] || { reap "$PO_PID"; fail "live-gate overdue paused: lane printed a wake"; }
+  cat > "$PO_FAKEBIN/fm-crew-state.sh" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' 'state: paused · source: status-log · run ended'
+SH
+  wait_for_exit "$PO_PID" 100 || { reap "$PO_PID"; fail "an overdue paused: lane did not wake after its gate run ended"; }
+  paused_overdue_wake_printed || fail "overdue wake not printed after the run ended: $(cat "$PO_OUT")"
+  unset FM_FAKE_CREW_STATE
+  pass "an overdue paused: lane stays quiet while its gate run lives and wakes once it ends"
+}
+
+test_paused_overdue_classifier() {
+  local dir state future
+  dir=$(make_case paused-overdue-classify); state="$dir/state"
+  future=$(date -u -r $(( $(date +%s) + 86400 )) +%Y-%m-%dT%H:%MZ 2>/dev/null \
+    || date -u -d "@$(( $(date +%s) + 86400 ))" +%Y-%m-%dT%H:%MZ)
+  printf 'paused: parked\n' > "$state/old.status"; set_mtime $(( $(date +%s) - 7300 )) "$state/old.status"
+  status_paused_overdue "$state/old.status" || fail "paused over 2h not classified overdue"
+  FM_PAUSED_NO_GATE_SECS=9000 status_paused_overdue "$state/old.status" && fail "FM_PAUSED_NO_GATE_SECS override ignored"
+  printf 'paused: awaiting review\nresolved [key=route]: captain answered\n' > "$state/answered.status"
+  set_mtime $(( $(date +%s) - 7300 )) "$state/answered.status"
+  status_paused_overdue "$state/answered.status" || fail "a standing paused: behind an unrelated resolved: line not classified overdue"
+  printf 'paused: awaiting review\nresolved: the review landed\n' > "$state/retracted.status"
+  set_mtime $(( $(date +%s) - 7300 )) "$state/retracted.status"
+  status_paused_overdue "$state/retracted.status" && fail "a paused: retracted by its own resolved: line classified overdue"
+  printf 'paused: waiting until %s\n' "$future" > "$state/until.status"; set_mtime $(( $(date +%s) - 7300 )) "$state/until.status"
+  status_paused_overdue "$state/until.status" && fail "paused with a future until classified overdue"
+  printf 'paused: parked\n' > "$state/new.status"
+  status_paused_overdue "$state/new.status" && fail "fresh paused classified overdue"
+  printf 'kind=secondmate\n' > "$state/mate.meta"
+  printf 'paused: waiting on upstream release\n' > "$state/mate.status"; set_mtime $(( $(date +%s) - 7300 )) "$state/mate.status"
+  status_paused_overdue "$state/mate.status" && fail "overdue secondmate paused classified overdue"
+  pass "status_paused_overdue: overdue paused fires, also behind an unrelated resolved:; retracted, fresh, future-until, overridden limit, and secondmate stay quiet"
+}
+
 # --- non-terminal stale, crew provably working: absorbed, then wedge-escalated ---
 # A provably-working crew (an actively-running pipeline) legitimately sits on a
 # static pane (e.g. waiting on CI), so a non-terminal stale is absorbed and only
@@ -6697,6 +6919,16 @@ test_busy_declared_pause_is_rechecked_not_wedge_escalated
 test_afk_busy_declared_pause_hands_off_plain_stale
 test_afk_busy_declared_pause_ticking_pane_hands_off_once
 test_nonterminal_stale_not_working_surfaced
+test_paused_overdue_classifier
+test_paused_overdue_without_gate_run_wakes
+test_paused_overdue_stays_quiet_with_live_gate_run
+test_paused_overdue_secondmate_stays_quiet
+test_paused_overdue_past_unrelated_resolved_wakes
+test_paused_overdue_churny_pane_wakes_once
+test_paused_overdue_churny_pane_stays_quiet_with_live_gate_run
+test_paused_under_limit_stays_quiet
+test_paused_absorbed_then_overdue_wakes
+test_paused_overdue_wakes_when_live_gate_run_ends
 test_nonterminal_stale_paused_absorbed_then_resurfaced
 test_exited_declared_pause_is_bounded_but_live_gate_surfaces
 test_own_work_wait_keeps_first_alert_then_long_cadence

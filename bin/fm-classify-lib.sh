@@ -123,6 +123,14 @@ FM_CLASSIFY_PAUSED_VERB_DEFAULT='paused'
 # shellcheck disable=SC2034 # Read by the watcher and daemon (fm-watch.sh, fm-supervise-daemon.sh), not this lib.
 FM_PAUSE_RESURFACE_SECS_DEFAULT=14400
 
+# A `paused:` lane with no live gate run for longer than this is parked, not
+# waiting: status_paused_overdue below lets the watcher and the away-mode
+# daemon's pause recheck wake on it like `blocked:`, unless the crew's
+# authoritative state shows a live run. Two hours
+# by default; FM_PAUSED_NO_GATE_SECS overrides it. A paused line naming an
+# `until` time not yet reached stays quiet.
+FM_PAUSED_NO_GATE_SECS_DEFAULT=7200
+
 # fm_utc_iso_to_epoch <YYYY-MM-DDTHH:MM[:SS]Z>: the one portable UTC ISO 8601
 # reader shared by the declared-wait vocabulary and the away-posture record
 # (bin/fm-afk-contract.sh). Prints epoch seconds; returns 1 on any other shape
@@ -2858,4 +2866,28 @@ stale_is_terminal() {  # <window> <state>
   local win=$1 state=$2 last
   last=$(last_status_line "$state/$(window_to_task "$win" "$state").status")
   [ -n "$last" ] && status_is_captain_relevant "$last"
+}
+
+# 0 if a status file's declared wait (status_declared_wait_line) is a `paused:`
+# declaration, the file has not moved for FM_PAUSED_NO_GATE_SECS, and the line
+# names no `until` time still ahead. Pure time-and-line test: gate-run liveness
+# is NOT read here; each caller asks crew_is_provably_working (the one detector)
+# only once this holds, so a paused lane with a live gate run stays quiet exactly
+# as before. A secondmate is a coordinator with no gate run of its own, so its
+# declared waits keep the ordinary pause cadence.
+status_paused_overdue() {  # <status-file>
+  local f=$1 line limit mtime now until
+  line=$(status_declared_wait_line "$f")
+  status_is_paused "$line" || return 1
+  [ "$(_fm_status_kind "$f")" != secondmate ] || return 1
+  limit=${FM_PAUSED_NO_GATE_SECS:-$FM_PAUSED_NO_GATE_SECS_DEFAULT}
+  case "$limit" in ''|*[!0-9]*) limit=$FM_PAUSED_NO_GATE_SECS_DEFAULT ;; esac
+  mtime=$(_fm_status_file_mtime "$f") || return 1
+  case "$mtime" in ''|*[!0-9]*) return 1 ;; esac
+  now=$(date +%s)
+  [ $(( now - mtime )) -gt "$limit" ] || return 1
+  if until=$(status_paused_until "$line") && [ "$now" -lt "$until" ]; then
+    return 1
+  fi
+  return 0
 }

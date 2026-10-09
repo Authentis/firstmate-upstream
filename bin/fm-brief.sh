@@ -705,6 +705,7 @@ $RULE1
    copies that URL from your line rather than assembling one.
    A mid-task \`working:\` line (including setup complete) is nonterminal: do not end the
    turn after it; continue the same stage until a defined \`done:\` gate under Definition of done.
+   After publishing your PR, end with \`done:\`, never \`$PAUSED_VERB:\`.
 $CREWMATE_PAUSE_INSTRUCTIONS
 5. If you hit the same obstacle twice, append \`blocked [at=<epoch>]: {why}\` and stop; firstmate will help.
 6. If a decision belongs above the implementation worker (product choices, destructive actions),

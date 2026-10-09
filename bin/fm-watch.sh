@@ -1839,7 +1839,7 @@ busy_turn_bound_check() {  # <window> <task> <hash> <since-file> <escalation-fil
 
 clear_pause_state() {  # <window-key>
   local key=$1
-  rm -f "$STATE/.paused-$key" "$STATE/.paused-rechecked-$key" "$STATE/.paused-resurfaced-$key"
+  rm -f "$STATE/.paused-$key" "$STATE/.paused-rechecked-$key" "$STATE/.paused-resurfaced-$key" "$STATE/.paused-overdue-$key"
 }
 
 # The hash-scoped half of clear_pause_tracking: the stale suppressor, its wedge
@@ -3248,6 +3248,20 @@ EOF
       continue
     fi
     tail40=$(fm_backend_capture "$(window_backend "$w")" "$w" 40 "$(window_label "$w")" 2>/dev/null) || continue
+    # A `paused:` line past FM_PAUSED_NO_GATE_SECS with no live gate run is
+    # parked, not waiting: wake once per declaration, like blocked:, whatever the
+    # pane hash is doing, then leave the lane to the ordinary pause cadence.
+    # Away mode is daemon-owned and escalates the same declaration itself.
+    if ! afk_present && status_paused_overdue "$STATE/$task.status"; then
+      overdue_mtime=$(_fm_status_file_mtime "$STATE/$task.status")
+      if [ "$(cat "$STATE/.paused-overdue-$key" 2>/dev/null || true)" != "$overdue_mtime" ] \
+        && ! crew_is_provably_working "$task"; then
+        overdue_reason="stale: $w (paused $(( $(date +%s) - overdue_mtime ))s with no live gate run - parked, not waiting; finish it with done: or unblock it)"
+        fm_wake_append stale "$w" "$overdue_reason" || exit 1
+        printf '%s' "$overdue_mtime" > "$STATE/.paused-overdue-$key"
+        wake "$overdue_reason"
+      fi
+    fi
     h=$(printf '%s' "$tail40" | hash_pane)
     hf="$STATE/.hash-$key"
     cf="$STATE/.count-$key"
