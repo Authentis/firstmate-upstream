@@ -270,6 +270,10 @@ test_muse_busy_and_menu_are_refused() {
     && fail "muse: the real idle composer must be accepted"
   refuse "$idle"$'\n◇ Thinking (3s · esc to interrupt)' empty muse \
     || fail "muse: a busy turn must be refused even though the composer reads empty"
+  refuse "$idle"$'\n◇ Thinking (3s · esc to interrupt)' empty opencode \
+    || fail "opencode: the same Muse screen under the opencode harness must be refused while busy"
+  refuse "$idle" empty opencode \
+    && fail "opencode: the idle Muse composer must be accepted"
   refuse "$idle"$'\nType to filter · Enter/↓ to select · Esc to clear' empty muse \
     || fail "muse: an open menu must be refused"
   refuse "$(cat "$FX/muse-draft.txt")" pending muse \

@@ -1986,11 +1986,11 @@ fm_composer_send_refusal() {  # <screen> <composer-state> [harness] [native-iden
     return 0
   fi
   [ -n "$harness" ] || return 1
-  # Muse draws its busy turn as a `Thinking (... esc to interrupt)` row above
+  # Muse (also run as opencode) draws its busy turn as a `Thinking (... esc to interrupt)` row above
   # an otherwise empty composer, and no shared busy signature is registered
   # for it, so a working Muse is refused here before any shape is accepted.
   case "$harness" in
-    muse*)
+    muse*|opencode*)
       if printf '%s\n' "$screen" | fm_composer_strip_ansi | grep -v '^[[:space:]]*$' \
          | tail -n 12 | grep -qiE 'esc[[:space:]]+to[[:space:]]+interrupt'; then
         printf '%s' 'the agent is busy with a turn'
