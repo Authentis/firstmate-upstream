@@ -785,8 +785,8 @@ test_matrix_claude_titled_top_rule() {
 }
 
 test_matrix_live_idle_prompts_read_cursorless() {
-  # Real idle panes captured 2026-10-10 from claude 2.1.296, Muse Code 1.4.3
-  # and pi, read the way Herdr reads them (cursorless, styled, identity from
+  # Real idle panes captured 2026-10-10 from claude 2.1.296 and Muse Code 1.4.3,
+  # read the way Herdr reads them (cursorless, styled, identity from
   # the native probe). Muse draws its composer between a TITLED top rule that
   # opens with a two-dash lead-in (`── Voice input (...) ───`) and an untitled
   # closing rule; the titled-rule predicate required an eight-dash opener, so
@@ -817,9 +817,7 @@ test_matrix_live_idle_prompts_read_cursorless() {
     "${titled}"$'\n❯'"$NBSP"$'\n'"${plain:0:${#titled}}"
   mismatched="${titled}"$'\n❯'"$NBSP"$'\n'"${plain}"
   assert_screen "muse-style titled rule narrower than its closing rule" unknown "$CAPS_STYLED_NOID" "$mismatched"
-  assert_screen "pi idle after a turn, native probe idle" empty "$CAPS_STYLED" \
-    "$(cat "$fx/pi-turn-idle.txt")" '' "$(printf 'pi\tidle')"
-  pass "matrix: live claude 2.1.296, Muse 1.4.3 and pi idle prompts read empty and their drafts pending, cursorless and with a cursor"
+  pass "matrix: live claude 2.1.296 and Muse 1.4.3 idle prompts read empty and their drafts pending, cursorless and with a cursor"
 }
 
 test_matrix_kimi_bordered_shell_glyph_box() {

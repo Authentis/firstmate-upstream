@@ -621,10 +621,6 @@
       "audience": "maintainer-verification"
     },
     {
-      "path": "tests/fixtures/send-guard/pi-turn-idle.txt",
-      "audience": "maintainer-verification"
-    },
-    {
       "path": "tests/fixtures/send-guard/pi-draft.txt",
       "audience": "maintainer-verification"
     },

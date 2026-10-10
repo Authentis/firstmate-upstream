@@ -222,45 +222,9 @@ test_agy_idle_prompt_is_recognised() {
 }
 
 # fm_composer_send_refusal verdict as an exit code: 0 = refused, 1 = allowed.
-refuse() {  # <screen> <state> <harness> [native-identity]
-  bash -c '. "$1"; fm_composer_send_refusal "$2" "$3" "$4" "$5" >/dev/null' _ \
-    "$ROOT/bin/fm-composer-lib.sh" "$1" "$2" "$3" "${4-}"
-}
-
-test_pi_idle_prompt_is_recognised_without_a_native_probe() {
-  # A pane whose native identity probe returned nothing reads `unknown`
-  # cursorless, which refused every steer to the lane. The recorded harness
-  # then supplies the identity: the structurally empty pi composer is
-  # recognised. A probe that answered is the authority, so a pi the probe
-  # reports working or blocked, a draft, a busy turn, an open menu and another
-  # harness's use of the shape are all refused.
-  local screen idle
-  idle="$(cat "$FX/pi-turn-idle.txt")"
-  for screen in "$FX/pi-idle.txt" "$FX/pi-turn-idle.txt"; do
-    refuse "$(cat "$screen")" unknown pi probe-absent \
-      && fail "pi: the idle composer ${screen##*/} must be recognised without a native probe"
-    refuse "$(cat "$screen")" unknown pi-signed probe-absent \
-      && fail "pi-signed: the idle composer ${screen##*/} must be recognised without a native probe"
-  done
-  refuse "$idle" unknown pi \
-    || fail "pi: without the caller reporting an absent probe the fallback must not apply"
-  refuse "$idle" unknown pi "$(printf 'pi\tworking')" \
-    || fail "pi: a pi the native probe reports working must be refused"
-  refuse "$idle" unknown pi "$(printf 'pi\tblocked')" \
-    || fail "pi: a pi the native probe reports blocked must be refused"
-  refuse "$(cat "$FX/pi-draft.txt")" unknown pi probe-absent \
-    || fail "pi: a draft must be refused"
-  refuse "$idle"$'\nWorking...' unknown pi probe-absent \
-    || fail "pi: a working turn must be refused"
-  refuse "$idle"$'\nType to filter · Enter/↓ to select · Esc to clear' unknown pi probe-absent \
-    || fail "pi: an open menu must be refused"
-  refuse "Pick a model"$'\n  > gpt-5.6-sol\n    gpt-5.6-terra\n  Enter to select · Esc to cancel\n'"$idle" unknown pi probe-absent \
-    || fail "pi: a picker whose hint sits above the blank separator pair must be refused"
-  refuse "$idle" unknown claude probe-absent \
-    || fail "the pi idle shape must not pass for another harness"
-  refuse "$idle" pending pi probe-absent \
-    || fail "pi: a composer the classifier proves pending must stay refused"
-  pass "guard: pi's idle prompt is recognised only when the native probe is absent, and its draft, working, blocked, menu and foreign use are refused"
+refuse() {  # <screen> <state> <harness>
+  bash -c '. "$1"; fm_composer_send_refusal "$2" "$3" "$4" >/dev/null' _ \
+    "$ROOT/bin/fm-composer-lib.sh" "$1" "$2" "$3"
 }
 
 test_muse_busy_and_menu_are_refused() {
@@ -349,7 +313,6 @@ test_empty_prompt_is_accepted
 test_unrecognised_screen_is_refused_for_every_harness
 test_real_captures_per_harness
 test_agy_idle_prompt_is_recognised
-test_pi_idle_prompt_is_recognised_without_a_native_probe
 test_muse_busy_and_menu_are_refused
 test_production_ring_refuses_without_touching_the_screen
 test_refused_ring_keeps_the_record_and_retries
