@@ -254,6 +254,8 @@ test_pi_idle_prompt_is_recognised_without_a_native_probe() {
     || fail "pi: a working turn must be refused"
   refuse "$idle"$'\nType to filter · Enter/↓ to select · Esc to clear' unknown pi probe-absent \
     || fail "pi: an open menu must be refused"
+  refuse "Pick a model"$'\n  > gpt-5.6-sol\n    gpt-5.6-terra\n  Enter to select · Esc to cancel\n'"$idle" unknown pi probe-absent \
+    || fail "pi: a picker whose hint sits above the blank separator pair must be refused"
   refuse "$idle" unknown claude probe-absent \
     || fail "the pi idle shape must not pass for another harness"
   refuse "$idle" pending pi probe-absent \

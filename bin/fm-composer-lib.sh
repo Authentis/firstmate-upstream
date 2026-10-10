@@ -1907,13 +1907,14 @@ fm_composer_dialog_sink_release() {
 # matches. "esc to interrupt", the busy-turn footer, is deliberately not one.
 # Recorded 2026-10-09 on Claude Code 2.1.295: /config opens a settings list
 # whose footer is "Type to filter · Enter/↓ to select · ↑ to tabs · Esc to clear".
-fm_composer_open_menu() {  # <screen>
-  local screen=${1-}
+fm_composer_open_menu() {  # <screen> [all]
+  local screen=${1-} window=4
   [ -n "$screen" ] || return 1
-  printf '%s\n' "$screen" | fm_composer_strip_ansi | LC_ALL=C awk '
+  [ "${2-}" != all ] || window=100000
+  printf '%s\n' "$screen" | fm_composer_strip_ansi | LC_ALL=C awk -v window="$window" '
     /[^ \t\r]/ { n++; rows[n] = tolower($0) }
     END {
-      for (i = n; i > 0 && i > n - 4; i--) {
+      for (i = n; i > 0 && i > n - window; i--) {
         r = rows[i]
         if (r ~ /(esc|escape) to (cancel|clear|exit|close|go back|dismiss)/) exit 0
         if (r ~ /(enter|return)[^·|]* to (confirm|select|choose|apply)/) exit 0
@@ -1960,6 +1961,11 @@ fm_composer_pi_idle_prompt() {  # <screen>
   [ -n "$screen" ] || return 1
   plain=$(printf '%s\n' "$screen" | fm_composer_strip_ansi)
   if printf '%s\n' "$plain" | grep -v '^[[:space:]]*$' | tail -n 12 | fm_busy_lines_match pi; then
+    return 1
+  fi
+  # A picker's hint can sit above the blank separator pair, outside the last
+  # rows the generic menu check reads, so this fallback scans the whole screen.
+  if fm_composer_open_menu "$screen" all; then
     return 1
   fi
   [ "$(fm_composer_classify_screen "$(printf 'styled=1\ncursor=0\nidentity=1')" \
