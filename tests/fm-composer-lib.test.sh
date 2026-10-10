@@ -784,6 +784,44 @@ test_matrix_claude_titled_top_rule() {
   pass "matrix: claude's titled top rule proves an idle composer empty and a draft pending (#5601, #5558)"
 }
 
+test_matrix_live_idle_prompts_read_cursorless() {
+  # Real idle panes captured 2026-10-10 from claude 2.1.296, Muse Code 1.4.3
+  # and pi, read the way Herdr reads them (cursorless, styled, identity from
+  # the native probe). Muse draws its composer between a TITLED top rule that
+  # opens with a two-dash lead-in (`── Voice input (...) ───`) and an untitled
+  # closing rule; the titled-rule predicate required an eight-dash opener, so
+  # a visibly empty Muse composer read `unknown` and every steer to a Muse
+  # lane was refused as an unrecognised prompt.
+  local fx=$ROOT/tests/fixtures/send-guard idle draft titled plain mismatched
+  idle=$(cat "$fx/claude296-idle.txt")
+  draft=$(cat "$fx/claude296-draft.txt")
+  assert_screen "claude 2.1.296 idle on herdr" empty "$CAPS_STYLED" "$idle" '' "$(printf 'claude\tidle')"
+  assert_screen "claude 2.1.296 draft on herdr" pending "$CAPS_STYLED" "$draft" '' "$(printf 'claude\tidle')"
+  assert_screen "claude 2.1.296 idle on tmux" empty "$CAPS_TMUX" "$idle" "$(cat "$fx/claude296-idle.cursor")" probe-absent
+  assert_screen "claude 2.1.296 draft on tmux" pending "$CAPS_TMUX" "$draft" "$(cat "$fx/claude296-draft.cursor")" probe-absent
+  idle=$(cat "$fx/muse-idle.txt")
+  draft=$(cat "$fx/muse-draft.txt")
+  # Muse is not a Herdr-registered agent, so its native probe is absent.
+  assert_screen "muse 1.4.3 idle on herdr" empty "$CAPS_STYLED" "$idle" '' probe-absent
+  assert_screen "muse 1.4.3 idle on herdr, probe says muse" empty "$CAPS_STYLED" "$idle" '' "$(printf 'muse\tidle')"
+  assert_screen "muse 1.4.3 idle on zellij" empty "$CAPS_STYLED_NOID" "$idle"
+  assert_screen "muse 1.4.3 draft on herdr" pending "$CAPS_STYLED" "$draft" '' probe-absent
+  assert_screen "muse 1.4.3 draft on zellij" pending "$CAPS_STYLED_NOID" "$draft"
+  assert_screen "muse 1.4.3 idle on tmux" empty "$CAPS_TMUX" "$idle" "$(cat "$fx/muse-idle.cursor")" probe-absent
+  assert_screen "muse 1.4.3 draft on tmux" pending "$CAPS_TMUX" "$draft" "$(cat "$fx/muse-draft.cursor")" probe-absent
+  # The two-dash opener is still held to the width proof: a titled rule that
+  # is narrower than its closing rule is not that composer's top edge.
+  titled='── Voice input (alt(option)+v to start) ──────────'
+  plain='──────────────────────────────────────────────────────────────────────'
+  assert_screen "muse-style titled rule of matching width" empty "$CAPS_STYLED_NOID" \
+    "${titled}"$'\n❯'"$NBSP"$'\n'"${plain:0:${#titled}}"
+  mismatched="${titled}"$'\n❯'"$NBSP"$'\n'"${plain}"
+  assert_screen "muse-style titled rule narrower than its closing rule" unknown "$CAPS_STYLED_NOID" "$mismatched"
+  assert_screen "pi idle after a turn, native probe idle" empty "$CAPS_STYLED" \
+    "$(cat "$fx/pi-turn-idle.txt")" '' "$(printf 'pi\tidle')"
+  pass "matrix: live claude 2.1.296, Muse 1.4.3 and pi idle prompts read empty and their drafts pending, cursorless and with a cursor"
+}
+
 test_matrix_kimi_bordered_shell_glyph_box() {
   # Kimi's bordered `│ > │` composer - the shape fm-spawn.sh's retired
   # spawn-local regex used to own. Now the shared owner proves it everywhere,
@@ -1058,6 +1096,7 @@ test_matrix_opencode_leftbar_signals
 test_opencode_keybind_hint_below_floor
 test_matrix_grok_titled_bottom_border
 test_matrix_claude_titled_top_rule
+test_matrix_live_idle_prompts_read_cursorless
 test_matrix_kimi_bordered_shell_glyph_box
 test_matrix_claude_inside_zellij_ansi_dump
 test_strict_blank_row_divergence

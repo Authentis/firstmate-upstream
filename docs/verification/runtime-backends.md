@@ -2560,3 +2560,14 @@ Without Firstmate's hooks, Herdr reported the question panel as `blocked`, which
 This live proof covers the watcher and queue boundary; it does not establish live daemon-consumer delivery.
 `bin/fm-test-run.sh tests/fm-daemon.test.sh` exercises that consumer routing separately with portable regressions for busy escalation and busy-bookkeeping failures in away and quiet mode.
 Repeat the hooked-worker check above before publication if watcher or task-inbox busy code changes; `bin/fm-test-run.sh tests/fm-task-inbox.test.sh` refreshes the portable ladder regressions.
+
+### 2026-10-10 send guard on Muse Code 1.4.3 and pi, read cursorless
+
+Verified on 2026-10-10 on macOS arm64 in scratch tmux panes launched by the test author, reading each pane the way Herdr does (`styled=1`, `cursor=0`, `identity=1`).
+Muse Code 1.4.3 draws its composer between a titled top rule opening with two dashes (`── Voice input (alt(option)+v to start) ───`) and an untitled closing rule.
+The titled-rule predicate required an eight-dash opener, so the cursorless read of an idle Muse composer was `unknown` and the send guard refused every steer to the lane; the tmux read, which has a cursor row, was unaffected.
+The predicate now also accepts the two-dash opener, still bound to the closing rule's exact width.
+A pi composer reads `empty` cursorless only when the native probe reports `pi` with status `idle` or `done`; with the probe absent it reads `unknown`, so the guard additionally accepts pi's structurally empty composer by the recorded harness when no busy footer or menu hint is drawn.
+Claude Code 2.1.296 idle and draft screens read `empty` and `pending` on both the cursor and cursorless paths, and a live ring through `fm_backend_send_text_submit` on tmux submitted the doorbell rather than leaving a draft.
+The Herdr-side Claude draft observed on bosgame was not reproduced without a Herdr lab.
+Portable regressions: `bin/fm-test-run.sh tests/fm-composer-lib.test.sh` and `tests/fm-send-screen-guard.test.sh`.

@@ -221,6 +221,36 @@ test_agy_idle_prompt_is_recognised() {
   pass "guard: agy's idle prompt is recognised, and its draft, busy turn and foreign use are refused"
 }
 
+test_pi_idle_prompt_is_recognised_without_a_native_probe() {
+  # A pane whose native identity probe cannot vouch for pi (an outdated or
+  # unregistered agent integration) reads `unknown` cursorless, which refused
+  # every steer to the lane. The recorded harness supplies the identity: the
+  # structurally empty pi composer is recognised, and a draft, a busy turn,
+  # an open menu and another harness's use of the shape are all refused.
+  local screen
+  refuse() {  # <screen> <state> <harness>
+    bash -c '. "$1"; fm_composer_send_refusal "$2" "$3" "$4" >/dev/null' _ \
+      "$ROOT/bin/fm-composer-lib.sh" "$1" "$2" "$3"
+  }
+  for screen in "$FX/pi-idle.txt" "$FX/pi-turn-idle.txt"; do
+    refuse "$(cat "$screen")" unknown pi \
+      && fail "pi: the idle composer ${screen##*/} must be recognised without a native probe"
+    refuse "$(cat "$screen")" unknown pi-signed \
+      && fail "pi-signed: the idle composer ${screen##*/} must be recognised without a native probe"
+  done
+  refuse "$(cat "$FX/pi-draft.txt")" unknown pi \
+    || fail "pi: a draft must be refused"
+  refuse "$(cat "$FX/pi-turn-idle.txt")"$'\nWorking...' unknown pi \
+    || fail "pi: a working turn must be refused"
+  refuse "$(cat "$FX/pi-turn-idle.txt")"$'\nType to filter · Enter/↓ to select · Esc to clear' unknown pi \
+    || fail "pi: an open menu must be refused"
+  refuse "$(cat "$FX/pi-turn-idle.txt")" unknown claude \
+    || fail "the pi idle shape must not pass for another harness"
+  refuse "$(cat "$FX/pi-turn-idle.txt")" pending pi \
+    || fail "pi: a composer the classifier proves pending must stay refused"
+  pass "guard: pi's idle prompt is recognised without a native probe, and its draft, working turn, menu and foreign use are refused"
+}
+
 test_production_ring_refuses_without_touching_the_screen() {
   local dir state name fixture harness
   dir=$(new_dir ringrefuse)
@@ -280,5 +310,6 @@ test_empty_prompt_is_accepted
 test_unrecognised_screen_is_refused_for_every_harness
 test_real_captures_per_harness
 test_agy_idle_prompt_is_recognised
+test_pi_idle_prompt_is_recognised_without_a_native_probe
 test_production_ring_refuses_without_touching_the_screen
 test_refused_ring_keeps_the_record_and_retries

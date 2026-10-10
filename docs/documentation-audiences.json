@@ -605,6 +605,26 @@
       "audience": "maintainer-verification"
     },
     {
+      "path": "tests/fixtures/send-guard/claude296-draft.txt",
+      "audience": "maintainer-verification"
+    },
+    {
+      "path": "tests/fixtures/send-guard/claude296-idle.txt",
+      "audience": "maintainer-verification"
+    },
+    {
+      "path": "tests/fixtures/send-guard/muse-draft.txt",
+      "audience": "maintainer-verification"
+    },
+    {
+      "path": "tests/fixtures/send-guard/muse-idle.txt",
+      "audience": "maintainer-verification"
+    },
+    {
+      "path": "tests/fixtures/send-guard/pi-turn-idle.txt",
+      "audience": "maintainer-verification"
+    },
+    {
       "path": "tests/fixtures/send-guard/pi-draft.txt",
       "audience": "maintainer-verification"
     },

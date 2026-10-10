@@ -791,7 +791,9 @@ _fm_composer_pi_separator_row() {  # <trimmed-row>
 # consumer _fm_composer_bare_rule_sandwich.
 #
 # The row must OPEN with the same 8-column dash run the strict separator
-# requires. Width is proven by comparing canonical space strings, never by
+# requires, or with the two-dash lead-in followed by a space that Muse Code
+# 1.4.3 draws (`── Voice input (alt(option)+v to start) ───`); either way the
+# row's full width must still equal its closing rule's. Width is proven by comparing canonical space strings, never by
 # `${#row}`, which counts characters under UTF-8 and bytes under LC_ALL=C
 # (issue #1988). Title text is ASCII-printable only, the same boundary
 # _fm_composer_titled_bottom_ok holds; any other glyph leaves residue, and the
@@ -799,7 +801,7 @@ _fm_composer_pi_separator_row() {  # <trimmed-row>
 _fm_composer_titled_rule_row() {  # <trimmed-row> <plain-rule-spaces>
   local row=$1 expected=$2 spaces
   case "$row" in
-    ────────*) ;;
+    ────────*|'── '*) ;;
     *) return 1 ;;
   esac
   spaces=${row//─/ }
@@ -1944,6 +1946,26 @@ fm_composer_agy_idle_prompt() {  # <screen>
   '
 }
 
+# fm_composer_pi_idle_prompt: succeed when the screen is a pi composer the
+# shared classifier proves empty STRUCTURALLY: its valid separator pair holds
+# only blank rows and no busy footer is drawn. It exists for a pane whose
+# native identity probe cannot vouch for pi (an unregistered or outdated agent
+# integration, so the cursorless classifier answers `unknown`); the caller's
+# recorded harness supplies the identity the probe could not. The `blocked`
+# interactive-prompt case the identity conjunction guards (issue #2797) stays
+# refused by fm_composer_open_menu, which fm_composer_send_refusal applies
+# first.
+fm_composer_pi_idle_prompt() {  # <screen>
+  local screen=${1-} plain
+  [ -n "$screen" ] || return 1
+  plain=$(printf '%s\n' "$screen" | fm_composer_strip_ansi)
+  if printf '%s\n' "$plain" | grep -v '^[[:space:]]*$' | tail -n 12 | fm_busy_lines_match pi; then
+    return 1
+  fi
+  [ "$(fm_composer_classify_screen "$(printf 'styled=1\ncursor=0\nidentity=1')" \
+    "$screen" '' "$(printf 'pi\tidle')")" = empty ]
+}
+
 # fm_composer_send_refusal: the ONE pre-typing verdict. Prints the reason and
 # returns 0 when text plus Enter must NOT be typed into this screen; returns 1
 # (printing nothing) when typing is allowed. An open menu or picker is refused
@@ -1953,7 +1975,9 @@ fm_composer_agy_idle_prompt() {  # <screen>
 # harness. Positive recognition is the shared classifier's, recorded from real
 # captures on 2026-10-09 for claude 2.1.295, codex, opencode, and pi; agy's
 # bare `>` composer reads `unknown`, so agy is recognised by its documented
-# idle shape instead (fm_composer_agy_idle_prompt).
+# idle shape instead (fm_composer_agy_idle_prompt), and pi, whose cursorless
+# verdict needs a native identity probe a lane may not have registered, by its
+# structural idle shape (fm_composer_pi_idle_prompt).
 fm_composer_send_refusal() {  # <screen> <composer-state> [harness]
   local screen=${1-} state=${2-} harness=${3-}
   if fm_composer_open_menu "$screen"; then
@@ -1971,6 +1995,11 @@ fm_composer_send_refusal() {  # <screen> <composer-state> [harness]
   if [ "$harness" = agy ] && fm_composer_agy_idle_prompt "$screen"; then
     return 1
   fi
+  case "$harness" in
+    pi|pi-signed)
+      fm_composer_pi_idle_prompt "$screen" && return 1
+      ;;
+  esac
   printf '%s' 'the prompt is not a recognised empty prompt'
   return 0
 }
