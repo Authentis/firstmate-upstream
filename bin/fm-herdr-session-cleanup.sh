@@ -181,11 +181,18 @@ fm_herdr_cleanup_remaining() {
 # bound fired (or the budget was already spent). The child runs
 # fm_herdr_cleanup_herdr_raw - the real transport, exported below - rather than
 # fm_backend_herdr_cli, which this script points at this wrapper.
+#
+# The bound is one second UNDER the remaining budget: a call still running when
+# the sweep's own outer bound kills the sweep would be orphaned, because the
+# child runs in its own process group and the outer signal cannot reap it. Ending
+# the call first always leaves that outer bound with nothing to orphan.
 fm_herdr_cleanup_bounded_cli() { # <session> <herdr-subcommand-and-args...>
   local remaining cap
   remaining=$(fm_herdr_cleanup_remaining) || return 124
   cap=$(fm_herdr_cleanup_call_timeout)
   [ "$remaining" -lt "$cap" ] || remaining=$cap
+  remaining=$((remaining - 1))
+  [ "$remaining" -ge 1 ] || return 124
   fm_run_timed "$remaining" bash -c 'fm_herdr_cleanup_herdr_raw "$@"' _ "$@"
 }
 
