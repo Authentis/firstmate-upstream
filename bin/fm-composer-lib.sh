@@ -2002,6 +2002,13 @@ fm_composer_send_refusal() {  # <screen> <composer-state> [harness] [native-iden
         printf '%s' 'the agent is busy with a turn'
         return 0
       fi
+      # A picker's hint can sit right above the titled composer, outside the
+      # last rows the generic check reads (the rules and footer fill them), so
+      # this shape is also refused on a hint anywhere on the screen.
+      if fm_composer_open_menu "$screen" all; then
+        printf '%s' 'an open menu or picker is showing'
+        return 0
+      fi
       ;;
   esac
   case "$state" in

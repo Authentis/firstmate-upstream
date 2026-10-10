@@ -266,7 +266,7 @@ test_pi_idle_prompt_is_recognised_without_a_native_probe() {
 test_muse_busy_and_menu_are_refused() {
   # Muse's two-dash titled rule makes its idle composer read `empty`
   # cursorless; its busy turn and menus must still be refused untyped.
-  local idle
+  local idle picker h
   idle="$(cat "$FX/muse-idle.txt")"
   refuse "$idle" empty muse \
     && fail "muse: the real idle composer must be accepted"
@@ -278,6 +278,13 @@ test_muse_busy_and_menu_are_refused() {
     && fail "opencode: the idle Muse composer must be accepted"
   refuse "$idle"$'\nType to filter · Enter/↓ to select · Esc to clear' empty muse \
     || fail "muse: an open menu must be refused"
+  # A picker drawn right above the titled composer: the generic four-row scan
+  # is filled by the rules and footer, so the whole screen must be read.
+  picker="Pick a model"$'\n  > muse-spark-1.3\n    muse-spark-1.3-contributor\n  Enter to select · Esc to cancel\n'
+  for h in muse opencode; do
+    refuse "$picker$idle" empty "$h" \
+      || fail "$h: a picker above the titled composer must be refused"
+  done
   refuse "$(cat "$FX/muse-draft.txt")" pending muse \
     || fail "muse: a draft must be refused"
   pass "guard: muse's idle prompt is accepted, and its busy turn, menu and draft are refused"
