@@ -518,6 +518,39 @@ bound_elapsed=$(( $(date +%s) - bound_start ))
 assert_contains "$bound_err" "hard bound" "the hard-bound warning was not emitted (rc=$bound_rc, err=<$bound_err>)"
 pass "a blocked Herdr call is cut off by the sweep's hard timeout (${bound_elapsed}s for a 3s budget)"
 
+# --- per-call hard bound ------------------------------------------------------
+# The sweep-level bound is the outer guarantee; EACH Herdr call must also get its
+# own hard timeout, the smaller of the remaining budget and
+# FM_HERDR_CLEANUP_CALL_TIMEOUT_SECS, so one blocked call is cut off without
+# waiting for the whole sweep to be killed.
+CALL_ROOT="$TMP_ROOT/per-call-bound"
+mkdir -p "$CALL_ROOT/fakebin"
+printf '#!/usr/bin/env bash\nsleep 120\n' > "$CALL_ROOT/fakebin/herdr"
+chmod +x "$CALL_ROOT/fakebin/herdr"
+call_start=$(date +%s)
+(
+  unset FM_BACKEND_HERDR_BIN FM_BACKEND_HERDR_CLIENT_SESSION
+  FM_HERDR_CLEANUP_START=$SECONDS FM_HERDR_CLEANUP_BUDGET_SECS=45 \
+    FM_HERDR_CLEANUP_CALL_TIMEOUT_SECS=3 PATH="$CALL_ROOT/fakebin:$PATH" \
+    fm_herdr_cleanup_bounded_cli test workspace list
+) >/dev/null 2>&1
+call_rc=$?
+call_elapsed=$(( $(date +%s) - call_start ))
+[ "$call_rc" -ne 0 ] || fail "a blocked Herdr call reported success"
+[ "$call_elapsed" -le 12 ] \
+  || fail "a blocked Herdr call outlived its per-call bound (${call_elapsed}s for a 3s cap)"
+pass "one blocked Herdr call is cut off by its own per-call timeout (${call_elapsed}s for a 3s cap)"
+
+# The remaining budget wins when it is smaller than the per-call cap: a spent
+# budget refuses the call outright rather than starting it.
+(
+  unset FM_BACKEND_HERDR_BIN FM_BACKEND_HERDR_CLIENT_SESSION
+  FM_HERDR_CLEANUP_START=$((SECONDS - 1000)) FM_HERDR_CLEANUP_BUDGET_SECS=45 \
+    FM_HERDR_CLEANUP_CALL_TIMEOUT_SECS=20 PATH="$CALL_ROOT/fakebin:$PATH" \
+    fm_herdr_cleanup_bounded_cli test workspace list
+) >/dev/null 2>&1 && fail "an exhausted sweep budget still let a Herdr call run"
+pass "a spent sweep budget refuses a Herdr call before it starts"
+
 INTEGRATION_ROOT="$TMP_ROOT/bootstrap-integration"
 mkdir -p "$INTEGRATION_ROOT/home/state" "$INTEGRATION_ROOT/home/data" "$INTEGRATION_ROOT/home/config"
 cp -R "$ROOT/bin" "$INTEGRATION_ROOT/bin"

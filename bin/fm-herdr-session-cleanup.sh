@@ -42,9 +42,11 @@
 # session-start runtime bound.
 #
 # BOUND: the scan is paced by FM_HERDR_CLEANUP_BUDGET_SECS (default 45), which
-# stops it between journals and between candidates, and the whole sweep is
-# additionally run under one hard timeout of the same value so a single blocked
-# Herdr call cannot overrun it. A pass that runs out leaves the remaining
+# stops it between journals and between candidates. EVERY Herdr call additionally
+# runs in its own bounded child for the SMALLER of the sweep's remaining budget
+# and FM_HERDR_CLEANUP_CALL_TIMEOUT_SECS (default 20), so one blocked call is cut
+# off at its own deadline. The whole sweep is also run under one hard timeout of
+# the budget as the outer guarantee. A pass that runs out leaves the remaining
 # journals and candidates for the next session start, and every archive already
 # made is durable, so repeated starts converge.
 #
@@ -151,6 +153,40 @@ fm_herdr_cleanup_budget_value() {
 # every archive already made is durable, so repeated starts converge.
 fm_herdr_cleanup_over_budget() {
   [ $((SECONDS - ${FM_HERDR_CLEANUP_START:-0})) -ge "$(fm_herdr_cleanup_budget_value)" ]
+}
+
+# fm_herdr_cleanup_call_timeout: the validated per-call cap in seconds. It keeps
+# one Herdr call from consuming the whole sweep budget while still allowing a
+# genuinely slow but progressing call to finish.
+fm_herdr_cleanup_call_timeout() {
+  local cap=${FM_HERDR_CLEANUP_CALL_TIMEOUT_SECS:-20}
+  case "$cap" in ''|*[!0-9]*) cap=20 ;; esac
+  [ "$cap" -gt 0 ] 2>/dev/null || cap=20
+  printf '%s' "$cap"
+}
+
+# fm_herdr_cleanup_remaining: the seconds left in this sweep's budget, or
+# non-zero when it is already spent.
+fm_herdr_cleanup_remaining() {
+  local left
+  left=$(( $(fm_herdr_cleanup_budget_value) - (SECONDS - ${FM_HERDR_CLEANUP_START:-0}) ))
+  [ "$left" -ge 1 ] || return 1
+  printf '%s' "$left"
+}
+
+# fm_herdr_cleanup_bounded_cli: run ONE Herdr call in its own child under
+# fm_run_timed, bounded by the SMALLER of the sweep's remaining budget and
+# FM_HERDR_CLEANUP_CALL_TIMEOUT_SECS, so a single blocked call is cut off at its
+# own deadline instead of being able to hang the sweep. 124 means the per-call
+# bound fired (or the budget was already spent). The child runs
+# fm_herdr_cleanup_herdr_raw - the real transport, exported below - rather than
+# fm_backend_herdr_cli, which this script points at this wrapper.
+fm_herdr_cleanup_bounded_cli() { # <session> <herdr-subcommand-and-args...>
+  local remaining cap
+  remaining=$(fm_herdr_cleanup_remaining) || return 124
+  cap=$(fm_herdr_cleanup_call_timeout)
+  [ "$remaining" -lt "$cap" ] || remaining=$cap
+  fm_run_timed "$remaining" bash -c 'fm_herdr_cleanup_herdr_raw "$@"' _ "$@"
 }
 
 # fm_herdr_cleanup_inode: the file's inode as a decimal string, or non-zero when
@@ -637,13 +673,14 @@ fm_herdr_session_cleanup() {
   return 0
 }
 
-# fm_herdr_cleanup_main: the program entry. The soft budget above stops the sweep
-# between journals and candidates, but one blocked Herdr call could still overrun
-# it, so the sweep itself runs under one hard timeout of the same budget. A pass
-# the bound kills leaves the remaining journals and candidates for the next
-# session start, and every archive already made is durable, so repeated starts
-# converge. FM_HERDR_CLEANUP_BOUNDED marks the bounded child so it runs the sweep
-# in place rather than bounding itself again.
+# fm_herdr_cleanup_main: the program entry. Each Herdr call is already bounded
+# on its own above, and the soft budget stops the sweep between journals and
+# candidates; this adds the outer guarantee that the WHOLE sweep cannot outlive
+# the budget, covering the non-Herdr work too. A pass the bound kills leaves the
+# remaining journals and candidates for the next session start, and every archive
+# already made is durable, so repeated starts converge.
+# FM_HERDR_CLEANUP_BOUNDED marks the bounded child so it runs the sweep in place
+# rather than bounding itself again.
 fm_herdr_cleanup_main() {
   local budget rc
   budget=$(fm_herdr_cleanup_budget_value)
@@ -660,6 +697,28 @@ fm_herdr_cleanup_main() {
   fi
   return 0
 }
+
+# --- the per-call bounded Herdr transport ------------------------------------
+#
+# Every Herdr read in this sweep - the sweep's own calls and the calls made
+# inside the backend helpers it uses (fm_backend_herdr_pane_agent_state,
+# fm_backend_herdr_pane_idle_shell_pid, fm_backend_herdr_projection_focus_snapshot)
+# - goes through fm_backend_herdr_cli, so pointing that name at the bounded
+# wrapper bounds them all. The real transport is captured under a private name
+# and exported, along with the helpers it calls: a redefinition of an exported
+# function propagates to children (verified), so the bounded child must run the
+# captured transport, never this wrapper. A guarded capture keeps a build where
+# the transport is somehow absent from breaking the whole sweep.
+if declare -f fm_backend_herdr_cli >/dev/null 2>&1; then
+  eval "fm_herdr_cleanup_herdr_raw() $(declare -f fm_backend_herdr_cli | tail -n +2)"
+  export -f fm_herdr_cleanup_herdr_raw fm_backend_herdr_bin \
+    fm_backend_herdr_client_select fm_backend_herdr_client_candidates \
+    fm_backend_herdr_client_status
+  # shellcheck disable=SC2329  # invoked by fm_herdr_cleanup_bounded_cli.
+  fm_backend_herdr_cli() { # <session> <herdr-subcommand-and-args...>
+    fm_herdr_cleanup_bounded_cli "$@"
+  }
+fi
 
 if [ "${FM_HERDR_SESSION_CLEANUP_SOURCE_ONLY:-0}" != 1 ]; then
   fm_herdr_cleanup_main

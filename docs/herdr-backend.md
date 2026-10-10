@@ -418,7 +418,7 @@ The snapshot proves absence only when every workspace entry is well formed; a si
 An orphan is archived under its task-id spawn lock with no per-journal Herdr read.
 This is the leftover an interrupted teardown leaves behind, and without it such journals accumulate until every later sweep scales its work with the journal count.
 Under that lock the journal's inode and a fresh read of its content must still match what the scan saw, so a journal a teardown, retry, or spawn replaced between the scan and the lock is preserved rather than archived under a stale verdict.
-The whole sweep instead parses every ordinary journal exactly once and is paced by `FM_HERDR_CLEANUP_BUDGET_SECS` (default 45): the budget stops it between journals and between candidates, and the sweep itself runs under one hard timeout of the same value so a single blocked Herdr call cannot overrun it.
+The whole sweep instead parses every ordinary journal exactly once and is paced by `FM_HERDR_CLEANUP_BUDGET_SECS` (default 45): the budget stops it between journals and between candidates, every Herdr call runs in its own child under a hard timeout of the smaller of the remaining budget and `FM_HERDR_CLEANUP_CALL_TIMEOUT_SECS` (default 20), and the sweep itself also runs under one hard timeout of the budget so one blocked call cannot outlive either bound.
 A pass that runs out leaves the rest for the next session start, and every archive already made is durable, so repeated starts converge.
 
 `FM_HERDR_JOURNAL_PRUNE=off` (case-insensitive) is the kill switch.
