@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # Focused safety tests for bin/fm-herdr-session-cleanup.sh.
 # Covers one exact cleanup, every title/journal/topology/agent/process refusal,
-# locked revalidation races, focus refusal, read errors, repeat idempotence, and
-# the many-dead-journals orphan sweep.
+# locked revalidation races, focus refusal, read errors, repeat idempotence, the
+# many-dead-journals orphan sweep, archival never deleting, the kill switch, a
+# malformed snapshot, a journal replaced under the lock, and the hard bound on a
+# blocked Herdr call.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -15,7 +17,8 @@ trap fm_test_cleanup EXIT
 export FM_HOME="$TMP_ROOT/home"
 export FM_STATE_OVERRIDE="$FM_HOME/state"
 export FM_CONFIG_OVERRIDE="$FM_HOME/config"
-mkdir -p "$FM_STATE_OVERRIDE" "$FM_CONFIG_OVERRIDE"
+export FM_DATA_OVERRIDE="$FM_HOME/data"
+mkdir -p "$FM_STATE_OVERRIDE" "$FM_CONFIG_OVERRIDE" "$FM_DATA_OVERRIDE"
 touch "$FM_CONFIG_OVERRIDE/herdr-presentation-spaces"
 printf '%s\n' herdr > "$FM_CONFIG_OVERRIDE/backend"
 FAKEBIN=$(fm_fakebin "$TMP_ROOT")
@@ -73,6 +76,20 @@ fm_backend_herdr_session() { printf test; }
 fm_backend_herdr_presentation_session_lock_path() { printf '%s/presentation.lock' "$TMP_ROOT"; }
 fm_lock_try_acquire() {
   printf '%s\n' "$1" >> "$LOCK_LOG"
+  # Simulate a teardown/retry/spawn replacing dead-1's journal while the scan is
+  # descheduled: the replacement lands between the scan's capture and this lock.
+  if [ -e "$FIXTURE_DIR/replace-on-lock" ] && [ "${1##*/}" = ".spawn-dead-1.lock" ]; then
+    case "$(cat "$FIXTURE_DIR/replace-on-lock")" in
+      content)
+        printf 'version=1\ntask_id=dead-1\nprojection_id=%s\n' \
+          "$(cat "$FIXTURE_DIR/replacement-token")" > "$FM_STATE_OVERRIDE/dead-1.herdr-presentation"
+        ;;
+      path)
+        rm -f "$FM_STATE_OVERRIDE/dead-1.herdr-presentation"
+        write_v1 dead-1 "$(cat "$FIXTURE_DIR/replacement-token")"
+        ;;
+    esac
+  fi
   mkdir "$1" 2>/dev/null
 }
 fm_lock_release() { rm -rf -- "$1"; }
@@ -99,6 +116,9 @@ fixture_workspaces() {
   fixture_workspace_json "$title" "$tabs" "$panes"
   if [ -e "$FIXTURE_DIR/duplicate-token" ]; then
     printf ',{"workspace_id":"w3","label":"└ copy · p:%s","focused":false,"active_tab_id":"w3:t1","tab_count":1,"pane_count":1}' "$TOKEN"
+  fi
+  if [ -e "$FIXTURE_DIR/malformed-workspace" ]; then
+    printf ',{"workspace_id":null,"label":"└ task · p:%s"}' "$TOKEN"
   fi
   printf ']'
 }
@@ -222,9 +242,52 @@ write_cross_home_v2() {
   write_v2 "$TMP_ROOT/other-home" "$WS" "$TAB" "$PANE"
 }
 
+write_v2_token() { # <task-id> <token> <workspace> <tab> <pane>
+  local id=$1 token=$2 workspace=$3 tab=$4 pane=$5
+  {
+    printf 'version=2\n'
+    printf 'task_id=%s\n' "$id"
+    printf 'projection_id=%s\n' "$token"
+    printf 'home=%s\n' "$FM_HOME"
+    printf 'session=test\nworkspace_id=%s\ntab_id=%s\npane_id=%s\n' "$workspace" "$tab" "$pane"
+    printf 'parent_workspace_id=w1\nparent_label=firstmate\nworkspace_label=%s\ntask_label=fm-%s\n' \
+      "$(fm_backend_herdr_projection_workspace_label "$id" "$token")" "$id"
+  } > "$FM_STATE_OVERRIDE/$id.herdr-presentation"
+}
+
+ARCHIVE_ROOT="$FM_HOME/data/herdr-journal-archive"
+
+archive_of() { # <task-id>: print the archived journal path, or fail non-zero
+  local dir
+  for dir in "$ARCHIVE_ROOT"/*/; do
+    [ -d "$dir" ] || continue
+    if [ -f "$dir/$1.herdr-presentation" ] || [ -L "$dir/$1.herdr-presentation" ]; then
+      printf '%s' "$dir/$1.herdr-presentation"
+      return 0
+    fi
+  done
+  return 1
+}
+
+assert_archived() { # <task-id> <case>
+  local id=$1 name=$2 path
+  path=$(archive_of "$id") || fail "$name: $id was not archived"
+  [ ! -e "$FM_STATE_OVERRIDE/$id.herdr-presentation" ] || fail "$name: $id still sits in state/"
+  [ -f "$path" ] || fail "$name: archived $id is missing"
+  [ -f "$path.provenance" ] || fail "$name: archived $id has no provenance"
+  grep -q "^task_id=$id\$" "$path.provenance" || fail "$name: provenance lacks task_id"
+  grep -q '^source=' "$path.provenance" || fail "$name: provenance lacks source"
+  grep -q '^archived_at=' "$path.provenance" || fail "$name: provenance lacks the time"
+  grep -q '^reason=' "$path.provenance" || fail "$name: provenance lacks the reason"
+}
+
+assert_not_archived() { # <task-id> <case>
+  archive_of "$1" >/dev/null && fail "$2: $1 was archived"
+}
+
 reset_fixture() {
-  rm -rf "$FIXTURE_DIR" "$TMP_ROOT"/*.lock "${FM_STATE_OVERRIDE:?}/"*
-  mkdir -p "$FIXTURE_DIR"
+  rm -rf "$FIXTURE_DIR" "$TMP_ROOT"/*.lock "${FM_STATE_OVERRIDE:?}/"* "${FM_HOME:?}/data"
+  mkdir -p "$FIXTURE_DIR" "$FM_HOME/data"
   : > "$LOCK_LOG"; : > "$CLOSE_LOG"; : > "$CLI_LOG"
   printf '%s\n' "$TITLE" > "$FIXTURE_DIR/title"
   printf '1\n' > "$FIXTURE_DIR/tabs"
@@ -248,23 +311,25 @@ assert_preserved() { # <case>
 reset_fixture
 fm_herdr_session_cleanup >/dev/null 2>&1
 [ ! -e "$FM_STATE_OVERRIDE/$ID.herdr-presentation" ] || fail "positive cleanup kept the journal"
+assert_archived "$ID" "positive cleanup"
 [ "$(wc -l < "$CLOSE_LOG" | tr -d ' ')" = 1 ] || fail "positive cleanup did not close exactly once"
 [ "$(sed -n '1p' "$LOCK_LOG")" = "$FM_STATE_OVERRIDE/.spawn-$ID.lock" ] || fail "task lock was not acquired first"
 [ "$(sed -n '2p' "$LOCK_LOG")" = "$TMP_ROOT/presentation.lock" ] || fail "presentation lock was not acquired second"
-pass "exact stale projection closes one exact pane under task then presentation locks"
+pass "exact stale projection closes one exact pane under task then presentation locks and archives the journal"
 fm_herdr_session_cleanup >/dev/null 2>&1
 [ "$(wc -l < "$CLOSE_LOG" | tr -d ' ')" = 1 ] || fail "repeat cleanup closed again"
 pass "successful cleanup is idempotent on repeat"
 
 reset_fixture; printf '%s\n' '└ malformed p:AbCdEfGhIjKlMnOpQrStUv' > "$FIXTURE_DIR/title"; assert_preserved "malformed title"
 # A live workspace that carries no trace of the journal's token is not this
-# journal's projection, so the orphan sweep retires the journal - while still
+# journal's projection, so the orphan sweep archives the journal - while still
 # closing no pane, because the title never parses as a projection candidate.
 reset_fixture; printf '%s\n' '└ missing-token' > "$FIXTURE_DIR/title"
 fm_herdr_session_cleanup >/dev/null 2>&1
 [ ! -e "$FM_STATE_OVERRIDE/$ID.herdr-presentation" ] || fail "token-absent orphan journal survived"
+assert_archived "$ID" "token-absent orphan"
 [ ! -s "$CLOSE_LOG" ] || fail "token-absent orphan journal closed a pane"
-pass "a journal no live workspace carries is retired without closing any pane"
+pass "a journal no live workspace carries is archived without closing any pane"
 reset_fixture; printf 'version=1\ntask_id=%s\nprojection_id=short\n' "$ID" > "$FM_STATE_OVERRIDE/$ID.herdr-presentation"; assert_preserved "malformed journal"
 reset_fixture; : > "$FIXTURE_DIR/duplicate-token"; assert_preserved "duplicate token"
 reset_fixture; printf '%s\n' "└ task · p:$TOKEN p:$TOKEN" > "$FIXTURE_DIR/title"; assert_preserved "duplicate title token"
@@ -277,6 +342,7 @@ reset_fixture; write_v2 "$FM_HOME" "$WS" "$TAB" w9:p1; assert_preserved "v2 pane
 reset_fixture; write_v2 "$FM_HOME" "$WS" "$TAB" "$PANE"
 fm_herdr_session_cleanup >/dev/null 2>&1
 [ ! -e "$FM_STATE_OVERRIDE/$ID.herdr-presentation" ] || fail "matching v2 cleanup kept the journal"
+assert_archived "$ID" "matching v2 cleanup"
 [ "$(wc -l < "$CLOSE_LOG" | tr -d ' ')" = 1 ] || fail "matching v2 cleanup did not close exactly once"
 pass "v2 cleanup requires and accepts the exact journal endpoint binding"
 reset_fixture; : > "$FM_STATE_OVERRIDE/$ID.meta"; assert_preserved "current task metadata"
@@ -308,11 +374,12 @@ write_many_dead() { # <count>
     n=$((n + 1))
   done
 }
-assert_all_dead_gone() { # <count>
+assert_all_dead_archived() { # <count>
   local n=1
   while [ "$n" -le "$1" ]; do
     [ ! -e "$FM_STATE_OVERRIDE/dead-$n.herdr-presentation" ] \
-      || fail "dead journal dead-$n was not retired"
+      || fail "dead journal dead-$n was not archived"
+    assert_archived "dead-$n" "many dead journals"
     n=$((n + 1))
   done
 }
@@ -320,32 +387,136 @@ assert_all_dead_gone() { # <count>
 reset_fixture
 write_many_dead 1
 fm_herdr_session_cleanup >/dev/null 2>&1
-assert_all_dead_gone 1
+assert_all_dead_archived 1
 [ "$(wc -l < "$CLOSE_LOG" | tr -d ' ')" = 1 ] || fail "the live projection was not closed exactly once (one dead journal)"
 one_dead_calls=$(wc -l < "$CLI_LOG" | tr -d ' ')
 
 reset_fixture
 write_many_dead 60
 fm_herdr_session_cleanup >/dev/null 2>&1
-assert_all_dead_gone 60
+assert_all_dead_archived 60
 [ "$(wc -l < "$CLOSE_LOG" | tr -d ' ')" = 1 ] || fail "the live projection was not closed exactly once (60 dead journals)"
 [ ! -e "$FM_STATE_OVERRIDE/$ID.herdr-presentation" ] || fail "the live projection journal survived many dead journals"
 many_dead_calls=$(wc -l < "$CLI_LOG" | tr -d ' ')
 [ "$many_dead_calls" = "$one_dead_calls" ] \
-  || fail "retiring dead journals took a per-journal Herdr round trip ($one_dead_calls -> $many_dead_calls calls)"
-pass "many dead journals are retired in one pass with no per-journal Herdr round trip"
+  || fail "archiving dead journals took a per-journal Herdr round trip ($one_dead_calls -> $many_dead_calls calls)"
+pass "many dead journals are archived in one pass with no per-journal Herdr round trip"
 
-# A pass that has already spent FM_HERDR_CLEANUP_BUDGET_SECS stops and defers:
-# session start must always complete, so nothing is indexed and no journal is
-# touched - the rest waits for the next start, and retirement already done is
-# durable, so repeated starts converge.
+# --- a version 2 orphan ------------------------------------------------------
+# Archiving must not depend on the version 1 token alone: a version 2 binding is
+# an orphan only when its exact bound workspace is gone from the snapshot.
+reset_fixture
+write_v2_token dead-v2 ZyXwVuTsRqPoNmLkJi0002 w9 w9:t1 w9:p1
+fm_herdr_session_cleanup >/dev/null 2>&1
+assert_archived dead-v2 "version 2 orphan"
+pass "a version 2 orphan whose exact bound workspace is gone is archived with provenance"
+
+# --- kill switch -------------------------------------------------------------
+# FM_HERDR_JOURNAL_PRUNE=off stops every mutation: no pane close, no archive,
+# no state/ change - while the ordinary read-only discovery still runs and the
+# sweep completes normally.
+reset_fixture
+write_many_dead 2
+off_err=$(FM_HERDR_JOURNAL_PRUNE=off fm_herdr_session_cleanup 2>&1 >/dev/null); off_rc=$?
+[ "$off_rc" -eq 0 ] || fail "FM_HERDR_JOURNAL_PRUNE=off made the sweep fail (rc=$off_rc)"
+[ -e "$FM_STATE_OVERRIDE/dead-1.herdr-presentation" ] || fail "the kill switch archived an orphan journal"
+[ -e "$FM_STATE_OVERRIDE/dead-2.herdr-presentation" ] || fail "the kill switch archived an orphan journal"
+assert_not_archived dead-1 "kill switch"
+[ -e "$FM_STATE_OVERRIDE/$ID.herdr-presentation" ] || fail "the kill switch retired the live projection journal"
+[ ! -s "$CLOSE_LOG" ] || fail "the kill switch closed a pane"
+assert_contains "$off_err" "FM_HERDR_JOURNAL_PRUNE=off" "the kill-switch warning was not emitted"
+pass "FM_HERDR_JOURNAL_PRUNE=off stops every journal mutation and pane close"
+
+# --- malformed workspace entry ----------------------------------------------
+# One malformed entry could itself be the token-bearing workspace in a shape the
+# loop cannot read, so the snapshot is not authority for absence and every
+# orphan is preserved, mirroring fm_backend_herdr_projection_token_workspace_gone.
 reset_fixture
 write_many_dead 1
+: > "$FIXTURE_DIR/malformed-workspace"
+malformed_err=$(fm_herdr_session_cleanup 2>&1 >/dev/null)
+[ -e "$FM_STATE_OVERRIDE/dead-1.herdr-presentation" ] || fail "a malformed workspace entry let an orphan be archived"
+assert_not_archived dead-1 "malformed workspace entry"
+assert_contains "$malformed_err" "malformed entry" "the malformed-snapshot warning was not emitted"
+pass "a malformed workspace entry makes the snapshot unknown and preserves every orphan"
+
+# --- journal replaced between the scan and the lock --------------------------
+# The absence verdict is captured during the scan; a teardown, retry, or spawn
+# can replace the journal before the task lock is acquired. The replacement must
+# never be archived under the stale verdict.
+reset_fixture
+write_many_dead 1
+printf '%s\n' 'ZyXwVuTsRqPoNmLkJi9999' > "$FIXTURE_DIR/replacement-token"
+printf '%s\n' path > "$FIXTURE_DIR/replace-on-lock"
+fm_herdr_session_cleanup >/dev/null 2>&1
+[ -e "$FM_STATE_OVERRIDE/dead-1.herdr-presentation" ] || fail "a journal whose inode changed under the lock was archived"
+assert_not_archived dead-1 "journal path replaced under the lock"
+pass "a journal whose file identity changed under the lock is preserved, not archived"
+
+reset_fixture
+write_many_dead 1
+printf '%s\n' 'ZyXwVuTsRqPoNmLkJi9999' > "$FIXTURE_DIR/replacement-token"
+printf '%s\n' content > "$FIXTURE_DIR/replace-on-lock"
+fm_herdr_session_cleanup >/dev/null 2>&1
+[ -e "$FM_STATE_OVERRIDE/dead-1.herdr-presentation" ] || fail "a journal whose content changed under the lock was archived"
+assert_not_archived dead-1 "journal content replaced under the lock"
+pass "a journal whose content changed under the lock is preserved, not archived"
+
+# --- budget: defer and converge ---------------------------------------------
+# A pass that has already spent FM_HERDR_CLEANUP_BUDGET_SECS stops and defers:
+# session start must always complete, so nothing is indexed and no journal is
+# touched - the rest waits for the next start, and archival already done is
+# durable, so repeated starts converge.
+reset_fixture
+write_many_dead 2
 FM_HERDR_CLEANUP_START=$((SECONDS - 1000)) FM_HERDR_CLEANUP_BUDGET_SECS=45 \
   fm_herdr_cleanup_scan test "$FM_HOME" $'\nw1\n' $'\n'"$TITLE"$'\n'
 [ -z "$FM_HERDR_CLEANUP_INDEX" ] || fail "an over-budget scan still indexed journals"
-[ -f "$FM_STATE_OVERRIDE/dead-1.herdr-presentation" ] || fail "an over-budget scan retired a journal instead of deferring it"
+[ -f "$FM_STATE_OVERRIDE/dead-1.herdr-presentation" ] || fail "an over-budget scan archived a journal instead of deferring it"
+[ -f "$FM_STATE_OVERRIDE/dead-2.herdr-presentation" ] || fail "an over-budget scan archived a journal instead of deferring it"
+assert_not_archived dead-1 "over-budget scan"
 pass "a scan past its budget defers every remaining journal to the next start"
+fm_herdr_session_cleanup >/dev/null 2>&1
+assert_all_dead_archived 2
+pass "the next in-budget start completes the deferred journals (partial passes converge)"
+
+# --- hard bound: a blocked Herdr call cannot overrun the budget --------------
+# The soft budget stops the sweep between items; this proves the whole sweep also
+# runs under one hard timeout, so a single blocked Herdr call cannot strand
+# session start. The child sweeps a throwaway home whose only journal is an
+# unmatchable orphan, against a `herdr` that never returns.
+BLOCKED_ROOT="$TMP_ROOT/hard-bound"
+mkdir -p "$BLOCKED_ROOT/home/state" "$BLOCKED_ROOT/home/data" \
+  "$BLOCKED_ROOT/home/config" "$BLOCKED_ROOT/fakebin"
+printf '%s\n' herdr > "$BLOCKED_ROOT/home/config/backend"
+touch "$BLOCKED_ROOT/home/config/herdr-presentation-spaces"
+cat > "$BLOCKED_ROOT/fakebin/herdr" <<'SH'
+#!/usr/bin/env bash
+sleep 120
+SH
+chmod +x "$BLOCKED_ROOT/fakebin/herdr"
+{
+  printf 'version=1\n'
+  printf 'task_id=dead-1\n'
+  printf 'projection_id=ZyXwVuTsRqPoNmLkJi0001\n'
+} > "$BLOCKED_ROOT/home/state/dead-1.herdr-presentation"
+bound_start=$(date +%s)
+bound_err=$(FM_HOME="$BLOCKED_ROOT/home" \
+  FM_STATE_OVERRIDE="$BLOCKED_ROOT/home/state" \
+  FM_DATA_OVERRIDE="$BLOCKED_ROOT/home/data" \
+  FM_CONFIG_OVERRIDE="$BLOCKED_ROOT/home/config" \
+  FM_BACKEND=herdr HERDR_SESSION=test FM_HERDR_CLEANUP_BUDGET_SECS=3 \
+  PATH="$BLOCKED_ROOT/fakebin:$PATH" \
+  bash "$ROOT/bin/fm-herdr-session-cleanup.sh" 2>&1 >/dev/null)
+bound_rc=$?
+bound_elapsed=$(( $(date +%s) - bound_start ))
+[ "$bound_rc" -eq 0 ] || fail "the hard-bounded sweep exited $bound_rc"
+[ "$bound_elapsed" -le 20 ] \
+  || fail "a blocked Herdr call overran the hard bound (${bound_elapsed}s for a 3s budget)"
+[ -e "$BLOCKED_ROOT/home/state/dead-1.herdr-presentation" ] \
+  || fail "the hard-bounded sweep archived a journal before its blocked call returned"
+assert_contains "$bound_err" "hard bound" "the hard-bound warning was not emitted (rc=$bound_rc, err=<$bound_err>)"
+pass "a blocked Herdr call is cut off by the sweep's hard timeout (${bound_elapsed}s for a 3s budget)"
 
 INTEGRATION_ROOT="$TMP_ROOT/bootstrap-integration"
 mkdir -p "$INTEGRATION_ROOT/home/state" "$INTEGRATION_ROOT/home/data" "$INTEGRATION_ROOT/home/config"
