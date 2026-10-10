@@ -3519,6 +3519,52 @@ test_teardown_records_unavailable_spend_for_a_gone_worktree() {
   pass "teardown records unavailable pipeline spend for an owned ship task whose copy is gone"
 }
 
+# Teardown keeps a task's lane metadata in this home's data/lane-meta-archive/
+# before removing the live record, so the recorded builder, model, and effort
+# survive the cleanup that deletes state/<id>.meta.
+test_teardown_archives_lane_meta_before_removal() {
+  local case_dir rc=0 archived
+  case_dir=$(make_case lane-meta-archive)
+  write_meta "$case_dir" no-mistakes ship
+  cat >> "$case_dir/state/task-x1.meta" <<'EOF'
+builder=codex
+model=gpt-5
+effort=high
+EOF
+  land_shippable_commit "$case_dir"
+  cp "$case_dir/state/task-x1.meta" "$case_dir/meta.before"
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+
+  expect_code 0 "$rc" "lane-meta-archive: teardown should succeed"
+  assert_absent "$case_dir/state/task-x1.meta" "lane-meta-archive: teardown kept the task record"
+  archived="$case_dir/data/lane-meta-archive/task-x1.meta"
+  assert_present "$archived" "lane-meta-archive: teardown left no archived lane meta"
+  cmp -s "$case_dir/meta.before" "$archived" \
+    || fail "lane-meta-archive: the archived lane meta does not match the removed record"
+  pass "teardown archives the task's lane meta before removing the live record"
+}
+
+# The archive is best effort: a copy that cannot be made warns and never blocks,
+# so teardown still completes and removes the live record.
+test_teardown_archive_copy_failure_does_not_block() {
+  local case_dir rc=0
+  case_dir=$(make_case lane-meta-archive-fail)
+  write_meta "$case_dir" no-mistakes ship
+  land_shippable_commit "$case_dir"
+  # A regular file where the archive directory must go makes mkdir -p fail.
+  : > "$case_dir/data/lane-meta-archive"
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+
+  expect_code 0 "$rc" "lane-meta-archive-fail: a failed archive copy should not block teardown"
+  assert_absent "$case_dir/state/task-x1.meta" \
+    "lane-meta-archive-fail: teardown did not complete after the archive copy failed"
+  [ -f "$case_dir/data/lane-meta-archive" ] \
+    || fail "lane-meta-archive-fail: fixture broke - the blocking file disappeared"
+  assert_grep "could not create" "$case_dir/stderr" \
+    "lane-meta-archive-fail: the failed archive copy did not warn"
+  pass "a failed lane-meta archive copy warns but never blocks teardown"
+}
+
 test_parked_own_run_is_aborted_before_teardown() {
   local case_dir rc head
   case_dir=$(make_case parked-run-abort)
@@ -4772,6 +4818,8 @@ test_fractional_legacy_retry_wait_refuses_without_arithmetic_error
 test_teardown_records_the_task_pipeline_spend
 test_teardown_skips_pipeline_spend_when_disabled
 test_teardown_records_unavailable_spend_for_a_gone_worktree
+test_teardown_archives_lane_meta_before_removal
+test_teardown_archive_copy_failure_does_not_block
 test_parked_own_run_is_aborted_before_teardown
 test_parked_own_run_concludes_on_passed_with_override_after_abort
 test_parked_own_run_concludes_on_passed_with_skips_after_abort

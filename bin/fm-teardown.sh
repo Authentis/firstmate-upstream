@@ -312,6 +312,14 @@
 # ledger. It runs before the task branch it attributes runs by is deleted and
 # before state/<id>.meta is removed, and is best effort: a failure warns and
 # never blocks cleanup.
+# Immediately before a task's state/<id>.meta is removed on any of this home's
+# removal paths, teardown copies it into data/lane-meta-archive/<id>.meta
+# (archive_task_meta below), overwriting any earlier copy for that same id. The
+# record is the only account of a lane's builder, model, and effort, so this
+# keeps those available to the quality counts after the live record is gone.
+# It is best effort like the pipeline-spend step: a copy that cannot be made
+# warns and never blocks or changes the teardown result. data/ is gitignored and
+# private, so nothing archived is ever committed.
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -461,6 +469,22 @@ if [ -f "$META" ] && [ ! -L "$META" ]; then
     TREEHOUSE_PROJECT_LOCK_HELD=1
   fi
 fi
+# Copy a task's lane metadata into this home's data/lane-meta-archive/<id>.meta
+# before teardown removes the live record (see the header's archive step). Best
+# effort: a failure warns and never blocks cleanup, and an earlier copy for the
+# same id is overwritten. A missing or non-regular record has nothing to keep.
+archive_task_meta() {  # <meta-path> <task-id>
+  local meta=$1 task_id=$2 dir="$DATA/lane-meta-archive"
+  [ -f "$meta" ] && [ ! -L "$meta" ] || return 0
+  if ! mkdir -p "$dir"; then
+    echo "warning: could not create $dir to archive $task_id's lane meta; cleanup continues" >&2
+    return 0
+  fi
+  cp -f -- "$meta" "$dir/$task_id.meta" \
+    || echo "warning: could not archive $task_id's lane meta to $dir/$task_id.meta; cleanup continues" >&2
+  return 0
+}
+
 CONTROL_LOCK="$STATE/.control-$ID.lock"
 CONTROL_LOCK_HELD=0
 SM_LIVENESS_LOCK=
@@ -1085,6 +1109,7 @@ remote_secondmate_teardown() {
   mv -f -- "$tmp" "$SECONDMATE_REG"
   [ ! -e "$CONFIG/fleet-ledger" ] || FM_HOME=$FM_HOME FM_STATE_OVERRIDE=$STATE FM_CONFIG_OVERRIDE=$CONFIG "$SCRIPT_DIR/fm-fleet-ledger.sh" cleaned_up "$ID" || true
   status_retire_presentation_task "$STATE" "$ID" || return 1
+  archive_task_meta "$STATE/$ID.meta" "$ID"
   fm_backlog_atomic_transition remove "$STATE/$ID.meta" "task record" "$STATE" || return 1
   rm -f -- "$STATE/$ID.turn-ended" "$STATE/$ID.progress" \
     "$(fm_wake_signal_seen_path "$STATE" "$STATE/$ID.turn-ended")" \
@@ -3898,6 +3923,9 @@ fi
 # racing the same id stays serialized exactly as it was before. A captain-held
 # row takes the retain transition here instead of the close: same record, same
 # ordering, the row returns to Queued with its deliverable recorded.
+# Both branches below remove $STATE/$ID.meta - the atomic close/retain and the
+# plain record removal - so the lane meta is archived once, here, before either.
+archive_task_meta "$META" "$ID"
 if [ "$BACKLOG_CLOSED" = 1 ]; then
   BACKLOG_CLOSE_MARKER=$(fm_backlog_close_marker_path "$STATE" "$ID") || exit 1
   if ! fm_backlog_atomic_transition "$BACKLOG_TRANSITION" "$STATE/$ID.meta" "$BACKLOG_CLOSE_MARKER" \
