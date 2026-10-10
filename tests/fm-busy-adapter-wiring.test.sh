@@ -247,6 +247,10 @@ test_claude_hooks_semantic_lifecycle() {
   for ev in UserPromptSubmit Stop StopFailure SessionEnd; do
     jq -e ".hooks[\"$ev\"]" "$settings" >/dev/null || fail "claude hook settings lack $ev"
   done
+  jq -e '.inputNeededNotifEnabled == false and .agentPushNotifEnabled == false' "$settings" >/dev/null \
+    || fail "claude worker settings must set both notification flags to false"
+  jq -e '(.hooks | keys | sort) == ["SessionEnd","Stop","StopFailure","UserPromptSubmit"]' "$settings" >/dev/null \
+    || fail "claude worker hooks changed unexpectedly"
 
   out=$(classify claude "$id" "$state")
   [ "$out" = "busy fm-spawn" ] || fail "seed after spawn must be 'busy fm-spawn', got '$out'"
