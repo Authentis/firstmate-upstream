@@ -411,12 +411,18 @@ A candidate must meet all of these conditions:
 - The task's ordinary metadata must be absent.
 - The candidate must have exactly one tab and exactly one pane.
 
-Discovery also retires a confirmed orphan directly, before the per-candidate close below.
+Discovery also archives a confirmed orphan directly, before the per-candidate close below.
 An orphan is a journal whose task metadata is absent and whose projected workspace is gone from the same locked snapshot.
 Gone means no workspace label still carries the journal's token and, for a version 2 binding, its exact bound workspace id is missing too, so a present or malformed-but-token-bearing label and a live bound workspace both preserve it.
-An orphan is removed under its task-id spawn lock with no per-journal Herdr read.
+The snapshot proves absence only when every workspace entry is well formed; a single malformed entry makes the verdict unknown and preserves every orphan.
+An orphan is archived under its task-id spawn lock with no per-journal Herdr read.
 This is the leftover an interrupted teardown leaves behind, and without it such journals accumulate until every later sweep scales its work with the journal count.
-The whole sweep instead parses every ordinary journal exactly once and is paced by `FM_HERDR_CLEANUP_BUDGET_SECS` (default 45); a pass that spends its budget stops and leaves the rest for the next session start, while every retirement already made is durable, so repeated starts converge.
+Under that lock the journal's inode and a fresh read of its content must still match what the scan saw, so a journal a teardown, retry, or spawn replaced between the scan and the lock is preserved rather than archived under a stale verdict.
+The whole sweep instead parses every ordinary journal exactly once and is paced by `FM_HERDR_CLEANUP_BUDGET_SECS` (default 45): the budget stops it between journals and between candidates, and the sweep itself runs under one hard timeout of the same value so a single blocked Herdr call cannot overrun it.
+A pass that runs out leaves the rest for the next session start, and every archive already made is durable, so repeated starts converge.
+
+`FM_HERDR_JOURNAL_PRUNE=off` (case-insensitive) is the kill switch.
+It stops the sweep before any mutation: it still runs its ordinary read-only discovery and completes normally, but it closes no pane and moves, removes, or archives no journal.
 
 Firstmate then cleans up the candidate in this order:
 
@@ -428,7 +434,11 @@ Firstmate then cleans up the candidate in this order:
 6. Immediately revalidate the same journal, metadata absence, workspace title and token uniqueness, one-tab and one-pane topology, exact pane relationship, absent agent, process proof, and non-target focus.
 7. Call the existing exact-pane focus-preserving close helper.
    It closes only that pane, never a workspace.
-8. Retire the matching journal only after the exact pane is positively confirmed gone.
+8. Archive the matching journal only after the exact pane is positively confirmed gone.
+
+Nothing this sweep takes is ever deleted.
+Every journal it takes is moved into this home's dated archive under `data/herdr-journal-archive/<date>/` with a sidecar recording its source path, task id, archive time, and reason.
+That archive is the recovery path and is never automatically pruned; its retention is a captain decision.
 
 The process proof requires all of these:
 
@@ -442,7 +452,7 @@ A genuinely busy pane fails every sample.
 Any foreground command, child process, active shell job, unknown shell, unreadable process table, missing field, or API error preserves the pane.
 
 An unconfirmed close retains the journal.
-A confirmed close may retire it even when focus restoration reported an error after the close.
+A confirmed close may archive it even when focus restoration reported an error after the close.
 A second run finds no matching title or journal and is a no-op.
 
 Any of these preserves the candidate and lets session startup continue with at most a concise warning:

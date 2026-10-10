@@ -20,7 +20,7 @@ HERDR_ORIGINAL_PATH=$PATH
 TMP_ROOT=$(mktemp -d "$(cd "${TMPDIR:-/tmp}" && pwd -P)/fm-herdr-session-cleanup-e2e.XXXXXX")
 FAKEBIN="$TMP_ROOT/fakebin"
 HOME_DIR="$TMP_ROOT/home"
-mkdir -p "$FAKEBIN" "$HOME_DIR/state" "$HOME_DIR/config"
+mkdir -p "$FAKEBIN" "$HOME_DIR/state" "$HOME_DIR/data" "$HOME_DIR/config"
 touch "$HOME_DIR/config/herdr-presentation-spaces"
 printf '%s\n' herdr > "$HOME_DIR/config/backend"
 
@@ -131,6 +131,9 @@ if lab workspace get "$WS" >/dev/null 2>&1; then
   fail 'last-pane side effect did not remove the stale projected child workspace'
 fi
 [ ! -e "$HOME_DIR/state/$ID.herdr-presentation" ] || fail 'matching journal survived confirmed exact pane closure'
+ARCHIVED=$(find "$HOME_DIR/data/herdr-journal-archive" -name "$ID.herdr-presentation" 2>/dev/null | head -n 1)
+[ -n "$ARCHIVED" ] || fail 'matching journal was not moved into the home archive'
+[ -f "$ARCHIVED.provenance" ] || fail 'archived journal has no provenance record'
 pass 'real named lab cleanup closes only the exact stale pane and preserves exact focus'
 
 FM_HOME="$HOME_DIR" FM_BACKEND=herdr HERDR_SESSION="$HERDR_LAB_SESSION" \
