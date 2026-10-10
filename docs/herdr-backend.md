@@ -411,6 +411,13 @@ A candidate must meet all of these conditions:
 - The task's ordinary metadata must be absent.
 - The candidate must have exactly one tab and exactly one pane.
 
+Discovery also retires a confirmed orphan directly, before the per-candidate close below.
+An orphan is a journal whose task metadata is absent and whose projected workspace is gone from the same locked snapshot.
+Gone means no workspace label still carries the journal's token and, for a version 2 binding, its exact bound workspace id is missing too, so a present or malformed-but-token-bearing label and a live bound workspace both preserve it.
+An orphan is removed under its task-id spawn lock with no per-journal Herdr read.
+This is the leftover an interrupted teardown leaves behind, and without it such journals accumulate until every later sweep scales its work with the journal count.
+The whole sweep instead parses every ordinary journal exactly once and is paced by `FM_HERDR_CLEANUP_BUDGET_SECS` (default 45); a pass that spends its budget stops and leaves the rest for the next session start, while every retirement already made is durable, so repeated starts converge.
+
 Firstmate then cleans up the candidate in this order:
 
 1. Acquire the existing task-id spawn lock, and then the shared named-session presentation lock.

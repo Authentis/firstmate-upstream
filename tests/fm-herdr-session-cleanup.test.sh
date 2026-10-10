@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Focused safety tests for bin/fm-herdr-session-cleanup.sh.
 # Covers one exact cleanup, every title/journal/topology/agent/process refusal,
-# locked revalidation races, focus refusal, read errors, and repeat idempotence.
+# locked revalidation races, focus refusal, read errors, repeat idempotence, and
+# the many-dead-journals orphan sweep.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -64,6 +65,7 @@ TITLE="└ task · p:$TOKEN"
 FIXTURE_DIR="$TMP_ROOT/fixture"
 LOCK_LOG="$TMP_ROOT/locks.log"
 CLOSE_LOG="$TMP_ROOT/closes.log"
+CLI_LOG="$TMP_ROOT/cli.log"
 mkdir -p "$FIXTURE_DIR"
 
 fm_backend_name() { printf herdr; }
@@ -131,6 +133,7 @@ fixture_panes() {
 fm_backend_herdr_cli() {
   local _session=$1 first=${2:-} second=${3:-} title tabs panes
   shift
+  [ -z "${CLI_LOG:-}" ] || printf 'call\n' >> "$CLI_LOG"
   [ ! -e "$FIXTURE_DIR/error-${first}-${second}" ] || return 1
   if [ -e "$FIXTURE_DIR/closed" ]; then
     case "$first $second" in
@@ -222,7 +225,7 @@ write_cross_home_v2() {
 reset_fixture() {
   rm -rf "$FIXTURE_DIR" "$TMP_ROOT"/*.lock "${FM_STATE_OVERRIDE:?}/"*
   mkdir -p "$FIXTURE_DIR"
-  : > "$LOCK_LOG"; : > "$CLOSE_LOG"
+  : > "$LOCK_LOG"; : > "$CLOSE_LOG"; : > "$CLI_LOG"
   printf '%s\n' "$TITLE" > "$FIXTURE_DIR/title"
   printf '1\n' > "$FIXTURE_DIR/tabs"
   printf '1\n' > "$FIXTURE_DIR/panes"
@@ -254,7 +257,14 @@ fm_herdr_session_cleanup >/dev/null 2>&1
 pass "successful cleanup is idempotent on repeat"
 
 reset_fixture; printf '%s\n' '└ malformed p:AbCdEfGhIjKlMnOpQrStUv' > "$FIXTURE_DIR/title"; assert_preserved "malformed title"
-reset_fixture; printf '%s\n' '└ missing-token' > "$FIXTURE_DIR/title"; assert_preserved "missing token"
+# A live workspace that carries no trace of the journal's token is not this
+# journal's projection, so the orphan sweep retires the journal - while still
+# closing no pane, because the title never parses as a projection candidate.
+reset_fixture; printf '%s\n' '└ missing-token' > "$FIXTURE_DIR/title"
+fm_herdr_session_cleanup >/dev/null 2>&1
+[ ! -e "$FM_STATE_OVERRIDE/$ID.herdr-presentation" ] || fail "token-absent orphan journal survived"
+[ ! -s "$CLOSE_LOG" ] || fail "token-absent orphan journal closed a pane"
+pass "a journal no live workspace carries is retired without closing any pane"
 reset_fixture; printf 'version=1\ntask_id=%s\nprojection_id=short\n' "$ID" > "$FM_STATE_OVERRIDE/$ID.herdr-presentation"; assert_preserved "malformed journal"
 reset_fixture; : > "$FIXTURE_DIR/duplicate-token"; assert_preserved "duplicate token"
 reset_fixture; printf '%s\n' "└ task · p:$TOKEN p:$TOKEN" > "$FIXTURE_DIR/title"; assert_preserved "duplicate title token"
@@ -281,6 +291,61 @@ reset_fixture; : > "$FIXTURE_DIR/error-workspace-get"; assert_preserved "unreada
 reset_fixture; : > "$FIXTURE_DIR/race"; assert_preserved "revalidation race"
 reset_fixture; printf '%s\n' "$TAB" > "$FIXTURE_DIR/active-tab"; assert_preserved "active target"
 reset_fixture; : > "$FIXTURE_DIR/focus-refuse"; assert_preserved "focus refusal"
+
+# --- many dead journals -----------------------------------------------------
+# A home accumulates one journal per projection attempt: interrupted teardowns
+# and failed spawns leave journals whose task metadata and projected workspace
+# are both gone, and the candidate loop (which iterates LIVE workspaces) never
+# visits them, so they pile up and made every later sweep rescale its work with
+# the journal count. The sweep must retire all of them in one pass with NO
+# Herdr round trip per journal, while leaving every live task's journal and the
+# exact close path untouched.
+write_many_dead() { # <count>
+  local n=1 token
+  while [ "$n" -le "$1" ]; do
+    token=$(printf 'ZyXwVuTsRqPoNmLkJi%04d' "$n")
+    write_v1 "dead-$n" "$token"
+    n=$((n + 1))
+  done
+}
+assert_all_dead_gone() { # <count>
+  local n=1
+  while [ "$n" -le "$1" ]; do
+    [ ! -e "$FM_STATE_OVERRIDE/dead-$n.herdr-presentation" ] \
+      || fail "dead journal dead-$n was not retired"
+    n=$((n + 1))
+  done
+}
+
+reset_fixture
+write_many_dead 1
+fm_herdr_session_cleanup >/dev/null 2>&1
+assert_all_dead_gone 1
+[ "$(wc -l < "$CLOSE_LOG" | tr -d ' ')" = 1 ] || fail "the live projection was not closed exactly once (one dead journal)"
+one_dead_calls=$(wc -l < "$CLI_LOG" | tr -d ' ')
+
+reset_fixture
+write_many_dead 60
+fm_herdr_session_cleanup >/dev/null 2>&1
+assert_all_dead_gone 60
+[ "$(wc -l < "$CLOSE_LOG" | tr -d ' ')" = 1 ] || fail "the live projection was not closed exactly once (60 dead journals)"
+[ ! -e "$FM_STATE_OVERRIDE/$ID.herdr-presentation" ] || fail "the live projection journal survived many dead journals"
+many_dead_calls=$(wc -l < "$CLI_LOG" | tr -d ' ')
+[ "$many_dead_calls" = "$one_dead_calls" ] \
+  || fail "retiring dead journals took a per-journal Herdr round trip ($one_dead_calls -> $many_dead_calls calls)"
+pass "many dead journals are retired in one pass with no per-journal Herdr round trip"
+
+# A pass that has already spent FM_HERDR_CLEANUP_BUDGET_SECS stops and defers:
+# session start must always complete, so nothing is indexed and no journal is
+# touched - the rest waits for the next start, and retirement already done is
+# durable, so repeated starts converge.
+reset_fixture
+write_many_dead 1
+FM_HERDR_CLEANUP_START=$((SECONDS - 1000)) FM_HERDR_CLEANUP_BUDGET_SECS=45 \
+  fm_herdr_cleanup_scan test "$FM_HOME" $'\nw1\n' $'\n'"$TITLE"$'\n'
+[ -z "$FM_HERDR_CLEANUP_INDEX" ] || fail "an over-budget scan still indexed journals"
+[ -f "$FM_STATE_OVERRIDE/dead-1.herdr-presentation" ] || fail "an over-budget scan retired a journal instead of deferring it"
+pass "a scan past its budget defers every remaining journal to the next start"
 
 INTEGRATION_ROOT="$TMP_ROOT/bootstrap-integration"
 mkdir -p "$INTEGRATION_ROOT/home/state" "$INTEGRATION_ROOT/home/data" "$INTEGRATION_ROOT/home/config"
