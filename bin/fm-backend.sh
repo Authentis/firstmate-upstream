@@ -819,7 +819,7 @@ fm_backend_send_key() {  # <backend> <target> <key> [expected-label]
 # fm_composer_send_refusal in bin/fm-composer-lib.sh for the one rule. A
 # refusal returns 1 with "error: blocked on a prompt: <reason>" on stderr.
 fm_backend_send_text_submit() {  # <backend> <target> <text> <retries> <enter-sleep> <settle> [expected-label] [harness]
-  local backend=$1 rc=0 target label dialog harness cstate screen reason
+  local backend=$1 rc=0 target label dialog harness cstate screen reason identity
   shift
   target=$1
   label=${6:-}
@@ -853,7 +853,21 @@ fm_backend_send_text_submit() {  # <backend> <target> <text> <retries> <enter-sl
   else
     screen=$(fm_backend_capture "$backend" "$target" 40 ${label:+"$label"} 2>/dev/null) || screen=
   fi
-  if reason=$(fm_composer_send_refusal "$screen" "$cstate" "$harness"); then
+  # pi's cursorless verdict rests on a native identity probe; when the probe
+  # returns nothing the refusal rule may fall back to the recorded harness.
+  identity=
+  case "$harness" in
+    pi|pi-signed)
+      if [ "$cstate" = unknown ]; then
+        case "$backend" in
+          herdr) identity=$(fm_backend_herdr_composer_identity "$target" 2>/dev/null) || identity= ;;
+          tmux) identity=$(fm_tmux_composer_identity "$target" 2>/dev/null) || identity= ;;
+        esac
+        [ -n "${identity%%$'\t'*}" ] || identity=probe-absent
+      fi
+      ;;
+  esac
+  if reason=$(fm_composer_send_refusal "$screen" "$cstate" "$harness" "$identity"); then
     fm_composer_dialog_sink_release
     echo "error: blocked on a prompt: $reason" >&2
     return 1

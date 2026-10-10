@@ -1977,14 +1977,27 @@ fm_composer_pi_idle_prompt() {  # <screen>
 # bare `>` composer reads `unknown`, so agy is recognised by its documented
 # idle shape instead (fm_composer_agy_idle_prompt), and pi, whose cursorless
 # verdict needs a native identity probe a lane may not have registered, by its
-# structural idle shape (fm_composer_pi_idle_prompt).
-fm_composer_send_refusal() {  # <screen> <composer-state> [harness]
-  local screen=${1-} state=${2-} harness=${3-}
+# structural idle shape (fm_composer_pi_idle_prompt) when the caller reports
+# that probe as `probe-absent`.
+fm_composer_send_refusal() {  # <screen> <composer-state> [harness] [native-identity]
+  local screen=${1-} state=${2-} harness=${3-} identity=${4-}
   if fm_composer_open_menu "$screen"; then
     printf '%s' 'an open menu or picker is showing'
     return 0
   fi
   [ -n "$harness" ] || return 1
+  # Muse draws its busy turn as a `Thinking (... esc to interrupt)` row above
+  # an otherwise empty composer, and no shared busy signature is registered
+  # for it, so a working Muse is refused here before any shape is accepted.
+  case "$harness" in
+    muse*)
+      if printf '%s\n' "$screen" | fm_composer_strip_ansi | grep -v '^[[:space:]]*$' \
+         | tail -n 12 | grep -qiE 'esc[[:space:]]+to[[:space:]]+interrupt'; then
+        printf '%s' 'the agent is busy with a turn'
+        return 0
+      fi
+      ;;
+  esac
   case "$state" in
     pending|pending-unproven)
       printf '%s' 'the prompt already holds a draft or an unrecognised overlay'
@@ -1995,9 +2008,14 @@ fm_composer_send_refusal() {  # <screen> <composer-state> [harness]
   if [ "$harness" = agy ] && fm_composer_agy_idle_prompt "$screen"; then
     return 1
   fi
+  # The pi fallback stands in only for a native identity probe that returned
+  # nothing (the literal `probe-absent`); a probe that answered, whatever the
+  # status, is the authority and a working or blocked pi stays refused.
   case "$harness" in
     pi|pi-signed)
-      fm_composer_pi_idle_prompt "$screen" && return 1
+      if [ "$identity" = probe-absent ]; then
+        fm_composer_pi_idle_prompt "$screen" && return 1
+      fi
       ;;
   esac
   printf '%s' 'the prompt is not a recognised empty prompt'
