@@ -722,7 +722,7 @@ test_matrix_opencode_wrapped_label() {
   local pad floor build i
   local done_id idle_id work_id block_id pi_id
   local oldhint newhint s3 s2 s1 s3new s3new_plain typed notlabel broken
-  local e1a e1b e2blank e2del e1c menu mb mreason r4a r4b r4c r4d r4e
+  local e1a e1b e2blank e2del e1c menu mb mreason r4a r4b r4c r4d r4e r5a r5b r5c r5m
   done_id=$(printf 'opencode\tdone'); idle_id=$(printf 'opencode\tidle')
   work_id=$(printf 'opencode\tworking'); block_id=$(printf 'opencode\tblocked')
   pi_id=$(printf 'pi\tdone')
@@ -818,6 +818,32 @@ test_matrix_opencode_wrapped_label() {
   assert_screen "opencode label transcript above padding ignored" empty "$CAPS_STYLED" "$r4e" '' "$done_id"
   assert_screen "opencode label transcript above padding working" unknown "$CAPS_STYLED" "$r4e" '' "$work_id"
   assert_screen "opencode label transcript above padding blocked" unknown "$CAPS_STYLED" "$r4e" '' "$block_id"
+  # Round 5: the padding top must also be set off from the transcript. A draft
+  # row, a blank, then a later padding row + label + Build is an interrupted
+  # draft in an unclosed box, not a new composer (report review4, error).
+  r5a=$(printf '%s\n' '  ┃' '  ┃  please delete this draft' '' '  ┃' \
+    "  ┃${pad}~/.treehouse/firstmate-fa5015/1/" "  ┃${pad}firstmate:fm/fm-pi-opencodego-empty-" \
+    "${build}${pad}composer-1011" "$floor" "$oldhint")
+  assert_screen "opencode label later padding after barred draft" unknown "$CAPS_STYLED" "$r5a" '' "$done_id"
+  assert_screen "opencode label later padding after barred draft idle" unknown "$CAPS_STYLED" "$r5a" '' "$idle_id"
+  r5b=$(printf '%s\n' '  ┃' '     please delete this draft' '  ┃' \
+    "  ┃${pad}~/.treehouse/firstmate-fa5015/1/" "  ┃${pad}firstmate:fm/fm-pi-opencodego-empty-" \
+    "${build}${pad}composer-1011" "$floor" "$oldhint")
+  assert_screen "opencode label barless draft directly above padding" unknown "$CAPS_STYLED" "$r5b" '' "$done_id"
+  # The capture's own separation: barless transcript, one blank, then padding.
+  r5c=$(printf '%s\n' '     ▣  Build · DeepSeek V4.1 Flash' '' '  ┃' \
+    "  ┃${pad}~/.treehouse/firstmate-fa5015/1/" "  ┃${pad}firstmate:fm/fm-pi-opencodego-empty-" \
+    "${build}${pad}composer-1011" "$floor" "$oldhint")
+  assert_screen "opencode label capture-shaped transcript separation" empty "$CAPS_STYLED" "$r5c" '' "$done_id"
+  assert_screen "opencode label capture-shaped working defers" unknown "$CAPS_STYLED" "$r5c" '' "$work_id"
+  # A menu, a blank, then a padding-topped composer: classifier reads the
+  # composer, and the all-screen send guard independently refuses the send.
+  r5m=$(printf '%s\n' '  Enter to select · Esc to cancel' '' '  ┃' \
+    "  ┃${pad}~/.treehouse/firstmate-fa5015/1/" "  ┃${pad}firstmate:fm/fm-branch-" \
+    "${build}${pad}tail-1011" "$floor" "$oldhint")
+  mreason=$(fm_composer_send_refusal "$r5m" empty opencode)
+  [ -n "$mreason" ] \
+    || fail "a separated picker above the box must be refused by the send guard, got no reason"
   # A picker drawn directly over the box leaves the run unbounded: the
   # classifier refuses, and the opencode/muse all-screen menu check in
   # fm_composer_send_refusal independently refuses the send.

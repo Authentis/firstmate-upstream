@@ -1519,7 +1519,7 @@ _fm_composer_classify_leftbar() {  # <screen> <styled> <first-row> <last-row> [h
   local screen=$1 styled=$2 first=$3 last=$4 has_identity=${5:-0} identity=${6:-}
   local row raw content pending_seen=0 footer_re leading_blank=1 placeholder_position=0
   local box_cols=0 label_from=-1 label_to=-1 label_concat='' floor_row floor_trimmed right_text
-  local last_row last_trimmed first_row first_plain
+  local last_row last_trimmed first_row first_plain above_raw above_plain
   footer_re=${FM_COMPOSER_LEFTBAR_FOOTER_RE:-$FM_COMPOSER_LEFTBAR_FOOTER_RE_DEFAULT}
   # Box width from the half-block floor, then the wrapped label block directly
   # above the Build row. The block is enabled only when the box's LAST row is
@@ -1576,6 +1576,31 @@ _fm_composer_classify_leftbar() {  # <screen> <styled> <first-row> <last-row> [h
     case "$first_plain" in '┃'*) first_plain=${first_plain#┃} ;; esac
     fm_composer_normalize_trim_var first_plain
     if [ -n "$first_plain" ]; then printf 'unknown'; return 0; fi
+    # Whole-block proof: the scanner resets the run at a blank row, so a later
+    # padding row can sit under an earlier draft of the same unclosed box. The
+    # captured composer is set off from the transcript by a blank row, and the
+    # transcript row above that is never a bar-led content row. So the row
+    # directly above the padding must be blank, and the nearest non-blank row
+    # above those blanks must not lead with the bar (a barred draft, or a
+    # transcript user block we cannot tell from one). A barless row directly
+    # above the padding, with no blank between, is likewise refused.
+    if [ "$first" -gt 0 ]; then
+      row=$((first - 1))
+      above_raw=$(_fm_composer_screen_row "$row" "$screen")
+      above_plain=$(_fm_composer_row_content "$above_raw" 0)
+      fm_composer_normalize_trim_var above_plain
+      if [ -n "$above_plain" ]; then printf 'unknown'; return 0; fi
+      while [ "$row" -ge 0 ]; do
+        above_raw=$(_fm_composer_screen_row "$row" "$screen")
+        above_plain=$(_fm_composer_row_content "$above_raw" 0)
+        fm_composer_normalize_trim_var above_plain
+        if [ -n "$above_plain" ]; then
+          case "$above_plain" in '┃'*) printf 'unknown'; return 0 ;; esac
+          break
+        fi
+        row=$((row - 1))
+      done
+    fi
     row=$first
     while [ "$row" -le "$last" ]; do
       raw=$(_fm_composer_screen_row "$row" "$screen")
