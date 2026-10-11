@@ -722,7 +722,7 @@ test_matrix_opencode_wrapped_label() {
   local pad floor build i
   local done_id idle_id work_id block_id pi_id
   local oldhint newhint s3 s2 s1 s3new s3new_plain typed notlabel broken
-  local e1a e1b e2blank e2del e1c menu mb mreason
+  local e1a e1b e2blank e2del e1c menu mb mreason r4a r4b r4c r4d r4e
   done_id=$(printf 'opencode\tdone'); idle_id=$(printf 'opencode\tidle')
   work_id=$(printf 'opencode\tworking'); block_id=$(printf 'opencode\tblocked')
   pi_id=$(printf 'pi\tdone')
@@ -798,6 +798,26 @@ test_matrix_opencode_wrapped_label() {
   e1c=$(printf '%s\n' '  ┃' "${pad}~/.treehouse/firstmate-fa5015/1/" \
     "${pad}firstmate:fm/fm-branch-" "$build" "$floor" "$oldhint")
   assert_screen "opencode wrapped label all label bars removed" unknown "$CAPS_STYLED" "$e1c" '' "$done_id"
+  # Round 4: the run's top must be a positive padding row (bar glyph and
+  # nothing else); edge glyphs on a draft row prove nothing.
+  r4a=$(printf '%s\n' '  ┃' '     please delete this draft+' \
+    "  ┃${pad}firstmate:fm/fm-branch-" "${build}${pad}tail-1011" "$floor" "$oldhint")
+  assert_screen "opencode label barless draft ending + not empty" unknown "$CAPS_STYLED" "$r4a" '' "$done_id"
+  r4b=$(printf '%s\n' '  ┃' '     please delete this draft┃' \
+    "  ┃${pad}firstmate:fm/fm-branch-" "${build}${pad}tail-1011" "$floor" "$oldhint")
+  assert_screen "opencode label barless draft ending bar not empty" unknown "$CAPS_STYLED" "$r4b" '' "$done_id"
+  r4c=$(printf '%s\n' '  ┃' '  ┃  please delete this draft' '' \
+    "  ┃${pad}firstmate:fm/fm-branch-" "${build}${pad}tail-1011" "$floor" "$oldhint")
+  assert_screen "opencode label draft then blank then residual run not empty" "$(printf unknown)" "$CAPS_STYLED" "$r4c" '' "$done_id"
+  r4d=$(printf '%s\n' '     please delete this draft' '' \
+    "  ┃${pad}firstmate:fm/fm-branch-" "${build}${pad}tail-1011" "$floor" "$oldhint")
+  assert_screen "opencode label barless draft blank residual run not empty" unknown "$CAPS_STYLED" "$r4d" '' "$done_id"
+  # Transcript above a padding-topped run is ignored.
+  r4e=$(printf '%s\n' 'earlier transcript line+' '' '  ┃' \
+    "  ┃${pad}firstmate:fm/fm-branch-" "${build}${pad}tail-1011" "$floor" "$oldhint")
+  assert_screen "opencode label transcript above padding ignored" empty "$CAPS_STYLED" "$r4e" '' "$done_id"
+  assert_screen "opencode label transcript above padding working" unknown "$CAPS_STYLED" "$r4e" '' "$work_id"
+  assert_screen "opencode label transcript above padding blocked" unknown "$CAPS_STYLED" "$r4e" '' "$block_id"
   # A picker drawn directly over the box leaves the run unbounded: the
   # classifier refuses, and the opencode/muse all-screen menu check in
   # fm_composer_send_refusal independently refuses the send.

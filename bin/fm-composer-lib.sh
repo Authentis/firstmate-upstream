@@ -1519,21 +1519,8 @@ _fm_composer_classify_leftbar() {  # <screen> <styled> <first-row> <last-row> [h
   local screen=$1 styled=$2 first=$3 last=$4 has_identity=${5:-0} identity=${6:-}
   local row raw content pending_seen=0 footer_re leading_blank=1 placeholder_position=0
   local box_cols=0 label_from=-1 label_to=-1 label_concat='' floor_row floor_trimmed right_text
-  local above_row above_trimmed last_row last_trimmed
+  local last_row last_trimmed first_row first_plain
   footer_re=${FM_COMPOSER_LEFTBAR_FOOTER_RE:-$FM_COMPOSER_LEFTBAR_FOOTER_RE_DEFAULT}
-  # Positively bound the composer run's TOP: the row directly above the box must
-  # be blank or a structural edge. A non-bar, non-edge row there means the run
-  # was interrupted and the selected suffix does not cover visible input above
-  # it - a malformed screen whose first box row lost its `┃`, or a picker drawn
-  # directly over the composer - so the run refuses instead of reading empty.
-  if [ "$first" -gt 0 ]; then
-    above_row=$(_fm_composer_screen_row "$((first - 1))" "$screen")
-    above_trimmed=$(printf '%s\n' "$above_row" | fm_composer_strip_ansi)
-    fm_composer_normalize_trim_var above_trimmed
-    if [ -n "$above_trimmed" ] && ! fm_composer_row_has_edge "$above_trimmed"; then
-      printf 'unknown'; return 0
-    fi
-  fi
   # Box width from the half-block floor, then the wrapped label block directly
   # above the Build row. The block is enabled only when the box's LAST row is
   # the recognized Build/Plan footer: that footer is the boundary the label
@@ -1568,7 +1555,37 @@ _fm_composer_classify_leftbar() {  # <screen> <styled> <first-row> <last-row> [h
       *) label_from=-1 ;;
     esac
   fi
+  if [ "$label_from" -lt 0 ] && [ "$first" -eq "$last" ] \
+     && fm_composer_idle_matches "$last_trimmed" "$footer_re" sensitive; then
+    # A run that is only the Build/Plan footer has no padding top to prove it
+    # is the whole box: bar-less rows above it may be a draft that shed its
+    # bar, so the footer alone never reads empty.
+    printf 'unknown'; return 0
+  fi
   if [ "$label_from" -ge 0 ]; then
+    # Positive container TOP: the run's own first row must be the box PADDING
+    # row - the bar glyph followed by only whitespace, no text and no
+    # right-column text - and every row of the run through the Build row must
+    # still carry the bar. This is the proof an edge-glyph test cannot give: a
+    # draft row that shed its bar (even one ending in `+`, `|`, or `┃`), a blank
+    # gap, or a picker over the composer leaves the selected suffix without a
+    # padding top, so the label furniture is not proven and the run refuses.
+    # Rows above the padding row are transcript and are ignored.
+    first_row=$(_fm_composer_screen_row "$first" "$screen")
+    first_plain=$(_fm_composer_row_content "$first_row" 0)
+    case "$first_plain" in '┃'*) first_plain=${first_plain#┃} ;; esac
+    fm_composer_normalize_trim_var first_plain
+    if [ -n "$first_plain" ]; then printf 'unknown'; return 0; fi
+    row=$first
+    while [ "$row" -le "$last" ]; do
+      raw=$(_fm_composer_screen_row "$row" "$screen")
+      content=$(_fm_composer_row_content "$raw" 0)
+      case "$content" in
+        '┃'*) ;;
+        *) printf 'unknown'; return 0 ;;
+      esac
+      row=$((row + 1))
+    done
     if [ "$has_identity" != 1 ]; then printf 'unknown'; return 0; fi
     if [ -z "$identity" ]; then printf 'need-identity'; return 0; fi
     if [ "$identity" = probe-absent ]; then printf 'unknown'; return 0; fi
