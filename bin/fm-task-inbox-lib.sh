@@ -376,8 +376,9 @@ fm_task_inbox_doorbell_line() {  # <record-path>
 # A pending composer holding our own doorbell line is a previous ring whose
 # Enter never landed, so on an agent not reported busy it is submitted rather
 # than skipped; skipping it would block every later ring. A strict prefix of
-# the line counts as ours too (fm_task_inbox_composer_holds owns the minimum
-# length): Claude Code can leave the line cut at a wrapped row. A lost first
+# the line is treated the same way (fm_task_inbox_composer_holds owns the
+# minimum length and the limits of that match): Claude Code can leave the
+# line cut at a wrapped row. A lost first
 # Enter gets one confirmed retry, and a line still unsubmitted after it is
 # reported on stderr with return 2 rather than retried again. This is the only
 # screen the ring alters, and a draft that is anything else is never cleared,
@@ -441,11 +442,13 @@ fm_task_inbox_ring() {  # <backend> <target> <record-path> [expected-label] [har
 }
 
 # The shortest prefix of the doorbell line, counted without whitespace, that
-# the ring still recognises as its own: the constant head through the
-# `/*.msg` glob. Every prefix at least that long carries the literal
-# `: Firstmate instruction waiting: list "$FM_TASK_INBOX"/*.msg`, so a human
-# draft cannot reach it by accident and a submitted prefix still names what to
-# read. The prefixes seen on Claude Code 2.1.296 were 107 characters and up.
+# the ring still treats as its own: the constant head through the `/*.msg`
+# glob, `: Firstmate instruction waiting: list "$FM_TASK_INBOX"/*.msg`. It is
+# long enough to reject a shorter fragment or text that visibly differs, and
+# a submitted prefix still names what to read. The prefixes seen on Claude
+# Code 2.1.296 were 107 characters and up. A screen match carries no
+# provenance: the composer cannot say who typed it, so a person who pastes
+# exactly that head would have it submitted. That is the accepted residual.
 fm_task_inbox_doorbell_min_prefix() {  # <line>
   local head=${1%%'/*.msg'*}
   [ "$head" != "$1" ] || { printf '%s' "${#1}"; return 0; }
@@ -453,10 +456,11 @@ fm_task_inbox_doorbell_min_prefix() {  # <line>
   printf '%s' "${#head}"
 }
 
-# Whether the composer's content, ignoring line wrapping, is our own doorbell
-# <line>: exactly it, or a strict prefix at least
-# fm_task_inbox_doorbell_min_prefix long. A shorter fragment, or any text that
-# is not the line's own start, is a foreign draft.
+# Whether the composer's content, ignoring line wrapping, matches our own
+# doorbell <line>: exactly it, or a strict prefix at least
+# fm_task_inbox_doorbell_min_prefix long. Anything shorter, or visibly
+# different from the line's own start, is a foreign draft. A match is
+# screen equality only and proves nothing about who typed the text.
 fm_task_inbox_composer_holds() {  # <backend> <target> <line> [expected-label]
   local cap held want min
   fm_backend_source "$1" || return 1

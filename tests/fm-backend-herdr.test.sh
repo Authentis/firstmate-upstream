@@ -5478,7 +5478,7 @@ composer_fake_run() {  # <dir> <script> [args...]
   shift 2
   PATH="$dir/fakebin:$PATH" FM_HERDR_LOG="$dir/log" FM_FAKE_COMPOSER_DIR="$dir/pane" \
     FM_STATE_OVERRIDE="$dir/state" FM_BACKEND_HERDR_SUBMIT_POLLS=1 \
-    FM_BACKEND_HERDR_PROOF_GAP=0.01 \
+    FM_BACKEND_HERDR_PROOF_GAP="${FM_BACKEND_HERDR_PROOF_GAP-0.01}" \
     bash -c ". \"\$0/bin/fm-task-inbox-lib.sh\"; . \"\$0/bin/backends/herdr.sh\"; $script" "$ROOT" "$@"
 }
 
@@ -5581,6 +5581,75 @@ test_claude_2_1_296_clear_is_not_declared_done_on_a_not_yet_drawn_frame() {
     fi
   done
   pass "fm_backend_herdr_composer_clear: an empty read only counts after a confirming re-read, so no wrapped-row prefix is left behind"
+}
+
+# The proof and clear tunables are read from the environment, so an invalid
+# value must be the documented default, never zero, a skipped read, or an
+# ignored failed sleep (`sleep nope` fails and used to let the confirming read
+# run immediately). Every sleep the adapter takes is logged by a stub.
+# shellcheck disable=SC2016
+test_herdr_proof_tunables_fall_back_to_defaults_when_invalid() {
+  local dir doorbell out spec var bad want n=0 left sleeps stub
+  stub='sleep() { printf "%s\n" "$1" >> "$FM_SLEEP_LOG"; }; '
+  for spec in \
+    'PROOF_GAP|nope|0.2' 'PROOF_GAP|-0.5|0.2' 'PROOF_GAP||0.2' 'PROOF_GAP|1e2|0.2' 'PROOF_GAP|0.05|0.05' \
+    'CLEAR_CONFIRM|nope|0.3' 'CLEAR_CONFIRM|-1|0.3' 'CLEAR_CONFIRM||0.3' 'CLEAR_CONFIRM|1e2|0.3' 'CLEAR_CONFIRM|0.05|0.05' \
+    'PROOF_POLLS|nope|ok' 'PROOF_POLLS|-1|ok' 'PROOF_POLLS||ok' 'PROOF_POLLS|0|ok' 'PROOF_POLLS|2.5|ok' \
+    'PROOF_POLLS|3|ok' 'PROOF_POLLS|2|bound'; do
+    IFS='|' read -r var bad want <<EOF
+$spec
+EOF
+    n=$((n + 1))
+    dir="$TMP_ROOT/c2296-tunable-$n"; mkdir -p "$dir"
+    make_herdr_composer_fake "$dir" >/dev/null
+    : > "$dir/log"; : > "$dir/sleeps"
+    doorbell=$(composer_fake_doorbell "$dir")
+    sleeps="$dir/sleeps"
+    case "$var" in
+      PROOF_GAP)
+        echo 2 > "$dir/pane/late"
+        out=$(FM_SLEEP_LOG="$sleeps" FM_BACKEND_HERDR_PROOF_POLLS=6 FM_BACKEND_HERDR_PROOF_GAP="$bad" composer_fake_run "$dir" \
+          "$stub"'fm_backend_herdr_send_text_submit default:w1:p2 "$1" 2 0.011 0.012' "$doorbell")
+        [ "$out" = empty ] || fail "PROOF_GAP='$bad' should still prove and submit, got '$out'"
+        ;;
+      CLEAR_CONFIRM)
+        echo 4 > "$dir/pane/late"
+        out=$(FM_SLEEP_LOG="$sleeps" FM_BACKEND_HERDR_PROOF_POLLS=2 FM_BACKEND_HERDR_CLEAR_CONFIRM="$bad" composer_fake_run "$dir" \
+          "$stub"'fm_backend_herdr_send_text_submit default:w1:p2 "$1" 2 0.011 0.012' "$doorbell")
+        [ "$out" = send-failed ] || fail "CLEAR_CONFIRM='$bad' should clear and report send-failed, got '$out'"
+        echo 0 > "$dir/pane/late"
+        composer_fake_run "$dir" 'fm_backend_herdr_capture default:w1:p2 20 >/dev/null'
+        left=$(cat "$dir/pane/composer")
+        [ -z "$left" ] || fail "CLEAR_CONFIRM='$bad' left a prefix in the composer: '$left'"
+        ;;
+      PROOF_POLLS)
+        echo 3 > "$dir/pane/late"
+        out=$(FM_SLEEP_LOG="$sleeps" FM_BACKEND_HERDR_PROOF_POLLS="$bad" composer_fake_run "$dir" \
+          "$stub"'fm_backend_herdr_send_text_submit default:w1:p2 "$1" 2 0.011 0.012' "$doorbell")
+        case "$want" in
+          ok) [ "$out" = empty ] || fail "PROOF_POLLS='$bad' should wait out the lazily drawn composer, got '$out'" ;;
+          bound) [ "$out" = send-failed ] || fail "PROOF_POLLS='$bad' is a valid bound and should refuse after $bad reads, got '$out'" ;;
+        esac
+        continue
+        ;;
+    esac
+    if [ -z "$bad" ]; then
+      ! grep -qx '' "$sleeps" || fail "$var='' produced an empty sleep argument: $(tr '\n' ' ' < "$sleeps")"
+    elif [ "$bad" != "$want" ]; then
+      ! grep -qxF -- "$bad" "$sleeps" || fail "$var='$bad' reached sleep: $(tr '\n' ' ' < "$sleeps")"
+    fi
+    grep -qxF -- "$want" "$sleeps" || fail "$var='$bad' should sleep $want, slept: $(tr '\n' ' ' < "$sleeps")"
+  done
+  # An explicit 0 is a valid choice and skips the confirming read and sleep.
+  dir="$TMP_ROOT/c2296-tunable-zero"; mkdir -p "$dir"
+  make_herdr_composer_fake "$dir" >/dev/null
+  : > "$dir/log"; : > "$dir/sleeps"
+  doorbell=$(composer_fake_doorbell "$dir")
+  echo 4 > "$dir/pane/late"
+  FM_SLEEP_LOG="$dir/sleeps" FM_BACKEND_HERDR_PROOF_POLLS=2 FM_BACKEND_HERDR_CLEAR_CONFIRM=0 composer_fake_run "$dir" \
+    "$stub"'fm_backend_herdr_send_text_submit default:w1:p2 "$1" 2 0.011 0.012' "$doorbell" >/dev/null
+  ! grep -qxF 0.3 "$dir/sleeps" || fail "an explicit CLEAR_CONFIRM=0 must not take the confirming sleep"
+  pass "fm_backend_herdr_send_text_submit: nonnumeric, negative, empty and exponent tunables fall back to their defaults, decimals are honoured, and no value is passed to sleep unvalidated"
 }
 
 # shellcheck disable=SC2016
@@ -6461,6 +6530,7 @@ test_send_text_submit_non_claude_skips_the_payload_proof
 test_claude_2_1_296_idle_frames_stay_empty_and_typing_allowed
 test_claude_2_1_296_typed_text_proof_waits_for_a_lazily_drawn_composer
 test_claude_2_1_296_clear_is_not_declared_done_on_a_not_yet_drawn_frame
+test_herdr_proof_tunables_fall_back_to_defaults_when_invalid
 test_ring_submits_a_stranded_doorbell_prefix_on_herdr
 test_ring_leaves_a_foreign_draft_untouched_on_herdr
 test_ring_bounds_the_enter_retry_on_herdr
