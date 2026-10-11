@@ -51,9 +51,9 @@ D=$FM_FAKE_DIR
 case "${1:-}" in
   send-keys)
     if [ "${!#}" = Enter ]; then
-      for ext in "$FM_STATE_OVERRIDE"/*.pi-ext.ts; do
+      for ext in "$FM_STATE_OVERRIDE"/*.pi-first-call.ts; do
         [ -f "$ext" ] || continue
-        id=${ext##*/}; id=${id%.pi-ext.ts}
+        id=${ext##*/}; id=${id%.pi-first-call.ts}
         grep -q '^kind=secondmate$' "$FM_STATE_OVERRIDE/$id.meta" || continue
         node "$FM_ROOT_OVERRIDE/tests/assets/pi-first-call-fake.mjs" "$ext" || exit
       done

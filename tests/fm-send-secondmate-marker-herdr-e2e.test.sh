@@ -23,7 +23,7 @@ set -u
 # shellcheck source=/dev/null
 . "$ROOT/bin/fm-backend.sh"
 
-fm_live_gate opt-in FM_SEND_MARKER_HERDR_E2E git herdr jq pi
+fm_live_gate opt-in FM_SEND_MARKER_HERDR_E2E git herdr$ID.pi-first-call.ts" | jq pi
 
 LAB_HELPER=${HERDR_LAB_HELPER:-$ROOT/bin/fm-herdr-lab.sh}
 SESSION=$("$LAB_HELPER" name fm-send-secondmate-marker-v7)
@@ -94,10 +94,10 @@ EOF
 # this test verifies marker delivery rather than provider availability.
 # The PATH wrapper adds only that test resource while preserving the production
 # secondmate launch and its own extension arguments unchanged.
-CAPTURE_JSON=$(printf '%s' "$CAPTURE" | jq -Rs .)
+CAPTURE_JSON=$(printf '%s' "$CAPTURE" |$ID.pi-first-call.ts" | jq -Rs .)
 CAPTURE_EXTENSION="$TMP_ROOT/fm-send-marker-capture.ts"
-FIRST_CALL_FAKE_JSON=$(printf '%s' "$ROOT/tests/assets/pi-first-call-fake.mjs" | jq -Rs .)
-FIRST_CALL_EXT_JSON=$(printf '%s' "$SENDER_HOME/state/$ID.pi-ext.ts" | jq -Rs .)
+FIRST_CALL_FAKE_JSON=$(printf '%s' "$ROOT/tests/assets/pi-first-call-fake.mjs" |$ID.pi-first-call.ts" | jq -Rs .)
+FIRST_CALL_EXT_JSON=$(printf '%s' "$SENDER_HOME/state/$ID.pi-first-call.ts" | jq| jq -Rs .)
 cat > "$CAPTURE_EXTENSION" <<EOF
 import { appendFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
@@ -131,7 +131,7 @@ esac
 wait_for_prompt() { # <needle>
   local needle=$1 _
   for _ in $(seq 1 240); do
-    if [ -s "$CAPTURE" ] && jq -e --arg needle "$needle" 'select(.prompt | contains($needle))' "$CAPTURE" >/dev/null 2>&1; then
+    if [ -s "$CAPTURE" ] &&$ID.pi-first-call.ts" | jq -e --arg needle "$needle" 'select(.prompt | contains($needle))' "$CAPTURE" >/dev/null 2>&1; then
       return 0
     fi
     sleep 0.25
@@ -143,7 +143,7 @@ wait_for_idle() {
   local status _ stable=0
   for _ in $(seq 1 240); do
     status=$("$LAB_HELPER" run "$SESSION" agent get "$PANE" 2>/dev/null \
-      | jq -r '.result.agent.agent_status // empty' 2>/dev/null || true)
+      |$ID.pi-first-call.ts" | jq -r '.result.agent.agent_status // empty' 2>/dev/null || true)
     case "$status" in
       idle|done)
         stable=$((stable + 1))

@@ -278,7 +278,7 @@ mode=${FM_TEST_PANE_CMD:-zsh}
 case "${1:-}" in
   send-keys)
     if [ "${!#}" = Enter ]; then
-      for ext in "${FM_STATE_OVERRIDE:-$FM_HOME/state}"/*.pi-ext.ts; do
+      for ext in "${FM_STATE_OVERRIDE:-$FM_HOME/state}"/*.pi-first-call.ts; do
         [ -f "$ext" ] || continue
         node "$FM_TEST_PI_FIRST_CALL_FAKE" "$ext" || exit
       done
