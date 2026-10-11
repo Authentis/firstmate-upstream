@@ -1519,9 +1519,26 @@ _fm_composer_classify_leftbar() {  # <screen> <styled> <first-row> <last-row> [h
   local screen=$1 styled=$2 first=$3 last=$4 has_identity=${5:-0} identity=${6:-}
   local row raw content pending_seen=0 footer_re leading_blank=1 placeholder_position=0
   local box_cols=0 label_from=-1 label_to=-1 label_concat='' floor_row floor_trimmed right_text
+  local above_row above_trimmed last_row last_trimmed
   footer_re=${FM_COMPOSER_LEFTBAR_FOOTER_RE:-$FM_COMPOSER_LEFTBAR_FOOTER_RE_DEFAULT}
+  # Positively bound the composer run's TOP: the row directly above the box must
+  # be blank or a structural edge. A non-bar, non-edge row there means the run
+  # was interrupted and the selected suffix does not cover visible input above
+  # it - a malformed screen whose first box row lost its `┃`, or a picker drawn
+  # directly over the composer - so the run refuses instead of reading empty.
+  if [ "$first" -gt 0 ]; then
+    above_row=$(_fm_composer_screen_row "$((first - 1))" "$screen")
+    above_trimmed=$(printf '%s\n' "$above_row" | fm_composer_strip_ansi)
+    fm_composer_normalize_trim_var above_trimmed
+    if [ -n "$above_trimmed" ] && ! fm_composer_row_has_edge "$above_trimmed"; then
+      printf 'unknown'; return 0
+    fi
+  fi
   # Box width from the half-block floor, then the wrapped label block directly
-  # above the Build row (the box's last row).
+  # above the Build row. The block is enabled only when the box's LAST row is
+  # the recognized Build/Plan footer: that footer is the boundary the label
+  # block is defined against, so a box that lost it (blanked or deleted Build)
+  # is not proven and its label-looking rows stay content.
   floor_row=$(_fm_composer_screen_row "$((last + 1))" "$screen")
   floor_trimmed=$(printf '%s\n' "$floor_row" | fm_composer_strip_ansi)
   fm_composer_normalize_trim_var floor_trimmed
@@ -1530,7 +1547,12 @@ _fm_composer_classify_leftbar() {  # <screen> <styled> <first-row> <last-row> [h
     case "$box_cols" in ''|*[!0-9]*) box_cols=0 ;; esac
     box_cols=$((box_cols / 3))
   fi
-  if [ "$box_cols" -gt 1 ] && [ "$last" -gt "$first" ]; then
+  last_row=$(_fm_composer_screen_row "$last" "$screen")
+  last_trimmed=$(_fm_composer_row_content "$last_row" "$styled")
+  case "$last_trimmed" in '┃'*) last_trimmed=${last_trimmed#┃} ;; esac
+  fm_composer_normalize_trim_var last_trimmed
+  if [ "$box_cols" -gt 1 ] && [ "$last" -gt "$first" ] \
+     && fm_composer_idle_matches "$last_trimmed" "$footer_re" sensitive; then
     row=$((last - 1))
     while [ "$row" -ge "$first" ]; do
       raw=$(_fm_composer_screen_row "$row" "$screen")

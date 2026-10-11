@@ -712,32 +712,38 @@ test_matrix_opencode_wrapped_label() {
   # data/local/pi-refused-capture-mac-1011). Those rows carry no left-column
   # content, so the strict reading counted them as a draft and refused a
   # visibly empty composer. They are furniture only when the whole contiguous
-  # block above the Build row is proven and the native identity reports
-  # opencode idle/done; a working/blocked identity defers, a draft in the left
-  # column stays pending, and a right-column row that is not label-shaped
-  # stays pending. A newer opencode also extends the keybind-hint row under the
-  # floor with cwd/context/cost cells and a trailing `• OpenCode <version>`
-  # cell, which must still read as furniture.
-  local pad floor hint build i
+  # block above a PROVEN Build/Plan footer is bounded by a blank or edge row on
+  # top, and the native identity reports opencode idle/done; a working/blocked
+  # identity defers, a draft in the left column stays pending, a right-column
+  # row that is not label-shaped stays pending, and a run that lost its top
+  # bound or its Build footer is not empty. A newer opencode also extends the
+  # keybind-hint row under the floor with cwd/context/cost cells and a trailing
+  # `• OpenCode <version>` cell, which must still read as furniture.
+  local pad floor build i
   local done_id idle_id work_id block_id pi_id
-  local s3 s2 s1 typed notlabel broken oldbox
+  local oldhint newhint s3 s2 s1 s3new s3new_plain typed notlabel broken
+  local e1a e1b e2blank e2del e1c menu mb mreason
   done_id=$(printf 'opencode\tdone'); idle_id=$(printf 'opencode\tidle')
   work_id=$(printf 'opencode\tworking'); block_id=$(printf 'opencode\tblocked')
   pi_id=$(printf 'pi\tdone')
   pad=$(printf '%39s' '')
   floor='  ╹'
   for ((i = 0; i < 39; i++)); do floor+='▀'; done
+  # The old-style hint row keeps the parent's own selection working, so these
+  # fixtures exercise the NEW label/identity logic (the parent reads the label
+  # rows as content -> pending) instead of the extended-hint fix.
+  oldhint='  /Users/x/proj  tab agents  ctrl+p commands'
   # shellcheck disable=SC2016 # literal captured row text, never expanded
-  hint='  /Users/x/proj  315.8K (32%) · $0.16  ctrl+p commands    • OpenCode 1.18.35'
+  newhint='  /Users/x/proj  315.8K (32%) · $0.16  ctrl+p commands    • OpenCode 1.18.35'
   build='  ┃  Build · DeepSeek V4.1 Flash OpenCode Go'
   s3=$(printf '%s\n' '  ┃' "  ┃${pad}~/.treehouse/firstmate-fa5015/1/" \
     "  ┃${pad}firstmate:fm/fm-pi-opencodego-empty-" \
-    "${build}${pad}composer-1011" "$floor" "$hint")
+    "${build}${pad}composer-1011" "$floor" "$oldhint")
   s2=$(printf '%s\n' '  ┃' "  ┃${pad}firstmate:fm/fm-pi-opencodego-empty-" \
-    "${build}${pad}composer-1011" "$floor" "$hint")
+    "${build}${pad}composer-1011" "$floor" "$oldhint")
   s1=$(printf '%s\n' '  ┃' \
     "  ┃${pad}~/.treehouse/firstmate-fa5015/1/firstmate:fm/fm-branch-1011" \
-    "$build" "$floor" "$hint")
+    "$build" "$floor" "$oldhint")
   assert_screen "opencode wrapped label 3 rows done" empty "$CAPS_STYLED" "$s3" '' "$done_id"
   assert_screen "opencode wrapped label 3 rows idle" empty "$CAPS_STYLED" "$s3" '' "$idle_id"
   assert_screen "opencode wrapped label 2 rows done" empty "$CAPS_STYLED" "$s2" '' "$done_id"
@@ -751,22 +757,64 @@ test_matrix_opencode_wrapped_label() {
   assert_screen "opencode wrapped label no identity capability" unknown "$CAPS_STYLED_NOID" "$s3" '' "$done_id"
   [ "$(fm_composer_classify_screen "$CAPS_STYLED" "$s3")" = need-identity ] \
     || fail "an identity-capable profile should request the lazy probe for the wrapped-label shape"
+  # The real capture's extended hint row is what the parent rejected; the new
+  # hint pattern consumes it and the label block reads empty.
+  s3new=$(printf '%s\n' '  ┃' "  ┃${pad}~/.treehouse/firstmate-fa5015/1/" \
+    "  ┃${pad}firstmate:fm/fm-pi-opencodego-empty-" \
+    "${build}${pad}composer-1011" "$floor" "$newhint")
+  assert_screen "opencode wrapped label extended hint done" empty "$CAPS_STYLED" "$s3new" '' "$done_id"
+  assert_screen "opencode wrapped label extended hint working" unknown "$CAPS_STYLED" "$s3new" '' "$work_id"
   # A draft typed in the left content column stays pending, never empty.
-  typed=$(printf '%s\n' '  ┃' '  ┃  please delete this draft' "$build" "$floor" "$hint")
+  typed=$(printf '%s\n' '  ┃' '  ┃  please delete this draft' "$build" "$floor" "$oldhint")
   assert_screen "opencode wrapped label typed left column" pending "$CAPS_STYLED" "$typed" '' "$done_id"
   # Right-column text that is not a path/branch token is not a label.
-  notlabel=$(printf '%s\n' '  ┃' "  ┃${pad}hello world not a label" "$build" "$floor" "$hint")
+  notlabel=$(printf '%s\n' '  ┃' "  ┃${pad}hello world not a label" "$build" "$floor" "$oldhint")
   assert_screen "opencode wrapped label right column non-label" pending "$CAPS_STYLED" "$notlabel" '' "$done_id"
   # A non-label right-column row breaks the contiguous block: the label row
   # below it is no longer proven furniture, so the screen stays pending.
   broken=$(printf '%s\n' '  ┃' "  ┃${pad}not a label here" \
-    "  ┃${pad}firstmate:fm/branch-" "${build}${pad}tail-1011" "$floor" "$hint")
+    "  ┃${pad}firstmate:fm/branch-" "${build}${pad}tail-1011" "$floor" "$oldhint")
   assert_screen "opencode wrapped label broken block" pending "$CAPS_STYLED" "$broken" '' "$done_id"
+  # E1: the run's top must be positively bounded. A visible draft row whose bar
+  # was lost directly above the selected suffix is not a bounded composer, so
+  # the run refuses rather than hiding that draft as empty.
+  e1a=$(printf '%s\n' '  ┃' '     please delete this draft' \
+    "  ┃${pad}firstmate:fm/fm-branch-" "${build}${pad}tail-1011" "$floor" "$oldhint")
+  assert_screen "opencode wrapped label unbounded run with barless draft" unknown "$CAPS_STYLED" "$e1a" '' "$done_id"
+  # E1: a barred draft row inside the label rows stays content.
+  e1b=$(printf '%s\n' '  ┃' "  ┃${pad}~/.treehouse/firstmate-fa5015/1/" \
+    '  ┃  please delete this draft' "  ┃${pad}firstmate:fm/fm-branch-" "$build" "$floor" "$oldhint")
+  assert_screen "opencode wrapped label barred draft inside labels" pending "$CAPS_STYLED" "$e1b" '' "$done_id"
+  # E2: the Build/Plan footer is the boundary the label block is defined
+  # against; blanking or deleting it keeps the label-looking rows as content.
+  e2blank=$(printf '%s\n' '  ┃' "  ┃${pad}~/.treehouse/firstmate-fa5015/1/" \
+    "  ┃${pad}firstmate:fm/fm-branch-" '  ┃' "$floor" "$oldhint")
+  assert_screen "opencode wrapped label Build blanked" pending "$CAPS_STYLED" "$e2blank" '' "$done_id"
+  e2del=$(printf '%s\n' '  ┃' "  ┃${pad}~/.treehouse/firstmate-fa5015/1/" \
+    "  ┃${pad}firstmate:fm/fm-branch-" "$floor" "$oldhint")
+  assert_screen "opencode wrapped label Build deleted" pending "$CAPS_STYLED" "$e2del" '' "$done_id"
+  # E1: with every label bar gone the selected run is Build-only; the barless
+  # label rows above it leave the top unbounded, so it refuses (never empty).
+  e1c=$(printf '%s\n' '  ┃' "${pad}~/.treehouse/firstmate-fa5015/1/" \
+    "${pad}firstmate:fm/fm-branch-" "$build" "$floor" "$oldhint")
+  assert_screen "opencode wrapped label all label bars removed" unknown "$CAPS_STYLED" "$e1c" '' "$done_id"
+  # A picker drawn directly over the box leaves the run unbounded: the
+  # classifier refuses, and the opencode/muse all-screen menu check in
+  # fm_composer_send_refusal independently refuses the send.
+  menu=$(printf '%s\n' '  ┃' '  Enter to select · Esc to cancel' \
+    "  ┃${pad}~/.treehouse/firstmate-fa5015/1/" "  ┃${pad}firstmate:fm/fm-branch-" "$build" "$floor" "$oldhint")
+  assert_screen "opencode wrapped label menu over box" unknown "$CAPS_STYLED" "$menu" '' "$done_id"
+  mreason=$(fm_composer_send_refusal "$menu" empty opencode)
+  [ -n "$mreason" ] \
+    || fail "a picker over the box must be refused by the send guard, got no reason"
+  # A non-ASCII path is not in the label alphabet: fail safe to non-empty.
+  mb=$(printf '%s\n' '  ┃' "  ┃${pad}/π/项目:branch" "$build" "$floor" "$oldhint")
+  assert_screen "opencode wrapped label multibyte path stays non-empty" pending "$CAPS_STYLED" "$mb" '' "$done_id"
   # The extended hint row under the floor is furniture on the ordinary shape.
-  oldbox=$(printf '%s\n' '  ┃' '  ┃  Ask anything… "Fix broken tests"' '  ┃' \
-    '  ┃  Build · MiMo-V2.6-Flash Free OpenCode Zen' "$floor" "$hint")
-  assert_screen "opencode extended hint row under floor" empty "$CAPS_STYLED" "$oldbox"
-  pass "matrix: opencode's wrapped cwd:branch label and extended hint row read empty, drafts stay pending"
+  s3new_plain=$(printf '%s\n' '  ┃' '  ┃  Ask anything… "Fix broken tests"' '  ┃' \
+    '  ┃  Build · MiMo-V2.6-Flash Free OpenCode Zen' "$floor" "$newhint")
+  assert_screen "opencode extended hint row under floor" empty "$CAPS_STYLED" "$s3new_plain"
+  pass "matrix: opencode's wrapped cwd:branch label reads empty only for a bounded run over a proven Build footer; drafts, broken runs, and unbounded tops stay non-empty"
 }
 
 test_matrix_grok_titled_bottom_border() {
