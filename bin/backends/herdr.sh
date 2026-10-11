@@ -3430,6 +3430,30 @@ fm_backend_herdr_composer_payload_shown() {  # <text> <after>
   [ -z "$literal" ]
 }
 
+# fm_backend_herdr_composer_await_payload: whether the composer comes to show
+# <text>, read up to FM_BACKEND_HERDR_PROOF_POLLS times (default 6)
+# FM_BACKEND_HERDR_PROOF_GAP seconds apart (default 0.2). A busy Claude
+# renders typed input lazily, so one read taken a settle after the send can
+# show an empty or half-drawn composer for a payload that is still arriving;
+# judging that unsent made the caller clear a line that was about to land (the
+# Claude Code 2.1.296 stranded-prefix shape). The window is bounded: a
+# composer that never shows the payload is refused as before.
+fm_backend_herdr_composer_await_payload() {  # <target> <text>
+  local target=$1 text=$2 polls gap i=0 content
+  polls=${FM_BACKEND_HERDR_PROOF_POLLS:-6}
+  gap=${FM_BACKEND_HERDR_PROOF_GAP:-0.2}
+  case "$polls" in ''|*[!0-9]*|0) polls=1 ;; esac
+  while :; do
+    if content=$(fm_backend_herdr_composer_content "$target") \
+      && fm_backend_herdr_composer_payload_shown "$text" "$content"; then
+      return 0
+    fi
+    i=$((i + 1))
+    [ "$i" -lt "$polls" ] || return 1
+    sleep "$gap"
+  done
+}
+
 # fm_backend_herdr_composer_clear: after a refused proof, press Ctrl+U until
 # the shared classifier reads the composer as empty. Claude documents Ctrl+U
 # as delete-to-line-start, repeated across lines of a multiline draft; Ctrl+C
@@ -3437,14 +3461,24 @@ fm_backend_herdr_composer_payload_shown() {  # <text> <after>
 # wrapped screen row per press, so a single-line leftover can need several
 # presses. The press count comes from fm_backend_herdr_proof_lines, which
 # sizes it from the payload length, not from the viewport read.
+# An empty read only counts once a second read, FM_BACKEND_HERDR_CLEAR_CONFIRM
+# seconds later (default 0.3, 0 skips it), also reads empty: typed input that
+# Claude has not drawn yet leaves a momentarily empty frame, and a clear
+# declared done on that frame left the first wrapped row of the line behind
+# once the queued text and the single Ctrl+U were both processed.
 # 0 only when the composer is verified empty again.
 fm_backend_herdr_composer_clear() {  # <target> <text>
-  local target=$1 text=$2 presses i=0
+  local target=$1 text=$2 presses i=0 confirm
+  confirm=${FM_BACKEND_HERDR_CLEAR_CONFIRM:-0.3}
   presses=$(fm_backend_herdr_proof_lines "$text")
   while [ "$i" -lt "$presses" ]; do
     fm_backend_herdr_send_key "$target" C-u || return 1
     i=$((i + 1))
-    [ "$(fm_backend_herdr_composer_state "$target")" = empty ] && return 0
+    if [ "$(fm_backend_herdr_composer_state "$target")" = empty ]; then
+      [ "$confirm" = 0 ] && return 0
+      sleep "$confirm"
+      [ "$(fm_backend_herdr_composer_state "$target")" = empty ] && return 0
+    fi
   done
   return 1
 }
@@ -3467,8 +3501,7 @@ fm_backend_herdr_send_text_submit() {  # <target> <text> <retries> <enter-sleep>
   fm_backend_herdr_send_literal "$target" "$text" || { printf 'send-failed'; return 0; }
   sleep "$settle"
   if [ "$proof" = 1 ]; then
-    if ! content=$(fm_backend_herdr_composer_content "$target") \
-      || ! fm_backend_herdr_composer_payload_shown "$text" "$content"; then
+    if ! fm_backend_herdr_composer_await_payload "$target" "$text"; then
       if fm_backend_herdr_composer_clear "$target" "$text"; then
         printf 'send-failed'
       else

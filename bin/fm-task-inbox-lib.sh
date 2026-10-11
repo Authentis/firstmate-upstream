@@ -373,11 +373,15 @@ fm_task_inbox_doorbell_line() {  # <record-path>
 # send failed, 3 skipped because the endpoint is positively dead or missing
 # (nothing typed; recovery owns the record). No return value is delivery proof;
 # the acknowledgement move is the only delivery signal.
-# A pending composer holding exactly our own doorbell line is a previous ring
-# whose Enter never landed, so on an agent not reported busy it is submitted
-# rather than skipped; skipping it would block every later ring. A lost first
-# Enter gets one confirmed retry. This is the only screen the ring alters, and
-# a draft that is anything else is never cleared, only refused.
+# A pending composer holding our own doorbell line is a previous ring whose
+# Enter never landed, so on an agent not reported busy it is submitted rather
+# than skipped; skipping it would block every later ring. A strict prefix of
+# the line counts as ours too (fm_task_inbox_composer_holds owns the minimum
+# length): Claude Code can leave the line cut at a wrapped row. A lost first
+# Enter gets one confirmed retry, and a line still unsubmitted after it is
+# reported on stderr with return 2 rather than retried again. This is the only
+# screen the ring alters, and a draft that is anything else is never cleared,
+# only refused.
 fm_task_inbox_ring() {  # <backend> <target> <record-path> [expected-label] [harness]
   local backend=$1 target=$2 rec=$3 label=${4:-} harness=${5:-} line cstate verdict errf
   case "$(fm_backend_agent_state "$backend" "$target" 2>/dev/null || true)" in
@@ -401,6 +405,11 @@ fm_task_inbox_ring() {  # <backend> <target> <record-path> [expected-label] [har
         sleep 0.3
         fm_task_inbox_composer_holds "$backend" "$target" "$line" "$label" || return 0
         fm_backend_send_key "$backend" "$target" Enter "$label" >/dev/null 2>&1 || return 2
+        sleep 0.3
+        if fm_task_inbox_composer_holds "$backend" "$target" "$line" "$label"; then
+          echo "fm-ring: doorbell still unsubmitted in $target after Enter and one retry; the steer stays durably recorded at $rec and will be re-rung" >&2
+          return 2
+        fi
         return 0
       fi
       echo "fm-ring: doorbell refused for $target: the prompt already holds a draft that is not ours; the steer stays durably recorded at $rec and will be re-rung" >&2
@@ -431,13 +440,34 @@ fm_task_inbox_ring() {  # <backend> <target> <record-path> [expected-label] [har
   return 0
 }
 
-# Whether the composer's content, ignoring line wrapping, is exactly <line>.
+# The shortest prefix of the doorbell line, counted without whitespace, that
+# the ring still recognises as its own: the constant head through the
+# `/*.msg` glob. Every prefix at least that long carries the literal
+# `: Firstmate instruction waiting: list "$FM_TASK_INBOX"/*.msg`, so a human
+# draft cannot reach it by accident and a submitted prefix still names what to
+# read. The prefixes seen on Claude Code 2.1.296 were 107 characters and up.
+fm_task_inbox_doorbell_min_prefix() {  # <line>
+  local head=${1%%'/*.msg'*}
+  [ "$head" != "$1" ] || { printf '%s' "${#1}"; return 0; }
+  head=$(printf '%s/*.msg' "$head" | tr -d '[:space:]')
+  printf '%s' "${#head}"
+}
+
+# Whether the composer's content, ignoring line wrapping, is our own doorbell
+# <line>: exactly it, or a strict prefix at least
+# fm_task_inbox_doorbell_min_prefix long. A shorter fragment, or any text that
+# is not the line's own start, is a foreign draft.
 fm_task_inbox_composer_holds() {  # <backend> <target> <line> [expected-label]
-  local cap held
+  local cap held want min
   fm_backend_source "$1" || return 1
   cap=$(fm_backend_capture "$1" "$2" "$FM_COMPOSER_CAPTURE_LINES" "${4:-}" 2>/dev/null) || return 1
   held=$(fm_composer_extract_selected_content styled=0 "$cap") || return 1
-  [ -n "$held" ] && [ "$(printf '%s' "$held" | tr -d '[:space:]')" = "$(printf '%s' "$3" | tr -d '[:space:]')" ]
+  held=$(printf '%s' "$held" | tr -d '[:space:]')
+  want=$(printf '%s' "$3" | tr -d '[:space:]')
+  [ -n "$held" ] || return 1
+  [ "$held" = "$want" ] && return 0
+  min=$(fm_task_inbox_doorbell_min_prefix "$3")
+  [ "${#held}" -ge "$min" ] && [ "${#held}" -lt "${#want}" ] && [ "${want:0:${#held}}" = "$held" ]
 }
 
 fm_task_inbox_is_fire_and_forget() {  # <record-path>

@@ -398,6 +398,76 @@ test_ring_submits_its_own_stuck_doorbell() {
   pass "inbox: the ring submits its own stuck doorbell, skips other pending text, and retries a lost Enter once on both paths"
 }
 
+# Claude Code 2.1.296 left doorbells cut part-way in the composer (the stranded
+# lines ended at "... steering inbox" and "... inbox'"). A strict prefix of our
+# own line that still carries the `/*.msg` glob is our own stranded ring and is
+# submitted, never refused as a foreign draft; a shorter fragment or any other
+# text stays refused untouched.
+test_ring_treats_a_stranded_doorbell_prefix_as_its_own() {
+  local dir state rec doorbell log composer drops rc cut other
+  dir="$TMP_ROOT/ring-prefix"
+  state="$dir/state"
+  mkdir -p "$state"
+  make_composer_stub "$dir"
+  rec=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "please continue")
+  doorbell=$(inbox_lib "$state" fm_task_inbox_doorbell_line "$rec")
+  log="$dir/send.log"; composer="$dir/composer"; drops="$dir/drops"
+  ring() {
+    PATH="$dir/fakebin:$PATH" FM_SEND_LOG="$log" FM_FAKE_COMPOSER="$composer" \
+      FM_FAKE_DROP_ENTERS="$drops" inbox_lib "$state" fm_task_inbox_ring tmux sess:fm-t1 "$rec" fm-t1 claude
+  }
+
+  for cut in "${doorbell%%, read*}" "${doorbell%%\' steering*}'" "${doorbell%%/\*.msg*}/*.msg" "${doorbell%?}"; do
+    : > "$log"; printf '%s' "$cut" > "$composer"; echo 0 > "$drops"
+    rc=0; ring || rc=$?
+    [ "$rc" = 0 ] || fail "a stranded doorbell prefix should be submitted, got rc $rc for: $cut"
+    [ "$(cat "$log")" = "SUBMIT: $cut" ] \
+      || fail "the stranded prefix should be submitted exactly once, not retyped or completed:"$'\n'"$(cat "$log")"
+    [ ! -s "$composer" ] || fail "the stranded prefix was left in the composer: $(cat "$composer")"
+  done
+
+  # A lost first Enter on a prefix gets the same one confirmed retry.
+  cut=${doorbell%%, read*}
+  : > "$log"; printf '%s' "$cut" > "$composer"; echo 1 > "$drops"
+  rc=0; ring || rc=$?
+  [ "$rc" = 0 ] || fail "a stranded prefix whose first Enter is lost should still report rung, got rc $rc"
+  [ "$(cat "$log")" = "SUBMIT: $cut" ] || fail "the retry Enter should submit the stranded prefix once:"$'\n'"$(cat "$log")"
+
+  for other in ': Firstmate instruction waiting:' ': Firstmate instruction waiting: list' \
+    "${doorbell%%/\*.msg*}" "${doorbell%%, read*} and a draft" "${doorbell:0:60}X${doorbell:61:40}" \
+    'a half-typed draft'; do
+    : > "$log"; printf '%s' "$other" > "$composer"; echo 0 > "$drops"
+    rc=0; ring || rc=$?
+    [ "$rc" = 1 ] || fail "a foreign draft should skip the ring, got rc $rc for: $other"
+    [ ! -s "$log" ] || fail "a foreign draft was submitted:"$'\n'"$(cat "$log")"
+    [ "$(cat "$composer")" = "$other" ] || fail "a foreign draft was changed: $(cat "$composer")"
+  done
+  pass "inbox: the ring submits a stranded prefix of its own doorbell and leaves shorter or foreign drafts untouched"
+}
+
+# One Enter that does not submit gets exactly one confirmed retry, then a
+# report and a non-zero result; the ring never presses Enter a third time.
+test_ring_reports_a_doorbell_two_enters_do_not_submit() {
+  local dir state rec doorbell log composer drops rc err
+  dir="$TMP_ROOT/ring-enters"
+  state="$dir/state"
+  mkdir -p "$state"
+  make_composer_stub "$dir"
+  rec=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "please continue")
+  doorbell=$(inbox_lib "$state" fm_task_inbox_doorbell_line "$rec")
+  log="$dir/send.log"; composer="$dir/composer"; drops="$dir/drops"; err="$dir/err"
+  : > "$log"; printf '%s' "$doorbell" > "$composer"; echo 3 > "$drops"
+  rc=0
+  PATH="$dir/fakebin:$PATH" FM_SEND_LOG="$log" FM_FAKE_COMPOSER="$composer" FM_FAKE_DROP_ENTERS="$drops" \
+    inbox_lib "$state" fm_task_inbox_ring tmux sess:fm-t1 "$rec" fm-t1 claude 2>"$err" || rc=$?
+  [ "$rc" = 2 ] || fail "a doorbell that two Enters do not submit should report rc 2, got $rc"
+  [ "$(cat "$drops")" = 1 ] || fail "the ring should press Enter exactly twice, leaving 1 of 3 drops: $(cat "$drops")"
+  [ "$(cat "$composer")" = "$doorbell" ] || fail "the unsubmitted doorbell should stay in the composer untouched"
+  [ ! -s "$log" ] || fail "nothing should have been submitted:"$'\n'"$(cat "$log")"
+  grep -q 'still unsubmitted' "$err" || fail "the ring should say the doorbell is still unsubmitted: $(cat "$err")"
+  pass "inbox: a doorbell that two Enters do not submit is reported with rc 2 after exactly one retry"
+}
+
 test_idempotent_write_dedups_exact_body() {
   local state r1 r2 r3 r4 count text
   state="$TMP_ROOT/idem/state"; mkdir -p "$state"
@@ -1259,6 +1329,8 @@ test_doorbell_is_a_shell_noop
 test_doorbell_rejects_terminal_controls
 test_ring_skips_dead_agent
 test_ring_submits_its_own_stuck_doorbell
+test_ring_treats_a_stranded_doorbell_prefix_as_its_own
+test_ring_reports_a_doorbell_two_enters_do_not_submit
 test_idempotent_write_dedups_exact_body
 test_idempotent_write_follows_concurrent_ack
 test_handled_mv_dedups_by_sequence

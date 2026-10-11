@@ -550,6 +550,8 @@ Typed-plane text is typed once; only Enter is retried.
 When native `agent get` identity is Claude, the adapter types only into an empty composer.
 A Claude composer that already holds text, or cannot be read, before the send is refused with nothing typed.
 Before that Enter, the adapter continues only when the selected composer shows the typed payload, or only Claude paste placeholders with no literal remainder.
+A busy Claude draws typed input lazily, so that read is repeated a bounded number of times before the payload is judged unsent.
+`FM_BACKEND_HERDR_PROOF_POLLS` and `FM_BACKEND_HERDR_PROOF_GAP` bound it, and a composer that never shows the payload is refused as below.
 Every herdr adapter composer read (`fm_backend_herdr_composer_state`, `fm_backend_herdr_composer_content`) captures the full visible viewport, never a bounded tail, while the shared inbox pending-line confirmation read (bin/fm-task-inbox-lib.sh) stays a bounded tail on every backend: an overlay Claude renders between the composer and the pane bottom - the slash-command popup is the verified shape - pushes the composer outside a tail window, and the composer is by definition inside the viewport.
 Dated measurement: docs/verification/runtime-backends.md "Claude exit behind the slash-command popup".
 
@@ -559,7 +561,8 @@ It ignores U+2063 because Claude's Herdr read-back never shows it.
 A composer that holds a shorter suffix, or a placeholder plus a literal remainder, does not receive Enter.
 Instead:
 
-1. The adapter presses Ctrl+U until the shared classifier reads the composer as empty.
+1. The adapter presses Ctrl+U until the shared classifier reads the composer as empty twice, `FM_BACKEND_HERDR_CLEAR_CONFIRM` seconds apart.
+   A single empty read can be a frame drawn before Claude processed the queued text, and a clear declared done on it left the first wrapped row of the line behind.
 2. It then reports `send-failed`, so a resend starts from a clean composer.
 
 Ctrl+C is not used for this, because Claude documents it as interrupting a running operation.
