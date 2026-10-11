@@ -320,6 +320,13 @@
 # It is best effort like the pipeline-spend step: a copy that cannot be made
 # warns and never blocks or changes the teardown result. data/ is gitignored and
 # private, so nothing archived is ever committed.
+# The ordinary removal path also copies a lane's state/<id>.control-relaunch and
+# state/<id>.control-relaunch.meta-prior beside it as
+# data/lane-meta-archive/<id>.control-relaunch[.meta-prior]
+# (archive_control_relaunch below) before it removes them, because the archived
+# meta keeps only the final model and the relaunch record is what attributes an
+# attempt to the model that started it. It has the same best-effort,
+# overwrite, and regular-non-symlink-only contract.
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -482,6 +489,28 @@ archive_task_meta() {  # <meta-path> <task-id>
   fi
   cp -f -- "$meta" "$dir/$task_id.meta" \
     || echo "warning: could not archive $task_id's lane meta to $dir/$task_id.meta; cleanup continues" >&2
+  return 0
+}
+
+# Copy a task's control-relaunch record and its meta-prior beside the archived
+# lane meta before teardown removes them. Same contract as archive_task_meta:
+# best effort, overwrites an earlier copy, copies only regular non-symlink
+# files, and a missing file is not an error.
+archive_control_relaunch() {  # <task-id>
+  local task_id=$1 dir="$DATA/lane-meta-archive" suffix src made=0
+  for suffix in control-relaunch control-relaunch.meta-prior; do
+    src="$STATE/$task_id.$suffix"
+    [ -f "$src" ] && [ ! -L "$src" ] || continue
+    if [ "$made" = 0 ]; then
+      if ! mkdir -p "$dir"; then
+        echo "warning: could not create $dir to archive $task_id's control-relaunch record; cleanup continues" >&2
+        return 0
+      fi
+      made=1
+    fi
+    cp -f -- "$src" "$dir/$task_id.$suffix" \
+      || echo "warning: could not archive $task_id's $suffix to $dir/$task_id.$suffix; cleanup continues" >&2
+  done
   return 0
 }
 
@@ -3889,6 +3918,7 @@ retire_busy_state "$STATE" "$ID" "$BUSY_GEN" || exit 1
 [ ! -e "$CONFIG/fleet-ledger" ] || FM_HOME=$FM_HOME FM_STATE_OVERRIDE=$STATE FM_CONFIG_OVERRIDE=$CONFIG "$SCRIPT_DIR/fm-fleet-ledger.sh" cleaned_up "$ID" || true
 status_retire_presentation_task "$STATE" "$ID" || exit 1
 fm_wake_queue_prune_task "$STATE" "$ID" "$T" 2>/dev/null || true
+archive_control_relaunch "$ID"
 rm -f "$STATE/$ID.turn-ended" "$STATE/$ID.progress" \
   "$(fm_wake_signal_seen_path "$STATE" "$STATE/$ID.turn-ended")" \
   "$STATE/$ID.pi-ext.ts" "$STATE/$ID.pi-first-call.ts" "$STATE/$ID.omp-ext.ts" "$STATE/$ID.grok-turnend-token" \

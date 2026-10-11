@@ -3565,6 +3565,71 @@ test_teardown_archive_copy_failure_does_not_block() {
   pass "a failed lane-meta archive copy warns but never blocks teardown"
 }
 
+# The control-relaunch record and its meta-prior are archived beside the lane
+# meta before teardown removes them, so a relaunched attempt stays attributable
+# to the model that started it.
+test_teardown_archives_control_relaunch_files() {
+  local case_dir rc=0 dir
+  case_dir=$(make_case control-relaunch-archive)
+  write_meta "$case_dir" no-mistakes ship
+  land_shippable_commit "$case_dir"
+  printf 'relaunch-record\n' > "$case_dir/state/task-x1.control-relaunch"
+  printf 'prior-meta\n' > "$case_dir/state/task-x1.control-relaunch.meta-prior"
+  dir="$case_dir/data/lane-meta-archive"
+  mkdir -p "$dir"
+  printf 'stale\n' > "$dir/task-x1.control-relaunch"
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+
+  expect_code 0 "$rc" "control-relaunch-archive: teardown should succeed"
+  assert_absent "$case_dir/state/task-x1.control-relaunch" "control-relaunch-archive: live record kept"
+  [ "$(cat "$dir/task-x1.control-relaunch")" = relaunch-record ] \
+    || fail "control-relaunch-archive: record not archived or earlier copy not overwritten"
+  [ "$(cat "$dir/task-x1.control-relaunch.meta-prior")" = prior-meta ] \
+    || fail "control-relaunch-archive: meta-prior not archived"
+  pass "teardown archives the control-relaunch record and meta-prior"
+}
+
+test_teardown_control_relaunch_archive_absent_and_symlink() {
+  local case_dir rc=0 dir
+  case_dir=$(make_case control-relaunch-absent)
+  write_meta "$case_dir" no-mistakes ship
+  land_shippable_commit "$case_dir"
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+  expect_code 0 "$rc" "control-relaunch-absent: teardown should succeed"
+  assert_absent "$case_dir/data/lane-meta-archive/task-x1.control-relaunch" \
+    "control-relaunch-absent: archived a record that never existed"
+  if grep -q "could not .*archive" "$case_dir/stderr"; then
+    fail "control-relaunch-absent: absent files produced a warning"
+  fi
+
+  rc=0
+  case_dir=$(make_case control-relaunch-symlink)
+  write_meta "$case_dir" no-mistakes ship
+  land_shippable_commit "$case_dir"
+  printf 'secret\n' > "$case_dir/target"
+  ln -s "$case_dir/target" "$case_dir/state/task-x1.control-relaunch"
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+  expect_code 0 "$rc" "control-relaunch-symlink: teardown should succeed"
+  dir="$case_dir/data/lane-meta-archive"
+  assert_absent "$dir/task-x1.control-relaunch" "control-relaunch-symlink: a symlink was followed"
+  pass "control-relaunch archive ignores absent files and never follows a symlink"
+}
+
+test_teardown_control_relaunch_archive_failure_does_not_block() {
+  local case_dir rc=0
+  case_dir=$(make_case control-relaunch-fail)
+  write_meta "$case_dir" no-mistakes ship
+  land_shippable_commit "$case_dir"
+  printf 'relaunch-record\n' > "$case_dir/state/task-x1.control-relaunch"
+  : > "$case_dir/data/lane-meta-archive"
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+
+  expect_code 0 "$rc" "control-relaunch-fail: a failed archive should not block teardown"
+  assert_absent "$case_dir/state/task-x1.meta" "control-relaunch-fail: teardown did not complete"
+  assert_grep "could not create" "$case_dir/stderr" "control-relaunch-fail: no warning"
+  pass "a failed control-relaunch archive warns but never blocks teardown"
+}
+
 test_parked_own_run_is_aborted_before_teardown() {
   local case_dir rc head
   case_dir=$(make_case parked-run-abort)
@@ -4820,6 +4885,9 @@ test_teardown_skips_pipeline_spend_when_disabled
 test_teardown_records_unavailable_spend_for_a_gone_worktree
 test_teardown_archives_lane_meta_before_removal
 test_teardown_archive_copy_failure_does_not_block
+test_teardown_archives_control_relaunch_files
+test_teardown_control_relaunch_archive_absent_and_symlink
+test_teardown_control_relaunch_archive_failure_does_not_block
 test_parked_own_run_is_aborted_before_teardown
 test_parked_own_run_concludes_on_passed_with_override_after_abort
 test_parked_own_run_concludes_on_passed_with_skips_after_abort
