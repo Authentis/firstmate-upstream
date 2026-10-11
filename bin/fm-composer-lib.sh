@@ -490,8 +490,13 @@ FM_COMPOSER_LEFTBAR_FOOTER_RE_DEFAULT='^(Build|Plan)[[:space:]]+·[[:space:]]+'
 # Opencode also draws a keybind hint row directly under the left bar's half-block
 # floor ("tab agents  ctrl+p commands", with the busy hint folded into the same
 # row; verified live on opencode 1.18.33). Only the row IMMEDIATELY below a
-# proven floor is matched, so it never hides a lower live shape.
-FM_COMPOSER_LEFTBAR_HINT_RE_DEFAULT='ctrl\+p[[:space:]]+commands[[:space:]]*$'
+# proven floor is matched, so it never hides a lower live shape. A newer build
+# (1.18.35, captured 2026-10-11) extends that row past the hint with the pane's
+# cwd, context, and cost cells and a trailing `• OpenCode <version>` cell, so
+# the `ctrl+p commands` token is now allowed a trailing version cell instead of
+# requiring the row to end at it; the position bound (directly under a proven
+# floor) is what still keeps this row furniture.
+FM_COMPOSER_LEFTBAR_HINT_RE_DEFAULT='ctrl\+p[[:space:]]+commands([[:space:]]+•.*)?[[:space:]]*$'
 # Claude draws its permission-mode hint on its own row directly below the
 # composer (` ⏵⏵ bypass permissions on (shift+tab to cycle)`, ` ⏵⏵ accept edits
 # on`, ` ⏸ plan mode on`; verified live through Herdr on claude 2.1.236). The
@@ -1470,16 +1475,97 @@ _fm_composer_classify_bare_wrap() {  # <screen> <styled> <glyph-row> <cursor-row
   if [ "$styled" = 1 ]; then printf 'pending'; else printf 'unknown'; fi
 }
 
+# _fm_composer_leftbar_right_label_text: print the right-column text of one raw
+# opencode left-bar row when its LEFT content column is entirely blank and the
+# text that remains is a single path/branch token; return 1 otherwise. This is
+# one wrapped fragment of the right-aligned `cwd:branch` label opencode draws
+# in the panel to the right of its composer. <box-cols> is the box's full
+# column count including the left bar, measured from the half-block floor; the
+# left content column is everything after the bar up to that width, so a typed
+# draft starting there (or spanning into the right column) fails the blank
+# proof and stays content.
+_fm_composer_leftbar_right_label_text() {  # <raw-row> <box-cols>
+  local raw=$1 box_cols=$2 plain after_bar lead=0 right_text
+  plain=$(printf '%s\n' "$raw" | fm_composer_strip_ansi)
+  case "$plain" in *'┃'*) ;; *) return 1 ;; esac
+  after_bar=${plain#*┃}
+  while [ "${after_bar:$lead:1}" = ' ' ]; do lead=$((lead + 1)); done
+  [ "$lead" -ge "$((box_cols - 1))" ] || return 1
+  right_text=${after_bar:$lead}
+  fm_composer_normalize_trim_var right_text
+  [ -n "$right_text" ] || return 1
+  case "$right_text" in *[!A-Za-z0-9._~:/@+-]*) return 1 ;; esac
+  printf '%s' "$right_text"
+}
+
 # _fm_composer_classify_leftbar: opencode's left-bar composer. Blank rows and
 # the idle hint read empty; the run's LAST row may be the mode/model footer
 # (composer furniture, never typed text). Real content is pending when styling
 # can prove it real, unknown otherwise.
-_fm_composer_classify_leftbar() {  # <screen> <styled> <first-row> <last-row>
-  local screen=$1 styled=$2 first=$3 last=$4
+#
+# The right-aligned `cwd:branch` label opencode draws in the panel right of the
+# composer wraps over one or more rows directly above the Build row when the
+# worktree path and branch id are long (live capture 2026-10-11, pane w66:p2).
+# Those rows carry no left-column content, so the strict reading counted them
+# as a draft and refused an empty composer. They are furniture only when the
+# WHOLE contiguous block above the Build row is proven: every row's left
+# content column blank, every right fragment a single path/branch token, and
+# the block carrying a path or branch separator. A typed draft in the left
+# column, or text spanning into the right column, breaks the block and stays
+# pending. Because this is a NEW container shape, its empty verdict also
+# requires the native identity to report idle/done, exactly as pi's separated
+# composer does; a working/blocked identity defers.
+_fm_composer_classify_leftbar() {  # <screen> <styled> <first-row> <last-row> [has-identity] [identity]
+  local screen=$1 styled=$2 first=$3 last=$4 has_identity=${5:-0} identity=${6:-}
   local row raw content pending_seen=0 footer_re leading_blank=1 placeholder_position=0
+  local box_cols=0 label_from=-1 label_to=-1 label_concat='' floor_row floor_trimmed right_text
   footer_re=${FM_COMPOSER_LEFTBAR_FOOTER_RE:-$FM_COMPOSER_LEFTBAR_FOOTER_RE_DEFAULT}
+  # Box width from the half-block floor, then the wrapped label block directly
+  # above the Build row (the box's last row).
+  floor_row=$(_fm_composer_screen_row "$((last + 1))" "$screen")
+  floor_trimmed=$(printf '%s\n' "$floor_row" | fm_composer_strip_ansi)
+  fm_composer_normalize_trim_var floor_trimmed
+  if _fm_composer_leftbar_floor_row "$floor_trimmed"; then
+    box_cols=$(printf '%s' "$floor_trimmed" | LC_ALL=C wc -c | tr -d '[:space:]')
+    case "$box_cols" in ''|*[!0-9]*) box_cols=0 ;; esac
+    box_cols=$((box_cols / 3))
+  fi
+  if [ "$box_cols" -gt 1 ] && [ "$last" -gt "$first" ]; then
+    row=$((last - 1))
+    while [ "$row" -ge "$first" ]; do
+      raw=$(_fm_composer_screen_row "$row" "$screen")
+      right_text=$(_fm_composer_leftbar_right_label_text "$raw" "$box_cols") || break
+      label_concat="$right_text$label_concat"
+      label_from=$row
+      row=$((row - 1))
+    done
+  fi
+  if [ "$label_from" -ge 0 ]; then
+    case "$label_concat" in
+      */*|*:*) label_to=$((last - 1)) ;;
+      *) label_from=-1 ;;
+    esac
+  fi
+  if [ "$label_from" -ge 0 ]; then
+    if [ "$has_identity" != 1 ]; then printf 'unknown'; return 0; fi
+    if [ -z "$identity" ]; then printf 'need-identity'; return 0; fi
+    if [ "$identity" = probe-absent ]; then printf 'unknown'; return 0; fi
+    # The label shape is opencode's, so a foreign agent's identity cannot prove
+    # it; and only idle/done authorizes empty, exactly as the pi shape requires.
+    case "${identity%%$'\t'*}" in
+      opencode|muse) ;;
+      *) printf 'unknown'; return 0 ;;
+    esac
+    case "${identity#*$'\t'}" in
+      idle|done) ;;
+      *) printf 'unknown'; return 0 ;;
+    esac
+  fi
   row=$first
   while [ "$row" -le "$last" ]; do
+    if [ "$label_from" -ge 0 ] && [ "$row" -ge "$label_from" ] && [ "$row" -le "$label_to" ]; then
+      row=$((row + 1)); continue
+    fi
     raw=$(_fm_composer_screen_row "$row" "$screen")
     content=$(_fm_composer_row_content "$raw" "$styled")
     case "$content" in
@@ -2031,7 +2117,7 @@ EOF
        && [ "$cy" -ge "$FM_COMPOSER_SCAN_LEFTBAR_START" ] \
        && [ "$cy" -le "$FM_COMPOSER_SCAN_LEFTBAR_END" ]; then
       _fm_composer_classify_leftbar "$screen" "$styled" \
-        "$FM_COMPOSER_SCAN_LEFTBAR_START" "$FM_COMPOSER_SCAN_LEFTBAR_END"
+        "$FM_COMPOSER_SCAN_LEFTBAR_START" "$FM_COMPOSER_SCAN_LEFTBAR_END" "$has_identity" "$identity"
       return 0
     fi
     if [ "$FM_COMPOSER_SCAN_BARE_ROW" -ge 0 ] && [ "$cy" -eq "$FM_COMPOSER_SCAN_BARE_ROW" ]; then
@@ -2101,7 +2187,7 @@ EOF
       ;;
     leftbar)
       _fm_composer_classify_leftbar "$screen" "$styled" \
-        "$FM_COMPOSER_SELECTED_FIRST" "$FM_COMPOSER_SELECTED_LAST"
+        "$FM_COMPOSER_SELECTED_FIRST" "$FM_COMPOSER_SELECTED_LAST" "$has_identity" "$identity"
       ;;
   esac
 }

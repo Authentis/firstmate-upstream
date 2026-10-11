@@ -705,6 +705,70 @@ test_matrix_opencode_leftbar_signals() {
   pass "matrix: opencode's left-bar composer reads empty everywhere and scans the full active run"
 }
 
+test_matrix_opencode_wrapped_label() {
+  # opencode's right panel draws a right-aligned `cwd:branch` label beside the
+  # composer; with a long worktree path and branch id it wraps over one or more
+  # rows directly above the Build row (live capture 2026-10-11, pane w66:p2,
+  # data/local/pi-refused-capture-mac-1011). Those rows carry no left-column
+  # content, so the strict reading counted them as a draft and refused a
+  # visibly empty composer. They are furniture only when the whole contiguous
+  # block above the Build row is proven and the native identity reports
+  # opencode idle/done; a working/blocked identity defers, a draft in the left
+  # column stays pending, and a right-column row that is not label-shaped
+  # stays pending. A newer opencode also extends the keybind-hint row under the
+  # floor with cwd/context/cost cells and a trailing `• OpenCode <version>`
+  # cell, which must still read as furniture.
+  local pad floor hint build i
+  local done_id idle_id work_id block_id pi_id
+  local s3 s2 s1 typed notlabel broken oldbox
+  done_id=$(printf 'opencode\tdone'); idle_id=$(printf 'opencode\tidle')
+  work_id=$(printf 'opencode\tworking'); block_id=$(printf 'opencode\tblocked')
+  pi_id=$(printf 'pi\tdone')
+  pad=$(printf '%39s' '')
+  floor='  ╹'
+  for ((i = 0; i < 39; i++)); do floor+='▀'; done
+  # shellcheck disable=SC2016 # literal captured row text, never expanded
+  hint='  /Users/x/proj  315.8K (32%) · $0.16  ctrl+p commands    • OpenCode 1.18.35'
+  build='  ┃  Build · DeepSeek V4.1 Flash OpenCode Go'
+  s3=$(printf '%s\n' '  ┃' "  ┃${pad}~/.treehouse/firstmate-fa5015/1/" \
+    "  ┃${pad}firstmate:fm/fm-pi-opencodego-empty-" \
+    "${build}${pad}composer-1011" "$floor" "$hint")
+  s2=$(printf '%s\n' '  ┃' "  ┃${pad}firstmate:fm/fm-pi-opencodego-empty-" \
+    "${build}${pad}composer-1011" "$floor" "$hint")
+  s1=$(printf '%s\n' '  ┃' \
+    "  ┃${pad}~/.treehouse/firstmate-fa5015/1/firstmate:fm/fm-branch-1011" \
+    "$build" "$floor" "$hint")
+  assert_screen "opencode wrapped label 3 rows done" empty "$CAPS_STYLED" "$s3" '' "$done_id"
+  assert_screen "opencode wrapped label 3 rows idle" empty "$CAPS_STYLED" "$s3" '' "$idle_id"
+  assert_screen "opencode wrapped label 2 rows done" empty "$CAPS_STYLED" "$s2" '' "$done_id"
+  assert_screen "opencode wrapped label 1 row done" empty "$CAPS_STYLED" "$s1" '' "$done_id"
+  # Identity idle/done is required: working/blocked defer, a foreign agent's
+  # identity cannot prove the opencode shape, and no identity capability or a
+  # lazy probe that has not run yet is not empty either.
+  assert_screen "opencode wrapped label working defers" unknown "$CAPS_STYLED" "$s3" '' "$work_id"
+  assert_screen "opencode wrapped label blocked defers" unknown "$CAPS_STYLED" "$s3" '' "$block_id"
+  assert_screen "opencode wrapped label foreign identity" unknown "$CAPS_STYLED" "$s3" '' "$pi_id"
+  assert_screen "opencode wrapped label no identity capability" unknown "$CAPS_STYLED_NOID" "$s3" '' "$done_id"
+  [ "$(fm_composer_classify_screen "$CAPS_STYLED" "$s3")" = need-identity ] \
+    || fail "an identity-capable profile should request the lazy probe for the wrapped-label shape"
+  # A draft typed in the left content column stays pending, never empty.
+  typed=$(printf '%s\n' '  ┃' '  ┃  please delete this draft' "$build" "$floor" "$hint")
+  assert_screen "opencode wrapped label typed left column" pending "$CAPS_STYLED" "$typed" '' "$done_id"
+  # Right-column text that is not a path/branch token is not a label.
+  notlabel=$(printf '%s\n' '  ┃' "  ┃${pad}hello world not a label" "$build" "$floor" "$hint")
+  assert_screen "opencode wrapped label right column non-label" pending "$CAPS_STYLED" "$notlabel" '' "$done_id"
+  # A non-label right-column row breaks the contiguous block: the label row
+  # below it is no longer proven furniture, so the screen stays pending.
+  broken=$(printf '%s\n' '  ┃' "  ┃${pad}not a label here" \
+    "  ┃${pad}firstmate:fm/branch-" "${build}${pad}tail-1011" "$floor" "$hint")
+  assert_screen "opencode wrapped label broken block" pending "$CAPS_STYLED" "$broken" '' "$done_id"
+  # The extended hint row under the floor is furniture on the ordinary shape.
+  oldbox=$(printf '%s\n' '  ┃' '  ┃  Ask anything… "Fix broken tests"' '  ┃' \
+    '  ┃  Build · MiMo-V2.6-Flash Free OpenCode Zen' "$floor" "$hint")
+  assert_screen "opencode extended hint row under floor" empty "$CAPS_STYLED" "$oldbox"
+  pass "matrix: opencode's wrapped cwd:branch label and extended hint row read empty, drafts stay pending"
+}
+
 test_matrix_grok_titled_bottom_border() {
   # Grok 1.0.5 widened its titled BOTTOM border three columns past the top and
   # content rows. This is the idle capture from issue #3436; Herdr has no
@@ -1091,6 +1155,7 @@ test_matrix_codex_idle_starfield_furniture
 test_matrix_pi_separated_needs_identity
 test_matrix_pi_dollar_status_footer_is_empty
 test_matrix_opencode_leftbar_signals
+test_matrix_opencode_wrapped_label
 test_opencode_keybind_hint_below_floor
 test_matrix_grok_titled_bottom_border
 test_matrix_claude_titled_top_rule
