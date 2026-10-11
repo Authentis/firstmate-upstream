@@ -3568,65 +3568,138 @@ test_teardown_archive_copy_failure_does_not_block() {
 # The control-relaunch record and its meta-prior are archived beside the lane
 # meta before teardown removes them, so a relaunched attempt stays attributable
 # to the model that started it.
-test_teardown_archives_control_relaunch_files() {
-  local case_dir rc=0 dir
-  case_dir=$(make_case control-relaunch-archive)
+RELAUNCH_SUFFIXES="control-relaunch control-relaunch.meta-prior"
+
+relaunch_case() {  # <case-name>; prints the prepared case dir
+  local case_dir
+  case_dir=$(make_case "$1")
   write_meta "$case_dir" no-mistakes ship
   land_shippable_commit "$case_dir"
-  printf 'relaunch-record\n' > "$case_dir/state/task-x1.control-relaunch"
-  printf 'prior-meta\n' > "$case_dir/state/task-x1.control-relaunch.meta-prior"
-  dir="$case_dir/data/lane-meta-archive"
-  mkdir -p "$dir"
-  printf 'stale\n' > "$dir/task-x1.control-relaunch"
-  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
-
-  expect_code 0 "$rc" "control-relaunch-archive: teardown should succeed"
-  assert_absent "$case_dir/state/task-x1.control-relaunch" "control-relaunch-archive: live record kept"
-  [ "$(cat "$dir/task-x1.control-relaunch")" = relaunch-record ] \
-    || fail "control-relaunch-archive: record not archived or earlier copy not overwritten"
-  [ "$(cat "$dir/task-x1.control-relaunch.meta-prior")" = prior-meta ] \
-    || fail "control-relaunch-archive: meta-prior not archived"
-  pass "teardown archives the control-relaunch record and meta-prior"
+  printf '%s' "$case_dir"
 }
 
-test_teardown_control_relaunch_archive_absent_and_symlink() {
-  local case_dir rc=0 dir
-  case_dir=$(make_case control-relaunch-absent)
-  write_meta "$case_dir" no-mistakes ship
-  land_shippable_commit "$case_dir"
-  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
-  expect_code 0 "$rc" "control-relaunch-absent: teardown should succeed"
+relaunch_teardown() {  # <case-dir> <label>; asserts teardown succeeds
+  local rc=0
+  run_teardown "$1" > "$1/stdout" 2> "$1/stderr" || rc=$?
+  expect_code 0 "$rc" "$2: teardown should succeed"
+  assert_absent "$1/state/task-x1.meta" "$2: teardown did not complete"
+}
+
+relaunch_live_removed() {  # <case-dir> <label>
+  local suffix
+  for suffix in $RELAUNCH_SUFFIXES; do
+    [ ! -e "$1/state/task-x1.$suffix" ] && [ ! -L "$1/state/task-x1.$suffix" ] \
+      || fail "$2: live $suffix was not removed"
+  done
+}
+
+test_teardown_archives_control_relaunch_files() {
+  local case_dir dir suffix
+  case_dir=$(relaunch_case control-relaunch-archive)
+  dir="$case_dir/data/lane-meta-archive"
+  mkdir -p "$dir"
+  for suffix in $RELAUNCH_SUFFIXES; do
+    printf 'live-%s\n' "$suffix" > "$case_dir/state/task-x1.$suffix"
+    printf 'stale-%s\n' "$suffix" > "$dir/task-x1.$suffix"
+  done
+  relaunch_teardown "$case_dir" control-relaunch-archive
+  relaunch_live_removed "$case_dir" control-relaunch-archive
+  for suffix in $RELAUNCH_SUFFIXES; do
+    [ "$(cat "$dir/task-x1.$suffix")" = "live-$suffix" ] \
+      || fail "control-relaunch-archive: $suffix not archived or stale copy not overwritten"
+  done
+  pass "teardown archives and overwrites both control-relaunch files, then removes the live ones"
+}
+
+test_teardown_archives_meta_prior_only() {
+  local case_dir dir
+  case_dir=$(relaunch_case control-relaunch-prior-only)
+  dir="$case_dir/data/lane-meta-archive"
+  printf 'prior\n' > "$case_dir/state/task-x1.control-relaunch.meta-prior"
+  relaunch_teardown "$case_dir" control-relaunch-prior-only
+  relaunch_live_removed "$case_dir" control-relaunch-prior-only
+  [ "$(cat "$dir/task-x1.control-relaunch.meta-prior")" = prior ] \
+    || fail "control-relaunch-prior-only: meta-prior not archived"
+  assert_absent "$dir/task-x1.control-relaunch" "control-relaunch-prior-only: invented a record"
+  pass "a meta-prior-only lane archives just the meta-prior"
+}
+
+test_teardown_control_relaunch_archive_absent_files() {
+  local case_dir
+  case_dir=$(relaunch_case control-relaunch-absent)
+  relaunch_teardown "$case_dir" control-relaunch-absent
   assert_absent "$case_dir/data/lane-meta-archive/task-x1.control-relaunch" \
     "control-relaunch-absent: archived a record that never existed"
-  if grep -q "could not .*archive" "$case_dir/stderr"; then
+  if grep -q "task-x1's control-relaunch" "$case_dir/stderr"; then
     fail "control-relaunch-absent: absent files produced a warning"
   fi
+  pass "absent control-relaunch files are not an error"
+}
 
-  rc=0
-  case_dir=$(make_case control-relaunch-symlink)
-  write_meta "$case_dir" no-mistakes ship
-  land_shippable_commit "$case_dir"
-  printf 'secret\n' > "$case_dir/target"
-  ln -s "$case_dir/target" "$case_dir/state/task-x1.control-relaunch"
-  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
-  expect_code 0 "$rc" "control-relaunch-symlink: teardown should succeed"
+test_teardown_control_relaunch_archive_skips_non_regular_sources() {
+  local case_dir dir suffix
+  # A symlink is never followed, for either suffix.
+  case_dir=$(relaunch_case control-relaunch-symlink)
   dir="$case_dir/data/lane-meta-archive"
-  assert_absent "$dir/task-x1.control-relaunch" "control-relaunch-symlink: a symlink was followed"
-  pass "control-relaunch archive ignores absent files and never follows a symlink"
+  printf 'secret\n' > "$case_dir/target"
+  for suffix in $RELAUNCH_SUFFIXES; do
+    ln -s "$case_dir/target" "$case_dir/state/task-x1.$suffix"
+  done
+  relaunch_teardown "$case_dir" control-relaunch-symlink
+  relaunch_live_removed "$case_dir" control-relaunch-symlink
+  for suffix in $RELAUNCH_SUFFIXES; do
+    assert_absent "$dir/task-x1.$suffix" "control-relaunch-symlink: a $suffix symlink was followed"
+  done
+  [ -f "$case_dir/target" ] || fail "control-relaunch-symlink: the symlink target was removed"
+
+  # A FIFO is neither archived nor left behind.
+  case_dir=$(relaunch_case control-relaunch-fifo)
+  dir="$case_dir/data/lane-meta-archive"
+  for suffix in $RELAUNCH_SUFFIXES; do
+    mkfifo "$case_dir/state/task-x1.$suffix"
+  done
+  relaunch_teardown "$case_dir" control-relaunch-fifo
+  relaunch_live_removed "$case_dir" control-relaunch-fifo
+  for suffix in $RELAUNCH_SUFFIXES; do
+    assert_absent "$dir/task-x1.$suffix" "control-relaunch-fifo: a $suffix FIFO was archived"
+  done
+  pass "symlink and FIFO control-relaunch sources are not archived but are still removed"
 }
 
 test_teardown_control_relaunch_archive_failure_does_not_block() {
-  local case_dir rc=0
-  case_dir=$(make_case control-relaunch-fail)
-  write_meta "$case_dir" no-mistakes ship
-  land_shippable_commit "$case_dir"
-  printf 'relaunch-record\n' > "$case_dir/state/task-x1.control-relaunch"
+  local case_dir dir suffix
+  # The archive directory cannot be created.
+  case_dir=$(relaunch_case control-relaunch-mkdir-fail)
+  for suffix in $RELAUNCH_SUFFIXES; do
+    printf 'live\n' > "$case_dir/state/task-x1.$suffix"
+  done
   : > "$case_dir/data/lane-meta-archive"
-  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+  relaunch_teardown "$case_dir" control-relaunch-mkdir-fail
+  relaunch_live_removed "$case_dir" control-relaunch-mkdir-fail
+  assert_grep "task-x1's control-relaunch record" "$case_dir/stderr" \
+    "control-relaunch-mkdir-fail: no relaunch-specific warning"
 
-  expect_code 0 "$rc" "control-relaunch-fail: a failed archive should not block teardown"
-  assert_absent "$case_dir/state/task-x1.meta" "control-relaunch-fail: teardown did not complete"
-  assert_grep "could not create" "$case_dir/stderr" "control-relaunch-fail: no warning"
+  # The archive directory exists but a copy into it fails.
+  if [ "$(id -u)" = 0 ]; then
+    pass "control-relaunch copy-failure case skipped as root"
+    return 0
+  fi
+  case_dir=$(relaunch_case control-relaunch-cp-fail)
+  dir="$case_dir/data/lane-meta-archive"
+  mkdir -p "$dir"
+  for suffix in $RELAUNCH_SUFFIXES; do
+    printf 'live\n' > "$case_dir/state/task-x1.$suffix"
+    printf 'stale\n' > "$dir/task-x1.$suffix"
+  done
+  # A writable stale file would be overwritten in place; read-only plus an
+  # unwritable directory leaves cp no way to replace it.
+  chmod 444 "$dir"/task-x1.*
+  chmod 555 "$dir"
+  relaunch_teardown "$case_dir" control-relaunch-cp-fail
+  chmod 755 "$dir"
+  relaunch_live_removed "$case_dir" control-relaunch-cp-fail
+  assert_grep "could not archive task-x1's control-relaunch" "$case_dir/stderr" \
+    "control-relaunch-cp-fail: no relaunch-specific copy warning"
   pass "a failed control-relaunch archive warns but never blocks teardown"
 }
 
@@ -4886,7 +4959,9 @@ test_teardown_records_unavailable_spend_for_a_gone_worktree
 test_teardown_archives_lane_meta_before_removal
 test_teardown_archive_copy_failure_does_not_block
 test_teardown_archives_control_relaunch_files
-test_teardown_control_relaunch_archive_absent_and_symlink
+test_teardown_archives_meta_prior_only
+test_teardown_control_relaunch_archive_absent_files
+test_teardown_control_relaunch_archive_skips_non_regular_sources
 test_teardown_control_relaunch_archive_failure_does_not_block
 test_parked_own_run_is_aborted_before_teardown
 test_parked_own_run_concludes_on_passed_with_override_after_abort
