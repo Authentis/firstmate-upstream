@@ -3432,10 +3432,15 @@ fm_backend_herdr_composer_payload_shown() {  # <text> <after>
 
 # fm_backend_herdr_decimal_or_default and fm_backend_herdr_count_or_default
 # read the proof and clear tunables below. A value that is not a plain
-# non-negative integer or decimal (count: a positive integer) is not
-# half-honoured, skipped or read as zero: it is the documented default.
-fm_backend_herdr_decimal_or_default() {  # <value> <default>
-  if [[ ${1-} =~ ^([0-9]+(\.[0-9]+)?|\.[0-9]+)$ ]]; then
+# non-negative integer or decimal (count: a positive integer), or a decimal
+# above <max> seconds, is not half-honoured, clamped, skipped or read as zero:
+# it is the documented default. The bound keeps a typo such as 1000000000 from
+# becoming a decades-long sleep inside a send.
+FM_BACKEND_HERDR_TUNABLE_MAX_SECS=5
+fm_backend_herdr_decimal_or_default() {  # <value> <default> [max-seconds]
+  local max=${3:-$FM_BACKEND_HERDR_TUNABLE_MAX_SECS}
+  if [[ ${1-} =~ ^([0-9]+(\.[0-9]+)?|\.[0-9]+)$ ]] \
+    && awk -v v="$1" -v m="$max" 'BEGIN { exit (v + 0 <= m + 0) ? 0 : 1 }'; then
     printf '%s' "$1"
   else
     printf '%s' "$2"
@@ -3459,7 +3464,8 @@ fm_backend_herdr_count_or_default() {  # <value> <default>
 # Claude Code 2.1.296 stranded-prefix shape). The window is bounded: a
 # composer that never shows the payload is refused as before, and so is one
 # whose gap sleep fails, because the wait it stands for did not happen.
-# An invalid tunable falls back to its default.
+# An invalid or out-of-range tunable (the gap is at most
+# FM_BACKEND_HERDR_TUNABLE_MAX_SECS seconds) is its default.
 fm_backend_herdr_composer_await_payload() {  # <target> <text>
   local target=$1 text=$2 polls gap i=0 content
   polls=$(fm_backend_herdr_count_or_default "${FM_BACKEND_HERDR_PROOF_POLLS-}" 6)
@@ -3483,8 +3489,9 @@ fm_backend_herdr_composer_await_payload() {  # <target> <text>
 # presses. The press count comes from fm_backend_herdr_proof_lines, which
 # sizes it from the payload length, not from the viewport read.
 # An empty read only counts once a second read, FM_BACKEND_HERDR_CLEAR_CONFIRM
-# seconds later (default 0.3; an explicit 0 skips it; an invalid value is the
-# default), also reads empty: typed input that Claude has not drawn yet leaves
+# seconds later (default 0.3, at most FM_BACKEND_HERDR_TUNABLE_MAX_SECS; an
+# explicit 0 skips it; an invalid or larger value is the default), also reads
+# empty: typed input that Claude has not drawn yet leaves
 # a momentarily empty frame, and a clear declared done on that frame left the
 # first wrapped row of the line behind once the queued text and the single
 # Ctrl+U were both processed. A failed confirming sleep is a failed clear.

@@ -5584,16 +5584,22 @@ test_claude_2_1_296_clear_is_not_declared_done_on_a_not_yet_drawn_frame() {
 }
 
 # The proof and clear tunables are read from the environment, so an invalid
-# value must be the documented default, never zero, a skipped read, or an
-# ignored failed sleep (`sleep nope` fails and used to let the confirming read
-# run immediately). Every sleep the adapter takes is logged by a stub.
+# or out-of-range value (a gap or confirm above 5 seconds, the documented
+# maximum) must be the documented default, never zero, a clamp, a skipped
+# read, or an ignored failed sleep (`sleep nope` fails and used to let the
+# confirming read run immediately). Every sleep the adapter takes is logged
+# by a stub.
 # shellcheck disable=SC2016
 test_herdr_proof_tunables_fall_back_to_defaults_when_invalid() {
   local dir doorbell out spec var bad want n=0 left sleeps stub
   stub='sleep() { printf "%s\n" "$1" >> "$FM_SLEEP_LOG"; }; '
   for spec in \
     'PROOF_GAP|nope|0.2' 'PROOF_GAP|-0.5|0.2' 'PROOF_GAP||0.2' 'PROOF_GAP|1e2|0.2' 'PROOF_GAP|0.05|0.05' \
+    'PROOF_GAP|4.99|4.99' 'PROOF_GAP|5|5' 'PROOF_GAP|5.01|0.2' 'PROOF_GAP|1000000000|0.2' \
+    'PROOF_GAP|100000000000000000000|0.2' \
     'CLEAR_CONFIRM|nope|0.3' 'CLEAR_CONFIRM|-1|0.3' 'CLEAR_CONFIRM||0.3' 'CLEAR_CONFIRM|1e2|0.3' 'CLEAR_CONFIRM|0.05|0.05' \
+    'CLEAR_CONFIRM|4.99|4.99' 'CLEAR_CONFIRM|5|5' 'CLEAR_CONFIRM|5.01|0.3' 'CLEAR_CONFIRM|1000000000|0.3' \
+    'CLEAR_CONFIRM|100000000000000000000|0.3' \
     'PROOF_POLLS|nope|ok' 'PROOF_POLLS|-1|ok' 'PROOF_POLLS||ok' 'PROOF_POLLS|0|ok' 'PROOF_POLLS|2.5|ok' \
     'PROOF_POLLS|3|ok' 'PROOF_POLLS|2|bound'; do
     IFS='|' read -r var bad want <<EOF
@@ -5650,6 +5656,49 @@ EOF
     "$stub"'fm_backend_herdr_send_text_submit default:w1:p2 "$1" 2 0.011 0.012' "$doorbell" >/dev/null
   ! grep -qxF 0.3 "$dir/sleeps" || fail "an explicit CLEAR_CONFIRM=0 must not take the confirming sleep"
   pass "fm_backend_herdr_send_text_submit: nonnumeric, negative, empty and exponent tunables fall back to their defaults, decimals are honoured, and no value is passed to sleep unvalidated"
+}
+
+# A sleep that fails means the wait it stands for did not happen, so the
+# proof must stop before its next read and the clear must fail before its
+# confirming read; ignoring the failure would read a frame too early. The stub
+# fails only the tunable's own unique value, so the settle and Enter sleeps
+# around it still succeed.
+# shellcheck disable=SC2016
+test_herdr_failed_sleep_stops_the_proof_and_the_clear() {
+  local dir doorbell out stub reads presses
+  stub='sleep() { printf "%s\n" "$1" >> "$FM_SLEEP_LOG"; [ "$1" != 0.0777 ] || return 1; }; '
+  # Proof: the lazily drawn composer would show on the third read; with the
+  # gap sleep failing the proof must give up after its first read.
+  dir="$TMP_ROOT/c2296-failsleep-proof"; mkdir -p "$dir"
+  make_herdr_composer_fake "$dir" >/dev/null
+  : > "$dir/log"; : > "$dir/sleeps"
+  doorbell=$(composer_fake_doorbell "$dir")
+  echo 3 > "$dir/pane/late"
+  out=$(FM_SLEEP_LOG="$dir/sleeps" FM_BACKEND_HERDR_PROOF_POLLS=6 FM_BACKEND_HERDR_PROOF_GAP=0.0777 \
+    FM_BACKEND_HERDR_CLEAR_CONFIRM=0 composer_fake_run "$dir" \
+    "$stub"'fm_backend_herdr_send_text_submit default:w1:p2 "$1" 2 0.011 0.012' "$doorbell")
+  [ "$out" = send-failed ] || fail "a failed proof sleep should refuse the proof (send-failed), got '$out'"
+  [ ! -s "$dir/pane/submitted" ] || fail "a proof whose wait failed must not submit"
+  # One read before the send and one proof read; no read after the failed sleep.
+  reads=$(awk -F "$(printf '\037')" '$2 == "pane" && $3 == "read" { n++ } /ctrl\+u/ { exit } END { print n + 0 }' "$dir/log")
+  [ "$reads" -eq 2 ] || fail "the proof should stop after its first read when the gap sleep fails, read $reads times before the clear"
+  # Clear: the confirming sleep fails, so the clear fails before its second
+  # read and the verdict is unknown, with exactly one Ctrl+U sent.
+  dir="$TMP_ROOT/c2296-failsleep-clear"; mkdir -p "$dir"
+  make_herdr_composer_fake "$dir" >/dev/null
+  : > "$dir/log"; : > "$dir/sleeps"
+  doorbell=$(composer_fake_doorbell "$dir")
+  echo 4 > "$dir/pane/late"
+  out=$(FM_SLEEP_LOG="$dir/sleeps" FM_BACKEND_HERDR_PROOF_POLLS=2 FM_BACKEND_HERDR_CLEAR_CONFIRM=0.0777 \
+    composer_fake_run "$dir" \
+    "$stub"'fm_backend_herdr_send_text_submit default:w1:p2 "$1" 2 0.011 0.012' "$doorbell")
+  [ "$out" = unknown ] || fail "a failed confirming sleep should fail the clear (unknown), got '$out'"
+  presses=$(grep -c $'\x1f''ctrl+u' "$dir/log")
+  [ "$presses" -eq 1 ] || fail "a failed confirming sleep must stop the clear after one Ctrl+U, sent $presses"
+  # Pre-send read, two proof reads, the one clear state read: no confirming read.
+  reads=$(awk -F "$(printf '\037')" '$2 == "pane" && $3 == "read" { n++ } END { print n + 0 }' "$dir/log")
+  [ "$reads" -eq 4 ] || fail "the clear must fail before its confirming read, the pane was read $reads times"
+  pass "fm_backend_herdr_send_text_submit: a failed gap sleep stops the proof before its next read and a failed confirming sleep fails the clear before its second read"
 }
 
 # shellcheck disable=SC2016
@@ -6531,6 +6580,7 @@ test_claude_2_1_296_idle_frames_stay_empty_and_typing_allowed
 test_claude_2_1_296_typed_text_proof_waits_for_a_lazily_drawn_composer
 test_claude_2_1_296_clear_is_not_declared_done_on_a_not_yet_drawn_frame
 test_herdr_proof_tunables_fall_back_to_defaults_when_invalid
+test_herdr_failed_sleep_stops_the_proof_and_the_clear
 test_ring_submits_a_stranded_doorbell_prefix_on_herdr
 test_ring_leaves_a_foreign_draft_untouched_on_herdr
 test_ring_bounds_the_enter_retry_on_herdr

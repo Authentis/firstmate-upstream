@@ -551,7 +551,7 @@ When native `agent get` identity is Claude, the adapter types only into an empty
 A Claude composer that already holds text, or cannot be read, before the send is refused with nothing typed.
 Before that Enter, the adapter continues only when the selected composer shows the typed payload, or only Claude paste placeholders with no literal remainder.
 That read is repeated a bounded number of times before the payload is judged unsent.
-`FM_BACKEND_HERDR_PROOF_POLLS` and `FM_BACKEND_HERDR_PROOF_GAP` bound it, an invalid value falls back to its default, and a composer that never shows the payload, or a gap sleep that fails, is refused as below.
+`FM_BACKEND_HERDR_PROOF_POLLS` and `FM_BACKEND_HERDR_PROOF_GAP` bound it, an invalid or out-of-range value (a gap above 5 seconds) falls back to its default, and a composer that never shows the payload, or a gap sleep that fails, is refused as below.
 The working explanation is that a busy Claude draws typed input lazily, so one read can show an empty composer for text still arriving; it comes from code reading plus a fake model and has not been reproduced on a live pane.
 Every herdr adapter composer read (`fm_backend_herdr_composer_state`, `fm_backend_herdr_composer_content`) captures the full visible viewport, never a bounded tail, while the shared inbox pending-line confirmation read (bin/fm-task-inbox-lib.sh) stays a bounded tail on every backend: an overlay Claude renders between the composer and the pane bottom - the slash-command popup is the verified shape - pushes the composer outside a tail window, and the composer is by definition inside the viewport.
 Dated measurement: docs/verification/runtime-backends.md "Claude exit behind the slash-command popup".
@@ -563,7 +563,7 @@ A composer that holds a shorter suffix, or a placeholder plus a literal remainde
 Instead:
 
 1. The adapter presses Ctrl+U until the shared classifier reads the composer as empty twice, `FM_BACKEND_HERDR_CLEAR_CONFIRM` seconds apart.
-   An invalid `FM_BACKEND_HERDR_CLEAR_CONFIRM` is the default and never skips the second read, and a failed confirming sleep fails the clear.
+   An invalid or out-of-range (above 5 seconds) `FM_BACKEND_HERDR_CLEAR_CONFIRM` is the default and never skips the second read, and a failed confirming sleep fails the clear.
    The working explanation is that a single empty read can be a frame drawn before Claude processed the queued text, leaving the first wrapped row behind; that is from code reading plus a fake model, not reproduced on a live pane.
 2. It then reports `send-failed`, so a resend starts from a clean composer.
 
