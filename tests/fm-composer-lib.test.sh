@@ -844,6 +844,13 @@ test_matrix_opencode_wrapped_label() {
   mreason=$(fm_composer_send_refusal "$r5m" empty opencode)
   [ -n "$mreason" ] \
     || fail "a separated picker above the box must be refused by the send guard, got no reason"
+  # KNOWN RESIDUAL of the label proof: a barless continuation row, a barred
+  # draft with a barless continuation, or a glyph-only row followed by a blank
+  # row and a later padding row + label + Build + floor still classify empty
+  # for opencode idle/done. These are malformed/interrupted lost-bar screens,
+  # never observed in ordinary typing. Consequence: a doorbell line typed
+  # after an unsent draft; the durable inbox message is unaffected. A
+  # follow-up replaces the per-row proofs with an exact-template match.
   # A picker drawn directly over the box leaves the run unbounded: the
   # classifier refuses, and the opencode/muse all-screen menu check in
   # fm_composer_send_refusal independently refuses the send.

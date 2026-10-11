@@ -1576,6 +1576,11 @@ _fm_composer_classify_leftbar() {  # <screen> <styled> <first-row> <last-row> [h
     case "$first_plain" in '┃'*) first_plain=${first_plain#┃} ;; esac
     fm_composer_normalize_trim_var first_plain
     if [ -n "$first_plain" ]; then printf 'unknown'; return 0; fi
+    # KNOWN RESIDUAL: a lost-bar draft continuation (barless, or barred with a
+    # barless continuation, or glyph-only) before a blank row and a later
+    # padding + label + Build + floor still reads empty for idle/done; such
+    # malformed screens are not seen in ordinary typing. A follow-up replaces
+    # these per-row proofs with an exact-template match.
     # Whole-block proof: the scanner resets the run at a blank row, so a later
     # padding row can sit under an earlier draft of the same unclosed box. The
     # captured composer is set off from the transcript by a blank row, and the
