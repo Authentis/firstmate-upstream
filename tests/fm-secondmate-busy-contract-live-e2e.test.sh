@@ -101,6 +101,26 @@ spawn_mate() {  # <case> <id> <harness> <sleeper-dir> <shim-dir>
   mkdir -p "$case_dir" "$user_home"
   fm_test_spawn_home "$primary" "$harness"
   seed_home "$sm" "$id"
+  local model_args=() hook_pid=
+  case "$harness" in
+    pi|pi-signed)
+      # A Pi secondmate needs an explicit model and passes fm-pi-first-call.sh's
+      # readiness gate; the sleeper binary never answers, so play the first
+      # assistant response against the hook this spawn writes.
+      model_args=(--model fm-test/model)
+      (
+        for _ in $(seq 1 600); do
+          if [ -f "$primary/state/$id.pi-first-call.ts" ]; then
+            sleep 0.5
+            node "$ROOT/tests/assets/pi-first-call-fake.mjs" "$primary/state/$id.pi-first-call.ts"
+            exit 0
+          fi
+          sleep 0.1
+        done
+      ) &
+      hook_pid=$!
+      ;;
+  esac
   FM_BACKEND=tmux FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$primary" \
     HOME="$user_home" CLAUDE_CONFIG_DIR='' \
     FM_STATE_OVERRIDE="$primary/state" FM_DATA_OVERRIDE="$primary/data" \
@@ -108,7 +128,10 @@ spawn_mate() {  # <case> <id> <harness> <sleeper-dir> <shim-dir>
     FM_SPAWN_NO_GUARD=1 \
     env -u TMUX -u TMUX_PANE \
     PATH="$sleeper:$shim:$PATH" \
-    "$ROOT/bin/fm-spawn.sh" "$id" "$sm" "$harness" --secondmate
+    "$ROOT/bin/fm-spawn.sh" "$id" "$sm" "$harness" "${model_args[@]}" --secondmate
+  local rc=$?
+  [ -z "$hook_pid" ] || wait "$hook_pid" 2>/dev/null
+  return "$rc"
 }
 
 # Start the real binary with no positional brief and no keystrokes.
