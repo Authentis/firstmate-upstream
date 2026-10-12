@@ -108,9 +108,10 @@
 # bounded further by a blank row, and an envelope that closed over no glyph row
 # (codex's `permissions: YOLO mode` startup banner) proves nothing and demotes
 # nothing. The one furniture that is not a single row is claude's slash-command
-# menu (_fm_composer_slash_menu_row), recognized only as a coherent block under
-# a claude-proven envelope: `/name` + description entries on one column, the
-# composer's own row holding slash text, and a lone entry prefix-matching it.
+# menu (_fm_composer_slash_menu_row), recognized only for a pane the caller
+# identified as claude, under a rule-bounded `❯`-proven envelope, and only as a
+# coherent block: `/name` + description entries on one column, the composer's
+# own row holding slash text, and a lone entry prefix-matching it.
 #
 # COVERAGE: this is exercised for the bordered box and the pi separator pair,
 # the two shapes claude 2.x renders. The opencode left bar is wired in for the
@@ -466,9 +467,17 @@ fm_busy_lines_match() {  # [harness]
 # consumed by `read` rather than word splitting, so `$`, `%`, and `#` stay
 # literal and no entry is ever exposed to pathname expansion.
 FM_COMPOSER_AGENT_PROMPT_GLYPHS=$(printf '%s\n' '❯' '›' '⟩' '→' '❭')
-# The one glyph whose pane draws a slash-command menu under its composer
-# (claude); the menu recognizer below fires only on an envelope this proved.
+# The one harness whose pane draws a slash-command menu under its composer, and
+# the glyph that harness's envelope is proven by. The menu recognizer below
+# fires only for that harness's identity AND an envelope that glyph proved.
+FM_COMPOSER_SLASH_MENU_AGENT=claude
 FM_COMPOSER_SLASH_MENU_GLYPH='❯'
+# The harness the current read was told it is looking at (see
+# _fm_composer_menu_agent_set); `none` means no identity can be had.
+FM_COMPOSER_MENU_AGENT=none
+# Set when a menu-shaped block stood under a rule-bounded composer and the only
+# thing missing was the identity, so the classifier can ask for it.
+FM_COMPOSER_MENU_NEEDS_IDENTITY=0
 FM_COMPOSER_SHELL_PROMPT_GLYPHS=$(printf '%s\n' '>' '$' '%' '#')
 
 # The ONE fleet-wide idle-placeholder set: composer text a harness renders in
@@ -1707,6 +1716,44 @@ _fm_composer_row_is_composer_furniture() {  # <trimmed-row> <proof-glyph>
   [ -n "$proof" ] && [ "$glyph" != "$proof" ]
 }
 
+# _fm_composer_menu_agent_set: record which harness this read is of, from the
+# caller's identity (`<agent>\t<status>`, a bare agent name, `probe-absent`, or
+# empty) and whether the backend can supply one (<can-ask> 1). An empty identity
+# on a backend that can supply one stays unknown (`''`), so a menu-shaped block
+# may ask for it; every other missing identity is `none`, which never matches.
+_fm_composer_menu_agent_set() {  # <identity> <can-ask>
+  local identity=$1 can_ask=$2 agent
+  FM_COMPOSER_MENU_NEEDS_IDENTITY=0
+  case "$identity" in
+    '')
+      if [ "$can_ask" = 1 ]; then FM_COMPOSER_MENU_AGENT=''; else FM_COMPOSER_MENU_AGENT=none; fi
+      ;;
+    probe-absent) FM_COMPOSER_MENU_AGENT=none ;;
+    *)
+      agent=${identity%%$'\t'*}
+      if [ -n "$agent" ]; then FM_COMPOSER_MENU_AGENT=$agent; else FM_COMPOSER_MENU_AGENT=none; fi
+      ;;
+  esac
+}
+
+# _fm_composer_slash_menu_allowed: 0 when a menu-shaped block may be read at
+# all - the composer is RULE-BOUNDED (its closing row is a solid `─` rule, not
+# a box corner or a left-bar floor) and the pane is the harness that draws the
+# menu. A menu-shaped block under any other harness's composer is that
+# harness's own text, so it is never furniture there. An unasked identity sets
+# FM_COMPOSER_MENU_NEEDS_IDENTITY and refuses for now.
+_fm_composer_slash_menu_allowed() {  # <plain>
+  local closing
+  closing=$(_fm_composer_screen_row "$FM_COMPOSER_FOOTER_AFTER" "$1")
+  fm_composer_normalize_trim_var closing
+  _fm_composer_pi_separator_row "$closing" || return 1
+  case "$FM_COMPOSER_MENU_AGENT" in
+    "$FM_COMPOSER_SLASH_MENU_AGENT") return 0 ;;
+    '') FM_COMPOSER_MENU_NEEDS_IDENTITY=1 ;;
+  esac
+  return 1
+}
+
 # _fm_composer_slash_menu_row: 0 when raw <row> is positively one row of a
 # claude slash-command menu drawn under a composer envelope that <proof-glyph>
 # proved, else 1. Claude Code 2.1.296 lists matching commands below the closing
@@ -1820,7 +1867,7 @@ _fm_composer_slash_menu_block_coherent() {  # <plain> <entries> <first-name>
 # when no envelope is glyph-proven, when a blank row sits directly beneath it,
 # or when the run holds no bare candidate at all (nothing to demote).
 _fm_composer_locate_footer_zone() {  # <plain>
-  local plain=$1 close next raw trimmed proof='' menu_col=-1 menu_grid=-1 menu_entries=0 menu_ended=0 menu_selected=0 menu_name=''
+  local plain=$1 close next raw trimmed proof='' menu_col=-1 menu_grid=-1 menu_entries=0 menu_ended=0 menu_selected=0 menu_name='' menu_allowed=''
   FM_COMPOSER_FOOTER_AFTER=-1
   FM_COMPOSER_FOOTER_GLYPH=-1
   FM_COMPOSER_FOOTER_LAST=-1
@@ -1865,6 +1912,10 @@ _fm_composer_locate_footer_zone() {  # <plain>
       menu_col=-1
       [ "$menu_entries" -eq 0 ] || menu_ended=1
     elif _fm_composer_slash_menu_row "$raw" "$proof" "$menu_col"; then
+      [ -n "$menu_allowed" ] || {
+        if _fm_composer_slash_menu_allowed "$plain"; then menu_allowed=1; else menu_allowed=0; fi
+      }
+      [ "$menu_allowed" = 1 ] || return 1
       # A menu is one contiguous block: a furniture row inside it ends it, and
       # menu-shaped rows after that are a second block that proves nothing.
       [ "$menu_ended" = 0 ] || return 1
@@ -2037,8 +2088,8 @@ _fm_composer_select_cursorless() {
   [ -n "$FM_COMPOSER_SELECTED_KIND" ]
 }
 
-fm_composer_extract_selected_content() {  # <caps> <screen>
-  local caps=$1 screen=$2 styled=0 kv plain row raw content glyph joined='' footer_re prompt_row=-1
+fm_composer_extract_selected_content() {  # <caps> <screen> [identity]
+  local caps=$1 screen=$2 identity=${3:-} styled=0 kv plain row raw content glyph joined='' footer_re prompt_row=-1
   local leading_blank=1 placeholder_position=0 prompt_is_shell=0
   footer_re=${FM_COMPOSER_LEFTBAR_FOOTER_RE:-$FM_COMPOSER_LEFTBAR_FOOTER_RE_DEFAULT}
   while IFS= read -r kv; do
@@ -2047,6 +2098,8 @@ fm_composer_extract_selected_content() {  # <caps> <screen>
 $caps
 EOF
   plain=$(printf '%s\n' "$screen" | fm_composer_strip_ansi)
+  # The harness is the caller's to name; unnamed, a slash menu is not furniture.
+  _fm_composer_menu_agent_set "$identity" 0
   _fm_composer_scan_screen "$plain" '' 1
   _fm_composer_select_cursorless "$plain" || return 1
   row=$FM_COMPOSER_SELECTED_FIRST
@@ -2299,6 +2352,7 @@ EOF
   if [ -n "$cy" ]; then
     case "$cy" in *[!0-9]*) printf 'unknown'; return 0 ;; esac
   fi
+  _fm_composer_menu_agent_set "$identity" "$has_identity"
   plain=$(printf '%s\n' "$screen" | fm_composer_strip_ansi)
   _fm_composer_scan_screen "$plain" "$cy"
   if [ -n "$cy" ]; then
@@ -2359,7 +2413,17 @@ EOF
   # rules layered on (a live pi composer pair below the generic candidate
   # proves that candidate stale).
   if ! _fm_composer_select_cursorless "$plain"; then
+    # A menu-shaped block under a rule-bounded composer is read only for the
+    # harness that draws it, so ask the adapter's identity probe once.
+    if [ "$FM_COMPOSER_MENU_NEEDS_IDENTITY" = 1 ]; then
+      printf 'need-identity'
+      return 0
+    fi
     printf 'unknown'
+    return 0
+  fi
+  if [ "$FM_COMPOSER_MENU_NEEDS_IDENTITY" = 1 ]; then
+    printf 'need-identity'
     return 0
   fi
   case "$FM_COMPOSER_SELECTED_KIND" in

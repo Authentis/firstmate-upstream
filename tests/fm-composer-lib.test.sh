@@ -205,17 +205,17 @@ test_matrix_claude_slash_menu_is_not_the_composer() {
   claude_idle=$(printf 'claude\tidle')
   styled=$(cat "$fx/claude296-slash-menu.ansi")
   plain=$(cat "$fx/claude296-slash-menu.plain")
-  out=$(FM_COMPOSER_GHOST_LUMA_MAX=0 fm_composer_extract_selected_content "$CAPS_STYLED" "$styled")
+  out=$(FM_COMPOSER_GHOST_LUMA_MAX=0 fm_composer_extract_selected_content "$CAPS_STYLED" "$styled" claude)
   [ "$out" = '/exit' ] || fail "styled slash-menu capture should extract only the typed /exit, got '$out'"
-  out=$(LC_ALL=C fm_composer_extract_selected_content "$CAPS_PLAIN" "$plain")
+  out=$(LC_ALL=C fm_composer_extract_selected_content "$CAPS_PLAIN" "$plain" claude)
   [ "$out" = '/exit' ] || fail "plain slash-menu capture should extract only the typed /exit under LC_ALL=C, got '$out'"
   assert_screen "claude 2.1.296 typed /exit with slash menu" pending "$CAPS_STYLED" "$styled" '' "$claude_idle"
   # The selection may sit on any entry, not only the first.
   for i in 0 1 2 3; do
     screen=$(slash_menu_screen "❯ /context" "$i")
-    out=$(fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen")
+    out=$(fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen" claude)
     [ "$out" = '/context' ] || fail "selection on entry $i should leave the typed /context, got '$out'"
-    out=$(LC_ALL=C fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen")
+    out=$(LC_ALL=C fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen" claude)
     [ "$out" = '/context' ] || fail "selection on entry $i under LC_ALL=C should leave the typed /context, got '$out'"
     assert_screen "typed /context, menu selection on entry $i" pending "$CAPS_STYLED" "$screen" '' "$claude_idle"
   done
@@ -223,21 +223,21 @@ test_matrix_claude_slash_menu_is_not_the_composer() {
   # not a menu, so its rows stay content and the composer can never read empty.
   for i in 0 2; do
     screen=$(slash_menu_screen "❯$NBSP" "$i")
-    out=$(fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen")
+    out=$(fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen" claude)
     [ -n "$out" ] || fail "menu-shaped rows under an empty composer (selection $i) must not read empty"
     out=$(fm_composer_classify_screen "$CAPS_STYLED" "$screen" '' "$claude_idle")
     [ "$out" != empty ] || fail "menu-shaped rows under an empty composer (selection $i) must never read empty"
   done
   # A multi-line draft keeps its indented continuation rows with the menu below.
   screen=$'transcript\n────────────────────────\n❯ /context\n  and a second line\n────────────────────────\n  ❯ /context        Visualize current context usage\n    /context-save   Save working context.'
-  out=$(fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen")
+  out=$(fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen" claude)
   [ "$out" = '/context and a second line' ] || fail "a multi-line draft over a slash menu should keep both draft rows, got '$out'"
   # A one-entry menu stands when its name prefix-matches the typed text, and a
   # wrapped description at its column is kept out of the composer.
   screen=$'transcript\n────────────────────────\n❯ /ex\n────────────────────────\n  ❯ /exit        Exit the CLI and\n                 end the session'
-  out=$(fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen")
+  out=$(fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen" claude)
   [ "$out" = '/ex' ] || fail "a one-entry menu matching the typed /ex should leave only /ex, got '$out'"
-  out=$(LC_ALL=C fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen")
+  out=$(LC_ALL=C fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen" claude)
   [ "$out" = '/ex' ] || fail "a one-entry menu matching the typed /ex under LC_ALL=C should leave only /ex, got '$out'"
   assert_screen "typed /ex over a one-entry menu" pending "$CAPS_STYLED" "$screen" '' "$claude_idle"
   pass "matrix: claude 2.1.296's slash menu is furniture whichever entry is selected, never the composer"
@@ -247,14 +247,16 @@ test_matrix_indented_live_draft_under_the_pair_is_not_menu_furniture() {
   # A row below the closing rule that merely LOOKS like the menu's selection (an
   # indented glyph row) is a live draft unless the whole block is positively a
   # claude slash menu: `/name` entries with a description column, under a
-  # claude-proven envelope. A draft read as furniture reads the composer EMPTY,
-  # which authorizes the next send to type over it.
+  # claude-proven envelope, on a pane identified as claude. A draft read as
+  # furniture reads the composer EMPTY, which authorizes the next send to type
+  # over it. This test runs every shape as a claude pane; the next one runs them
+  # as every other harness.
   local rule out screen glyph claude_idle
   claude_idle=$(printf 'claude\tidle')
   rule='────────────────────────────────────────────────────────────'
   for glyph in '›' '❯'; do
     screen=$'transcript\n'"$rule"$'\n'"$glyph$NBSP"$'\n'"$rule"$'\n  '"$glyph"' actual payload'
-    out=$(fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen")
+    out=$(fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen" claude)
     [ "$out" = 'actual payload' ] || fail "an indented '$glyph' draft under the pair must stay the extracted content, got '$out'"
     out=$(fm_composer_classify_screen "$CAPS_STYLED" "$screen" '' "$claude_idle")
     [ "$out" != empty ] || fail "an indented '$glyph' draft under the pair must never read empty"
@@ -262,7 +264,7 @@ test_matrix_indented_live_draft_under_the_pair_is_not_menu_furniture() {
     [ "$out" != empty ] || fail "an indented '$glyph' draft under the pair must never read empty under LC_ALL=C"
     # Its own indented continuation rows are part of that draft, not menu rows.
     screen+=$'\n    and the rest of it'
-    out=$(fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen")
+    out=$(fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen" claude)
     [ "$out" = 'actual payload and the rest of it' ] || fail "continuation rows of an indented '$glyph' draft must be kept, got '$out'"
     out=$(fm_composer_classify_screen "$CAPS_STYLED" "$screen" '' "$claude_idle")
     [ "$out" != empty ] || fail "an indented '$glyph' multi-row draft under the pair must never read empty"
@@ -271,9 +273,9 @@ test_matrix_indented_live_draft_under_the_pair_is_not_menu_furniture() {
   # is a live draft, and its wrapped continuation row is part of it.
   for glyph in '  ❯' '❯'; do
     screen=$'transcript\n'"$rule"$'\n❯'"$NBSP"$'\n'"$rule"$'\n'"$glyph /exit  actual payload"$'\n             continuation payload'
-    out=$(fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen")
+    out=$(fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen" claude)
     case "$out" in *'actual payload'*'continuation payload'*) ;; *) fail "a lone '$glyph /exit  actual payload' draft must keep its text and continuation, got '$out'" ;; esac
-    out=$(LC_ALL=C fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen")
+    out=$(LC_ALL=C fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen" claude)
     case "$out" in *'actual payload'*'continuation payload'*) ;; *) fail "a lone '$glyph /exit  actual payload' draft must keep its continuation under LC_ALL=C, got '$out'" ;; esac
     out=$(fm_composer_classify_screen "$CAPS_STYLED" "$screen" '' "$claude_idle")
     [ "$out" != empty ] || fail "a lone '$glyph /exit  actual payload' draft must never read empty"
@@ -284,24 +286,24 @@ test_matrix_indented_live_draft_under_the_pair_is_not_menu_furniture() {
   screen=$'transcript\n'"$rule"$'\n❯ /context\n'"$rule"$'\n  ❯ /exit  actual payload\n             continuation payload'
   out=$(fm_composer_classify_screen "$CAPS_STYLED" "$screen" '' "$claude_idle")
   [ "$out" != empty ] || fail "a lone entry that is not a prefix match of the typed text must never read empty"
-  out=$(fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen")
+  out=$(fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen" claude)
   case "$out" in *'continuation payload'*) ;; *) fail "a lone non-matching entry must not swallow its continuation, got '$out'" ;; esac
   # Entries on two different description columns are two drafts, not one menu.
   screen=$'transcript\n'"$rule"$'\n❯ /ex\n'"$rule"$'\n  ❯ /exit      Exit the CLI\n    /extra         Something else'
-  out=$(fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen")
+  out=$(fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen" claude)
   case "$out" in *'/extra'*) ;; *) fail "misaligned entries must not be read as one menu, got '$out'" ;; esac
   # Entries split by furniture are two blocks, not one menu: neither stands, so
   # both payload rows stay content.
   screen=$'transcript\n'"$rule"$'\n❯ /context\n'"$rule"$'\n  ❯ /exit  actual payload\n  ⏵⏵ bypass permissions on (shift+tab to cycle)\n    /help  more payload'
-  out=$(fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen")
+  out=$(fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen" claude)
   case "$out" in *'actual payload'*'more payload'*) ;; *) fail "entries split by the mode hint must not be read as one menu, got '$out'" ;; esac
-  out=$(LC_ALL=C fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen")
+  out=$(LC_ALL=C fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen" claude)
   case "$out" in *'actual payload'*'more payload'*) ;; *) fail "entries split by the mode hint must keep both payloads under LC_ALL=C, got '$out'" ;; esac
   out=$(fm_composer_classify_screen "$CAPS_STYLED" "$screen" '' "$claude_idle")
   [ "$out" != empty ] || fail "entries split by the mode hint must never read empty"
   # A continuation not at the entries' description column is not a wrap.
   screen=$'transcript\n'"$rule"$'\n❯ /ex\n'"$rule"$'\n  ❯ /exit      Exit the CLI\n                          stray words'
-  out=$(fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen")
+  out=$(fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen" claude)
   case "$out" in *'stray words'*) ;; *) fail "an off-column row must not be swallowed as a wrap, got '$out'" ;; esac
   # Menu-shaped rows under a pair another harness proved are not claude's menu.
   screen=$'transcript\n'"$rule"$'\n›'"$NBSP"$'\n'"$rule"$'\n  › /exit        Exit the CLI'
@@ -317,7 +319,7 @@ test_matrix_indented_live_draft_under_the_pair_is_not_menu_furniture() {
   [ "$out" != empty ] || fail "a selected '/exit' row with no description column must never read empty"
   # A deeper row with no entry directly above it is unclaimed activity.
   screen=$'transcript\n'"$rule"$'\n❯'"$NBSP"$'\n'"$rule"$'\n                        ❯ stray draft'
-  out=$(fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen")
+  out=$(fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen" claude)
   [ "$out" = 'stray draft' ] || fail "a far-indented glyph row under the pair must stay the extracted content, got '$out'"
   pass "matrix: an indented live draft under the pair is never read as slash-menu furniture"
 }
@@ -328,15 +330,81 @@ test_matrix_indented_continuation_rows_of_a_draft_are_kept() {
   local rule out screen
   rule='────────────────────────────────────────────────────────────'
   screen=$'transcript\n'"$rule"$'\n❯ first line\n  second line\n  third line\n'"$rule"
-  out=$(fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen")
+  out=$(fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen" claude)
   [ "$out" = 'first line second line third line' ] || fail "claude multi-line draft should keep its indented rows, got '$out'"
   screen=$'transcript\n'"$rule"$'\n❯ first line\n  second line\n  third line\n'"$rule"$'\n  ⏵⏵ bypass permissions on (shift+tab to cycle)'
-  out=$(fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen")
+  out=$(fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen" claude)
   [ "$out" = 'first line second line third line' ] || fail "claude multi-line draft over the mode hint should keep its rows, got '$out'"
   screen=$'transcript\n›'"$NBSP"$'first line\n  second line\n  third line'
-  out=$(fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen")
+  out=$(fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen" claude)
   [ "$out" = 'first line second line third line' ] || fail "codex bare multi-line draft should keep its indented rows, got '$out'"
   pass "matrix: indented continuation rows of a real multi-line draft are kept"
+}
+
+# menu_lookalike_screens: the menu-shaped screens every non-claude pane must
+# keep reading as live content, one per line of output (rows joined with `\n`
+# escapes so one screen is one line; expanded by the caller with printf %b).
+menu_lookalike_screens() {
+  local rule='────────────────────────────────────────────────────────────' g
+  for g in '›' '❯'; do
+    printf '%s\n' "transcript\\n$rule\\n$g$NBSP\\n$rule\\n  $g actual payload"
+    printf '%s\n' "transcript\\n$rule\\n$g$NBSP\\n$rule\\n  $g actual payload\\n    and the rest of it"
+  done
+  for g in '  ❯' '❯' '  ›'; do
+    printf '%s\n' "transcript\\n$rule\\n❯$NBSP\\n$rule\\n$g /exit  actual payload\\n             continuation payload"
+  done
+  printf '%s\n' "transcript\\n$rule\\n❯ /context\\n$rule\\n  ❯ /exit  actual payload\\n             continuation payload"
+  printf '%s\n' "transcript\\n$rule\\n❯ /context\\n$rule\\n  ❯ /exit  actual payload\\n  ⏵⏵ bypass permissions on (shift+tab to cycle)\\n    /help  more payload"
+  printf '%s\n' "transcript\\n$rule\\n❯ /unrelated\\n$rule\\n  ❯ /exit    actual payload\\n             continuation payload\\n    /help    more payload"
+  printf '%s\n' "transcript\\n$rule\\n›$NBSP\\n$rule\\n  › /exit        Exit the CLI\\n    /context       Visualize"
+}
+
+test_matrix_slash_menu_exemption_is_claude_only() {
+  # The slash-menu exemption reads rows as furniture, which can only ever move a
+  # verdict toward `empty`, so it is scoped to the one harness that draws that
+  # menu: the pane must be IDENTIFIED as claude (the caller passes it, as the
+  # classifier's identity probe already does for pi). Any other harness - codex
+  # `›`, pi, or one nobody identified - keeps every menu-looking row as content.
+  local fx=$ROOT/tests/fixtures/send-guard agent line screen out n=0 plain styled
+  plain=$(cat "$fx/claude296-slash-menu.plain")
+  styled=$(cat "$fx/claude296-slash-menu.ansi")
+  while IFS= read -r line; do
+    screen=$(printf '%b' "$line")
+    for agent in codex pi probe-absent ''; do
+      out=$(fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen" "$agent")
+      [ -n "$out" ] || fail "menu lookalike #$n must not extract empty for agent '$agent'"
+      out=$(LC_ALL=C fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen" "$agent")
+      [ -n "$out" ] || fail "menu lookalike #$n must not extract empty for agent '$agent' under LC_ALL=C"
+      if [ -n "$agent" ] && [ "$agent" != probe-absent ]; then
+        out=$(fm_composer_classify_screen "$CAPS_STYLED" "$screen" '' "$(printf '%s\tidle' "$agent")")
+        [ "$out" != empty ] || fail "menu lookalike #$n must never read empty for agent '$agent'"
+        out=$(LC_ALL=C fm_composer_classify_screen "$CAPS_STYLED" "$screen" '' "$(printf '%s\tidle' "$agent")")
+        [ "$out" != empty ] || fail "menu lookalike #$n must never read empty for agent '$agent' under LC_ALL=C"
+      fi
+      out=$(fm_composer_classify_screen "$CAPS_PLAIN" "$screen")
+      [ "$out" != empty ] || fail "menu lookalike #$n must never read empty without an identity capability"
+    done
+    n=$((n + 1))
+  done < <(menu_lookalike_screens)
+  # The real capture, run as a non-claude pane or an unidentified one, is NOT
+  # exempted: the menu text stays in the extracted content.
+  for agent in codex pi probe-absent ''; do
+    out=$(fm_composer_extract_selected_content "$CAPS_PLAIN" "$plain" "$agent")
+    case "$out" in *'Exit the CLI'*) ;; *) fail "the real capture must not be exempted for agent '$agent', got '$out'" ;; esac
+    out=$(FM_COMPOSER_GHOST_LUMA_MAX=0 fm_composer_extract_selected_content "$CAPS_STYLED" "$styled" "$agent")
+    case "$out" in *'Exit the CLI'*) ;; *) fail "the real styled capture must not be exempted for agent '$agent', got '$out'" ;; esac
+  done
+  # An identity-capable backend with no identity yet is asked for it, once; a
+  # backend that cannot supply one never gets the exemption and never asks.
+  out=$(fm_composer_classify_screen "$CAPS_STYLED" "$styled")
+  [ "$out" = need-identity ] || fail "the real capture on an identity-capable backend must ask for the identity, got '$out'"
+  out=$(fm_composer_classify_screen "$CAPS_PLAIN" "$plain")
+  [ "$out" != need-identity ] || fail "a backend without an identity capability must never ask for one"
+  # A menu-shaped block under a composer that is not rule-bounded is never read.
+  screen=$'transcript\n╭──────────────────────────────╮\n│ ❯ /exit                      │\n╰──────────────────────────────╯\n  ❯ /exit        Exit the CLI\n    /context       Visualize the grid'
+  out=$(fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen" claude)
+  case "$out" in *'Visualize the grid'*) ;; *) fail "a boxed composer must not exempt a menu-shaped block even for claude, got '$out'" ;; esac
+  pass "matrix: the slash-menu exemption needs a claude identity and a rule-bounded composer; every other pane keeps its rows as content"
 }
 
 test_matrix_claude_bare_nbsp_row() {
@@ -1432,6 +1500,7 @@ test_matrix_live_idle_prompts_read_cursorless
 test_matrix_claude_slash_menu_is_not_the_composer
 test_matrix_indented_live_draft_under_the_pair_is_not_menu_furniture
 test_matrix_indented_continuation_rows_of_a_draft_are_kept
+test_matrix_slash_menu_exemption_is_claude_only
 test_matrix_kimi_bordered_shell_glyph_box
 test_matrix_claude_inside_zellij_ansi_dump
 test_strict_blank_row_divergence

@@ -827,10 +827,11 @@ The footer zone is a property of any envelope a glyph row inside it proves, not 
 
 The demotion is deliberately ASYMMETRIC: `empty` is the only verdict that authorizes `fm-send` to type into a pane, so the rule may move a verdict toward refusing but never toward `empty`.
 It therefore counts a footer zone only when every row in it is demonstrably furniture - omp's status row, a braille animation row, claude's permission-mode hint row (`⏵⏵ bypass permissions on`), or a row leading with an agent glyph OTHER than the one that proved the envelope, which is what the `→` statusLine is on a `❯` claude pane.
-The one furniture spanning several rows is claude 2.1.296's slash-command menu, counted only as a coherent block under a `❯`-proven envelope.
+The one furniture spanning several rows is claude 2.1.296's slash-command menu, counted only for a pane the caller identified as claude, under a rule-bounded `❯`-proven envelope, and only as a coherent block.
+An identity-capable backend asks for the identity through the same lazy `need-identity` pass pi uses; a backend that cannot supply one, and every other harness, keeps menu-looking rows as content.
 Coherent means `/name` entries with a description column all on one column, wrapped continuation rows exactly at that column, at most one selection glyph at any position, and a composer row holding slash text that a lone entry's name prefix-matches.
 A lone `  ❯ /exit  actual payload` row, or a block under an empty composer, is a live draft and stays composer content.
-`test_matrix_claude_slash_menu_is_not_the_composer` pins the menu on the real capture and on a selection at every entry, and `test_matrix_indented_live_draft_under_the_pair_is_not_menu_furniture` pins that an indented `❯` or `›` draft below the pair is never read as that menu.
+`test_matrix_claude_slash_menu_is_not_the_composer` pins the menu on the real capture and on a selection at every entry, `test_matrix_indented_live_draft_under_the_pair_is_not_menu_furniture` pins that an indented `❯` or `›` draft below the pair is never read as that menu, and `test_matrix_slash_menu_exemption_is_claude_only` pins that codex, pi, and unidentified panes never get the exemption.
 A run containing unclaimed activity (`Working on request...`, `→ ran npm test (3 failures)`) is not furniture in either row order and keeps invalidating the envelope above it, and a row leading with the SAME glyph the envelope was proven by (`❯ my typed draft`) is a live composer that keeps winning, so a visible draft is never overwritten.
 `test_composer_footer_zone_refuses_rather_than_allows` pins both directions on the bordered-box and separator-pair shapes.
 

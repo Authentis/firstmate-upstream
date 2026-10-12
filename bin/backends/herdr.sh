@@ -3389,8 +3389,11 @@ fm_backend_herdr_proof_lines() {  # <text>
 # 2.1.283 draws a typed slash command in muted grey 38;2;112;112;112 (verified
 # live), which that strip dropped, judging a typed /exit unsent. Claude's own
 # ghost suggestion is SGR-2 dim and is still stripped.
-fm_backend_herdr_composer_content() {  # <target>
-  local target=$1 cap caps
+# <identity> is the pane's `<agent>\t<status>` from the native identity probe;
+# the shared extractor reads Claude's slash-command menu as furniture only for
+# an identified claude pane, so the proof callers below pass it through.
+fm_backend_herdr_composer_content() {  # <target> [identity]
+  local target=$1 identity=${2:-} cap caps
   if cap=$(fm_backend_herdr_visible_capture_ansi "$target" 2>/dev/null) && [ -n "$cap" ]; then
     caps=$(printf 'styled=1\ncursor=0\nidentity=0')
   elif cap=$(fm_backend_herdr_visible_capture "$target") && [ -n "$cap" ]; then
@@ -3398,7 +3401,7 @@ fm_backend_herdr_composer_content() {  # <target>
   else
     return 1
   fi
-  FM_COMPOSER_GHOST_LUMA_MAX=0 fm_composer_extract_selected_content "$caps" "$cap"
+  FM_COMPOSER_GHOST_LUMA_MAX=0 fm_composer_extract_selected_content "$caps" "$cap" "$identity"
 }
 
 # fm_backend_herdr_composer_payload_shown: 0 when <after>, read from a
@@ -3466,12 +3469,12 @@ fm_backend_herdr_count_or_default() {  # <value> <default>
 # whose gap sleep fails, because the wait it stands for did not happen.
 # An invalid or out-of-range tunable (the gap is at most
 # FM_BACKEND_HERDR_TUNABLE_MAX_SECS seconds) is its default.
-fm_backend_herdr_composer_await_payload() {  # <target> <text>
-  local target=$1 text=$2 polls gap i=0 content
+fm_backend_herdr_composer_await_payload() {  # <target> <text> [identity]
+  local target=$1 text=$2 identity=${3:-} polls gap i=0 content
   polls=$(fm_backend_herdr_count_or_default "${FM_BACKEND_HERDR_PROOF_POLLS-}" 6)
   gap=$(fm_backend_herdr_decimal_or_default "${FM_BACKEND_HERDR_PROOF_GAP-}" 0.2)
   while :; do
-    if content=$(fm_backend_herdr_composer_content "$target") \
+    if content=$(fm_backend_herdr_composer_content "$target" "$identity") \
       && fm_backend_herdr_composer_payload_shown "$text" "$content"; then
       return 0
     fi
@@ -3523,14 +3526,14 @@ fm_backend_herdr_send_text_submit() {  # <target> <text> <retries> <enter-sleep>
   identity=$(fm_backend_herdr_agent_identity_raw "$FM_BACKEND_HERDR_SESSION" "$FM_BACKEND_HERDR_PANE") || identity=
   if [ "${identity%%$'\t'*}" = claude ]; then
     proof=1
-    content=$(fm_backend_herdr_composer_content "$target") \
+    content=$(fm_backend_herdr_composer_content "$target" "$identity") \
       || { printf 'send-failed'; return 0; }
     [ -z "${content//[$' \t\r\n\v\f']/}" ] || { printf 'send-failed'; return 0; }
   fi
   fm_backend_herdr_send_literal "$target" "$text" || { printf 'send-failed'; return 0; }
   sleep "$settle"
   if [ "$proof" = 1 ]; then
-    if ! fm_backend_herdr_composer_await_payload "$target" "$text"; then
+    if ! fm_backend_herdr_composer_await_payload "$target" "$text" "$identity"; then
       if fm_backend_herdr_composer_clear "$target" "$text"; then
         printf 'send-failed'
       else
