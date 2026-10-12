@@ -1359,6 +1359,43 @@ test_claude_stop_hook_delivers_a_main_only_pass_through_after_a_handled_wake() {
   pass "host+hook: a main-only pass-through after a handled wake rewakes main even when the marker read handling"
 }
 
+# A host whose auto-arm generation was superseded during a held engine turn
+# must not hand the next main-only close back by rewriting the marker of the
+# generation that now owns supervision, nor arm a successor beside that owner.
+test_superseded_host_pass_through_leaves_the_new_generation_alone() {
+  local home successor epoch other
+  home=$(make_primary_home hook-superseded-pass-through)
+  ln -s "$ROOT/.agents" "$home/.agents"
+  echo held > "$home/stub-mode"
+  mkfifo "$home/stub-release"
+  start_hook_session "$home"
+  turn_end "$home"
+  wait_until 150 watcher_live "$home" || fail "superseded pass-through: the Stop hook never started a watcher cycle"
+  append_status "$home" 'first actionable wake'
+  wait_until 250 test -s "$home/stub-ready" || fail "superseded pass-through: the engine did not reach its hold: $(cat "$home/state/.supervision-host.log" 2>/dev/null)"
+  successor=$(cat "$home/state/.watch.lock/pid")
+  append_status "$home" 'which export format?' needs-decision
+  wait_until 250 bash -c '! kill -0 "$1" 2>/dev/null' _ "$successor" \
+    || fail "superseded pass-through: the handling successor did not close during the engine turn"
+  epoch=$(sed -n 's/^epoch=\([0-9]*\) .*/\1/p' "$home/state/.claude-autoarm-epoch")
+  [ -n "$epoch" ] || fail "fixture: the auto-arm ledger has no generation"
+  printf 'epoch=%s owner_pid=%s outcome=arming\n' "$((epoch + 1))" "$$" > "$home/state/.claude-autoarm-epoch"
+  other=1.1.supersededfixture
+  FM_HOME="$home" bash -c '. "$1"; fm_lock_acquire_wait "$2.lock" && _fm_recovery_marker_write_locked "$2" handling "$3"; rc=$?; fm_lock_release "$2.lock"; exit "$rc"' _ \
+    "$ROOT/bin/fm-wake-lib.sh" "$home/state/.watcher-down" "$other" \
+    || fail "fixture: could not model the new generation's handling marker"
+  printf 'continue\n' > "$home/stub-release"
+  wait_until 250 hook_exited "$home" || fail "superseded pass-through: the Stop hook never closed: $(cat "$home/state/.supervision-host.log")"
+  assert_re '	pass-through	attended	main-only	signal:' "$home/state/.supervision-host.log" "fixture: the second close was not a main-only pass-through"
+  assert_re '	stand-down	this session no longer owns supervision' "$home/state/.supervision-host.log" \
+    "the superseded host must stand down at the pass-through"
+  expect_code 0 "$(cat "$home/hook.rc")" "a superseded host's hook stays silent"
+  [ "$(cat "$home/state/.watcher-down")" = "pending:handling:$other" ] \
+    || fail "superseded pass-through: the old host rewrote the new generation's marker: $(cat "$home/state/.watcher-down")"
+  ! watcher_live "$home" || fail "superseded pass-through: the old host armed a successor beside the new owner"
+  pass "host+hook: a superseded host's main-only pass-through leaves the new generation's marker and cycle alone"
+}
+
 # The live repro (2026-09-28): a quiet record live with no daemon flag parked a
 # present Claude captain, whose worker's captain outcomes waited for a return.
 # Through the real Stop hook the outcome now rewakes main, with no away note.
@@ -3023,6 +3060,7 @@ test_close_accepted_away_that_turns_attended_passes_to_main
 test_attended_close_that_turns_main_only_before_its_turn_passes_to_main
 test_claude_stop_hook_delivers_a_main_only_pass_through
 test_claude_stop_hook_delivers_a_main_only_pass_through_after_a_handled_wake
+test_superseded_host_pass_through_leaves_the_new_generation_alone
 test_claude_stop_hook_rewakes_a_present_captain_beside_a_quiet_record
 test_claude_stop_hook_runs_the_host_without_the_file_and_off_opts_out
 test_claude_stop_hook_delivers_a_close_that_turns_main_only_at_its_turn

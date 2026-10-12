@@ -1106,6 +1106,29 @@ fm_recovery_marker_handover_restore() {  # <marker> <snapshot-token> <snapshot-s
   fm_recovery_transition "$1" handover-restore "$2" "$3"
 }
 
+# Hand one confirmed handling episode back to downtime, and only that one: a
+# pending or announced handling marker of <generation> becomes
+# pending:downtime:<generation>. Any other generation or state is left as it
+# is, so a caller can never rewrite an episode it did not hand off. Fails only
+# when the marker cannot be locked, read, or written.
+fm_recovery_marker_restore_downtime() {  # <marker> <generation>
+  local marker=$1 generation=$2 lock status=0
+  [ -n "$generation" ] || return 0
+  lock="${marker}.lock"
+  fm_lock_acquire_wait "$lock" || return 1
+  if ! fm_recovery_marker_read "$marker"; then
+    fm_lock_release "$lock"
+    return 1
+  fi
+  case "$FM_RECOVERY_MARKER_TOKEN" in
+    pending:handling:"$generation"|announced:handling:"$generation")
+      _fm_recovery_marker_write_locked "$marker" downtime "$generation" || status=1
+      ;;
+  esac
+  fm_lock_release "$lock"
+  return "$status"
+}
+
 # fm_lock_reap_dead_link <lockdir>
 # Remove a link lock whose owner is dead without a nested mutex. Renaming the
 # dead owner directory to this process's tombstone elects exactly one reaper,

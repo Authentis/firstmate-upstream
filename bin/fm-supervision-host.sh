@@ -52,9 +52,9 @@
 #     that is unsafe or holds nothing for the branch) stay main's. That
 #     pass-through starts the successor watcher cycle and leaves it running
 #     before the close is printed, so supervision continues when the session
-#     drops the handoff. It publishes downtime on the recovery marker and
-#     confirms no handling handoff, so the re-arm owner delivers the close to
-#     main (hand_downtime_to_main). The host records that successor's arm
+#     drops the handoff. It hands its own confirmed handoff back to downtime
+#     and confirms no handling handoff, so the re-arm owner delivers the close
+#     to main (hand_downtime_to_main). The host records that successor's arm
 #     before relinquishing it (detach_successor owns the persistence check
 #     and failure path). The session's next park without --restart requests
 #     a take-over of its cycle rather than an ordinary attach;
@@ -730,20 +730,27 @@ detach_successor() {
 
 # Main, not the engine, handles an attended pass-through, and the re-arm owner
 # delivers it only while the recovery marker reads downtime (autoarm_commit in
-# bin/fm-claude-stop-autoarm.sh). Publishing is required, not just harmless: a
+# bin/fm-claude-stop-autoarm.sh). Restoring is required, not just harmless: a
 # close surfaced from a row queued before an earlier close's handling handoff
 # appends nothing, so the marker can still read that handoff's handling, and
 # the re-arm owner would then drop the close in silence beside a healthy
-# successor. A failed publish returns 1, and the caller then leaves no
-# successor, so the re-arm owner's lost hand-back notice still reaches main.
+# successor. Only the handoff this host confirmed (SUCCESSOR_GENERATION, still
+# set from the handled close whose successor delivered this one) is handed
+# back; a marker of any other generation belongs to another owner and is left
+# as it is (fm_recovery_marker_restore_downtime). A failed restore returns 1,
+# and the caller then leaves no successor and adds a "supervision-host:" line,
+# so the re-arm owner's lost hand-back notice reaches main. That notice needs a
+# readable handling marker: a marker the hook cannot read or parse still ends
+# in a silent exit 0 there, a known limit of the re-arm owner, not of this host.
 hand_downtime_to_main() {
-  fm_recovery_marker_publish "$STATE/.watcher-down" downtime >/dev/null 2>&1 && return 0
+  fm_recovery_marker_restore_downtime "$STATE/.watcher-down" "$SUCCESSOR_GENERATION" \
+    >/dev/null 2>&1 && return 0
   log_line "pass-through	downtime-unrestored	$(printf '%s\n' "$REASON" | head -n 1)"
   return 1
 }
 
 # Start the same successor a handled wake starts and leave it running. It
-# confirms no handling handoff, so the marker hand_downtime_to_main published
+# confirms no handling handoff, so the marker hand_downtime_to_main restored
 # still reads downtime. A failed start returns 1; the caller still prints the
 # close unchanged.
 leave_successor_for_main() {
@@ -1133,7 +1140,14 @@ while :; do
   if ! fm_afk_contract_away_present "$STATE"; then
     if ! attended_acceptor "$(printf '%s\n' "$REASON" | head -n 1)"; then
       log_line "pass-through	attended	$ATTENDED_WHY	$(printf '%s\n' "$REASON" | head -n 1)"
-      if hand_downtime_to_main && [ "$ATTENDED_WHY" = main-only ]; then
+      # A superseded host must not touch the marker or arm a cycle that now
+      # belongs to another generation.
+      host_still_owner || stand_down "this session no longer owns supervision"
+      if ! hand_downtime_to_main; then
+        emit "supervision-host: watcher downtime could not be restored for the main hand-back"
+        exit 1
+      fi
+      if [ "$ATTENDED_WHY" = main-only ] && host_still_owner; then
         leave_successor_for_main || true
       fi
       emit
