@@ -2851,6 +2851,80 @@ test_undated_runs_never_supersede() {
   pass "fm-pr-merge clears a failure only on a proven later pass of the same check"
 }
 
+# --allow-red repeats, one exact name per occurrence. Every waived name must be
+# red at the verified head, every unwaived check must be green, and the merge
+# stays bound to the verified head.
+test_allow_red_repeatable_requires_every_name_red() {
+  local case_dir rc head
+  head=0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c
+
+  case_dir=$(make_case github-allow-red-two-waived)
+  mkdir -p "$case_dir/wt"
+  add_gh_mocks "$case_dir" "$head"
+  write_github_rollup_json "$case_dir" "$head" \
+    "$(check_run lint COMPLETED FAILURE 2026-01-01T00:00:09Z)" \
+    "$(check_run Behavior-2 COMPLETED FAILURE 2026-01-01T00:00:09Z)" \
+    "$(check_run ci COMPLETED SUCCESS 2026-01-01T00:00:09Z)"
+  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/97 \
+    --allow-red lint --allow-red Behavior-2 --allow-red lint \
+    > "$case_dir/stdout" 2> "$case_dir/stderr" \
+    || fail "allow-red-two-waived: two waived red checks should merge"$'\n'"$(cat "$case_dir/stderr")"
+  assert_logged_gh_merge "$case_dir" 97 example/repo --squash
+
+  case_dir=$(make_case github-allow-red-one-of-two)
+  mkdir -p "$case_dir/wt"
+  add_gh_mocks "$case_dir" "$head"
+  write_github_rollup_json "$case_dir" "$head" \
+    "$(check_run lint COMPLETED FAILURE 2026-01-01T00:00:09Z)" \
+    "$(check_run Behavior-2 COMPLETED FAILURE 2026-01-01T00:00:09Z)"
+  set +e
+  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/98 \
+    --allow-red lint > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+  expect_code 1 "$rc" "allow-red-one-of-two: an unwaived red check must refuse"
+  assert_grep "check 'Behavior-2' is not green" "$case_dir/stderr" \
+    "allow-red-one-of-two: the unwaived red check was not named"
+  assert_no_grep 'pr merge' "$case_dir/gh.log" \
+    "allow-red-one-of-two: gh pr merge ran with an unwaived red check"
+
+  case_dir=$(make_case github-allow-red-name-green)
+  mkdir -p "$case_dir/wt"
+  add_gh_mocks "$case_dir" "$head"
+  write_github_rollup_json "$case_dir" "$head" \
+    "$(check_run lint COMPLETED FAILURE 2026-01-01T00:00:09Z)" \
+    "$(check_run ci COMPLETED SUCCESS 2026-01-01T00:00:09Z)"
+  set +e
+  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/99 \
+    --allow-red lint --allow-red ci > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+  expect_code 1 "$rc" "allow-red-name-green: a waived name that is green must refuse"
+  assert_grep 'not red' "$case_dir/stderr" \
+    "allow-red-name-green: the refusal did not say the name is not red"
+  assert_grep 'ci' "$case_dir/stderr" \
+    "allow-red-name-green: the green waived name was not listed"
+  assert_no_grep 'pr merge' "$case_dir/gh.log" \
+    "allow-red-name-green: gh pr merge ran with a green waived name"
+
+  case_dir=$(make_case github-allow-red-name-absent)
+  mkdir -p "$case_dir/wt"
+  add_gh_mocks "$case_dir" "$head"
+  write_github_rollup_json "$case_dir" "$head" \
+    "$(check_run lint COMPLETED FAILURE 2026-01-01T00:00:09Z)"
+  set +e
+  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/100 \
+    --allow-red lint --allow-red no-such-check > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+  expect_code 1 "$rc" "allow-red-name-absent: a waived name that does not exist must refuse"
+  assert_grep 'no-such-check' "$case_dir/stderr" \
+    "allow-red-name-absent: the nonexistent waived name was not listed"
+  assert_no_grep 'pr merge' "$case_dir/gh.log" \
+    "allow-red-name-absent: gh pr merge ran with a nonexistent waived name"
+  pass "fm-pr-merge repeats --allow-red and refuses a waived name that is not red"
+}
+
 # A superseded failure changes nothing about the waiver: --allow-red still covers
 # exactly the named check, still needs every other check green, and the merge is
 # still bound to the verified head.
@@ -2969,7 +3043,7 @@ test_allow_red_requires_one_separate_name() {
   assert_no_grep 'pr merge' "$case_dir/gh.log" \
     "github-allow-red-equals: gh pr merge ran for the equals alias"
 
-  case_dir=$(make_case github-allow-red-duplicate)
+  case_dir=$(make_case github-allow-red-second-name-not-red)
   mkdir -p "$case_dir/wt"
   add_gh_mocks "$case_dir" "$head"
   write_github_red_json "$case_dir" "$head" lint
@@ -2978,10 +3052,12 @@ test_allow_red_requires_one_separate_name() {
     --allow-red lint --allow-red unit > "$case_dir/stdout" 2> "$case_dir/stderr"
   rc=$?
   set -e
-  expect_code 2 "$rc" "github-allow-red-duplicate: duplicate waiver must be refused"
+  expect_code 1 "$rc" "github-allow-red-second-name-not-red: a second waived name that is not red must refuse"
+  assert_grep "unit" "$case_dir/stderr" \
+    "github-allow-red-second-name-not-red: the not-red waived name was not listed"
   assert_no_grep 'pr merge' "$case_dir/gh.log" \
-    "github-allow-red-duplicate: gh pr merge ran for duplicate waivers"
-  pass "fm-pr-merge accepts exactly one separately named red-check waiver"
+    "github-allow-red-second-name-not-red: gh pr merge ran with a not-red waiver"
+  pass "fm-pr-merge takes each red-check waiver as a separate argument and refuses one that is not red"
 }
 
 test_away_record_permits_any_green_merge_under_away_authority() {
@@ -3862,6 +3938,7 @@ test_unfinished_rerun_keeps_a_check_red
 test_supersession_never_crosses_check_names
 test_undated_runs_never_supersede
 test_allow_red_still_waives_only_the_current_failure
+test_allow_red_repeatable_requires_every_name_red
 test_allow_red_is_refused_while_away
 test_quiet_record_keeps_merges_attended
 test_allow_red_requires_one_separate_name
