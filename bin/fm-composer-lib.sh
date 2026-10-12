@@ -108,8 +108,9 @@
 # bounded further by a blank row, and an envelope that closed over no glyph row
 # (codex's `permissions: YOLO mode` startup banner) proves nothing and demotes
 # nothing. The one furniture that is not a single row is claude's slash-command
-# menu (_fm_composer_slash_menu_row), recognized only as a whole list of
-# `/name` + description entries under a claude-proven envelope.
+# menu (_fm_composer_slash_menu_row), recognized only as a coherent block under
+# a claude-proven envelope: `/name` + description entries on one column, the
+# composer's own row holding slash text, and a lone entry prefix-matching it.
 #
 # COVERAGE: this is exercised for the bordered box and the pi separator pair,
 # the two shapes claude 2.x renders. The opencode left bar is wired in for the
@@ -1711,21 +1712,31 @@ _fm_composer_row_is_composer_furniture() {  # <trimmed-row> <proof-glyph>
 # proved, else 1. Claude Code 2.1.296 lists matching commands below the closing
 # rule, indented, one entry per row as a `/name` token and a description column,
 # the SELECTED entry (any position in the list) led by the proving glyph and
-# the wrapped remainder of a long description on rows indented to that column:
+# the wrapped remainder of a long description on rows indented exactly to that
+# column:
 #   ❯ /exit
 #   ─────────────
 #     ❯ /exit                    Exit the CLI
 #       /context                 Visualize current context usage as a grid
 #                                continuing the description here
-# Nothing else qualifies. An indented row that leads with the proving glyph but
-# is not such an entry (`  ❯ actual payload`) is a live second composer and a
-# deeper plain row with no entry above it is unclaimed activity; both stay
-# non-furniture so the verdict keeps refusing. Sets <out-col-var> to the row's
-# description column (the next continuation's minimum indent) and
-# <out-selected-var> to 1 when the row carries the selection glyph.
-_fm_composer_slash_menu_row() {  # <raw-row> <proof-glyph> <prev-col> <out-col-var> <out-selected-var>
-  local row=$1 proof=$2 prev=$3 out_col=$4 out_sel=$5
+# A row alone proves little - `  ❯ /exit  actual payload` is that shape too -
+# so a row is only ever one candidate row of a block, and the block is accepted
+# by _fm_composer_slash_menu_block_coherent. Nothing else qualifies here: an
+# indented glyph row that is not a `/name` + description entry is a live second
+# composer, and a row at any other indent than the entry above it is unclaimed
+# activity; both stay non-furniture so the verdict keeps refusing.
+# <prev-col> is the description column of the entry directly above (-1 when
+# none). Sets FM_COMPOSER_MENU_ROW_KIND (entry|continuation),
+# FM_COMPOSER_MENU_ROW_COL (the entry's description column),
+# FM_COMPOSER_MENU_ROW_NAME and FM_COMPOSER_MENU_ROW_SELECTED (1 when the row
+# carries the selection glyph).
+_fm_composer_slash_menu_row() {  # <raw-row> <proof-glyph> <prev-col>
+  local row=$1 proof=$2 prev=$3
   local glyph='' lead body name after gap selected=0
+  FM_COMPOSER_MENU_ROW_KIND=
+  FM_COMPOSER_MENU_ROW_COL=-1
+  FM_COMPOSER_MENU_ROW_NAME=
+  FM_COMPOSER_MENU_ROW_SELECTED=0
   [ "$proof" = "$FM_COMPOSER_SLASH_MENU_GLYPH" ] || return 1
   fm_composer_normalize_spaces_var row
   row=${row%"${row##*[! ]}"}
@@ -1736,9 +1747,9 @@ _fm_composer_slash_menu_row() {  # <raw-row> <proof-glyph> <prev-col> <out-col-v
     [ "$glyph" = "$proof" ] || return 1
     body=${body#"$glyph"}
     case "$body" in ' '*) ;; *) return 1 ;; esac
-    # The glyph occupies one column; reading it as a space puts the selected
-    # entry on the same grid as its unselected siblings.
-    lead="$lead "
+    # The glyph and the space after it occupy two columns; reading both as
+    # spaces puts the selected entry on its unselected siblings' grid.
+    lead="$lead  "
     body=${body# }
     selected=1
   fi
@@ -1755,18 +1766,42 @@ _fm_composer_slash_menu_row() {  # <raw-row> <proof-glyph> <prev-col> <out-col-v
     after=${body#"$name"}
     gap=${after%%[! ]*}
     if [ "${#gap}" -ge 2 ] && [ -n "${after#"$gap"}" ]; then
-      printf -v "$out_col" '%s' "$((${#lead} + ${#name} + ${#gap}))"
-      printf -v "$out_sel" '%s' "$selected"
+      FM_COMPOSER_MENU_ROW_KIND=entry
+      FM_COMPOSER_MENU_ROW_COL=$((${#lead} + ${#name} + ${#gap}))
+      FM_COMPOSER_MENU_ROW_NAME=$name
+      FM_COMPOSER_MENU_ROW_SELECTED=$selected
       return 0
     fi
   fi
-  # Not an entry: only an unselected, glyph-free row indented to the
+  # Not an entry: only an unselected, glyph-free row indented exactly to the
   # description column of the entry directly above it is a continuation.
   [ "$selected" = 0 ] || return 1
-  [ "$prev" -ge 0 ] && [ "${#lead}" -ge "$prev" ] || return 1
-  printf -v "$out_col" '%s' "$prev"
-  printf -v "$out_sel" '%s' 0
+  [ "$prev" -ge 0 ] && [ "${#lead}" -eq "$prev" ] || return 1
+  FM_COMPOSER_MENU_ROW_KIND=continuation
+  FM_COMPOSER_MENU_ROW_COL=$prev
   return 0
+}
+
+# _fm_composer_slash_menu_block_coherent: 0 when the menu rows the footer-zone
+# walk accepted (<entries> entry rows on ONE description column, at most one
+# selected, first entry <first-name>) are a coherent claude slash menu, else 1.
+# A menu is opened by typing `/`, so the composer's own row must hold slash
+# text; one entry may then only stand when its name is a prefix match of that
+# text (claude fuzzy-matches, so a longer list need not prefix-match). A lone
+# `  ❯ /exit  actual payload` row over an empty composer is a live draft, never
+# a menu.
+_fm_composer_slash_menu_block_coherent() {  # <plain> <entries> <first-name>
+  local plain=$1 entries=$2 name=$3 content glyph token
+  content=$(_fm_composer_row_content \
+    "$(_fm_composer_screen_row "$FM_COMPOSER_FOOTER_GLYPH" "$plain")" 0)
+  fm_composer_leading_agent_glyph_var glyph "$content" || return 1
+  content=${content#"$glyph"}
+  fm_composer_normalize_trim_var content
+  token=${content%% *}
+  case "$token" in /*) ;; *) return 1 ;; esac
+  [ "$entries" -ge 2 ] && return 0
+  case "$name" in "$token"*) return 0 ;; esac
+  return 1
 }
 
 # _fm_composer_locate_footer_zone: THE composer footer zone of <plain> (see THE
@@ -1785,7 +1820,7 @@ _fm_composer_slash_menu_row() {  # <raw-row> <proof-glyph> <prev-col> <out-col-v
 # when no envelope is glyph-proven, when a blank row sits directly beneath it,
 # or when the run holds no bare candidate at all (nothing to demote).
 _fm_composer_locate_footer_zone() {  # <plain>
-  local plain=$1 close next raw trimmed proof='' menu_col=-1 menu_next menu_sel menu_selected=0
+  local plain=$1 close next raw trimmed proof='' menu_col=-1 menu_grid=-1 menu_entries=0 menu_selected=0 menu_name=''
   FM_COMPOSER_FOOTER_AFTER=-1
   FM_COMPOSER_FOOTER_GLYPH=-1
   FM_COMPOSER_FOOTER_LAST=-1
@@ -1828,19 +1863,29 @@ _fm_composer_locate_footer_zone() {  # <plain>
     [ -n "$trimmed" ] || break
     if _fm_composer_row_is_composer_furniture "$trimmed" "$proof"; then
       menu_col=-1
-    elif _fm_composer_slash_menu_row "$raw" "$proof" "$menu_col" menu_next menu_sel; then
-      # One menu has one selection; a second selected row is a second composer.
-      if [ "$menu_sel" = 1 ]; then
-        [ "$menu_selected" = 0 ] || return 1
-        menu_selected=1
+    elif _fm_composer_slash_menu_row "$raw" "$proof" "$menu_col"; then
+      if [ "$FM_COMPOSER_MENU_ROW_KIND" = entry ]; then
+        # One menu is one grid and has one selection; a second description
+        # column or a second selected row is a second composer.
+        [ "$menu_grid" -eq -1 ] || [ "$FM_COMPOSER_MENU_ROW_COL" -eq "$menu_grid" ] || return 1
+        if [ "$FM_COMPOSER_MENU_ROW_SELECTED" = 1 ]; then
+          [ "$menu_selected" = 0 ] || return 1
+          menu_selected=1
+        fi
+        [ "$menu_entries" -gt 0 ] || menu_name=$FM_COMPOSER_MENU_ROW_NAME
+        menu_entries=$((menu_entries + 1))
+        menu_grid=$FM_COMPOSER_MENU_ROW_COL
+        menu_col=$FM_COMPOSER_MENU_ROW_COL
       fi
-      menu_col=$menu_next
     else
       return 1
     fi
     FM_COMPOSER_FOOTER_LAST=$next
     next=$((next + 1))
   done
+  if [ "$menu_entries" -gt 0 ]; then
+    _fm_composer_slash_menu_block_coherent "$plain" "$menu_entries" "$menu_name" || return 1
+  fi
   [ "$FM_COMPOSER_SCAN_BARE_ROW" -gt "$FM_COMPOSER_FOOTER_AFTER" ] \
     && [ "$FM_COMPOSER_SCAN_BARE_ROW" -le "$FM_COMPOSER_FOOTER_LAST" ]
 }

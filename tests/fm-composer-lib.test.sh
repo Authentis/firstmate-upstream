@@ -174,7 +174,8 @@ assert_screen() {
 # slash_menu_screen <composer-row-text> <selected-index> [glyph]: a claude
 # composer pair holding <composer-row-text>, with a four-entry slash menu
 # below its closing rule and the selection glyph on entry <selected-index>.
-# Entry 1's description wraps onto a continuation row at the description column.
+# Entry 1's description wraps onto a continuation row at the description column
+# (column 50 here, the same column every entry's description starts at).
 slash_menu_screen() {
   local typed=$1 sel=$2 glyph=${3:-❯} rule i
   local names=(/context /context-audit /context-restore /context-save)
@@ -190,7 +191,7 @@ slash_menu_screen() {
     else
       printf '    %-46s%s\n' "${names[$i]}" "${descs[$i]}"
     fi
-    if [ "$i" = 1 ]; then printf '%51s%s\n' '' 'CLAUDE.md, AGENTS.md, auto-memory MEMORY.md'; fi
+    if [ "$i" = 1 ]; then printf '%50s%s\n' '' 'CLAUDE.md, AGENTS.md, auto-memory MEMORY.md'; fi
   done
 }
 
@@ -218,16 +219,27 @@ test_matrix_claude_slash_menu_is_not_the_composer() {
     [ "$out" = '/context' ] || fail "selection on entry $i under LC_ALL=C should leave the typed /context, got '$out'"
     assert_screen "typed /context, menu selection on entry $i" pending "$CAPS_STYLED" "$screen" '' "$claude_idle"
   done
-  # The same menu over an EMPTY composer must not make the composer read typed.
+  # A menu is opened by typing `/`: the same block under an EMPTY composer is
+  # not a menu, so its rows stay content and the composer can never read empty.
   for i in 0 2; do
     screen=$(slash_menu_screen "❯$NBSP" "$i")
     out=$(fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen")
-    [ -z "$out" ] || fail "an empty composer over a slash menu (selection $i) should extract nothing, got '$out'"
+    [ -n "$out" ] || fail "menu-shaped rows under an empty composer (selection $i) must not read empty"
+    out=$(fm_composer_classify_screen "$CAPS_STYLED" "$screen" '' "$claude_idle")
+    [ "$out" != empty ] || fail "menu-shaped rows under an empty composer (selection $i) must never read empty"
   done
   # A multi-line draft keeps its indented continuation rows with the menu below.
   screen=$'transcript\n────────────────────────\n❯ /context\n  and a second line\n────────────────────────\n  ❯ /context        Visualize current context usage\n    /context-save   Save working context.'
   out=$(fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen")
   [ "$out" = '/context and a second line' ] || fail "a multi-line draft over a slash menu should keep both draft rows, got '$out'"
+  # A one-entry menu stands when its name prefix-matches the typed text, and a
+  # wrapped description at its column is kept out of the composer.
+  screen=$'transcript\n────────────────────────\n❯ /ex\n────────────────────────\n  ❯ /exit        Exit the CLI and\n                 end the session'
+  out=$(fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen")
+  [ "$out" = '/ex' ] || fail "a one-entry menu matching the typed /ex should leave only /ex, got '$out'"
+  out=$(LC_ALL=C fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen")
+  [ "$out" = '/ex' ] || fail "a one-entry menu matching the typed /ex under LC_ALL=C should leave only /ex, got '$out'"
+  assert_screen "typed /ex over a one-entry menu" pending "$CAPS_STYLED" "$screen" '' "$claude_idle"
   pass "matrix: claude 2.1.296's slash menu is furniture whichever entry is selected, never the composer"
 }
 
@@ -255,6 +267,33 @@ test_matrix_indented_live_draft_under_the_pair_is_not_menu_furniture() {
     out=$(fm_composer_classify_screen "$CAPS_STYLED" "$screen" '' "$claude_idle")
     [ "$out" != empty ] || fail "an indented '$glyph' multi-row draft under the pair must never read empty"
   done
+  # Reviewer repro: ONE `/name` plus two spaces plus text under an empty composer
+  # is a live draft, and its wrapped continuation row is part of it.
+  for glyph in '  ❯' '❯'; do
+    screen=$'transcript\n'"$rule"$'\n❯'"$NBSP"$'\n'"$rule"$'\n'"$glyph /exit  actual payload"$'\n             continuation payload'
+    out=$(fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen")
+    case "$out" in *'actual payload'*'continuation payload'*) ;; *) fail "a lone '$glyph /exit  actual payload' draft must keep its text and continuation, got '$out'" ;; esac
+    out=$(LC_ALL=C fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen")
+    case "$out" in *'actual payload'*'continuation payload'*) ;; *) fail "a lone '$glyph /exit  actual payload' draft must keep its continuation under LC_ALL=C, got '$out'" ;; esac
+    out=$(fm_composer_classify_screen "$CAPS_STYLED" "$screen" '' "$claude_idle")
+    [ "$out" != empty ] || fail "a lone '$glyph /exit  actual payload' draft must never read empty"
+    out=$(LC_ALL=C fm_composer_classify_screen "$CAPS_STYLED" "$screen" '' "$claude_idle")
+    [ "$out" != empty ] || fail "a lone '$glyph /exit  actual payload' draft must never read empty under LC_ALL=C"
+  done
+  # The same lone entry over a typed composer that does not prefix-match it.
+  screen=$'transcript\n'"$rule"$'\n❯ /context\n'"$rule"$'\n  ❯ /exit  actual payload\n             continuation payload'
+  out=$(fm_composer_classify_screen "$CAPS_STYLED" "$screen" '' "$claude_idle")
+  [ "$out" != empty ] || fail "a lone entry that is not a prefix match of the typed text must never read empty"
+  out=$(fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen")
+  case "$out" in *'continuation payload'*) ;; *) fail "a lone non-matching entry must not swallow its continuation, got '$out'" ;; esac
+  # Entries on two different description columns are two drafts, not one menu.
+  screen=$'transcript\n'"$rule"$'\n❯ /ex\n'"$rule"$'\n  ❯ /exit      Exit the CLI\n    /extra         Something else'
+  out=$(fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen")
+  case "$out" in *'/extra'*) ;; *) fail "misaligned entries must not be read as one menu, got '$out'" ;; esac
+  # A continuation not at the entries' description column is not a wrap.
+  screen=$'transcript\n'"$rule"$'\n❯ /ex\n'"$rule"$'\n  ❯ /exit      Exit the CLI\n                          stray words'
+  out=$(fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen")
+  case "$out" in *'stray words'*) ;; *) fail "an off-column row must not be swallowed as a wrap, got '$out'" ;; esac
   # Menu-shaped rows under a pair another harness proved are not claude's menu.
   screen=$'transcript\n'"$rule"$'\n›'"$NBSP"$'\n'"$rule"$'\n  › /exit        Exit the CLI'
   out=$(fm_composer_classify_screen "$CAPS_STYLED" "$screen" '' "$(printf 'codex\tidle')")
