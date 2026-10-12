@@ -145,8 +145,8 @@
 # live read. A caller that checked one exact head passes --expect-head
 # <40-hex sha>, which refuses with exit 1, naming both shas, when that live read
 # differs, so a PR that moved after the caller's check is never verified or
-# merged; the live-read check follows the existing PR identity recording and
-# precedes any merge or landed outcome. A value that is not 40 lowercase hex
+# merged; one live head read precedes every state write, so a refusal records
+# no pr= and arms no merge poll. A value that is not 40 lowercase hex
 # characters refuses with exit 2, and without the option behavior is unchanged.
 # An existing task-meta pr= must equal the requested canonical URL,
 # unless that bound PR has already merged - proven by its recorded merge
@@ -367,6 +367,28 @@ refuse_unexpected_head() {
   printf 'error: refusing to merge %s: the live head %s is not the expected head %s\n' \
     "$URL" "$live_head" "$EXPECT_HEAD" >&2
   return 1
+}
+
+# With --expect-head, one cheap live head read before any state write, so a
+# moved head refuses before pr= is recorded or the merge poll is armed. The
+# verify functions re-check the head they bind to the merge.
+precheck_expected_head() {
+  local head=''
+  [ -n "$EXPECT_HEAD" ] || return 0
+  case "$PROVIDER" in
+    github)
+      head=$(gh pr view "$URL" --json headRefOid --jq .headRefOid 2>/dev/null) || head=
+      ;;
+    gitlab)
+      head=$(GITLAB_HOST="$FM_PR_HOST" glab mr view "$PR_NUMBER" -R "$PROJECT_URL" -F json 2>/dev/null \
+        | jq -r '.sha // empty' 2>/dev/null) || head=
+      ;;
+  esac
+  if ! fm_pr_head_valid "$head"; then
+    echo "error: could not read the live head of $URL to compare with the expected head $EXPECT_HEAD" >&2
+    return 1
+  fi
+  refuse_unexpected_head "$head"
 }
 
 reject_protected_forge_args() {
@@ -1488,6 +1510,7 @@ gitlab_confirm_merged() {
 # Record before either forge call. This arms the merge poll without claiming a
 # landed outcome, so even a provider read failure after a real merge cannot
 # leave teardown without the PR identity it needs to verify the result.
+precheck_expected_head || exit 1
 away_status=0
 require_current_away_authority || away_status=$?
 [ "$away_status" -eq 0 ] || exit "$away_status"

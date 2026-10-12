@@ -4270,6 +4270,15 @@ test_expect_head_moved_refuses() {
   if grep -q '^pr merge ' "$case_dir/gh.log"; then
     fail "expect-head-moved: gh pr merge was called despite the moved head"
   fi
+  if grep -q '^pr=' "$case_dir/state/task-x1.meta"; then
+    fail "expect-head-moved: pr= was recorded despite the moved head"
+  fi
+  if grep -q '^pr_head=' "$case_dir/state/task-x1.meta"; then
+    fail "expect-head-moved: pr_head= was recorded despite the moved head"
+  fi
+  if find "$case_dir/state" -name '.fm-pr-poll*' | grep -q .; then
+    fail "expect-head-moved: a merge poll was armed despite the moved head"
+  fi
 
   case_dir=$(make_gitlab_case expect-head-moved-gitlab)
   set +e
