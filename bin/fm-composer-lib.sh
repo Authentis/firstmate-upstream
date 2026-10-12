@@ -107,7 +107,9 @@
 # cannot demonstrate which it is, the refusal is the answer. The zone is
 # bounded further by a blank row, and an envelope that closed over no glyph row
 # (codex's `permissions: YOLO mode` startup banner) proves nothing and demotes
-# nothing.
+# nothing. The one furniture that is not a single row is claude's slash-command
+# menu (_fm_composer_slash_menu_row), recognized only as a whole list of
+# `/name` + description entries under a claude-proven envelope.
 #
 # COVERAGE: this is exercised for the bordered box and the pi separator pair,
 # the two shapes claude 2.x renders. The opencode left bar is wired in for the
@@ -463,6 +465,9 @@ fm_busy_lines_match() {  # [harness]
 # consumed by `read` rather than word splitting, so `$`, `%`, and `#` stay
 # literal and no entry is ever exposed to pathname expansion.
 FM_COMPOSER_AGENT_PROMPT_GLYPHS=$(printf '%s\n' '❯' '›' '⟩' '→' '❭')
+# The one glyph whose pane draws a slash-command menu under its composer
+# (claude); the menu recognizer below fires only on an envelope this proved.
+FM_COMPOSER_SLASH_MENU_GLYPH='❯'
 FM_COMPOSER_SHELL_PROMPT_GLYPHS=$(printf '%s\n' '>' '$' '%' '#')
 
 # The ONE fleet-wide idle-placeholder set: composer text a harness renders in
@@ -1701,6 +1706,69 @@ _fm_composer_row_is_composer_furniture() {  # <trimmed-row> <proof-glyph>
   [ -n "$proof" ] && [ "$glyph" != "$proof" ]
 }
 
+# _fm_composer_slash_menu_row: 0 when raw <row> is positively one row of a
+# claude slash-command menu drawn under a composer envelope that <proof-glyph>
+# proved, else 1. Claude Code 2.1.296 lists matching commands below the closing
+# rule, indented, one entry per row as a `/name` token and a description column,
+# the SELECTED entry (any position in the list) led by the proving glyph and
+# the wrapped remainder of a long description on rows indented to that column:
+#   ❯ /exit
+#   ─────────────
+#     ❯ /exit                    Exit the CLI
+#       /context                 Visualize current context usage as a grid
+#                                continuing the description here
+# Nothing else qualifies. An indented row that leads with the proving glyph but
+# is not such an entry (`  ❯ actual payload`) is a live second composer and a
+# deeper plain row with no entry above it is unclaimed activity; both stay
+# non-furniture so the verdict keeps refusing. Sets <out-col-var> to the row's
+# description column (the next continuation's minimum indent) and
+# <out-selected-var> to 1 when the row carries the selection glyph.
+_fm_composer_slash_menu_row() {  # <raw-row> <proof-glyph> <prev-col> <out-col-var> <out-selected-var>
+  local row=$1 proof=$2 prev=$3 out_col=$4 out_sel=$5
+  local glyph='' lead body name after gap selected=0
+  [ "$proof" = "$FM_COMPOSER_SLASH_MENU_GLYPH" ] || return 1
+  fm_composer_normalize_spaces_var row
+  row=${row%"${row##*[! ]}"}
+  lead=${row%%[! ]*}
+  body=${row#"$lead"}
+  [ -n "$body" ] || return 1
+  if fm_composer_leading_agent_glyph_var glyph "$body"; then
+    [ "$glyph" = "$proof" ] || return 1
+    body=${body#"$glyph"}
+    case "$body" in ' '*) ;; *) return 1 ;; esac
+    # The glyph occupies one column; reading it as a space puts the selected
+    # entry on the same grid as its unselected siblings.
+    lead="$lead "
+    body=${body# }
+    selected=1
+  fi
+  case "$body" in
+    /?*)
+      name=${body%%[ ]*}
+      case "${name#/}" in
+        *[!A-Za-z0-9_.:-]*) name='' ;;
+      esac
+      ;;
+    *) name='' ;;
+  esac
+  if [ -n "$name" ]; then
+    after=${body#"$name"}
+    gap=${after%%[! ]*}
+    if [ "${#gap}" -ge 2 ] && [ -n "${after#"$gap"}" ]; then
+      printf -v "$out_col" '%s' "$((${#lead} + ${#name} + ${#gap}))"
+      printf -v "$out_sel" '%s' "$selected"
+      return 0
+    fi
+  fi
+  # Not an entry: only an unselected, glyph-free row indented to the
+  # description column of the entry directly above it is a continuation.
+  [ "$selected" = 0 ] || return 1
+  [ "$prev" -ge 0 ] && [ "${#lead}" -ge "$prev" ] || return 1
+  printf -v "$out_col" '%s' "$prev"
+  printf -v "$out_sel" '%s' 0
+  return 0
+}
+
 # _fm_composer_locate_footer_zone: THE composer footer zone of <plain> (see THE
 # COMPOSER FOOTER ZONE in this file's header). Records the bottom-most
 # glyph-PROVEN envelope in FM_COMPOSER_FOOTER_AFTER (its closing row, including
@@ -1717,7 +1785,7 @@ _fm_composer_row_is_composer_furniture() {  # <trimmed-row> <proof-glyph>
 # when no envelope is glyph-proven, when a blank row sits directly beneath it,
 # or when the run holds no bare candidate at all (nothing to demote).
 _fm_composer_locate_footer_zone() {  # <plain>
-  local plain=$1 close next trimmed proof=''
+  local plain=$1 close next raw trimmed proof='' menu_col=-1 menu_next menu_sel menu_selected=0
   FM_COMPOSER_FOOTER_AFTER=-1
   FM_COMPOSER_FOOTER_GLYPH=-1
   FM_COMPOSER_FOOTER_LAST=-1
@@ -1754,10 +1822,22 @@ _fm_composer_locate_footer_zone() {  # <plain>
   FM_COMPOSER_FOOTER_LAST=$FM_COMPOSER_FOOTER_AFTER
   next=$((FM_COMPOSER_FOOTER_AFTER + 1))
   while :; do
-    trimmed=$(_fm_composer_screen_row "$next" "$plain")
+    raw=$(_fm_composer_screen_row "$next" "$plain")
+    trimmed=$raw
     fm_composer_normalize_trim_var trimmed
     [ -n "$trimmed" ] || break
-    _fm_composer_row_is_composer_furniture "$trimmed" "$proof" || return 1
+    if _fm_composer_row_is_composer_furniture "$trimmed" "$proof"; then
+      menu_col=-1
+    elif _fm_composer_slash_menu_row "$raw" "$proof" "$menu_col" menu_next menu_sel; then
+      # One menu has one selection; a second selected row is a second composer.
+      if [ "$menu_sel" = 1 ]; then
+        [ "$menu_selected" = 0 ] || return 1
+        menu_selected=1
+      fi
+      menu_col=$menu_next
+    else
+      return 1
+    fi
     FM_COMPOSER_FOOTER_LAST=$next
     next=$((next + 1))
   done
