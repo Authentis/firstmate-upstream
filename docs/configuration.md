@@ -2314,7 +2314,9 @@ KNOWN LIMIT: while any activity continues in a home whose original owning sessio
 Detaching a runner into its own process group is what lets a persistent source outlive the turn that armed it, and on its own it is also what lets a runner outlive its whole home: reparented to init, it keeps its blocking child - and every process that child spawns - running with nothing left to reap it.
 
 - So a home's process-event state carries a lease that registration, attached start, reconciliation, acknowledgement, and listing refresh, and the watcher's reconcile cycle is what keeps it fresh in a live home.
-- A registered secondmate's reply source (`remote-reply-<id>`, registered by the remote-reply adapter while `<id>` is in `data/secondmates.md`) is exempt from lease expiry, so a dead watcher in an idle home does not cut the parent off from that secondmate; the state-root identity check still applies, retiring the source or the secondmate ends the exemption, and a present `config/procevent-secondmate-lease-off` turns it off.
+- A registered secondmate's reply source is exempt from lease expiry, so a dead watcher in an idle home does not cut the parent off from that secondmate.
+  The exemption covers only a `remote-reply-<id>` registration that is exactly the remote-reply adapter's own `source <id>` command while `<id>` is in `data/secondmates.md`; a lookalike name or adapter label around any other command keeps the lease.
+  Such a runner therefore outlives a gone session for as long as the home and that registry row exist: only loss of the state root's filesystem identity, retiring the source or the secondmate, or a present `config/procevent-secondmate-lease-off` stops it.
 - An attached public `start` continues refreshing the lease while its caller remains attached.
 - Each runner fails closed unless a small guard starts successfully beside it in a separate process group.
 - That guard accepts the lease only while the state root retains the device/inode identity recorded by the runner's claim, and initiates the verified stop after two consecutive reads cannot prove that identity and lease freshness, so one unreadable read cannot kill a live runner.
@@ -2322,7 +2324,7 @@ Detaching a runner into its own process group is what lets a persistent source o
 
 **Detection and stop timing**
 
-For a runner whose ownership can still be proved, the nominal detection bound is the lease plus one check interval.
+For a non-exempt runner whose ownership can still be proved, the nominal detection bound is the lease plus one check interval; an exempt secondmate reply runner has no lease bound and is stopped only by the conditions listed above.
 The verified stop then runs within its own grace period.
 The lease age is compared in whole seconds, so the configured lease is honoured until that age reads one second past it.
 

@@ -1526,22 +1526,26 @@ start_owner_guard() {  # <source-id>
 # by the watcher's reconcile, so a home whose watcher died - while its session
 # sits idle with nothing to re-arm it - would otherwise lose every secondmate's
 # reply source one lease later, and with it the only path that secondmate's
-# status has to the parent. A source registered by the remote-reply adapter as
-# remote-reply-<id> is exempt from lease expiry while <id> is registered in the
-# home's data/secondmates.md, because that registration, not the watcher, is
-# what says the home still wants it. The state-root identity check still
-# applies, so a home that is gone still stops it, and retiring either the
-# source or the secondmate ends the exemption at the next check. A present
-# config/procevent-secondmate-lease-off, read on every check, turns the
-# exemption off (docs/configuration.md "Keep and guard the lease").
+# status has to the parent. A source is exempt from lease expiry only when its
+# whole registration is exactly the one the remote-reply adapter's arm writes
+# for remote-reply-<id> - that adapter's own `source <id>` command, beside this
+# script - and <id> is registered in the home's data/secondmates.md, because
+# that registration, not the watcher, is what says the home still wants it. A
+# lookalike name or adapter label around any other command keeps the lease.
+# The state-root identity check still applies, so a home that is gone still
+# stops it, and retiring either the source or the secondmate ends the
+# exemption at the next check. A present config/procevent-secondmate-lease-off,
+# read on every check, turns the exemption off (docs/configuration.md "Keep and
+# guard the lease").
 secondmate_reply_lease_exempt() {  # <source-id>
-  local id=$1 mate adapter source
+  local id=$1 mate source expected
   [ ! -e "${FM_CONFIG_OVERRIDE:-$FM_HOME/config}/procevent-secondmate-lease-off" ] || return 1
   case "$id" in remote-reply-?*) mate=${id#remote-reply-} ;; *) return 1 ;; esac
   source="$REG/$id.source"
   [ -f "$source" ] && [ ! -L "$source" ] || return 1
-  IFS= read -r adapter < "$source" || return 1
-  [ "$adapter" = adapter=remote-reply ] || return 1
+  expected=$(printf 'adapter=remote-reply\nargc=3\nargv:\n%s\nsource\n%s' \
+    "$SCRIPT_DIR/fm-procevent-remote-reply.sh" "$mate")
+  [ "$(cat "$source" 2>/dev/null)" = "$expected" ] || return 1
   secondmate_registry_line_for_id "${FM_DATA_OVERRIDE:-$FM_HOME/data}/secondmates.md" "$mate"
 }
 
