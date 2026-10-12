@@ -1,0 +1,16 @@
+== scenario live-other: demo lock held 25s; A=live-wait-r2 (demo, wait 60s); B=live-other-r1 (other project)
+holder: 15:00:54 took project lock /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-lab.G6mHub/state/.treehouse-project-5901a593eefe1d1bcff2e5df8cf3c31a44e9cb0b.lock for 25s
+A: 15:00:55 start
+B: 15:00:59 start (A still waiting: yes)
+B: fm-gate-refuse: gate agent lifecycle permitted only against lab home /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-lab.G6mHub
+B: 🌳 Setting up worktree...
+B: 🌳 Leased worktree at /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-lab.G6mHub/pool/.treehouse/other-862502/1/other. Run 'treehouse return /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-lab.G6mHub/pool/.treehouse/other-862502/1/other' to release it.
+B: spawned live-other-r1 harness=claude kind=scout window=primary:fm-live-other-r1 worktree=/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-lab.G6mHub/pool/.treehouse/other-862502/1/other
+B: 15:01:04 exit=0 elapsed=5s (holder alive: yes)
+holder: 15:01:19 released project lock
+A: fm-gate-refuse: gate agent lifecycle permitted only against lab home /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-lab.G6mHub
+A: 🌳 Setting up worktree...
+A: 🌳 Leased worktree at /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-lab.G6mHub/pool/.treehouse/demo-1c2808/2/demo. Run 'treehouse return /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-lab.G6mHub/pool/.treehouse/demo-1c2808/2/demo' to release it.
+A: spawned live-wait-r2 harness=claude kind=scout window=primary:fm-live-wait-r2 worktree=/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-lab.G6mHub/pool/.treehouse/demo-1c2808/2/demo
+A: 15:01:24 exit=0 elapsed=29s
+== done

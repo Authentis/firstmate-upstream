@@ -1,0 +1,5 @@
+ok - a fresh spawn waits for a live holder of the project lock, then starts
+ok - an expired bound keeps the exact refusal text and a non-zero status
+ok - a dead holder's project lock is reclaimed without waiting out the bound
+ok - a spawn for another project in the same home starts while one waits for its project lock
+# all fm-spawn-treehouse-lock-wait tests passed

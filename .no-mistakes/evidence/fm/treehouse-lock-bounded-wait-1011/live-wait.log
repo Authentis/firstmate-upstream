@@ -1,0 +1,10 @@
+== scenario live-wait: hold=8s FM_SPAWN_TREEHOUSE_LOCK_WAIT_SECS=60 TMUX=/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-lab.G6mHub/tmux/tmux-501/fm-lab,89782,0
+holder: 15:00:06 took project lock /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-lab.G6mHub/state/.treehouse-project-5901a593eefe1d1bcff2e5df8cf3c31a44e9cb0b.lock for 8s
+spawn: 15:00:07 bin/fm-spawn.sh live-wait-r1 projects/demo --scout
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-lab.G6mHub
+holder: 15:00:14 released project lock
+🌳 Setting up worktree...
+🌳 Leased worktree at /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-lab.G6mHub/pool/.treehouse/demo-1c2808/1/demo. Run 'treehouse return /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-lab.G6mHub/pool/.treehouse/demo-1c2808/1/demo' to release it.
+spawned live-wait-r1 harness=claude kind=scout window=primary:fm-live-wait-r1 worktree=/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-lab.G6mHub/pool/.treehouse/demo-1c2808/1/demo
+spawn: 15:00:20 exit=0 elapsed=13s
+== done

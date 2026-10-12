@@ -1,0 +1,10 @@
+== scenario live-dead: holder SIGKILLed while holding demo lock; FM_SPAWN_TREEHOUSE_LOCK_WAIT_SECS=60
+holder: 15:02:05 took project lock /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-lab.G6mHub/state/.treehouse-project-5901a593eefe1d1bcff2e5df8cf3c31a44e9cb0b.lock for 300s
+holder pid 70056 killed; lock record left: .treehouse-project-5901a593eefe1d1bcff2e5df8cf3c31a44e9cb0b.lock
+.treehouse-project-5901a593eefe1d1bcff2e5df8cf3c31a44e9cb0b.lock.owner.A632tD
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-lab.G6mHub
+🌳 Setting up worktree...
+🌳 Leased worktree at /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-lab.G6mHub/pool/.treehouse/demo-1c2808/4/demo. Run 'treehouse return /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-lab.G6mHub/pool/.treehouse/demo-1c2808/4/demo' to release it.
+spawned live-dead-r2 harness=claude kind=scout window=primary:fm-live-dead-r2 worktree=/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-lab.G6mHub/pool/.treehouse/demo-1c2808/4/demo
+spawn: exit=0 elapsed=6s
+== done

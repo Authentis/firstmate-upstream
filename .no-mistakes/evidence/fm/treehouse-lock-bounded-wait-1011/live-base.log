@@ -1,0 +1,6 @@
+== scenario live-base: hold=8s FM_SPAWN_TREEHOUSE_LOCK_WAIT_SECS=60 TMUX=/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-lab.G6mHub/tmux/tmux-501/fm-lab,89782,0
+holder: 15:01:32 took project lock /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-lab.G6mHub/state/.treehouse-project-5901a593eefe1d1bcff2e5df8cf3c31a44e9cb0b.lock for 8s
+spawn: 15:01:33 bin/fm-spawn.sh live-base-r1 projects/demo --scout
+error: another Treehouse slot allocation or return is in progress for /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-lab.G6mHub/projects/demo; refusing to race it
+spawn: 15:01:35 exit=1 elapsed=2s
+== done
