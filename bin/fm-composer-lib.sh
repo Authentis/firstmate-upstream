@@ -1701,6 +1701,15 @@ _fm_composer_row_is_composer_furniture() {  # <trimmed-row> <proof-glyph>
   [ -n "$proof" ] && [ "$glyph" != "$proof" ]
 }
 
+# _fm_composer_row_indent: the count of leading spaces of a raw row, with
+# Unicode whitespace read as spaces so the count is locale-independent.
+_fm_composer_row_indent() {  # <raw-row>
+  local r=$1 t
+  fm_composer_normalize_spaces_var r
+  t=${r#"${r%%[! ]*}"}
+  printf '%s' "$((${#r} - ${#t}))"
+}
+
 # _fm_composer_locate_footer_zone: THE composer footer zone of <plain> (see THE
 # COMPOSER FOOTER ZONE in this file's header). Records the bottom-most
 # glyph-PROVEN envelope in FM_COMPOSER_FOOTER_AFTER (its closing row, including
@@ -1717,7 +1726,7 @@ _fm_composer_row_is_composer_furniture() {  # <trimmed-row> <proof-glyph>
 # when no envelope is glyph-proven, when a blank row sits directly beneath it,
 # or when the run holds no bare candidate at all (nothing to demote).
 _fm_composer_locate_footer_zone() {  # <plain>
-  local plain=$1 close next trimmed proof=''
+  local plain=$1 close next trimmed proof='' raw glyph glyph_indent popup=0
   FM_COMPOSER_FOOTER_AFTER=-1
   FM_COMPOSER_FOOTER_GLYPH=-1
   FM_COMPOSER_FOOTER_LAST=-1
@@ -1753,11 +1762,27 @@ _fm_composer_locate_footer_zone() {  # <plain>
   [ "$FM_COMPOSER_SCAN_BARE_ROW" -gt "$FM_COMPOSER_FOOTER_AFTER" ] || return 1
   FM_COMPOSER_FOOTER_LAST=$FM_COMPOSER_FOOTER_AFTER
   next=$((FM_COMPOSER_FOOTER_AFTER + 1))
+  glyph_indent=$(_fm_composer_row_indent "$(_fm_composer_screen_row "$FM_COMPOSER_FOOTER_GLYPH" "$plain")")
   while :; do
-    trimmed=$(_fm_composer_screen_row "$next" "$plain")
+    raw=$(_fm_composer_screen_row "$next" "$plain")
+    trimmed=$raw
     fm_composer_normalize_trim_var trimmed
     [ -n "$trimmed" ] || break
-    _fm_composer_row_is_composer_furniture "$trimmed" "$proof" || return 1
+    # A slash-command menu drawn directly under the envelope selects its row
+    # with the proving glyph, indented deeper than the composer's own glyph
+    # row, and indents every row of the menu (Claude Code 2.1.296: `  ❯ /exit`
+    # over the command list). The rows are the menu's furniture, not a second
+    # composer, so the envelope's glyph row stays the composer.
+    if [ "$popup" = 1 ]; then
+      [ "$(_fm_composer_row_indent "$raw")" -gt "$glyph_indent" ] || return 1
+    elif [ "$next" -eq "$((FM_COMPOSER_FOOTER_AFTER + 1))" ] \
+         && [ "$(_fm_composer_row_indent "$raw")" -gt "$glyph_indent" ] \
+         && fm_composer_leading_agent_glyph_var glyph "$trimmed" \
+         && [ "$glyph" = "$proof" ]; then
+      popup=1
+    else
+      _fm_composer_row_is_composer_furniture "$trimmed" "$proof" || return 1
+    fi
     FM_COMPOSER_FOOTER_LAST=$next
     next=$((next + 1))
   done

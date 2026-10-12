@@ -171,6 +171,31 @@ assert_screen() {
   [ "$out" = "$want" ] || fail "$label under LC_ALL=C: expected $want, got '$out'"
 }
 
+test_matrix_claude_slash_menu_row_is_not_the_composer() {
+  # Real capture, claude 2.1.296, /exit typed and not submitted. The composer is
+  # `❯`+NBSP+`/exit` between two rules; the slash menu below draws its selected
+  # row as an indented `❯ /exit` over the command list. That row used to win as
+  # the bare composer, so the extracted content was `/exit` plus the whole menu
+  # and the post-send payload proof refused a payload that had landed.
+  local fx=$ROOT/tests/fixtures/send-guard styled plain out screen
+  styled=$(cat "$fx/claude296-slash-menu.ansi")
+  plain=$(cat "$fx/claude296-slash-menu.plain")
+  out=$(FM_COMPOSER_GHOST_LUMA_MAX=0 fm_composer_extract_selected_content "$CAPS_STYLED" "$styled")
+  [ "$out" = '/exit' ] || fail "styled slash-menu capture should extract only the typed /exit, got '$out'"
+  out=$(LC_ALL=C fm_composer_extract_selected_content "$CAPS_PLAIN" "$plain")
+  [ "$out" = '/exit' ] || fail "plain slash-menu capture should extract only the typed /exit under LC_ALL=C, got '$out'"
+  assert_screen "claude 2.1.296 typed /exit with slash menu" pending "$CAPS_STYLED" "$styled" '' "$(printf 'claude\tidle')"
+  # The same menu over an EMPTY composer must not make the composer read typed.
+  screen=$'transcript\n────────────────────────\n❯'"$NBSP"$'\n────────────────────────\n  ❯ /exit        Exit the CLI\n    /context       Visualize context'
+  out=$(fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen")
+  [ -z "$out" ] || fail "an empty composer over a slash menu should extract nothing, got '$out'"
+  # A same-glyph row at the composer's own column under the pair is still a live composer.
+  screen=$'transcript\n────────────────────────\n❯'"$NBSP"$'\n────────────────────────\n❯ half typed draft'
+  out=$(fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen")
+  [ "$out" = 'half typed draft' ] || fail "an unindented glyph row below the pair must stay the composer, got '$out'"
+  pass "matrix: claude 2.1.296's indented slash-menu selection row is menu furniture, never the composer"
+}
+
 test_matrix_claude_bare_nbsp_row() {
   # Real idle claude: `❯` + U+00A0, borderless, between horizontal rules.
   # The audit's headline defect: this row read `pending` under LC_ALL=C
@@ -1261,6 +1286,7 @@ test_opencode_keybind_hint_below_floor
 test_matrix_grok_titled_bottom_border
 test_matrix_claude_titled_top_rule
 test_matrix_live_idle_prompts_read_cursorless
+test_matrix_claude_slash_menu_row_is_not_the_composer
 test_matrix_kimi_bordered_shell_glyph_box
 test_matrix_claude_inside_zellij_ansi_dump
 test_strict_blank_row_divergence
