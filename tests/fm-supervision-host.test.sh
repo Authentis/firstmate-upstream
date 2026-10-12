@@ -1323,6 +1323,42 @@ test_claude_stop_hook_restores_handoff_when_successor_closed_mid_engine_turn() {
   pass "host+hook: a successor that closes during a held engine turn does not suppress the branch-outcome rewake"
 }
 
+# The live outage (2026-10-12): a wake queued before the host's handling handoff
+# was surfaced by the handling successor without a new append, so the marker
+# still read handling when that close passed through to main as main-only. The
+# Stop hook refused the rewake and, with the pass-through's successor healthy,
+# exited 0 in silence: an idle primary was never woken, and the successor's own
+# later close reached no reader.
+test_claude_stop_hook_delivers_a_main_only_pass_through_after_a_handled_wake() {
+  local home successor
+  home=$(make_primary_home hook-main-only-after-handled)
+  ln -s "$ROOT/.agents" "$home/.agents"
+  echo held > "$home/stub-mode"
+  mkfifo "$home/stub-release"
+  start_hook_session "$home"
+  turn_end "$home"
+  wait_until 150 watcher_live "$home" || fail "after handled: the Stop hook never started a watcher cycle"
+  append_status "$home" 'first actionable wake'
+  wait_until 250 test -s "$home/stub-ready" || fail "after handled: the engine did not reach its hold: $(cat "$home/state/.supervision-host.log" 2>/dev/null)"
+  successor=$(cat "$home/state/.watch.lock/pid")
+  append_status "$home" 'which export format?' needs-decision
+  wait_until 250 bash -c '! kill -0 "$1" 2>/dev/null' _ "$successor" \
+    || fail "after handled: the handling successor did not close during the engine turn"
+  FM_HOME="$home" bash -c '. "$1"; fm_recovery_marker_begin_handling "$2"' _ \
+    "$ROOT/bin/fm-wake-lib.sh" "$home/state/.watcher-down" \
+    || fail "fixture: could not model the wake queued before the handling handoff"
+  assert_re '^pending:handling:' "$home/state/.watcher-down" \
+    "fixture: the marker must read handling when the main-only close passes through"
+  printf 'continue\n' > "$home/stub-release"
+  wait_until 250 hook_exited "$home" || fail "after handled: the Stop hook never closed: $(cat "$home/state/.supervision-host.log")"
+  assert_re '	handled	' "$home/state/.supervision-host.log" "fixture: the first wake was not handled on the engine"
+  assert_re '	pass-through	attended	main-only	signal:' "$home/state/.supervision-host.log" "fixture: the second close was not a main-only pass-through"
+  assert_rewoke_main "$home" "after handled"
+  assert_re '^signal: .*demo.status' "$home/hook.err" "the rewake must carry the close"
+  watcher_live "$home" || fail "after handled: the pass-through left no successor watcher"
+  pass "host+hook: a main-only pass-through after a handled wake rewakes main even when the marker read handling"
+}
+
 # The live repro (2026-09-28): a quiet record live with no daemon flag parked a
 # present Claude captain, whose worker's captain outcomes waited for a return.
 # Through the real Stop hook the outcome now rewakes main, with no away note.
@@ -2986,6 +3022,7 @@ test_attended_close_with_unidentified_main_session_passes_to_main
 test_close_accepted_away_that_turns_attended_passes_to_main
 test_attended_close_that_turns_main_only_before_its_turn_passes_to_main
 test_claude_stop_hook_delivers_a_main_only_pass_through
+test_claude_stop_hook_delivers_a_main_only_pass_through_after_a_handled_wake
 test_claude_stop_hook_rewakes_a_present_captain_beside_a_quiet_record
 test_claude_stop_hook_runs_the_host_without_the_file_and_off_opts_out
 test_claude_stop_hook_delivers_a_close_that_turns_main_only_at_its_turn

@@ -52,13 +52,14 @@
 #     that is unsafe or holds nothing for the branch) stay main's. That
 #     pass-through starts the successor watcher cycle and leaves it running
 #     before the close is printed, so supervision continues when the session
-#     drops the handoff. It confirms no handling handoff, so the recovery
-#     marker still reads downtime and the re-arm owner delivers the close to
-#     main. The host records that successor's arm before relinquishing it
-#     (detach_successor owns the persistence check and failure path). The
-#     session's next park without --restart requests a take-over of its cycle
-#     rather than an ordinary attach; bin/fm-watch-arm.sh's --take-over header owns the
-#     conditions under which that restores a single owner and the fallback;
+#     drops the handoff. It publishes downtime on the recovery marker and
+#     confirms no handling handoff, so the re-arm owner delivers the close to
+#     main (hand_downtime_to_main). The host records that successor's arm
+#     before relinquishing it (detach_successor owns the persistence check
+#     and failure path). The session's next park without --restart requests
+#     a take-over of its cycle rather than an ordinary attach;
+#     bin/fm-watch-arm.sh's --take-over header owns the conditions under
+#     which that restores a single owner and the fallback;
 #   - away (an away record exists): every close goes to the engine.
 # Every turn that starts attended meets that rule again at its start, so a
 # close accepted away whose turn starts attended (the captain returned in
@@ -727,11 +728,24 @@ detach_successor() {
   SUCCESSOR_PID=
 }
 
+# Main, not the engine, handles an attended pass-through, and the re-arm owner
+# delivers it only while the recovery marker reads downtime (autoarm_commit in
+# bin/fm-claude-stop-autoarm.sh). Publishing is required, not just harmless: a
+# close surfaced from a row queued before an earlier close's handling handoff
+# appends nothing, so the marker can still read that handoff's handling, and
+# the re-arm owner would then drop the close in silence beside a healthy
+# successor. A failed publish returns 1, and the caller then leaves no
+# successor, so the re-arm owner's lost hand-back notice still reaches main.
+hand_downtime_to_main() {
+  fm_recovery_marker_publish "$STATE/.watcher-down" downtime >/dev/null 2>&1 && return 0
+  log_line "pass-through	downtime-unrestored	$(printf '%s\n' "$REASON" | head -n 1)"
+  return 1
+}
+
 # Start the same successor a handled wake starts and leave it running. It
-# confirms no handling handoff: main, not the engine, handles this close, and
-# the re-arm owner delivers it only while the recovery marker still reads
-# downtime (autoarm_commit in bin/fm-claude-stop-autoarm.sh). A failed start
-# returns 1; the caller still prints the close unchanged.
+# confirms no handling handoff, so the marker hand_downtime_to_main published
+# still reads downtime. A failed start returns 1; the caller still prints the
+# close unchanged.
 leave_successor_for_main() {
   if ! ARM_OWN_GROUP=1 start_successor "$CLOSED_ARM_PID"; then
     log_line "pass-through	successor-unverified	$(printf '%s\n' "$REASON" | head -n 1)"
@@ -1119,7 +1133,7 @@ while :; do
   if ! fm_afk_contract_away_present "$STATE"; then
     if ! attended_acceptor "$(printf '%s\n' "$REASON" | head -n 1)"; then
       log_line "pass-through	attended	$ATTENDED_WHY	$(printf '%s\n' "$REASON" | head -n 1)"
-      if [ "$ATTENDED_WHY" = main-only ]; then
+      if hand_downtime_to_main && [ "$ATTENDED_WHY" = main-only ]; then
         leave_successor_for_main || true
       fi
       emit

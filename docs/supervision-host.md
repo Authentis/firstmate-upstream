@@ -111,7 +111,8 @@ While the wake fold is active, the rows it records in `state/.wake-fold` (the ho
 `config/wake-fold` set to `off`, or any away or quiet record, restores the unfolded offer rule exactly; [`bin/fm-wake-fold-lib.sh`](../bin/fm-wake-fold-lib.sh) owns the fold and `scopeForUnreadWake` owns the rule.
 On that main-only pass-through the host starts the successor watcher cycle and leaves it running, then prints the close unchanged.
 That successor, like one a turn hands back at its start (see [Away](#away)), runs in a process group of its own, so the harness tearing down the hook's group after the rewake does not stop it.
-The host leaves the watcher's recovery marker reading downtime, confirming no handling handoff, because the re-arm owner delivers a close to main only while that marker reads downtime.
+The host publishes downtime on the watcher's recovery marker and confirms no handling handoff, because the re-arm owner delivers a close to main only while that marker reads downtime.
+Publishing is required on every attended pass-through: a close surfaced from a row queued before an earlier close's handling handoff appends nothing, so without it the marker still reads that handoff's handling and the re-arm owner drops the close beside a healthy successor.
 The session's next park without `--restart` requests a take-over to restore a single host-owned arm; the [host header](../bin/fm-supervision-host.sh) owns successor persistence and cleanup, and the [arm header](../bin/fm-watch-arm.sh) owns take-over eligibility and fallback.
 OpenCode and omp still launch the host with `--restart`, which takes precedence over recorded take-over and lacks its acknowledgement-preserving handover; changing that first-cycle path remains a follow-up.
 The host-off Claude Stop hook's detached handling successor is also unchanged; see [Claude handling successor](watcher-continuity.md#claude-handling-successor).
