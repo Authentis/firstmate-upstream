@@ -1777,6 +1777,14 @@ if [ "$RELAUNCH" -eq 1 ]; then
     exit 1
   fi
 fi
+resolve_project_dir_arg() {
+  local path=$1
+  case "$path" in
+  projects/*) printf '%s/%s\n' "$PROJECTS" "${path#projects/}" ;;
+  *) printf '%s\n' "$path" ;;
+  esac
+}
+
 if [ "$RELAUNCH" -eq 0 ]; then
   mkdir -p "$STATE" || {
     echo "error: could not create parent state directory" >&2
@@ -1786,6 +1794,50 @@ if [ "$RELAUNCH" -eq 0 ]; then
     echo "error: spawn refused: $FM_BACKLOG_TRANSITION_ERROR" >&2
     exit 1
   }
+  # A teardown or return holds the shared Treehouse project lock only briefly,
+  # so a fresh Treehouse-backed spawn waits a bounded time for it to read free
+  # instead of refusing on the first contention. The wait runs here, before the
+  # task-set lock below, so it never keeps other fresh spawns or a forced
+  # teardown of this home out for its duration. Each probe is the full
+  # fm_lock_try_acquire released at once, so a dead holder is still reclaimed
+  # immediately and never waited on. The project lock itself is taken later with
+  # a single try under this spawn's own locks, and losing that narrow race keeps
+  # the refusal. The orca capacity admission keeps its single try.
+  if [ "$KIND" != secondmate ]; then
+    if [ "$BACKEND_SET" -eq 1 ]; then
+      SPAWN_LOCK_BACKEND=$BACKEND_ARG
+    else
+      SPAWN_LOCK_BACKEND=$(fm_backend_name 2>/dev/null) || SPAWN_LOCK_BACKEND=
+    fi
+    SPAWN_LOCK_PROJ=$(resolve_project_dir_arg "${POS[1]:-}")
+    if [ "$SPAWN_LOCK_BACKEND" != orca ] &&
+      SPAWN_LOCK_PROBE=$(fm_treehouse_project_lock_path "$SPAWN_LOCK_PROJ" 2>/dev/null); then
+      SPAWN_LOCK_WAIT=${FM_SPAWN_TREEHOUSE_LOCK_WAIT_SECS:-120}
+      case "$SPAWN_LOCK_WAIT" in ''|*[!0-9]*) SPAWN_LOCK_WAIT=120 ;; esac
+      [ "${#SPAWN_LOCK_WAIT}" -le 4 ] || SPAWN_LOCK_WAIT=120
+      SPAWN_LOCK_WAIT=$((10#$SPAWN_LOCK_WAIT))
+      [ "$SPAWN_LOCK_WAIT" -le 900 ] || SPAWN_LOCK_WAIT=900
+      SPAWN_LOCK_POLL=${FM_SPAWN_TREEHOUSE_LOCK_POLL_SECS:-0.5}
+      case "$SPAWN_LOCK_POLL" in ''|*[!0-9.]*|*.*.*) SPAWN_LOCK_POLL=0.5 ;; esac
+      [ -n "${SPAWN_LOCK_POLL//[0.]/}" ] || SPAWN_LOCK_POLL=0.5
+      SPAWN_LOCK_POLL_INT=${SPAWN_LOCK_POLL%%.*}
+      SPAWN_LOCK_DEADLINE=$((SECONDS + SPAWN_LOCK_WAIT))
+      while ! fm_lock_try_acquire "$SPAWN_LOCK_PROBE"; do
+        SPAWN_LOCK_LEFT=$((SPAWN_LOCK_DEADLINE - SECONDS))
+        if [ "$SPAWN_LOCK_LEFT" -le 0 ]; then
+          echo "error: another Treehouse slot allocation or return is in progress for $(cd "$SPAWN_LOCK_PROJ" && pwd); refusing to race it" >&2
+          exit 1
+        fi
+        if [ "${#SPAWN_LOCK_POLL_INT}" -gt 4 ] ||
+          [ "$((10#${SPAWN_LOCK_POLL_INT:-0}))" -ge "$SPAWN_LOCK_LEFT" ]; then
+          sleep "$SPAWN_LOCK_LEFT"
+        else
+          sleep "$SPAWN_LOCK_POLL"
+        fi
+      done
+      fm_lock_release "$SPAWN_LOCK_PROBE"
+    fi
+  fi
   # A FRESH spawn changes which tasks this home has, so it must not interleave
   # with a forced teardown that has already enumerated that set: a record
   # published inside the enumerate-then-remove window is invisible to the
@@ -3076,14 +3128,6 @@ resolved_existing_dir() {
     return 1
   }
   cd "$path" && pwd -P
-}
-
-resolve_project_dir_arg() {
-  local path=$1
-  case "$path" in
-  projects/*) printf '%s/%s\n' "$PROJECTS" "${path#projects/}" ;;
-  *) printf '%s\n' "$path" ;;
-  esac
 }
 
 path_is_ancestor_of() {

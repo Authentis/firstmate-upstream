@@ -2570,6 +2570,7 @@ FM_WATCH_TRIAGE_LOG_MAX_BYTES=262144   # size cap for the watcher's absorbed-wak
 FM_FLEET_SYNC_BOOTSTRAP_TIMEOUT=     # optional seconds allowed for bootstrap's best-effort clone refresh; unset/blank defaults to max(20, 5 + 3 * origin-backed-project-count)
 FM_FLEET_PRUNE=1        # set to 0 to skip pruning local branches whose upstream is gone
 FM_STALE_WORKTREE_LOCK_AGE_SECS=30       # min mtime age before fm-teardown.sh treats a leftover worktree git index.lock as provably stale
+FM_SPAWN_TREEHOUSE_LOCK_WAIT_SECS=120     # seconds a fresh Treehouse-backed fm-spawn.sh waits, before taking the home's task-set lock, for the shared project lock to read free; once the bound expires it refuses as in progress; 0 means a single probe, a non-integer value uses 120, and values above 900 are capped; FM_SPAWN_TREEHOUSE_LOCK_POLL_SECS=0.5 sets the sleep between probes (a zero or non-numeric value uses 0.5, and no sleep runs past the bound)
 FM_TREEHOUSE_RETURN_LOCK_RETRIES=3        # retries after a treehouse return fails on the transient git index.lock signature
 FM_TREEHOUSE_RETURN_LOCK_RETRY_WAIT_SECS=1 # seconds fm-teardown.sh waits before each retry after that signature
 FM_STALE_WORKTREE_LOCK_RETRY_WAIT_SECS=   # legacy alias for FM_TREEHOUSE_RETURN_LOCK_RETRY_WAIT_SECS when the new variable is unset
