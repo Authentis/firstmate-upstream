@@ -1820,7 +1820,7 @@ _fm_composer_slash_menu_block_coherent() {  # <plain> <entries> <first-name>
 # when no envelope is glyph-proven, when a blank row sits directly beneath it,
 # or when the run holds no bare candidate at all (nothing to demote).
 _fm_composer_locate_footer_zone() {  # <plain>
-  local plain=$1 close next raw trimmed proof='' menu_col=-1 menu_grid=-1 menu_entries=0 menu_selected=0 menu_name=''
+  local plain=$1 close next raw trimmed proof='' menu_col=-1 menu_grid=-1 menu_entries=0 menu_ended=0 menu_selected=0 menu_name=''
   FM_COMPOSER_FOOTER_AFTER=-1
   FM_COMPOSER_FOOTER_GLYPH=-1
   FM_COMPOSER_FOOTER_LAST=-1
@@ -1863,7 +1863,11 @@ _fm_composer_locate_footer_zone() {  # <plain>
     [ -n "$trimmed" ] || break
     if _fm_composer_row_is_composer_furniture "$trimmed" "$proof"; then
       menu_col=-1
+      [ "$menu_entries" -eq 0 ] || menu_ended=1
     elif _fm_composer_slash_menu_row "$raw" "$proof" "$menu_col"; then
+      # A menu is one contiguous block: a furniture row inside it ends it, and
+      # menu-shaped rows after that are a second block that proves nothing.
+      [ "$menu_ended" = 0 ] || return 1
       if [ "$FM_COMPOSER_MENU_ROW_KIND" = entry ]; then
         # One menu is one grid and has one selection; a second description
         # column or a second selected row is a second composer.

@@ -290,6 +290,15 @@ test_matrix_indented_live_draft_under_the_pair_is_not_menu_furniture() {
   screen=$'transcript\n'"$rule"$'\n❯ /ex\n'"$rule"$'\n  ❯ /exit      Exit the CLI\n    /extra         Something else'
   out=$(fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen")
   case "$out" in *'/extra'*) ;; *) fail "misaligned entries must not be read as one menu, got '$out'" ;; esac
+  # Entries split by furniture are two blocks, not one menu: neither stands, so
+  # both payload rows stay content.
+  screen=$'transcript\n'"$rule"$'\n❯ /context\n'"$rule"$'\n  ❯ /exit  actual payload\n  ⏵⏵ bypass permissions on (shift+tab to cycle)\n    /help  more payload'
+  out=$(fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen")
+  case "$out" in *'actual payload'*'more payload'*) ;; *) fail "entries split by the mode hint must not be read as one menu, got '$out'" ;; esac
+  out=$(LC_ALL=C fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen")
+  case "$out" in *'actual payload'*'more payload'*) ;; *) fail "entries split by the mode hint must keep both payloads under LC_ALL=C, got '$out'" ;; esac
+  out=$(fm_composer_classify_screen "$CAPS_STYLED" "$screen" '' "$claude_idle")
+  [ "$out" != empty ] || fail "entries split by the mode hint must never read empty"
   # A continuation not at the entries' description column is not a wrap.
   screen=$'transcript\n'"$rule"$'\n❯ /ex\n'"$rule"$'\n  ❯ /exit      Exit the CLI\n                          stray words'
   out=$(fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen")
