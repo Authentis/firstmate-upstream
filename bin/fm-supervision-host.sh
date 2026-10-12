@@ -737,11 +737,13 @@ detach_successor() {
 # successor. Only the handoff this host confirmed (SUCCESSOR_GENERATION, still
 # set from the handled close whose successor delivered this one) is handed
 # back; a marker of any other generation belongs to another owner and is left
-# as it is (fm_recovery_marker_restore_downtime). A failed restore returns 1,
-# and the caller then leaves no successor and adds a "supervision-host:" line,
-# so the re-arm owner's lost hand-back notice reaches main. That notice needs a
-# readable handling marker: a marker the hook cannot read or parse still ends
-# in a silent exit 0 there, a known limit of the re-arm owner, not of this host.
+# as it is (fm_recovery_marker_restore_downtime). An absent or unparseable
+# marker is no episode to restore, so the main-only successor still starts and
+# its arm transition repairs the marker before the re-arm owner reads it. A
+# failed restore (lock or write failure, or a marker that is not a regular
+# file) returns 1, and the caller then leaves no successor and adds a
+# "supervision-host:" line, so the re-arm owner's lost hand-back notice reaches
+# main while the marker still reads handling.
 hand_downtime_to_main() {
   fm_recovery_marker_restore_downtime "$STATE/.watcher-down" "$SUCCESSOR_GENERATION" \
     >/dev/null 2>&1 && return 0

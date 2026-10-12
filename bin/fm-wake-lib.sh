@@ -1109,16 +1109,22 @@ fm_recovery_marker_handover_restore() {  # <marker> <snapshot-token> <snapshot-s
 # Hand one confirmed handling episode back to downtime, and only that one: a
 # pending or announced handling marker of <generation> becomes
 # pending:downtime:<generation>. Any other generation or state is left as it
-# is, so a caller can never rewrite an episode it did not hand off. Fails only
-# when the marker cannot be locked, read, or written.
+# is, so a caller can never rewrite an episode it did not hand off. An absent
+# marker or an unparseable regular file holds no episode of that generation
+# either, so it is left for the next arm transition to repair. Fails only when
+# the marker cannot be locked or written, or is neither absent nor a regular
+# file.
 fm_recovery_marker_restore_downtime() {  # <marker> <generation>
   local marker=$1 generation=$2 lock status=0
   [ -n "$generation" ] || return 0
   lock="${marker}.lock"
   fm_lock_acquire_wait "$lock" || return 1
   if ! fm_recovery_marker_read "$marker"; then
+    if [ -L "$marker" ] || { [ -e "$marker" ] && [ ! -f "$marker" ]; }; then
+      status=1
+    fi
     fm_lock_release "$lock"
-    return 1
+    return "$status"
   fi
   case "$FM_RECOVERY_MARKER_TOKEN" in
     pending:handling:"$generation"|announced:handling:"$generation")

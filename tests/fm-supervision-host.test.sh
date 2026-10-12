@@ -1359,6 +1359,45 @@ test_claude_stop_hook_delivers_a_main_only_pass_through_after_a_handled_wake() {
   pass "host+hook: a main-only pass-through after a handled wake rewakes main even when the marker read handling"
 }
 
+# The recovery marker went missing or unparseable after a handled wake: there is
+# no episode to hand back, so the main-only pass-through still leaves its
+# successor, whose arm transition repairs the marker, and main is rewoken.
+assert_main_only_pass_through_survives_a_lost_marker() {  # <absent|malformed>
+  local home successor
+  home=$(make_primary_home "hook-main-only-marker-$1")
+  ln -s "$ROOT/.agents" "$home/.agents"
+  echo held > "$home/stub-mode"
+  mkfifo "$home/stub-release"
+  start_hook_session "$home"
+  turn_end "$home"
+  wait_until 150 watcher_live "$home" || fail "marker $1: the Stop hook never started a watcher cycle"
+  append_status "$home" 'first actionable wake'
+  wait_until 250 test -s "$home/stub-ready" || fail "marker $1: the engine did not reach its hold: $(cat "$home/state/.supervision-host.log" 2>/dev/null)"
+  successor=$(cat "$home/state/.watch.lock/pid")
+  append_status "$home" 'which export format?' needs-decision
+  wait_until 250 bash -c '! kill -0 "$1" 2>/dev/null' _ "$successor" \
+    || fail "marker $1: the handling successor did not close during the engine turn"
+  case "$1" in
+    absent) rm -f "$home/state/.watcher-down" ;;
+    malformed) printf 'invalid\n' > "$home/state/.watcher-down" ;;
+  esac
+  printf 'continue\n' > "$home/stub-release"
+  wait_until 250 hook_exited "$home" || fail "marker $1: the Stop hook never closed: $(cat "$home/state/.supervision-host.log")"
+  assert_re '	pass-through	attended	main-only	signal:' "$home/state/.supervision-host.log" "fixture: the second close was not a main-only pass-through"
+  assert_rewoke_main "$home" "marker $1"
+  watcher_live "$home" || fail "marker $1: the pass-through left no successor watcher"
+}
+
+test_claude_stop_hook_delivers_a_main_only_pass_through_with_an_absent_marker() {
+  assert_main_only_pass_through_survives_a_lost_marker absent
+  pass "host+hook: a main-only pass-through after a handled wake rewakes main when the marker is absent"
+}
+
+test_claude_stop_hook_delivers_a_main_only_pass_through_with_a_malformed_marker() {
+  assert_main_only_pass_through_survives_a_lost_marker malformed
+  pass "host+hook: a main-only pass-through after a handled wake rewakes main when the marker is malformed"
+}
+
 # A host whose auto-arm generation was superseded during a held engine turn
 # must not hand the next main-only close back by rewriting the marker of the
 # generation that now owns supervision, nor arm a successor beside that owner.
@@ -3061,6 +3100,8 @@ test_attended_close_that_turns_main_only_before_its_turn_passes_to_main
 test_claude_stop_hook_delivers_a_main_only_pass_through
 test_claude_stop_hook_delivers_a_main_only_pass_through_after_a_handled_wake
 test_superseded_host_pass_through_leaves_the_new_generation_alone
+test_claude_stop_hook_delivers_a_main_only_pass_through_with_an_absent_marker
+test_claude_stop_hook_delivers_a_main_only_pass_through_with_a_malformed_marker
 test_claude_stop_hook_rewakes_a_present_captain_beside_a_quiet_record
 test_claude_stop_hook_runs_the_host_without_the_file_and_off_opts_out
 test_claude_stop_hook_delivers_a_close_that_turns_main_only_at_its_turn
