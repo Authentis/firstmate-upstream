@@ -3292,7 +3292,32 @@ if [ "$RELAUNCH" -eq 0 ] && [ "$KIND" != secondmate ] &&
     echo "error: could not resolve the shared Treehouse project lock for $PROJ_ABS" >&2
     exit 1
   }
-  if ! fm_lock_try_acquire "$SPAWN_TREEHOUSE_PROJECT_LOCK"; then
+  # A teardown or return holds this lock only briefly, so a fresh Treehouse-backed
+  # spawn polls for a bounded time and then makes one final try instead of
+  # refusing on the first contention. Each try is the full fm_lock_try_acquire,
+  # so a dead holder is still reclaimed immediately and never waited on. The
+  # orca capacity admission keeps its single try.
+  SPAWN_LOCK_WAIT=${FM_SPAWN_TREEHOUSE_LOCK_WAIT_SECS:-120}
+  case "$SPAWN_LOCK_WAIT" in ''|*[!0-9]*) SPAWN_LOCK_WAIT=120 ;; esac
+  [ "${#SPAWN_LOCK_WAIT}" -le 4 ] || SPAWN_LOCK_WAIT=120
+  SPAWN_LOCK_WAIT=$((10#$SPAWN_LOCK_WAIT))
+  [ "$SPAWN_LOCK_WAIT" -le 900 ] || SPAWN_LOCK_WAIT=900
+  SPAWN_LOCK_POLL=${FM_SPAWN_TREEHOUSE_LOCK_POLL_SECS:-0.5}
+  case "$SPAWN_LOCK_POLL" in
+    ''|*[!0-9.]*|*.*.*|.|0|0.0) SPAWN_LOCK_POLL=0.5 ;;
+  esac
+  [ "$BACKEND" != orca ] || SPAWN_LOCK_WAIT=0
+  SPAWN_LOCK_DEADLINE=$((SECONDS + SPAWN_LOCK_WAIT))
+  SPAWN_LOCK_ACQUIRED=0
+  while :; do
+    if fm_lock_try_acquire "$SPAWN_TREEHOUSE_PROJECT_LOCK"; then
+      SPAWN_LOCK_ACQUIRED=1
+      break
+    fi
+    [ "$SECONDS" -lt "$SPAWN_LOCK_DEADLINE" ] || break
+    sleep "$SPAWN_LOCK_POLL"
+  done
+  if [ "$SPAWN_LOCK_ACQUIRED" -ne 1 ]; then
     if [ "$BACKEND" = orca ]; then
       echo "error: another spawn or cleanup holds the shared project lock for $PROJ_ABS; refusing to race its capacity admission" >&2
     else
