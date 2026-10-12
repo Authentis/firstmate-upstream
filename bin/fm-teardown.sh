@@ -296,6 +296,19 @@
 #     roots are unique per task and never
 #     shared, so this can never reach another task's or the primary's
 #     processes. Idempotent: nothing left to find is a silent no-op.
+#   Custody - refuse while the pipeline holds this copy's branch custody. A
+#     finished lane's run can end with fix commits only in no-mistakes' own
+#     gate repository, the branch still pipeline-held
+#     (branch_sync.next_action.code recover_custody), and the cleanup below
+#     deletes the branch: the unpublished fixes would be stranded (observed
+#     2026-10-11: custody resets needed a manual ruling).
+#     refuse_branch_custody_held runs after Fix 1 and Fix 2, only when the
+#     structured status names THIS branch, reports this copy's HEAD as its
+#     local head, and offers recover_custody. `axi sync` has no run selector,
+#     so teardown never runs it; it refuses with the exact manual command
+#     (`cd <worktree, shell-quoted> && no-mistakes axi sync --recover`) and
+#     deletes nothing, --force included. Retrying after the custody is
+#     returned proceeds through the ordinary landed-work proofs above.
 #   Fix 3 - sweep abandoned remote job workers. A remote job worker started
 #     from a worktree's own bin/ outlives that worktree's removal without
 #     being reachable by Fix 2, because its working directory is wherever it
@@ -2205,6 +2218,37 @@ conclude_task_no_mistakes_run() {  # <worktree>
   return 1
 }
 
+# Custody step (see script header): a finished lane must not be cleaned up
+# while the pipeline still holds the branch custody for this copy, because the
+# fix commits the pipeline made in its own gate repository are not here and
+# deleting the branch would strand them. The structured status must name THIS
+# branch, report this copy's own HEAD as the local head, and offer
+# recover_custody as its next action. `axi sync` has no run selector
+# (no-mistakes axi sync --help), so a teardown that ran it could act on a run
+# other than the one it just checked; it never runs the sync. It refuses with
+# the exact manual command instead and deletes nothing. --force does not lift
+# it: it authorizes discarding this lane's own earlier work, not the
+# pipeline's unpublished fix commits.
+refuse_branch_custody_held() {  # <worktree>
+  local wt=$1 out branch run_id run_branch local_head wt_head
+  [ "$KIND" = ship ] || return 0
+  [ -d "$wt" ] || return 0
+  command -v no-mistakes >/dev/null 2>&1 || return 0
+  branch=$(git -C "$wt" symbolic-ref --quiet --short HEAD 2>/dev/null) || return 0
+  [ -n "$branch" ] || return 0
+  wt_head=$(git -C "$wt" rev-parse HEAD 2>/dev/null) || return 0
+  out=$(fm_nm_run "$wt" "$NM_TEARDOWN_TIMEOUT" axi status)
+  [ "$(fm_nm_branch_sync_nested "$out" next_action code)" = recover_custody ] || return 0
+  run_id=$(fm_nm_strip_quotes "$(fm_nm_field "$out" id)")
+  run_branch=$(fm_nm_strip_quotes "$(fm_nm_field "$out" branch)")
+  [ -n "$run_id" ] && [ "$run_branch" = "$branch" ] || return 0
+  local_head=$(fm_nm_branch_sync_nested "$out" local head)
+  [ -n "$local_head" ] && [ "$(fm_nm_resolve_commit "$wt" "$local_head")" = "$wt_head" ] || return 0
+  echo "REFUSED: no-mistakes run $run_id still holds the branch custody for $ID (next action recover_custody): the pipeline's fix commits are not in this copy, and cleaning it up would strand them. Teardown does not run the sync itself, because axi sync cannot be bound to this run; nothing was deleted." >&2
+  echo "Recover the custody by hand, then retry teardown:  cd $(printf '%q' "$wt") && no-mistakes axi sync --recover" >&2
+  return 1
+}
+
 # Fix 2 (see script header): pids of every process whose CURRENT WORKING
 # DIRECTORY is exactly $1 or under it, from one bounded system-wide `lsof -a
 # -d cwd` scan (never the recursive +D file-tree walk, which lsof itself
@@ -3688,15 +3732,17 @@ else
 fi
 
 # Every landed/discard-work refusal above has now passed (or --force skipped
-# them). Fix 1 and Fix 2 (see script header) run here, unconditionally on
-# --force, and before ANY destructive step below - a still-parked run or a
-# leaked process can own live work in this exact worktree. Not for
+# them). Fix 1, Fix 2 and the custody refusal (see script header) run here,
+# unconditionally on --force, and before ANY destructive step below - a
+# still-parked run, a leaked process, or custody held by the pipeline can own
+# live work in this exact worktree. Not for
 # kind=secondmate: a secondmate home's own runtime lifecycle is owned by the
 # dedicated process-event and firstmate-home removal machinery further below,
 # not by task-worktree cleanup.
 if [ "$KIND" != secondmate ] && teardown_owns_worktree; then
   conclude_task_no_mistakes_run "$WT"
   reap_task_worktree_processes worktree "$WT" "$TASK_TMP"
+  refuse_branch_custody_held "$WT"
 elif [ "$KIND" != secondmate ]; then
   reap_task_worktree_processes tasktmp "$TASK_TMP"
 fi

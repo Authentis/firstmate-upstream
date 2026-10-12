@@ -121,6 +121,8 @@ SH
   # plain text with no run id and no quoting - see the ledger fixtures below),
   # and `runs` appends its own invocation to FM_FAKE_NM_RUNS_LOG when set, so
   # a test can prove whether the ledger fallback ever engaged.
+  # `axi sync` appends "sync <args>" to FM_FAKE_NM_SYNC_LOG when set, so a
+  # test can prove teardown never invoked it.
   # The bare `axi` overview answers FM_FAKE_AXI_OVERVIEW verbatim (empty by
   # default, so no repository resolves and the pipeline-spend record is
   # written as unavailable).
@@ -161,6 +163,10 @@ case "${1:-}" in
       abort)
         shift
         [ -z "${FM_FAKE_NM_ABORT_LOG:-}" ] || printf 'abort %s\n' "$*" >> "$FM_FAKE_NM_ABORT_LOG"
+        exit 0 ;;
+      sync)
+        shift
+        [ -z "${FM_FAKE_NM_SYNC_LOG:-}" ] || printf 'sync %s\n' "$*" >> "$FM_FAKE_NM_SYNC_LOG"
         exit 0 ;;
     esac
     ;;
@@ -4701,6 +4707,145 @@ EOF
   pass "the run abort and the leaked-process reap both complete before the destructive worktree return"
 }
 
+# --- Lane finish: branch custody held by the pipeline ----------------------
+
+# An `axi status` payload for a terminal run whose pipeline still holds the
+# branch: the structured branch_sync block offers recover_custody and names
+# <local-head> as this copy's head and <pipeline-head> as the gate's head.
+custody_axi_status_toon() {  # <branch> <local-head> <pipeline-head> [next-code]
+  cat <<EOF
+run:
+  id: "01RUN"
+  branch: $1
+  status: completed
+  outcome: passed
+  head: "$3"
+branch_sync:
+  state: pipeline_owned
+  local:
+    branch: $1
+    head: "$2"
+    clean: true
+  pipeline:
+    current_head: "$3"
+  next_action:
+    code: ${4:-recover_custody}
+    command: no-mistakes axi sync --recover
+EOF
+}
+
+PIPELINE_GATE_HEAD=0123456789abcdef0123456789abcdef01234567
+
+# `axi sync` has no run selector (no-mistakes axi sync --help), so a teardown
+# that ran it could act on a run other than the one it checked. It therefore
+# never runs the sync: custody the pipeline still holds for this copy's own
+# branch refuses teardown with the exact manual command, and nothing is
+# deleted - --force included, since it authorizes discarding this lane's own
+# earlier work, not the pipeline's unpublished fix commits.
+test_custody_held_refuses_teardown_and_never_runs_the_sync() {
+  local case_dir rc head flag
+  for flag in "" "--force"; do
+    case_dir=$(make_case "custody-held${flag:+-force}")
+    write_meta "$case_dir" no-mistakes ship
+    land_shippable_commit "$case_dir"
+    head=$(git -C "$case_dir/wt" rev-parse HEAD)
+    : > "$case_dir/treehouse.log"
+    cat > "$case_dir/fakebin/treehouse" <<EOF
+#!/usr/bin/env bash
+echo "\$*" >> "$case_dir/treehouse.log"
+exit 0
+EOF
+    chmod +x "$case_dir/fakebin/treehouse"
+
+    rc=0
+    FM_FAKE_AXI_STATUS="$(custody_axi_status_toon fm/task-x1 "$head" "$PIPELINE_GATE_HEAD")" \
+    FM_FAKE_NM_SYNC_LOG="$case_dir/nm-sync.log" \
+      run_teardown "$case_dir" ${flag:+"$flag"} > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+
+    [ "$rc" -ne 0 ] || fail "custody-held${flag:+-force}: teardown reported success while the pipeline held the branch"
+    assert_grep "still holds the branch custody" "$case_dir/stderr" \
+      "custody-held${flag:+-force}: the refusal did not say the pipeline still holds the branch"
+    assert_grep "no-mistakes axi sync --recover" "$case_dir/stderr" \
+      "custody-held${flag:+-force}: the refusal did not print the exact manual command"
+    assert_grep "nothing was deleted" "$case_dir/stderr" \
+      "custody-held${flag:+-force}: the refusal did not say nothing was deleted"
+    assert_absent "$case_dir/nm-sync.log" \
+      "custody-held${flag:+-force}: teardown ran axi sync, which it cannot bind to a run"
+    [ ! -s "$case_dir/treehouse.log" ] || fail "custody-held${flag:+-force}: the worktree was returned despite the refusal"
+    assert_present "$case_dir/state/task-x1.meta" "custody-held${flag:+-force}: the refusal removed the task record"
+    [ -d "$case_dir/wt" ] || fail "custody-held${flag:+-force}: the refusal removed the worktree"
+    git -C "$case_dir/wt" rev-parse --verify --quiet refs/heads/fm/task-x1 >/dev/null \
+      || fail "custody-held${flag:+-force}: the refusal deleted the task branch"
+  done
+  pass "custody the pipeline still holds refuses teardown with the manual command, never runs the sync, and deletes nothing"
+}
+
+# The manual command is meant to be pasted: a worktree path with a space or
+# shell metacharacters must come out shell-quoted so it runs as typed.
+test_custody_refusal_prints_a_copy_pasteable_command_for_an_awkward_path() {
+  local case_dir rc head quoted
+  case_dir=$(make_case "custody quoted path \$x 'q' (a b)")
+  write_meta "$case_dir" no-mistakes ship
+  land_shippable_commit "$case_dir"
+  head=$(git -C "$case_dir/wt" rev-parse HEAD)
+  quoted=$(printf '%q' "$case_dir/wt")
+  [ "$quoted" != "$case_dir/wt" ] || fail "custody-quoted-path: fixture broke - the worktree path needs no quoting"
+
+  rc=0
+  FM_FAKE_AXI_STATUS="$(custody_axi_status_toon fm/task-x1 "$head" "$PIPELINE_GATE_HEAD")" \
+  FM_FAKE_NM_SYNC_LOG="$case_dir/nm-sync.log" \
+    run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+
+  [ "$rc" -ne 0 ] || fail "custody-quoted-path: teardown reported success while the pipeline held the branch"
+  assert_grep "cd $quoted && no-mistakes axi sync --recover" "$case_dir/stderr" \
+    "custody-quoted-path: the manual command did not carry the shell-quoted worktree path"
+  assert_absent "$case_dir/nm-sync.log" "custody-quoted-path: teardown ran axi sync"
+  pass "the manual custody command prints the worktree path shell-quoted so it can be pasted as typed"
+}
+
+# Custody that is not this copy's own - another branch's run, or a local head
+# that is not this copy's HEAD - is not this teardown's to refuse on.
+test_custody_for_another_head_or_branch_does_not_refuse_teardown() {
+  local case_dir rc head
+  case_dir=$(make_case custody-other-head)
+  write_meta "$case_dir" no-mistakes ship
+  land_shippable_commit "$case_dir"
+  rc=0
+  FM_FAKE_AXI_STATUS="$(custody_axi_status_toon fm/task-x1 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa "$PIPELINE_GATE_HEAD")" \
+  FM_FAKE_NM_SYNC_LOG="$case_dir/nm-sync.log" \
+    run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+  expect_code 0 "$rc" "custody-other-head: teardown should still succeed"
+  assert_absent "$case_dir/nm-sync.log" "custody-other-head: teardown ran axi sync"
+
+  case_dir=$(make_case custody-other-branch)
+  write_meta "$case_dir" no-mistakes ship
+  land_shippable_commit "$case_dir"
+  head=$(git -C "$case_dir/wt" rev-parse HEAD)
+  rc=0
+  FM_FAKE_AXI_STATUS="$(custody_axi_status_toon fm/some-other-task "$head" "$PIPELINE_GATE_HEAD")" \
+  FM_FAKE_NM_SYNC_LOG="$case_dir/nm-sync.log" \
+    run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+  expect_code 0 "$rc" "custody-other-branch: teardown should still succeed"
+  assert_absent "$case_dir/nm-sync.log" "custody-other-branch: teardown ran axi sync"
+  pass "custody offered for another branch or another local head does not refuse this teardown"
+}
+
+# Custody that is already returned (or never taken) leaves teardown unchanged.
+test_returned_custody_does_not_refuse_teardown() {
+  local case_dir rc head
+  case_dir=$(make_case custody-returned)
+  write_meta "$case_dir" no-mistakes ship
+  land_shippable_commit "$case_dir"
+  head=$(git -C "$case_dir/wt" rev-parse HEAD)
+  rc=0
+  FM_FAKE_AXI_STATUS="$(custody_axi_status_toon fm/task-x1 "$head" "$head" run_pipeline)" \
+  FM_FAKE_NM_SYNC_LOG="$case_dir/nm-sync.log" \
+    run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+  expect_code 0 "$rc" "custody-returned: teardown should succeed once custody is returned"
+  assert_absent "$case_dir/nm-sync.log" "custody-returned: teardown ran axi sync"
+  pass "a run whose custody is already returned leaves teardown unchanged"
+}
+
 # Copy the public teardown script tree, then drop or blank one required file.
 # Symlinks keep the copy cheap; an unreadable case replaces one link with a
 # real mode-000 file so the probe is of the file itself.
@@ -4995,3 +5140,7 @@ test_process_spawned_during_grace_is_reaped_on_later_pass
 test_persistent_scan_refuses_after_bounded_retries
 test_process_exit_during_identity_lookup_does_not_refuse
 test_run_abort_precedes_process_reap_precedes_worktree_removal
+test_custody_held_refuses_teardown_and_never_runs_the_sync
+test_custody_refusal_prints_a_copy_pasteable_command_for_an_awkward_path
+test_custody_for_another_head_or_branch_does_not_refuse_teardown
+test_returned_custody_does_not_refuse_teardown
