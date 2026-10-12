@@ -4232,3 +4232,87 @@ test_receipt_gate_reports_with_other_refusals_and_after_green_checks
 test_receipt_config_errors_refuse
 test_receipt_first_matching_scope_wins
 test_receipt_gate_covers_gitlab_merges
+
+# --expect-head: a caller that checked one exact head makes a head that moved
+# after that check a refusal rather than a merge of the newer head.
+EXPECT_LIVE_HEAD=deadbeefcafefeed0000000000000000deadbeef
+EXPECT_OLD_HEAD=1111111111111111111111111111111111111111
+
+expect_head_merge() {
+  local case_dir=$1; shift
+  set +e
+  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/9 "$@" \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  EXPECT_HEAD_RC=$?
+  set -e
+}
+
+test_expect_head_equal_merges() {
+  local case_dir
+  case_dir=$(make_case expect-head-equal)
+  mkdir -p "$case_dir/wt"
+  add_gh_mocks "$case_dir" "$EXPECT_LIVE_HEAD"
+  expect_head_merge "$case_dir" --expect-head "$EXPECT_LIVE_HEAD"
+  expect_code 0 "$EXPECT_HEAD_RC" "expect-head-equal: a matching expected head should merge"
+  assert_logged_gh_merge "$case_dir" 9 example/repo --squash
+  pass "fm-pr-merge --expect-head merges when the live head is the expected head"
+}
+
+test_expect_head_moved_refuses() {
+  local case_dir
+  case_dir=$(make_case expect-head-moved)
+  mkdir -p "$case_dir/wt"
+  add_gh_mocks "$case_dir" "$EXPECT_LIVE_HEAD"
+  expect_head_merge "$case_dir" --expect-head "$EXPECT_OLD_HEAD"
+  expect_code 1 "$EXPECT_HEAD_RC" "expect-head-moved: a moved head should be refused"
+  assert_grep "$EXPECT_LIVE_HEAD" "$case_dir/stderr" "expect-head-moved: refusal did not name the live head"
+  assert_grep "$EXPECT_OLD_HEAD" "$case_dir/stderr" "expect-head-moved: refusal did not name the expected head"
+  if grep -q '^pr merge ' "$case_dir/gh.log"; then
+    fail "expect-head-moved: gh pr merge was called despite the moved head"
+  fi
+
+  case_dir=$(make_gitlab_case expect-head-moved-gitlab)
+  set +e
+  run_pr_merge "$case_dir" task-x1 "$MR_URL" --expect-head "$EXPECT_OLD_HEAD" \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  EXPECT_HEAD_RC=$?
+  set -e
+  expect_code 1 "$EXPECT_HEAD_RC" "expect-head-moved-gitlab: a moved head should be refused"
+  [ -z "$(glab_merge_line "$case_dir/glab.log")" ] || fail "expect-head-moved-gitlab: glab merged despite the moved head"
+  pass "fm-pr-merge --expect-head refuses a head that moved between check and merge and never merges"
+}
+
+test_expect_head_malformed_refuses() {
+  local case_dir bad
+  case_dir=$(make_case expect-head-malformed)
+  mkdir -p "$case_dir/wt"
+  add_gh_mocks "$case_dir" "$EXPECT_LIVE_HEAD"
+  for bad in short DEADBEEFCAFEFEED0000000000000000DEADBEEF "${EXPECT_LIVE_HEAD}0"; do
+    expect_head_merge "$case_dir" --expect-head "$bad"
+    expect_code 2 "$EXPECT_HEAD_RC" "expect-head-malformed: '$bad' should be refused"
+  done
+  expect_head_merge "$case_dir" --expect-head
+  expect_code 2 "$EXPECT_HEAD_RC" "expect-head-malformed: a missing value should be refused"
+  expect_head_merge "$case_dir" "--expect-head=$EXPECT_LIVE_HEAD"
+  expect_code 2 "$EXPECT_HEAD_RC" "expect-head-malformed: the = spelling should be refused"
+  if [ -e "$case_dir/gh.log" ] && grep -q '^pr merge ' "$case_dir/gh.log"; then
+    fail "expect-head-malformed: gh pr merge was called"
+  fi
+  pass "fm-pr-merge --expect-head refuses a malformed value before any forge call"
+}
+
+test_expect_head_absent_is_unchanged() {
+  local case_dir
+  case_dir=$(make_case expect-head-absent)
+  mkdir -p "$case_dir/wt"
+  add_gh_mocks "$case_dir" "$EXPECT_LIVE_HEAD"
+  expect_head_merge "$case_dir"
+  expect_code 0 "$EXPECT_HEAD_RC" "expect-head-absent: no option should merge as before"
+  assert_logged_gh_merge "$case_dir" 9 example/repo --squash
+  pass "fm-pr-merge without --expect-head behaves as before"
+}
+
+test_expect_head_equal_merges
+test_expect_head_moved_refuses
+test_expect_head_malformed_refuses
+test_expect_head_absent_is_unchanged
