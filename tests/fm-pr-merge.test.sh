@@ -4291,6 +4291,29 @@ test_expect_head_moved_refuses() {
   pass "fm-pr-merge --expect-head refuses a head that moved between check and merge and never merges"
 }
 
+# The cheap head read answers the expected sha but the verification read has
+# already moved: the refusal must still precede any pr= record or poll arm.
+test_expect_head_moves_before_verification_refuses() {
+  local case_dir
+  case_dir=$(make_case expect-head-race)
+  mkdir -p "$case_dir/wt"
+  add_gh_mocks "$case_dir" "$EXPECT_OLD_HEAD"
+  printf '%s\n' "$EXPECT_LIVE_HEAD" > "$case_dir/github-head"
+  expect_head_merge "$case_dir" --expect-head "$EXPECT_LIVE_HEAD"
+  expect_code 1 "$EXPECT_HEAD_RC" "expect-head-race: a head moved before verification should be refused"
+  assert_grep "$EXPECT_OLD_HEAD" "$case_dir/stderr" "expect-head-race: refusal did not name the moved head"
+  if grep -q '^pr merge ' "$case_dir/gh.log"; then
+    fail "expect-head-race: gh pr merge was called"
+  fi
+  if grep -q '^pr=' "$case_dir/state/task-x1.meta"; then
+    fail "expect-head-race: pr= was recorded before the final verification"
+  fi
+  if find "$case_dir/state" -name '.fm-pr-poll*' | grep -q .; then
+    fail "expect-head-race: a merge poll was armed before the final verification"
+  fi
+  pass "fm-pr-merge --expect-head records no pr= and arms no poll when the head moves before verification"
+}
+
 test_expect_head_malformed_refuses() {
   local case_dir bad
   case_dir=$(make_case expect-head-malformed)
@@ -4323,5 +4346,6 @@ test_expect_head_absent_is_unchanged() {
 
 test_expect_head_equal_merges
 test_expect_head_moved_refuses
+test_expect_head_moves_before_verification_refuses
 test_expect_head_malformed_refuses
 test_expect_head_absent_is_unchanged

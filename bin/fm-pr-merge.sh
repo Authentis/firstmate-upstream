@@ -369,9 +369,9 @@ refuse_unexpected_head() {
   return 1
 }
 
-# With --expect-head, one cheap live head read before any state write, so a
-# moved head refuses before pr= is recorded or the merge poll is armed. The
-# verify functions re-check the head they bind to the merge.
+# With --expect-head, a live head read and the full verification before any
+# state write, so a moved head refuses before pr= is recorded or the merge poll
+# is armed. The verify functions re-check the head they bind to the merge.
 precheck_expected_head() {
   local head=''
   [ -n "$EXPECT_HEAD" ] || return 0
@@ -388,7 +388,33 @@ precheck_expected_head() {
     echo "error: could not read the live head of $URL to compare with the expected head $EXPECT_HEAD" >&2
     return 1
   fi
-  refuse_unexpected_head "$head"
+  refuse_unexpected_head "$head" || return 1
+  # The full verification, which re-reads and re-checks the head, also runs
+  # here, so a head that moves after the cheap read still refuses before any
+  # state is recorded. The provider block repeats it before the forge call.
+  case "$PROVIDER" in
+    github)
+      local delay=${FM_PR_GITHUB_MERGEABLE_RETRY_DELAY:-3} attempt=1 status
+      case "$delay" in
+        [0-9] | 10) ;;
+        *) delay=3 ;;
+      esac
+      while :; do
+        status=0
+        github_verify_mergeable || status=$?
+        [ "$status" -eq 3 ] && [ "$attempt" -lt 5 ] || break
+        sleep "$delay"
+        attempt=$((attempt + 1))
+      done
+      if [ "$status" -eq 3 ]; then
+        printf 'error: mergeability for %s is still being computed by GitHub; retry shortly\n' "$URL" >&2
+      fi
+      return "$status"
+      ;;
+    gitlab)
+      gitlab_verify_mergeable
+      ;;
+  esac
 }
 
 reject_protected_forge_args() {
