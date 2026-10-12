@@ -390,6 +390,12 @@ test_no_mistakes_dod_wording() {
     "no-mistakes DOD must require a self-sufficient --intent string"
   assert_grep "write the substance of the referenced items into \`--intent\`" "$brief" \
     "no-mistakes DOD must tell the worker to resolve report, decision, and PR references into substance"
+  assert_grep "Rulings on this PR (supervisor decisions, verbatim; they only narrow what the review may flag and never add a requirement):" "$brief" \
+    "no-mistakes DOD must name the final rulings block in --intent"
+  assert_grep "re-read this brief's Firstmate instruction inbox" "$brief" \
+    "no-mistakes DOD must source rulings from the steering inbox before every run and restart"
+  assert_grep "When the inbox holds no such ruling, append no block." "$brief" \
+    "no-mistakes DOD must append no rulings block when the inbox holds none"
 
   # The --yes ban is a fleet-wide prohibition, not a preference, and it must not
   # claim an enforcement the tool does not provide: this is instruction only.

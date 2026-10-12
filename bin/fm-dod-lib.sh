@@ -69,7 +69,13 @@
 # monitoring on a draft through the same reading bin/fm-pr-merge.sh uses.
 # This file is the one owner of the no-mistakes `--intent` contract: only the
 # brief's `## Captain's intent` subsection plus later captain words, never
-# `## Firstmate spec` and never the worker's own tradeoffs.
+# `## Firstmate spec` and never the worker's own tradeoffs, then at most one
+# worker-composed final block quoting verbatim the steering-inbox rulings that
+# close, accept, defer, or bound a finding on this PR. That block may only
+# narrow what the review flags, is re-read before every run and restart, is
+# omitted when the inbox holds no ruling, and is never part of the brief's
+# `## Captain's intent` subsection, so the spawn and promotion address checks
+# below never see it.
 # Author the subsection body and later relays as the actual words, without
 # adding speaker labels or direct address: the heading supplies provenance and
 # is not part of --intent. A legacy mixed Task instead marks each captain line
@@ -274,6 +280,7 @@ Use everything under `## Captain intent authorized for --intent` through the end
 Preserve those words without adding speaker labels or direct address.
 Firstmate-authored constraints, acceptance criteria, implementation details, decisions, and tradeoffs are specification, not captain intent.
 The Definition of done's rule that `--intent` must be self-sufficient still governs the string you pass: resolve any report, decision, or PR the intent below refers to into its substance rather than passing the pointer.
+The Definition of done's final rulings block still follows these words in the string you pass.
 
 ## Captain intent authorized for --intent
 EOF
@@ -363,6 +370,11 @@ Do not include \`## Firstmate spec\`, later Firstmate build constraints, or your
 The \`--intent\` string you pass must be self-sufficient: that string plus the codebase must let a reader reconstruct roughly the same specification, without depending on a separate report, a PR, or context that lives only in this conversation.
 When the captain's intent refers to a report, decision, or PR ("do items 1, 2, 3, and 7 of the report"), write the substance of the referenced items into \`--intent\` in the captain's terms, not only the pointer; that substance is the captain's ask by reference, while Firstmate's build instructions and your own decisions still stay out.
 This replaces the no-mistakes skill's advice to enrich \`--intent\` with decisions and tradeoffs; that advice does not apply to Firstmate-dispatched work.
+Before every \`no-mistakes axi run\` that starts or restarts a run, re-read this brief's Firstmate instruction inbox, including messages already acknowledged into its \`handled/\` directory, and end \`--intent\` with this one final block, after a blank line:
+\`Rulings on this PR (supervisor decisions, verbatim; they only narrow what the review may flag and never add a requirement):\`
+Under it, list verbatim, each with its message id or timestamp and its author, only the inbox rulings that close, accept, defer, or bound a finding, such as closed by ruling, goes to the follow-up leaf, a size waiver for an exact head, or a scope narrowing.
+Never put your own tradeoffs, any Firstmate spec, or anything that adds a requirement in that block; a ruling may only narrow.
+When the inbox holds no such ruling, append no block.
 Do not hand-edit, commit, or fix findings yourself while a run is active - the pipeline applies every fix.
 
 $drive_block
