@@ -742,8 +742,11 @@ detach_successor() {
 # its arm transition repairs the marker before the re-arm owner reads it. A
 # failed restore (lock or write failure, or a marker that is not a regular
 # file) returns 1, and the caller then leaves no successor and adds a
-# "supervision-host:" line, so the re-arm owner's lost hand-back notice reaches
-# main while the marker still reads handling.
+# "supervision-host:" line. The re-arm owner's lost hand-back notice reaches
+# main only while a readable handling token remains in the marker. A marker
+# that is a directory, a symlink, or another non-regular file carries no such
+# token, so the re-arm owner exits 0 and main gets no notice: a known,
+# pre-existing limit of the re-arm owner.
 hand_downtime_to_main() {
   fm_recovery_marker_restore_downtime "$STATE/.watcher-down" "$SUCCESSOR_GENERATION" \
     >/dev/null 2>&1 && return 0
