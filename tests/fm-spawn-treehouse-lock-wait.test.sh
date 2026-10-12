@@ -133,8 +133,44 @@ test_dead_holder_is_reclaimed_without_waiting() {
   pass "a dead holder's project lock is reclaimed without waiting out the bound"
 }
 
+test_other_project_spawn_is_not_refused_during_the_wait() {
+  local rec id_a id_b lock project_q pool_q fakebin_q out_b status_b status_a spawn_a
+  id_a='lock-wait-busy-r1'
+  id_b='lock-wait-other-r1'
+  rec=$(make_case other "$id_a")
+  read_case_record "$rec"
+  fm_test_spawn_brief "$HOME_DIR" "$id_b"
+  project_q="$CASE_DIR/project-q"
+  pool_q="$CASE_DIR/pool-q"
+  fakebin_q=$(make_spawn_fakebin "$CASE_DIR/fake-q")
+  git init --quiet -b main "$project_q"
+  printf 'other\n' > "$project_q/README.md"
+  git -C "$project_q" add README.md
+  git -C "$project_q" -c user.name='Firstmate Tests' -c user.email='tests@example.invalid' commit -qm initial
+  git -C "$project_q" worktree add --quiet --detach "$pool_q" HEAD
+  lock=$(project_lock)
+  hold_lock "$lock" 60
+  FM_SPAWN_TREEHOUSE_LOCK_WAIT_SECS=90 run_spawn "$id_a" --scout > "$CASE_DIR/a.out" &
+  spawn_a=$!
+  sleep 2
+  out_b=$(FM_SPAWN_TREEHOUSE_LOCK_POLL_SECS=0.2 \
+    fm_test_run_spawn "$HOME_DIR" "$pool_q" "$fakebin_q" "$id_b" "$project_q" --scout)
+  status_b=$?
+  kill -0 "$HOLDER_PID" 2>/dev/null || fail "the project lock holder exited before the other spawn finished"
+  kill "$HOLDER_PID" 2>/dev/null || true
+  wait "$HOLDER_PID" 2>/dev/null || true
+  wait "$spawn_a"
+  status_a=$?
+  expect_code 0 "$status_b" "a spawn for another project must start while the first waits"$'\n'"$out_b"
+  assert_not_contains "$out_b" "task set is locked" "the other project's spawn was refused on the task-set lock"
+  assert_contains "$out_b" "spawned $id_b" "the other project's spawn did not start"
+  expect_code 0 "$status_a" "the waiting spawn should start once the holder is gone"$'\n'"$(cat "$CASE_DIR/a.out")"
+  pass "a spawn for another project in the same home starts while one waits for its project lock"
+}
+
 test_spawn_waits_for_a_live_holder_then_starts
 test_bound_expiry_keeps_the_refusal
 test_dead_holder_is_reclaimed_without_waiting
+test_other_project_spawn_is_not_refused_during_the_wait
 
 echo "# all fm-spawn-treehouse-lock-wait tests passed"
