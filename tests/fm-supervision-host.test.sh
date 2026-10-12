@@ -1184,6 +1184,9 @@ start_hook_session() {  # <home>
     ' 2>> "$home/claude.err" &
 }
 turn_end() { rm -f "$1/hook.rc"; : > "$1/stop.go"; }
+# End a hook session and stop the watcher its pass-through left: under the
+# suite's one-second poll every leftover cycle loads the cases that follow.
+end_hook_session() { : > "$1/session.stop"; stop_home_processes "$1"; }
 hook_exited() { [ -s "$1/hook.rc" ]; }
 
 # Main's rewoken turn drains; the caller runs the printed acknowledgement
@@ -1217,6 +1220,7 @@ test_claude_stop_hook_delivers_a_main_only_pass_through() {
   assert_rewoke_main "$home" "hook main-only"
   assert_re '^signal: .*demo.status' "$home/hook.err" "the rewake must carry the close"
   watcher_live "$home" || fail "hook main-only: the pass-through left no successor watcher"
+  end_hook_session "$home"
   pass "host+hook: an attended main-only pass-through rewakes main and keeps its successor watcher"
 }
 
@@ -1356,6 +1360,7 @@ test_claude_stop_hook_delivers_a_main_only_pass_through_after_a_handled_wake() {
   assert_rewoke_main "$home" "after handled"
   assert_re '^signal: .*demo.status' "$home/hook.err" "the rewake must carry the close"
   watcher_live "$home" || fail "after handled: the pass-through left no successor watcher"
+  end_hook_session "$home"
   pass "host+hook: a main-only pass-through after a handled wake rewakes main even when the marker read handling"
 }
 
@@ -1386,6 +1391,7 @@ assert_main_only_pass_through_survives_a_lost_marker() {  # <absent|malformed>
   assert_re '	pass-through	attended	main-only	signal:' "$home/state/.supervision-host.log" "fixture: the second close was not a main-only pass-through"
   assert_rewoke_main "$home" "marker $1"
   watcher_live "$home" || fail "marker $1: the pass-through left no successor watcher"
+  end_hook_session "$home"
 }
 
 test_claude_stop_hook_delivers_a_main_only_pass_through_with_an_absent_marker() {
@@ -1432,6 +1438,7 @@ test_superseded_host_pass_through_leaves_the_new_generation_alone() {
   [ "$(cat "$home/state/.watcher-down")" = "pending:handling:$other" ] \
     || fail "superseded pass-through: the old host rewrote the new generation's marker: $(cat "$home/state/.watcher-down")"
   ! watcher_live "$home" || fail "superseded pass-through: the old host armed a successor beside the new owner"
+  end_hook_session "$home"
   pass "host+hook: a superseded host's main-only pass-through leaves the new generation's marker and cycle alone"
 }
 
