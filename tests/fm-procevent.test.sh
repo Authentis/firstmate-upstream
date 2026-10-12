@@ -3697,6 +3697,48 @@ while kill -0 "$DETACHED_RUNNER_PID" 2>/dev/null; do
 done
 pass "an attached-start keeper stops refreshing after its parent exits"
 
+# A registered secondmate's reply source outlives its home's lease, because the
+# lease is refreshed by the watcher and a dead watcher in an idle home would
+# otherwise cut the parent off from that secondmate. Retiring the secondmate,
+# or the kill switch, hands the source back to the ordinary lease.
+secondmate_lease_case() {  # <case> <how the exemption ends>
+  local home="$TMP_ROOT/secondmate-lease-$1" trigger="$TMP_ROOT/secondmate-lease-$1.trigger"
+  local start_pid runner deadline
+  new_home "$home"
+  mkdir -p "$home/data" "$home/config"
+  printf -- '- mate1 - Fixture secondmate. (home: %s/mate1; scope: fixture work; projects: none; added 2026-10-12)\n' \
+    "$home" > "$home/data/secondmates.md"
+  pe_register "$home" remote-reply remote-reply-mate1 -- "$BLOCKER" "$trigger" "mate payload" >/dev/null
+  FM_PROCEVENT_OWNER_LEASE_SECONDS=1 FM_PROCEVENT_OWNER_CHECK_SECONDS=1 FM_HOME="$home" \
+    perl -MPOSIX=setsid -e 'setsid() >= 0 or exit 1; exec @ARGV' \
+      "$ROOT/bin/fm-procevent.sh" start remote-reply-mate1 \
+      > "$TMP_ROOT/secondmate-lease-$1.out" 2>&1 &
+  start_pid=$!
+  wait_for "$home/state/procevent/remote-reply-mate1.runner" \
+    || fail "$1: the secondmate reply source never launched"
+  runner=$(cat "$home/state/procevent/remote-reply-mate1.runner")
+  kill "$start_pid"
+  wait "$start_pid" 2>/dev/null || true
+  sleep 5
+  kill -0 "$runner" 2>/dev/null \
+    || fail "$1: a registered secondmate's reply source expired with its home's lease"
+  case "$2" in
+    retired) : > "$home/data/secondmates.md" ;;
+    switched-off) : > "$home/config/procevent-secondmate-lease-off" ;;
+  esac
+  deadline=$((SECONDS + 8))
+  while kill -0 "$runner" 2>/dev/null; do
+    if [ "$SECONDS" -ge "$deadline" ]; then
+      pe "$home" retire remote-reply-mate1 >/dev/null 2>&1 || true
+      fail "$1: the reply source kept running after its exemption ended ($2)"
+    fi
+    sleep 0.1
+  done
+}
+secondmate_lease_case retire retired
+secondmate_lease_case kill-switch switched-off
+pass "a registered secondmate's reply source outlives the lease until it is retired or the kill switch is set"
+
 HREUSED_GROUP="$TMP_ROOT/reused-runner-group"; new_home "$HREUSED_GROUP"
 fm_test_track_procevent_home "$HREUSED_GROUP"
 REUSED_GROUP_MARKER="$TMP_ROOT/reused-runner-group.marker"
