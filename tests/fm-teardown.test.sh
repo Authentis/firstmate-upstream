@@ -39,8 +39,8 @@
 #   (p) fm-pr-check when local HEAD lags                        -> record remote PR head
 #   (q) no-mistakes + NO pr= recorded, PR discovered by branch  -> ALLOW  (yolo/no-CI merge)
 #   (q2) no-mistakes + squash-merged, local followed pipeline rebase -> ALLOW
-#   (q3) no-mistakes + squash-merged, same file, different content   -> REFUSE
-#   (q4) no-mistakes + squash-merged rebased local plus extra commit -> REFUSE
+#   (q3) no-mistakes + squash-merged, same file, different content   -> ALLOW (preserved)
+#   (q4) no-mistakes + squash-merged rebased local plus extra commit -> ALLOW (preserved)
 #   (q5) gh down + squash-merged stale local, content not in default -> REFUSE
 #
 # Also covers backlog teardown-lock-race: a git index.lock left in the worktree by a
@@ -991,13 +991,45 @@ test_squash_merged_pr_allows_replayed_unpushed_patch() {
   pass "squash-merged PR accepts replayed unpushed local patches contained in the PR head"
 }
 
-test_merged_pr_with_later_local_commit_refuses() {
-  local case_dir rc pr_head
+test_merged_pr_with_later_local_commit_is_preserved_then_torn_down() {
+  local case_dir rc pr_head local_head
   case_dir=$(make_case stale-pr-head)
   write_meta "$case_dir" no-mistakes ship
   wt_commit_file "$case_dir" feature.txt hello "add feature"
   append_pr_meta_for_current_head "$case_dir"
   pr_head=$(git -C "$case_dir/wt" rev-parse HEAD)
+  wt_commit_file "$case_dir" later.txt local-only "local follow-up"
+  local_head=$(git -C "$case_dir/wt" rev-parse HEAD)
+  add_gh_pr_merged_for_head "$case_dir" "$pr_head"
+
+  set +e
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 0 "$rc" "preserve-merged: teardown should preserve and tear down"$'\n'"$(cat "$case_dir/stderr")"
+  ! grep -q REFUSED "$case_dir/stderr" || fail "preserve-merged: teardown printed a REFUSED line"
+  assert_grep 'origin/preserve/fm/task-x1' "$case_dir/stdout" "preserve-merged: no preserve line naming the ref"
+  assert_grep "$case_dir/data/bundles/task-x1.bundle" "$case_dir/stdout" "preserve-merged: no preserve line naming the bundle"
+  [ "$(git -C "$case_dir/origin.git" rev-parse refs/heads/preserve/fm/task-x1)" = "$local_head" ] \
+    || fail "preserve-merged: origin preserve ref does not hold the local head"
+  git bundle verify "$case_dir/data/bundles/task-x1.bundle" >/dev/null 2>&1 \
+    || fail "preserve-merged: kept bundle does not verify"
+  [ "$(git -C "$case_dir/origin.git" rev-parse refs/heads/main)" != "$local_head" ] \
+    || fail "preserve-merged: the default branch was pushed to"
+  pass "merged PR with unpublished local commits is preserved on origin and bundled, then torn down"
+}
+
+test_merged_pr_preserve_ref_with_different_content_refuses() {
+  local case_dir rc pr_head
+  case_dir=$(make_case preserve-ref-differs)
+  write_meta "$case_dir" no-mistakes ship
+  wt_commit_file "$case_dir" feature.txt hello "add feature"
+  append_pr_meta_for_current_head "$case_dir"
+  pr_head=$(git -C "$case_dir/wt" rev-parse HEAD)
+  git -C "$case_dir/wt" push -q origin "$pr_head:refs/heads/preserve/fm/task-x1"
+  git -C "$case_dir/project" fetch -q origin
+  git -C "$case_dir/project" update-ref -d refs/remotes/origin/preserve/fm/task-x1
   wt_commit_file "$case_dir" later.txt local-only "local follow-up"
   add_gh_pr_merged_for_head "$case_dir" "$pr_head"
 
@@ -1006,9 +1038,62 @@ test_merged_pr_with_later_local_commit_refuses() {
   rc=$?
   set -e
 
-  expect_code 1 "$rc" "stale-pr-head: teardown should refuse when HEAD moved after PR recording"
-  grep -q REFUSED "$case_dir/stderr" || fail "stale-pr-head: no REFUSED line in stderr"
-  pass "merged PR does not allow teardown after a later local commit"
+  expect_code 1 "$rc" "preserve-differs: teardown should refuse"
+  grep -q REFUSED "$case_dir/stderr" || fail "preserve-differs: no REFUSED line in stderr"
+  assert_grep 'already exists on origin with different content' "$case_dir/stderr" "preserve-differs: no explanation"
+  [ "$(git -C "$case_dir/origin.git" rev-parse refs/heads/preserve/fm/task-x1)" = "$pr_head" ] \
+    || fail "preserve-differs: existing preserve ref was overwritten"
+  pass "an existing preserve ref with different content is never overwritten"
+}
+
+test_unmerged_pr_with_unpublished_commits_is_not_preserved() {
+  local case_dir rc
+  case_dir=$(make_case preserve-unmerged)
+  write_meta "$case_dir" no-mistakes ship
+  wt_commit_file "$case_dir" feature.txt hello "add feature"
+  append_pr_meta_url "$case_dir"
+  cat > "$case_dir/fakebin/gh" <<'SH'
+#!/usr/bin/env bash
+case " $* " in
+  *"state,headRefOid,url"*) printf '%s\t%s\t%s\n' 'OPEN' 'deadbeef' 'https://github.com/example/repo/pull/7' ; exit 0 ;;
+esac
+exit 1
+SH
+  chmod +x "$case_dir/fakebin/gh"
+
+  set +e
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 1 "$rc" "preserve-unmerged: teardown should refuse an open PR"
+  grep -q REFUSED "$case_dir/stderr" || fail "preserve-unmerged: no REFUSED line in stderr"
+  ! git -C "$case_dir/origin.git" rev-parse --verify -q refs/heads/preserve/fm/task-x1 >/dev/null \
+    || fail "preserve-unmerged: a preserve ref was pushed for an unmerged PR"
+  [ ! -e "$case_dir/data/bundles/task-x1.bundle" ] || fail "preserve-unmerged: a bundle was written"
+  pass "an unmerged PR lane is refused and nothing is preserved"
+}
+
+test_merged_pr_without_origin_is_not_preserved() {
+  local case_dir rc pr_head
+  case_dir=$(make_case preserve-no-origin)
+  write_meta "$case_dir" no-mistakes ship
+  wt_commit_file "$case_dir" feature.txt hello "add feature"
+  append_pr_meta_for_current_head "$case_dir"
+  pr_head=$(git -C "$case_dir/wt" rev-parse HEAD)
+  wt_commit_file "$case_dir" later.txt local-only "local follow-up"
+  add_gh_pr_merged_for_head "$case_dir" "$pr_head"
+  git -C "$case_dir/project" remote remove origin
+
+  set +e
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 1 "$rc" "preserve-no-origin: teardown should refuse without origin"
+  grep -q REFUSED "$case_dir/stderr" || fail "preserve-no-origin: no REFUSED line in stderr"
+  [ ! -e "$case_dir/data/bundles/task-x1.bundle" ] || fail "preserve-no-origin: a bundle was written"
+  pass "a merged-PR lane with no origin is still refused"
 }
 
 test_squash_merged_rebased_branch_allows() {
@@ -1073,7 +1158,7 @@ test_no_mistakes_mirror_work_allows_once_squash_landed() {
   pass "mirror-held work tears down once its content is squash-landed on origin"
 }
 
-test_squash_merged_same_file_different_content_refuses() {
+test_squash_merged_same_file_different_content_is_preserved() {
   local case_dir rc pr_head local_head
   case_dir=$(make_case squash-same-path-diverged)
   write_meta "$case_dir" no-mistakes ship
@@ -1092,16 +1177,16 @@ test_squash_merged_same_file_different_content_refuses() {
   rc=$?
   set -e
 
-  expect_code 1 "$rc" "squash-same-path-diverged: teardown should refuse when the same file has different content"$'\n'"$(cat "$case_dir/stderr")"
-  grep -q REFUSED "$case_dir/stderr" || fail "squash-same-path-diverged: no REFUSED line in stderr"
-  assert_refusal_retained_task_state "$case_dir" squash-same-path-diverged "$local_head"
-  pass "squash-merged same-path different content still refuses"
+  expect_code 0 "$rc" "squash-same-path-diverged: merged PR with diverged local commits is preserved"$'\n'"$(cat "$case_dir/stderr")"
+  [ "$(git -C "$case_dir/origin.git" rev-parse refs/heads/preserve/fm/task-x1)" = "$local_head" ] \
+    || fail "squash-same-path-diverged: preserve ref does not hold the local head"
+  pass "squash-merged same-path different content is preserved, then torn down"
 }
 
 # The local branch followed the pipeline rebase, so without later.txt this is the
 # q2 ALLOW case exactly. The one unlanded follow-up commit is the sole difference
 # and must be the sole reason teardown refuses.
-test_squash_merged_rebased_local_with_unlanded_commit_refuses() {
+test_squash_merged_rebased_local_with_unlanded_commit_is_preserved() {
   local case_dir rc pr_head local_head
   case_dir=$(make_case squash-rebased-unlanded)
   write_meta "$case_dir" no-mistakes ship
@@ -1117,10 +1202,10 @@ test_squash_merged_rebased_local_with_unlanded_commit_refuses() {
   rc=$?
   set -e
 
-  expect_code 1 "$rc" "squash-rebased-unlanded: teardown should refuse extra local commits that never landed"$'\n'"$(cat "$case_dir/stderr")"
-  grep -q REFUSED "$case_dir/stderr" || fail "squash-rebased-unlanded: no REFUSED line in stderr"
-  assert_refusal_retained_task_state "$case_dir" squash-rebased-unlanded "$local_head"
-  pass "squash-merged rebased local still refuses a genuinely unlanded follow-up commit"
+  expect_code 0 "$rc" "squash-rebased-unlanded: merged PR with a follow-up commit is preserved"$'\n'"$(cat "$case_dir/stderr")"
+  [ "$(git -C "$case_dir/origin.git" rev-parse refs/heads/preserve/fm/task-x1)" = "$local_head" ] \
+    || fail "squash-rebased-unlanded: preserve ref does not hold the local head"
+  pass "squash-merged rebased local with a follow-up commit is preserved, then torn down"
 }
 
 test_squash_merged_stale_local_refuses_when_forge_unreachable() {
@@ -1176,8 +1261,9 @@ test_pr_check_does_not_refresh_stale_pr_head() {
   rc=$?
   set -e
 
-  expect_code 1 "$rc" "pr-check-stale: teardown should refuse after a later local commit"
-  grep -q REFUSED "$case_dir/stderr" || fail "pr-check-stale: no REFUSED line in stderr"
+  expect_code 0 "$rc" "pr-check-stale: the later local commit is preserved, not refused"$'\n'"$(cat "$case_dir/stderr")"
+  [ "$(git -C "$case_dir/origin.git" rev-parse refs/heads/preserve/fm/task-x1)" = "$new_head" ] \
+    || fail "pr-check-stale: preserve ref does not hold the later local HEAD"
   pass "fm-pr-check does not refresh PR head after HEAD moves"
 }
 
@@ -5059,12 +5145,15 @@ test_squash_merged_branch_deleted_allows
 test_squash_merged_pr_allows_when_head_ancestor_of_pr_head
 test_no_pr_recorded_discovers_merged_pr_by_branch_allows
 test_squash_merged_pr_allows_replayed_unpushed_patch
-test_merged_pr_with_later_local_commit_refuses
+test_merged_pr_with_later_local_commit_is_preserved_then_torn_down
+test_merged_pr_preserve_ref_with_different_content_refuses
+test_unmerged_pr_with_unpublished_commits_is_not_preserved
+test_merged_pr_without_origin_is_not_preserved
 test_squash_merged_rebased_branch_allows
 test_no_mistakes_mirror_only_work_refuses
 test_no_mistakes_mirror_work_allows_once_squash_landed
-test_squash_merged_same_file_different_content_refuses
-test_squash_merged_rebased_local_with_unlanded_commit_refuses
+test_squash_merged_same_file_different_content_is_preserved
+test_squash_merged_rebased_local_with_unlanded_commit_is_preserved
 test_squash_merged_stale_local_refuses_when_forge_unreachable
 test_pr_check_does_not_refresh_stale_pr_head
 test_pr_check_records_remote_head_when_local_lags

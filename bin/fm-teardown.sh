@@ -79,6 +79,13 @@
 # by itself causes a false refusal of landed work.
 # A gh lookup error falls back to the content check; if that is also inconclusive,
 # teardown refuses rather than risk discarding unlanded work.
+# One more path applies only when the PR is verified MERGED on the forge, origin
+# exists, and the lane's commits are on no remote and not provably inside the
+# merged PR (earlier iterations a squash merge superseded): teardown bundles the
+# commits (data/bundles/<task-id>.bundle, verified and kept), pushes them to a new
+# refs/heads/preserve/<branch> on origin (plain push, never forced; an existing
+# ref with different content refuses), re-runs the remote-reachability test, and
+# proceeds. See preserve_merged_lane_commits.
 # Uncommitted changes are never landed; dirty refusals distinguish untracked-only
 # leftovers from tracked edits and list at most ten non-exempt untracked paths.
 # local-only projects additionally accept work merged into the local default
@@ -1695,6 +1702,64 @@ work_is_landed() {
   content_in_default
 }
 
+# A lane whose PR is verified MERGED on the forge but whose local commits sit on
+# no remote and are not provably inside the merged PR (typically earlier
+# iterations a squash merge superseded) has nothing left to protect except those
+# commits themselves. Preserve them instead of asking for a discard: keep a
+# verified bundle under data/bundles/ and push the exact commits to a NEW
+# refs/heads/preserve/<branch> ref on origin (plain, never forced, never the
+# default or PR branch). Succeeds only when the PR is proved merged, origin
+# exists, the bundle verifies, the push lands, and a fresh remote-reachability
+# test then sees no unpushed commits; every other outcome returns non-zero and
+# the caller refuses exactly as before. A preserve ref already holding different
+# content is a refusal, never an overwrite.
+preserve_merged_lane_commits() {
+  local branch=$1 target view state head ref bundle tmp remote_line remote_sha left
+  [ -n "$branch" ] && [ "$branch" != HEAD ] || return 1
+  git -C "$WT" remote get-url origin >/dev/null 2>&1 || return 1
+  if [ -n "$PR_URL" ]; then
+    target=$PR_URL
+  else
+    target=$(pr_number_from_branch "$branch") || return 1
+  fi
+  [ -n "$target" ] || return 1
+  view=$(cd "$WT" && gh pr view "$target" --json state,headRefOid,url -q '.state + "\t" + .headRefOid + "\t" + .url' 2>/dev/null) || return 1
+  state=${view%%$'\t'*}
+  case "$state" in
+    MERGED|merged) ;;
+    *) return 1 ;;
+  esac
+  head=$(git -C "$WT" rev-parse --verify HEAD 2>/dev/null) || return 1
+  ref="refs/heads/preserve/$branch"
+  git check-ref-format "$ref" >/dev/null 2>&1 || return 1
+  remote_line=$(git -C "$WT" ls-remote origin "$ref" 2>/dev/null) || return 1
+  remote_sha=${remote_line%%[[:space:]]*}
+  if [ -n "$remote_sha" ] && [ "$remote_sha" != "$head" ]; then
+    echo "Preserve ref $ref already exists on origin with different content; not overwriting it." >&2
+    return 1
+  fi
+  bundle="$DATA/bundles/$ID.bundle"
+  [ ! -e "$bundle" ] || bundle="$DATA/bundles/$ID-${head:0:12}.bundle"
+  mkdir -p "$DATA/bundles" 2>/dev/null || return 1
+  tmp="$bundle.tmp.$$"
+  if ! git -C "$WT" bundle create "$tmp" HEAD >/dev/null 2>&1 \
+      || ! git -C "$WT" bundle verify "$tmp" >/dev/null 2>&1 \
+      || ! cp "$tmp" "$bundle" >/dev/null 2>&1; then
+    rm -f "$tmp"
+    return 1
+  fi
+  rm -f "$tmp"
+  if [ -z "$remote_sha" ]; then
+    git -C "$WT" push --quiet --no-verify origin "$head:$ref" >/dev/null 2>&1 || return 1
+  fi
+  [ "$(git -C "$WT" rev-parse --verify "refs/remotes/origin/preserve/$branch" 2>/dev/null)" = "$head" ] \
+    || git -C "$WT" update-ref "refs/remotes/origin/preserve/$branch" "$head" 2>/dev/null || return 1
+  left=$(git -C "$WT" log --oneline HEAD --not "${REAL_REMOTES[@]}" -- 2>/dev/null) || return 1
+  [ -z "$left" ] || return 1
+  echo "Preserved unpublished commits of merged-PR lane $ID: ref origin/preserve/$branch, bundle $bundle"
+  return 0
+}
+
 # The completion links this teardown already holds locally. A scout's
 # deliverable is its report, a local-only ship lands on local main, and every
 # other ship carries the PR recorded on its own record.
@@ -2095,7 +2160,7 @@ validate_worktree_teardown_safety() {
       branch=$(git -C "$WT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo HEAD)
       TEARDOWN_WORKTREE_BRANCH_FOR_SAFETY=$branch
     fi
-    if ! work_is_landed "$branch"; then
+    if ! work_is_landed "$branch" && ! preserve_merged_lane_commits "$branch"; then
       echo "REFUSED: worktree $WT has work not on any remote and not landed." >&2
       printf 'unpushed commits:\n%s\n' "$unpushed" >&2
       echo "Push the branch, land its PR, or get the captain's explicit OK to discard, then --force." >&2
