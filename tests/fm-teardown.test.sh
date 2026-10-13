@@ -1046,6 +1046,79 @@ test_merged_pr_preserve_ref_with_different_content_refuses() {
   pass "an existing preserve ref with different content is never overwritten"
 }
 
+# A preserve ref created after the absence lookup, at an ancestor of the lane
+# head, must not be fast-forwarded: the creation-only push is rejected and the
+# existing ref stays where it was.
+test_merged_pr_preserve_ref_created_after_lookup_is_not_advanced() {
+  local case_dir rc pr_head real_git
+  case_dir=$(make_case preserve-race)
+  write_meta "$case_dir" no-mistakes ship
+  wt_commit_file "$case_dir" feature.txt hello "add feature"
+  append_pr_meta_for_current_head "$case_dir"
+  pr_head=$(git -C "$case_dir/wt" rev-parse HEAD)
+  wt_commit_file "$case_dir" later.txt local-only "local follow-up"
+  add_gh_pr_merged_for_head "$case_dir" "$pr_head"
+  real_git=$(command -v git)
+  cat > "$case_dir/fakebin/git" <<SH
+#!/usr/bin/env bash
+case " \$* " in
+  *" push "*) '$real_git' -C '$case_dir/wt' push -q origin '$pr_head:refs/heads/preserve/fm/task-x1' ;;
+esac
+exec '$real_git' "\$@"
+SH
+  chmod +x "$case_dir/fakebin/git"
+
+  set +e
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 1 "$rc" "preserve-race: teardown should refuse"
+  grep -q REFUSED "$case_dir/stderr" || fail "preserve-race: no REFUSED line in stderr"
+  [ "$(git -C "$case_dir/origin.git" rev-parse refs/heads/preserve/fm/task-x1)" = "$pr_head" ] \
+    || fail "preserve-race: the preserve ref created after the lookup was advanced"
+  pass "a preserve ref that appears after the lookup is never advanced"
+}
+
+# Every bundle name already taken as a file, a directory or a symlink is skipped
+# and left untouched; the kept bundle is a verified regular file listing HEAD.
+test_merged_pr_preserve_bundle_destination_collisions_are_skipped() {
+  local case_dir rc pr_head local_head base kept
+  case_dir=$(make_case preserve-bundle-collide)
+  write_meta "$case_dir" no-mistakes ship
+  wt_commit_file "$case_dir" feature.txt hello "add feature"
+  append_pr_meta_for_current_head "$case_dir"
+  pr_head=$(git -C "$case_dir/wt" rev-parse HEAD)
+  wt_commit_file "$case_dir" later.txt local-only "local follow-up"
+  local_head=$(git -C "$case_dir/wt" rev-parse HEAD)
+  add_gh_pr_merged_for_head "$case_dir" "$pr_head"
+  base="$case_dir/data/bundles"
+  mkdir -p "$base"
+  printf 'prior\n' > "$base/task-x1.bundle"
+  mkdir "$base/task-x1-${local_head:0:12}.bundle"
+  printf 'victim\n' > "$case_dir/victim"
+  ln -s "$case_dir/victim" "$base/task-x1-${local_head:0:12}.1.bundle"
+  ln -s "$case_dir/missing-target" "$base/task-x1-${local_head:0:12}.2.bundle"
+
+  set +e
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 0 "$rc" "preserve-bundle-collide: teardown should preserve"$'\n'"$(cat "$case_dir/stderr")"
+  [ "$(cat "$base/task-x1.bundle")" = prior ] || fail "preserve-bundle-collide: existing bundle file was overwritten"
+  [ -d "$base/task-x1-${local_head:0:12}.bundle" ] && [ -z "$(ls -A "$base/task-x1-${local_head:0:12}.bundle")" ] \
+    || fail "preserve-bundle-collide: directory destination was written into"
+  [ "$(cat "$case_dir/victim")" = victim ] || fail "preserve-bundle-collide: symlink target was overwritten"
+  [ ! -e "$case_dir/missing-target" ] || fail "preserve-bundle-collide: dangling symlink was followed"
+  kept="$base/task-x1-${local_head:0:12}.3.bundle"
+  [ -f "$kept" ] && [ ! -L "$kept" ] || fail "preserve-bundle-collide: no regular kept bundle at the first free name"
+  git bundle verify "$kept" >/dev/null 2>&1 || fail "preserve-bundle-collide: kept bundle does not verify"
+  git bundle list-heads "$kept" | grep -q "^$local_head HEAD" || fail "preserve-bundle-collide: kept bundle does not list HEAD"
+  assert_grep "$kept" "$case_dir/stdout" "preserve-bundle-collide: no preserve line naming the kept bundle"
+  pass "preserve bundle skips taken file, directory and symlink destinations and verifies the kept file"
+}
+
 test_unmerged_pr_with_unpublished_commits_is_not_preserved() {
   local case_dir rc
   case_dir=$(make_case preserve-unmerged)
@@ -5147,6 +5220,8 @@ test_no_pr_recorded_discovers_merged_pr_by_branch_allows
 test_squash_merged_pr_allows_replayed_unpushed_patch
 test_merged_pr_with_later_local_commit_is_preserved_then_torn_down
 test_merged_pr_preserve_ref_with_different_content_refuses
+test_merged_pr_preserve_ref_created_after_lookup_is_not_advanced
+test_merged_pr_preserve_bundle_destination_collisions_are_skipped
 test_unmerged_pr_with_unpublished_commits_is_not_preserved
 test_merged_pr_without_origin_is_not_preserved
 test_squash_merged_rebased_branch_allows

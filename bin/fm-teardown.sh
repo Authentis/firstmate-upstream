@@ -1707,8 +1707,8 @@ work_is_landed() {
 # iterations a squash merge superseded) has nothing left to protect except those
 # commits themselves. Preserve them instead of asking for a discard: keep a
 # verified bundle under data/bundles/ and push the exact commits to a NEW
-# refs/heads/preserve/<branch> ref on origin (plain, never forced, never the
-# default or PR branch). Succeeds only when the PR is proved merged, origin
+# refs/heads/preserve/<branch> ref on origin (creation-only, never advancing an
+# existing ref, never the default or PR branch). Succeeds only when the PR is proved merged, origin
 # exists, the bundle verifies, the push lands, and a fresh remote-reachability
 # test then sees no unpushed commits; every other outcome returns non-zero and
 # the caller refuses exactly as before. A preserve ref already holding different
@@ -1738,19 +1738,39 @@ preserve_merged_lane_commits() {
     echo "Preserve ref $ref already exists on origin with different content; not overwriting it." >&2
     return 1
   fi
-  bundle="$DATA/bundles/$ID.bundle"
-  [ ! -e "$bundle" ] || bundle="$DATA/bundles/$ID-${head:0:12}.bundle"
   mkdir -p "$DATA/bundles" 2>/dev/null || return 1
-  tmp="$bundle.tmp.$$"
+  tmp="$DATA/bundles/$ID.bundle.tmp.$$"
   if ! git -C "$WT" bundle create "$tmp" HEAD >/dev/null 2>&1 \
-      || ! git -C "$WT" bundle verify "$tmp" >/dev/null 2>&1 \
-      || ! cp "$tmp" "$bundle" >/dev/null 2>&1; then
+      || ! git -C "$WT" bundle verify "$tmp" >/dev/null 2>&1; then
     rm -f "$tmp"
     return 1
   fi
+  # Publish to a name that does not exist (no file, directory or symlink), with
+  # an exclusive create so a name taken in between is skipped, never overwritten.
+  bundle=
+  for candidate in "$DATA/bundles/$ID.bundle" "$DATA/bundles/$ID-${head:0:12}.bundle" \
+      "$DATA/bundles/$ID-${head:0:12}".{1..9}.bundle; do
+    if [ -e "$candidate" ] || [ -L "$candidate" ]; then
+      continue
+    fi
+    if ( set -o noclobber; cat "$tmp" > "$candidate" ) 2>/dev/null; then
+      bundle=$candidate
+      break
+    fi
+  done
   rm -f "$tmp"
+  [ -n "$bundle" ] || return 1
+  if [ -L "$bundle" ] || [ ! -f "$bundle" ] \
+      || ! git -C "$WT" bundle verify "$bundle" >/dev/null 2>&1 \
+      || ! git -C "$WT" bundle list-heads "$bundle" 2>/dev/null | awk -v h="$head" '$1 == h && $2 == "HEAD" { found = 1 } END { exit !found }'; then
+    rm -f "$bundle"
+    return 1
+  fi
   if [ -z "$remote_sha" ]; then
-    git -C "$WT" push --quiet --no-verify origin "$head:$ref" >/dev/null 2>&1 || return 1
+    # Creation-only: an empty expected value makes the remote accept the push
+    # only while the ref is absent, so a ref that appeared after the lookup above
+    # is rejected rather than advanced. This is a lease, not an unrestricted force.
+    git -C "$WT" push --quiet --no-verify --force-with-lease="$ref:" origin "$head:$ref" >/dev/null 2>&1 || return 1
   fi
   [ "$(git -C "$WT" rev-parse --verify "refs/remotes/origin/preserve/$branch" 2>/dev/null)" = "$head" ] \
     || git -C "$WT" update-ref "refs/remotes/origin/preserve/$branch" "$head" 2>/dev/null || return 1
