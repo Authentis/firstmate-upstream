@@ -1763,7 +1763,9 @@ preserve_merged_lane_commits() {
   if [ -L "$bundle" ] || [ ! -f "$bundle" ] \
       || ! git -C "$WT" bundle verify "$bundle" >/dev/null 2>&1 \
       || ! git -C "$WT" bundle list-heads "$bundle" 2>/dev/null | awk -v h="$head" '$1 == h && $2 == "HEAD" { found = 1 } END { exit !found }'; then
-    rm -f "$bundle"
+    # The final pathname is shared, so another writer may have replaced it since
+    # the exclusive create; keep it in place and refuse rather than delete it.
+    echo "Preserve bundle $bundle failed verification; leaving it in place and refusing." >&2
     return 1
   fi
   if [ -z "$remote_sha" ]; then

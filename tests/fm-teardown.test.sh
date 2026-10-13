@@ -1119,6 +1119,40 @@ test_merged_pr_preserve_bundle_destination_collisions_are_skipped() {
   pass "preserve bundle skips taken file, directory and symlink destinations and verifies the kept file"
 }
 
+# A bundle replaced after publication fails final verification; the failure path
+# must leave that file in place and teardown must refuse.
+test_merged_pr_preserve_bundle_replaced_after_publish_is_retained() {
+  local case_dir rc pr_head real_git
+  case_dir=$(make_case preserve-bundle-swap)
+  write_meta "$case_dir" no-mistakes ship
+  wt_commit_file "$case_dir" feature.txt hello "add feature"
+  append_pr_meta_for_current_head "$case_dir"
+  pr_head=$(git -C "$case_dir/wt" rev-parse HEAD)
+  wt_commit_file "$case_dir" later.txt local-only "local follow-up"
+  add_gh_pr_merged_for_head "$case_dir" "$pr_head"
+  real_git=$(command -v git)
+  cat > "$case_dir/fakebin/git" <<SH
+#!/usr/bin/env bash
+case " \$* " in
+  *" bundle list-heads "*) printf 'replacement\n' > "\${@: -1}" ;;
+esac
+exec '$real_git' "\$@"
+SH
+  chmod +x "$case_dir/fakebin/git"
+
+  set +e
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 1 "$rc" "preserve-bundle-swap: teardown should refuse"
+  grep -q REFUSED "$case_dir/stderr" || fail "preserve-bundle-swap: no REFUSED line in stderr"
+  [ "$(cat "$case_dir/data/bundles/task-x1.bundle")" = replacement ] \
+    || fail "preserve-bundle-swap: the replaced bundle was removed or rewritten"
+  assert_grep 'failed verification' "$case_dir/stderr" "preserve-bundle-swap: no message naming the retained bundle"
+  pass "a bundle replaced after publication is retained and teardown refuses"
+}
+
 test_unmerged_pr_with_unpublished_commits_is_not_preserved() {
   local case_dir rc
   case_dir=$(make_case preserve-unmerged)
@@ -5222,6 +5256,7 @@ test_merged_pr_with_later_local_commit_is_preserved_then_torn_down
 test_merged_pr_preserve_ref_with_different_content_refuses
 test_merged_pr_preserve_ref_created_after_lookup_is_not_advanced
 test_merged_pr_preserve_bundle_destination_collisions_are_skipped
+test_merged_pr_preserve_bundle_replaced_after_publish_is_retained
 test_unmerged_pr_with_unpublished_commits_is_not_preserved
 test_merged_pr_without_origin_is_not_preserved
 test_squash_merged_rebased_branch_allows
