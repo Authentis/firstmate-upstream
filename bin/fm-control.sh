@@ -773,10 +773,20 @@ do_exit() {
   # authoritative proof is the agent-state wait below. The retried Enter still
   # matters, because a slash command opens a completion popup on some TUIs that
   # swallows the first Enter.
-  verdict=$(fm_backend_send_text_submit "$BACKEND" "$T" "$cmd" "$EXIT_RETRIES" "$POLL" 1.2 "$LABEL") \
-    || die "the exit command could not be sent to task $ID on $BACKEND"
-  [ "$verdict" != send-failed ] \
-    || die "the exit command could not be sent to task $ID on $BACKEND"
+  submit_err=$(mktemp "${TMPDIR:-/tmp}/fm-control-submit.XXXXXX") \
+    || die "the exit command's submit diagnostics could not be recorded"
+  submit_rc=0
+  verdict=$(fm_backend_send_text_submit "$BACKEND" "$T" "$cmd" "$EXIT_RETRIES" "$POLL" 1.2 "$LABEL" 2>"$submit_err") \
+    || submit_rc=$?
+  if [ "$submit_rc" -ne 0 ] || [ "$verdict" = send-failed ]; then
+    submit_detail=$(head -n 10 "$submit_err" 2>/dev/null || true)
+    rm -f "$submit_err"
+    die "the exit command could not be sent to task $ID on $BACKEND
+  backend=$BACKEND target=$T submit-rc=$submit_rc verdict=${verdict:-<empty>}
+  submit-stderr (first 10 lines):
+${submit_detail:-  <none>}"
+  fi
+  rm -f "$submit_err"
   # The submitting Enter can open the picker. The agent is still alive, and
   # another Enter would confirm the selected row. A dead agent may leave the
   # same text behind; that is not a prompt still waiting.

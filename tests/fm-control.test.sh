@@ -125,6 +125,10 @@ case "${1:-}" in
       esac
     done
     payload=${1:-}
+    if [ "$literal" = 1 ] && [ -f "$D/literal-fail" ]; then
+      echo "fake tmux: literal send refused" >&2
+      exit 1
+    fi
     if [ "$literal" = 1 ]; then
       printf '%s\n' "$payload" >> "$D/literal"
       if [ -z "${FM_FAKE_NEVER_DIES:-}" ] \
@@ -1037,6 +1041,22 @@ test_exit_accepts_agent_stopped_by_busy_interrupt() {
   pass "fm-control exit: an interrupt-stopped agent satisfies the gone-state postcondition"
 }
 
+test_exit_send_failure_reports_verdict_and_stderr() {
+  local dir out rc
+  dir=$(new_case sendfail)
+  add_task "$dir" t1 claude
+  alive_as "$dir" claude
+  : > "$dir/fake/literal-fail"
+  out=$(run_control "$dir" t1 exit); rc=$?
+  expect_code 1 "$rc" "a failed exit submit should fail"
+  assert_contains "$out" "error: the exit command could not be sent to task t1 on tmux" \
+    "the first error line should stay unchanged"
+  assert_contains "$out" "backend=tmux target=" "the failure should name the backend and target"
+  assert_contains "$out" "verdict=" "the failure should carry the submit verdict"
+  assert_contains "$out" "submit-stderr" "the failure should label the captured stderr"
+  pass "fm-control exit: a failed submit reports its verdict, stderr, backend and target"
+}
+
 test_agent_that_does_not_stop_fails_closed() {
   local dir out rc gen
   dir=$(new_case stubborn)
@@ -1173,6 +1193,7 @@ EOF
 }
 
 test_exit_types_each_harness_verified_command
+test_exit_send_failure_reports_verdict_and_stderr
 test_interrupt_sends_each_harness_verified_key
 test_devin_interrupt_invalidates_busy
 test_devin_idle_interrupt_sends_one_press
