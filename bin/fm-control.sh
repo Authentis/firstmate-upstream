@@ -217,6 +217,9 @@ control_cleanup() {
   if [ -n "${FM_COMPOSER_DIALOG_SINK:-}" ]; then
     rm -f "$FM_COMPOSER_DIALOG_SINK"
   fi
+  if [ -n "${FM_CONTROL_SUBMIT_ERR:-}" ]; then
+    rm -f "$FM_CONTROL_SUBMIT_ERR"
+  fi
   if [ "$CONTROL_LOCK_HELD" = 1 ]; then
     CONTROL_LOCK_HELD=0
     fm_lock_release "$CONTROL_LOCK" || true
@@ -335,6 +338,8 @@ CONTROL_LOCK_HELD=1
 # only once the lock is held: a process that loses the lock runs the same
 # trap, and would remove the file the lock holder is reading.
 FM_COMPOSER_DIALOG_SINK=$STATE/$ID.composer-dialog
+# The exit submit's captured stderr follows the same parent-owned pattern.
+FM_CONTROL_SUBMIT_ERR=$STATE/$ID.submit-stderr
 META="$STATE/$ID.meta"
 if [ ! -f "$META" ]; then
   case "$RAW_ID" in
@@ -773,7 +778,8 @@ do_exit() {
   # authoritative proof is the agent-state wait below. The retried Enter still
   # matters, because a slash command opens a completion popup on some TUIs that
   # swallows the first Enter.
-  submit_err=$(mktemp "${TMPDIR:-/tmp}/fm-control-submit.XXXXXX") \
+  submit_err=$FM_CONTROL_SUBMIT_ERR
+  : > "$submit_err" \
     || die "the exit command's submit diagnostics could not be recorded"
   submit_rc=0
   verdict=$(fm_backend_send_text_submit "$BACKEND" "$T" "$cmd" "$EXIT_RETRIES" "$POLL" 1.2 "$LABEL" 2>"$submit_err") \
@@ -786,6 +792,8 @@ do_exit() {
   submit-stderr (first 10 lines):
 ${submit_detail:-  <none>}"
   fi
+  # A successful submit keeps the stderr it always showed the caller.
+  cat "$submit_err" >&2 2>/dev/null || true
   rm -f "$submit_err"
   # The submitting Enter can open the picker. The agent is still alive, and
   # another Enter would confirm the selected row. A dead agent may leave the

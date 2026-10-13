@@ -127,6 +127,8 @@ case "${1:-}" in
     payload=${1:-}
     if [ "$literal" = 1 ] && [ -f "$D/literal-fail" ]; then
       echo "fake tmux: literal send refused" >&2
+      n=2
+      while [ "$n" -le 12 ]; do echo "fake tmux: refusal detail $n" >&2; n=$((n + 1)); done
       exit 1
     fi
     if [ "$literal" = 1 ]; then
@@ -1052,8 +1054,14 @@ test_exit_send_failure_reports_verdict_and_stderr() {
   assert_contains "$out" "error: the exit command could not be sent to task t1 on tmux" \
     "the first error line should stay unchanged"
   assert_contains "$out" "backend=tmux target=" "the failure should name the backend and target"
-  assert_contains "$out" "verdict=" "the failure should carry the submit verdict"
-  assert_contains "$out" "submit-stderr" "the failure should label the captured stderr"
+  assert_contains "$out" "submit-rc=0 verdict=send-failed" \
+    "the failure should carry the submit rc and verdict values"
+  assert_contains "$out" "submit-stderr (first 10 lines):" "the failure should label the captured stderr"
+  assert_contains "$out" "fake tmux: literal send refused" "the failure should carry the captured stderr text"
+  assert_contains "$out" "fake tmux: refusal detail 10" "the tenth stderr line should be kept"
+  assert_not_contains "$out" "fake tmux: refusal detail 11" "stderr should be cut at ten lines"
+  [ ! -e "$dir/home/state/t1.submit-stderr" ] \
+    || fail "the captured submit stderr file should be removed after a failure"
   pass "fm-control exit: a failed submit reports its verdict, stderr, backend and target"
 }
 
