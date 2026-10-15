@@ -1,0 +1,9 @@
+[
+  {
+    "name": "fm-fixture",
+    "url": "https://forgejo.example",
+    "ssh_host": "",
+    "user": "",
+    "default": "false"
+  }
+]
