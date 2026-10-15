@@ -78,8 +78,8 @@
 #                that (`─` rule, `❯`+NBSP, `─` rule), so the glyph inside the
 #                pair carries the shape and no identity is needed.
 #                Pi also has a stricter styled editor/footer proof, including
-#                its Working top edge (_fm_composer_pi_styled_footer); with an
-#                explicitly supplied Pi identity it can prove the composer
+#                its Working top edge (_fm_composer_pi_styled_footer); with a
+#                native idle/done Pi identity it can prove the composer
 #                without inferring worker state from that rendered label.
 #
 # THE COMPOSER FOOTER ZONE (task firstmate-doorbell-vals-pending-p1): a
@@ -776,9 +776,8 @@ fm_composer_classify_content() {  # <bordered> <content> [idle_re] [idle_case] [
 #   [cursor_row] zero-based row index of the cursor within <screen>, only
 #                meaningful when caps carry cursor=1.
 #   [identity]   "<agent>\t<status>" from the backend's native identity probe,
-#                or `probe-absent` when the probe found no live identity.
-#                An explicit harness name alone can prove only the strict
-#                styled Pi editor/footer, not the generic separator pair.
+#                or `probe-absent` when the probe found no live identity; only
+#                meaningful when caps carry identity=1.
 # Prints exactly one verdict: empty | pending | pending-unproven | unknown,
 # or the internal sentinel `need-identity` when caps declare identity=1, no
 # identity result was supplied, and the verdict depends on it. Adapters answer
@@ -2343,9 +2342,10 @@ fm_composer_send_refusal() {  # <screen> <composer-state> [harness]
 # transcript rules. Real Pi captures include a Working top edge, a width-cut
 # usage row, and zero to two extension rows. Keep this proof separate from the
 # generic separator predicate: a titled transcript rule must never become an
-# empty composer. Return 1 when this is not the styled Pi surface; otherwise
-# print a verdict, refusing incomplete or ambiguous geometry. Pi editor text
-# counts regardless of intensity, colour, or resemblance to another prompt.
+# empty composer. Return 1 when no Pi footer sits under a styled lower rule, so
+# the generic proof still decides; otherwise print a verdict, refusing
+# incomplete or ambiguous geometry. Pi editor text counts regardless of
+# intensity, colour, or resemblance to another prompt.
 _fm_composer_pi_styled_footer() {  # <screen> [cursor-row]
   printf '%s\n' "$1" | LC_ALL=C awk -v cy="${2:-}" '
     function rule(s, t) {
@@ -2374,12 +2374,9 @@ _fm_composer_pi_styled_footer() {  # <screen> [cursor-row]
       gsub(/\033\[[0-9;]*m/, "", plain[n])
       safe = plain[n]; gsub(/\t/, " ", safe)
       if (safe ~ /[[:cntrl:]]/) unsafe = 1
-      if ($0 ~ boundary && rule(plain[n]) && substr($0, length($0)-3) == reset) seen = 1
     }
     END {
-      if (!seen) exit 1
       verdict = "unknown"
-      if (unsafe) { print verdict; exit }
       while (n && plain[n] ~ /^ *$/) n--
       footer = 0
       for (extra = 0; extra <= 2; extra++) {
@@ -2389,11 +2386,10 @@ _fm_composer_pi_styled_footer() {  # <screen> [cursor-row]
           footer = i; break
         }
       }
-      if (!footer) { print verdict; exit }
+      if (!footer) exit 1
       lower = footer - 1
-      if (!rule(plain[lower]) || raw[lower] !~ boundary || substr(raw[lower], length(raw[lower])-3) != reset) {
-        print verdict; exit
-      }
+      if (!rule(plain[lower]) || raw[lower] !~ boundary || substr(raw[lower], length(raw[lower])-3) != reset) exit 1
+      if (unsafe) { print verdict; exit }
       colour = substr(raw[lower], 1, index(raw[lower], "─") - 1)
       upper = lower - 1
       while (upper > 0 && !rule(plain[upper]) && !working(plain[upper])) upper--
@@ -2455,14 +2451,13 @@ EOF
     case "$cy" in *[!0-9]*) printf 'unknown'; return 0 ;; esac
   fi
   _fm_composer_menu_agent_set "$identity" "$has_identity"
-  local pi_footer_state agent=${identity%%$'\t'*} agent_status=${identity#*$'\t'}
-  if [ "$styled" = 1 ] && { [ "$agent" = pi ] || [ "$agent" = pi-signed ] \
+  local pi_footer_state pi_status=${identity#pi$'\t'}
+  if [ "$styled" = 1 ] && { [ "$pi_status" != "$identity" ] \
        || { [ -z "$identity" ] && [ "$has_identity" = 1 ]; }; } \
      && pi_footer_state=$(_fm_composer_pi_styled_footer "$screen" "$cy"); then
     if [ -z "$identity" ]; then
       printf 'need-identity'
-    elif [ "$pi_footer_state" = empty ] && [ "$agent_status" != "$identity" ] \
-         && [ "$agent_status" != idle ] && [ "$agent_status" != 'done' ]; then
+    elif [ "$pi_footer_state" = empty ] && [ "$pi_status" != idle ] && [ "$pi_status" != 'done' ]; then
       # A native working/blocked state still cannot authorize typing.
       printf 'unknown'
     elif fm_composer_open_menu "$screen" all; then

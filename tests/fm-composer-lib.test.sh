@@ -859,15 +859,21 @@ test_matrix_pi_styled_editor_footer() {
   # Sanitized tails of real 171-column Pi captures: preserve ANSI and editor
   # cells exactly, replace private cwd/model/counters without changing width.
   # Replay only; never send keys to a running pane or open a settings menu.
-  local file screen top rest editor tail typed changed lower pi_idle pi_working status harness
+  local file screen top rest editor tail typed changed lower cwd usage generic pi_idle pi_working status harness
   pi_idle=$'pi\tidle'; pi_working=$'pi\tworking'
   for file in "$ROOT"/tests/fixtures/composer/*.ansi; do
     screen=$(< "$file")
     top=${screen%%$'\n'*}; rest=${screen#*$'\n'}
     editor=${rest%%$'\n'*}; tail=${rest#*$'\n'}; lower=${tail%%$'\n'*}
-    assert_screen "styled Pi capture ${file##*/}" empty "$CAPS_STYLED" "$screen" '' pi
-    assert_screen "styled Pi signed capture" empty "$CAPS_STYLED" "$screen" '' pi-signed
-    assert_screen "styled Pi with native idle" empty "$CAPS_STYLED" "$screen" '' "$pi_idle"
+    cwd=${tail#*$'\n'}; cwd=${cwd%%$'\n'*}
+    # Without the strict footer only the generic pair proof applies: two
+    # identical solid rules under native idle are empty, a Working edge is not.
+    generic=unknown
+    [ "$top" = "$lower" ] && generic=empty
+    assert_screen "styled Pi capture ${file##*/}" empty "$CAPS_STYLED" "$screen" '' "$pi_idle"
+    assert_screen "styled Pi with native done" empty "$CAPS_STYLED" "$screen" '' $'pi\tdone'
+    assert_screen "bare Pi name has no native state" unknown "$CAPS_STYLED" "$screen" '' pi
+    assert_screen "only the pi agent identity counts" unknown "$CAPS_STYLED" "$screen" '' $'pi-signed\tidle'
     assert_screen "styled Pi cursor" empty "$CAPS_TMUX" "$screen" 1 "$pi_idle"
     assert_screen "styled Pi cursor outside editor" unknown "$CAPS_TMUX" "$screen" 3 "$pi_idle"
     assert_screen "styled Pi native working still refuses" unknown "$CAPS_STYLED" "$screen" '' "$pi_working"
@@ -875,25 +881,32 @@ test_matrix_pi_styled_editor_footer() {
     assert_screen "styled Pi needs the lazy probe" need-identity "$CAPS_STYLED" "$screen"
     assert_screen "styled Pi absent identity" unknown "$CAPS_STYLED" "$screen" '' probe-absent
     assert_screen "styled Pi without identity" unknown "$CAPS_STYLED_NOID" "$screen"
-    assert_screen "unstyled Pi proof is insufficient" unknown "$CAPS_PLAIN" "$screen" '' pi
+    assert_screen "unstyled Pi proof is insufficient" unknown "$CAPS_PLAIN" "$screen" '' "$pi_idle"
     for harness in claude codex opencode grok kimi cursor omp muse agy devin commandcode gemini rovo; do
       assert_screen "Pi footer cannot prove $harness" unknown "$CAPS_STYLED" "$screen" '' "$harness"
     done
     for typed in 'draft input' '❯' '/settings' "\$0.001 (sub)" "${ESC}[2mdim draft${ESC}[0m" "${ESC}[38;2;10;10;10mdark draft${ESC}[0m"; do
       changed=$top$'\n'$typed$'\n'$tail
-      assert_screen "every Pi editor byte counts: $typed" pending "$CAPS_STYLED" "$changed" '' pi
+      assert_screen "every Pi editor byte counts: $typed" pending "$CAPS_STYLED" "$changed" '' "$pi_idle"
       assert_screen "native working Pi with draft" pending "$CAPS_STYLED" "$changed" '' "$pi_working"
     done
     changed=$top$'\n'$editor$'\n'$editor$'\n'$tail
-    assert_screen "multiline Pi editor" empty "$CAPS_STYLED" "$changed" '' pi
+    assert_screen "multiline Pi editor" empty "$CAPS_STYLED" "$changed" '' "$pi_idle"
     changed=$top$'\n \n'$tail
     assert_screen "clipped blank editor" unknown "$CAPS_STYLED" "$changed" '' "$pi_idle"
     changed=$top$'\n'$lower$'\n'$editor$'\n'$tail
     assert_screen "typed duplicate boundary is ambiguous" unknown "$CAPS_STYLED" "$changed" '' "$pi_idle"
     changed=$top$'\n'$editor$'\n'$editor$'\n'$lower
-    assert_screen "missing footer" unknown "$CAPS_STYLED" "$changed" '' "$pi_idle"
+    assert_screen "missing footer falls back to the generic proof" "$generic" "$CAPS_STYLED" "$changed" '' "$pi_idle"
     changed=$top$'\n'$editor$'\n'${tail/↑/x}
-    assert_screen "missing usage prefix" unknown "$CAPS_STYLED" "$changed" '' "$pi_idle"
+    assert_screen "missing usage prefix falls back to the generic proof" "$generic" "$CAPS_STYLED" "$changed" '' "$pi_idle"
+    # Footers Pi renders without the strict prefix: fresh, dollar-first, cache-write.
+    for usage in '0.0%/272k (auto)' "\$0.000 (sub) 0.0%/272k (auto)" "↑1.1k ↓11 R1k W1k \$0.011 (api) 1.0%/272k (auto)"; do
+      changed=$top$'\n'$editor$'\n'$lower$'\n'$cwd$'\n'$usage
+      assert_screen "unproven footer uses the generic proof: $usage" "$generic" "$CAPS_STYLED" "$changed" '' "$pi_idle"
+      assert_screen "unproven footer, cursor: $usage" "$generic" "$CAPS_TMUX" "$changed" 1 "$pi_idle"
+      assert_screen "unproven footer, native working: $usage" unknown "$CAPS_STYLED" "$changed" '' "$pi_working"
+    done
     changed=${top/38;2;/38;2;1;}$'\n'$editor$'\n'$tail
     assert_screen "mismatched styled top" unknown "$CAPS_STYLED" "$changed" '' "$pi_idle"
     for status in '────────' '❯ lower draft' 'Esc to cancel · Enter to select'; do
@@ -901,23 +914,23 @@ test_matrix_pi_styled_editor_footer() {
     done
     assert_screen "dialog above styled Pi editor" unknown "$CAPS_STYLED" $'Do you want to continue? [y/N]\n'"$screen" '' "$pi_idle"
     assert_screen "menu above styled Pi editor" unknown "$CAPS_STYLED" $'Esc to cancel · Enter to select\n'"$screen" '' "$pi_idle"
-    assert_screen "unrelated row after styled Pi" unknown "$CAPS_STYLED" "$screen"$'\nrow one\nrow two\nrow three' '' "$pi_idle"
+    assert_screen "three rows after the footer fall back to the generic proof" "$generic" "$CAPS_STYLED" "$screen"$'\nrow one\nrow two\nrow three' '' "$pi_idle"
   done
   # Same proven footer with two separate extension rows, and a usage row cut
   # immediately after the complete fixed prefix. Neither requires model text.
   screen=$(< "$ROOT/tests/fixtures/composer/pi-working-no-status.ansi")
-  assert_screen "two extension status rows" empty "$CAPS_STYLED" "$screen"$'\nbh O▕██░▏ P▕█░░▏ X▕██░▏\nunified-exec: 1 session running' '' pi
+  assert_screen "two extension status rows" empty "$CAPS_STYLED" "$screen"$'\nbh O▕██░▏ P▕█░░▏ X▕██░▏\nunified-exec: 1 session running' '' "$pi_idle"
   top=${screen%%$'\n'*}; rest=${screen#*$'\n'}
   editor=${rest%%$'\n'*}; tail=${rest#*$'\n'}
   lower=${tail%%$'\n'*}; rest=${tail#*$'\n'}; rest=${rest%%$'\n'*}
   changed=$top$'\n'$editor$'\n'$lower$'\n'$rest$'\n↑1M ↓1k R1M CH11.1% $1.111 (api) '
-  assert_screen "usage row clipped after fixed prefix" empty "$CAPS_STYLED" "$changed" '' pi
+  assert_screen "usage row clipped after fixed prefix" empty "$CAPS_STYLED" "$changed" '' "$pi_idle"
   changed=$top$'\n'$editor$'\n'$lower$'\n'$rest$'\n↑1M ↓1k R1M CH11.1% $1.111 (api'
-  assert_screen "usage prefix itself clipped" unknown "$CAPS_STYLED" "$changed" '' "$pi_idle"
+  assert_screen "Working edge with usage prefix itself clipped" unknown "$CAPS_STYLED" "$changed" '' "$pi_idle"
   changed=$top$'\n'$editor$'\n'$lower$'\n'$rest$'\n↑1M ↓1k R1M CH11.1% $1.111 (sub) '
   changed=$changed$editor$editor
   assert_screen "usage wider than editor" unknown "$CAPS_STYLED" "$changed" '' "$pi_idle"
-  assert_screen "Working boundary without footer is not proof" unknown "$CAPS_STYLED" "$top"$'\n'"$editor"$'\n'"$lower" '' pi
+  assert_screen "Working boundary without footer is not proof" unknown "$CAPS_STYLED" "$top"$'\n'"$editor"$'\n'"$lower" '' "$pi_idle"
   pass "matrix: real styled Pi Working/idle edges, clipped usage, and 0-2 status rows require complete proof; drafts and counterfactuals refuse"
 }
 

@@ -513,11 +513,12 @@ The composer-classification record below observes the same gate from the other s
 Verified 2026-10-15 by replaying three real 171-column Pi screen captures through `fm_composer_classify_screen`, not by sending keys to a live pane.
 The captures did not record the Pi package version, so this evidence is scoped to the captured renderer shapes rather than an inferred version.
 Sanitized tails in `tests/fixtures/composer/` preserve ANSI styling, editor cells, and widths while replacing private cwd, model, and usage values.
-With `styled=1`, `cursor=0`, `identity=1`, and the explicit identity `pi`, all three captures changed from `unknown` to `empty`.
-Two have a `── <braille> Working ─…` top boundary; the third has identical solid boundaries.
+With `styled=1`, `cursor=0`, `identity=1`, and the production identity `pi<TAB>idle`, the two captures with a `── <braille> Working ─…` top boundary changed from `unknown` to `empty`.
+The third capture has identical solid boundaries and was already `empty` through the generic separator-pair proof.
 Their footers cover zero extension rows, one extension row, and a combined meters/extension row; the portable regression also separates the furniture into two rows and clips usage after its fixed prefix.
-Native `pi<TAB>working` and `pi<TAB>blocked` still refuse an empty composer; a draft remains `pending`, including dim text and prompt-like text.
-The generic separator-pair identity requirement is unchanged.
+Only a native `pi<TAB>idle` or `pi<TAB>done` identity can make the strict proof `empty`; `pi<TAB>working`, `pi<TAB>blocked`, a bare `pi`, and other agent names refuse it, and a draft remains `pending`, including dim text and prompt-like text.
+A styled frame whose footer lacks the strict usage prefix, such as a fresh-session, dollar-first, or cache-write footer, falls through to the unchanged generic separator-pair proof.
+The captures did not record native herdr state, so this replay does not show that a Working pane reports idle or done to the restart gate.
 
 Refresh the replay and negative controls on a portable host:
 
