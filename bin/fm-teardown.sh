@@ -9,6 +9,8 @@
 # bin/fm-spawn.sh) is handled in two lease-bound steps. Before any destructive
 # step, a read-only `treehouse status --json` must still show that lease on the
 # slot; a changed, missing, or unreadable lease refuses with nothing touched.
+# That holds for each leased child slot of a forced secondmate cleanup too, and
+# the check repeats immediately before any scratch scrub of a slot.
 # The return itself is `treehouse return --if-lease-id <id>`, with --force added
 # only for an explicit --force teardown or a scout; otherwise a slot left with
 # files after the safety checks is refused by treehouse instead of reset. A
@@ -2012,10 +2014,14 @@ TEARDOWN_RETURN_LEASE_ID=
 # destructive step: treehouse must still report this task's lease on this path.
 # A slot re-leased outside Firstmate, or no longer leased, belongs to someone
 # else now, so teardown stops with a report instead of reaping processes,
-# detaching HEAD, deleting the branch, or removing hooks inside it.
+# detaching HEAD, deleting the branch, scrubbing, or removing hooks inside it.
+# With no arguments it checks the task's own record and slot and binds its
+# return to the lease; a forced secondmate cleanup passes each child's record,
+# slot, and project instead.
 teardown_verify_slot_lease() {
+  local meta=${1:-$META} wt=${2:-$WT} proj=${3:-$PROJ}
   local lease path_in_pool lease_in_pool real json found=0
-  lease=$(meta_value "$META" lease_id)
+  lease=$(meta_value "$meta" lease_id)
   [ -n "$lease" ] || return 0
   case "$lease" in
   *[!A-Za-z0-9_-]*)
@@ -2023,22 +2029,25 @@ teardown_verify_slot_lease() {
     return 1
     ;;
   esac
-  [ -d "$WT" ] || return 0
-  real=$(canonical_existing_dir "$WT") || real=$WT
-  if ! command -v jq >/dev/null 2>&1 || ! json=$( cd "$PROJ" && treehouse status --json 2>/dev/null </dev/null ); then
-    echo "REFUSED: cannot read the Treehouse pool status to confirm lease $lease still holds $WT; nothing was changed" >&2
+  [ -d "$wt" ] || return 0
+  real=$(canonical_existing_dir "$wt") || real=$wt
+  if ! command -v jq >/dev/null 2>&1 || ! json=$( cd "$proj" && treehouse status --json 2>/dev/null </dev/null ); then
+    echo "REFUSED: cannot read the Treehouse pool status to confirm lease $lease still holds $wt; nothing was changed" >&2
     return 1
   fi
   while IFS=$'\t' read -r path_in_pool lease_in_pool; do
     [ -n "$path_in_pool" ] || continue
     [ "$(canonical_existing_dir "$path_in_pool" 2>/dev/null || printf '%s' "$path_in_pool")" = "$real" ] || continue
     found=1
-    [ "$lease_in_pool" = "$lease" ] && { TEARDOWN_RETURN_LEASE_ID=$lease; return 0; }
+    if [ "$lease_in_pool" = "$lease" ]; then
+      [ "$#" -gt 0 ] || TEARDOWN_RETURN_LEASE_ID=$lease
+      return 0
+    fi
   done < <(printf '%s' "$json" | jq -r '.[] | [.path, (.lease_id // "")] | @tsv' 2>/dev/null)
   if [ "$found" = 1 ]; then
-    echo "REFUSED: Treehouse no longer reports lease $lease on $WT (the slot's lease changed); the slot may belong to someone else now, so nothing was reaped, detached, deleted, or returned" >&2
+    echo "REFUSED: Treehouse no longer reports lease $lease on $wt (the slot's lease changed); the slot may belong to someone else now, so nothing was reaped, detached, deleted, or returned" >&2
   else
-    echo "REFUSED: Treehouse does not list $WT in its pool, so lease $lease cannot be confirmed; nothing was changed" >&2
+    echo "REFUSED: Treehouse does not list $wt in its pool, so lease $lease cannot be confirmed; nothing was changed" >&2
   fi
   return 1
 }
@@ -2167,9 +2176,12 @@ report_worktree_dirt() {
 
 # Scratch and --force copies are scrubbed before Treehouse return. See the
 # script header for why `git clean -fd` is not enough and why a dirty return
-# is not reported as clean.
+# is not reported as clean. The scrub deletes untracked files and nested
+# repositories, so the slot's lease is confirmed immediately before it: a slot
+# whose lease changed holds its successor's work, which is never scrubbed.
 teardown_scrub_scratch_copy() {
-  local wt=$1
+  local wt=$1 meta=$2 proj=$3
+  teardown_verify_slot_lease "$meta" "$wt" "$proj" || return 1
   # A non-git path has no nested repository this clean can remove.
   git -C "$wt" rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 0
   git -C "$wt" clean -ffdq || {
@@ -3608,12 +3620,18 @@ cleanup_firstmate_home_children() {
         require_owned_worktree_slot_record "$child_id" "$child_wt" || return 1
       else
         validate_child_worktree_for_removal "$child_wt" "$child_proj" >/dev/null || return 1
+        # A leased child slot is confirmed as this child's before its hooks,
+        # scratch, or slot are touched, as the parent's own slot is.
+        teardown_verify_slot_lease "$child_meta" "$child_wt" "$child_proj" || {
+          echo "error: forced cleanup stopped at child $child_id; its slot and records were left in place" >&2
+          return 1
+        }
         rm -f "$child_wt/.claude/settings.local.json" "$child_wt/.opencode/plugins/fm-turn-end.js" \
           "$child_wt/.opencode/plugins/fm-busy-state.js" \
           "$child_wt/.fm-grok-turnend" "$child_wt/.fm-kimi-turnend"
         if [ -n "$child_proj" ] && [ -d "$child_proj" ] && command -v treehouse >/dev/null 2>&1; then
           child_lease=$(meta_value "$child_meta" lease_id)
-          teardown_scrub_scratch_copy "$child_wt" || return 1
+          teardown_scrub_scratch_copy "$child_wt" "$child_meta" "$child_proj" || return 1
           child_pool_slot=0
           fm_treehouse_pool_slot "$child_proj" "$child_wt" && child_pool_slot=1
           child_return_rc=0
@@ -3966,7 +3984,7 @@ elif [ -d "$WT" ] && [ "$KIND" != secondmate ]; then
     post_lock_cleanup_check=validate_worktree_teardown_safety
   fi
   if [ "$KIND" = scout ] || [ "$FORCE" = "--force" ]; then
-    teardown_scrub_scratch_copy "$WT" || exit 1
+    teardown_scrub_scratch_copy "$WT" "$META" "$PROJ" || exit 1
   fi
   wt_pool_slot=0
   fm_treehouse_pool_slot "$PROJ" "$WT" && wt_pool_slot=1
