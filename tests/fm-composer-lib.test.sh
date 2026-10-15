@@ -859,23 +859,19 @@ test_matrix_pi_styled_editor_footer() {
   # Sanitized tails of real 171-column Pi captures: preserve ANSI and editor
   # cells exactly, replace private cwd/model/counters without changing width.
   # Replay only; never send keys to a running pane or open a settings menu.
-  local file screen top rest editor tail typed changed lower cwd usage generic pi_idle pi_working status harness
+  local file screen top rest editor tail typed changed lower cwd usage pi_idle pi_working status harness
   pi_idle=$'pi\tidle'; pi_working=$'pi\tworking'
-  for file in "$ROOT"/tests/fixtures/composer/*.ansi; do
+  for file in "$ROOT"/tests/fixtures/composer/pi-working-*.ansi; do
     screen=$(< "$file")
     top=${screen%%$'\n'*}; rest=${screen#*$'\n'}
     editor=${rest%%$'\n'*}; tail=${rest#*$'\n'}; lower=${tail%%$'\n'*}
     cwd=${tail#*$'\n'}; cwd=${cwd%%$'\n'*}
-    # Without the strict footer only the generic pair proof applies: two
-    # identical solid rules under native idle are empty, a Working edge is not.
-    generic=unknown
-    [ "$top" = "$lower" ] && generic=empty
-    assert_screen "styled Pi capture ${file##*/}" empty "$CAPS_STYLED" "$screen" '' "$pi_idle"
+    assert_screen "styled Pi Working edge ${file##*/}" empty "$CAPS_STYLED" "$screen" '' "$pi_idle"
     assert_screen "styled Pi with native done" empty "$CAPS_STYLED" "$screen" '' $'pi\tdone'
     assert_screen "bare Pi name has no native state" unknown "$CAPS_STYLED" "$screen" '' pi
     assert_screen "only the pi agent identity counts" unknown "$CAPS_STYLED" "$screen" '' $'pi-signed\tidle'
-    assert_screen "styled Pi cursor" empty "$CAPS_TMUX" "$screen" 1 "$pi_idle"
-    assert_screen "styled Pi cursor outside editor" unknown "$CAPS_TMUX" "$screen" 3 "$pi_idle"
+    # tmux infers Pi idle from rendered busy text, which never matches this edge.
+    assert_screen "tmux inferred idle cannot vouch for a Working edge" unknown "$CAPS_TMUX" "$screen" 1 "$pi_idle"
     assert_screen "styled Pi native working still refuses" unknown "$CAPS_STYLED" "$screen" '' "$pi_working"
     assert_screen "styled Pi native blocked still refuses" unknown "$CAPS_STYLED" "$screen" '' $'pi\tblocked'
     assert_screen "styled Pi needs the lazy probe" need-identity "$CAPS_STYLED" "$screen"
@@ -894,27 +890,27 @@ test_matrix_pi_styled_editor_footer() {
     assert_screen "multiline Pi editor" empty "$CAPS_STYLED" "$changed" '' "$pi_idle"
     changed=$top$'\n \n'$tail
     assert_screen "clipped blank editor" unknown "$CAPS_STYLED" "$changed" '' "$pi_idle"
-    changed=$top$'\n'$lower$'\n'$editor$'\n'$tail
-    assert_screen "typed duplicate boundary is ambiguous" unknown "$CAPS_STYLED" "$changed" '' "$pi_idle"
+    changed=$top$'\n'$editor$'\n'$lower$'\n'$editor$'\n'$tail
+    assert_screen "a plain rule pair under a Working edge is the generic proof's call" empty "$CAPS_STYLED" "$changed" '' "$pi_idle"
+    assert_screen "duplicate lower boundary is ambiguous" unknown "$CAPS_STYLED" "$lower"$'\n'"$screen" '' "$pi_idle"
     changed=$top$'\n'$editor$'\n'$editor$'\n'$lower
-    assert_screen "missing footer falls back to the generic proof" "$generic" "$CAPS_STYLED" "$changed" '' "$pi_idle"
+    assert_screen "Working edge without a footer" unknown "$CAPS_STYLED" "$changed" '' "$pi_idle"
     changed=$top$'\n'$editor$'\n'${tail/↑/x}
-    assert_screen "missing usage prefix falls back to the generic proof" "$generic" "$CAPS_STYLED" "$changed" '' "$pi_idle"
+    assert_screen "Working edge without the usage prefix" unknown "$CAPS_STYLED" "$changed" '' "$pi_idle"
     # Footers Pi renders without the strict prefix: fresh, dollar-first, cache-write.
     for usage in '0.0%/272k (auto)' "\$0.000 (sub) 0.0%/272k (auto)" "↑1.1k ↓11 R1k W1k \$0.011 (api) 1.0%/272k (auto)"; do
       changed=$top$'\n'$editor$'\n'$lower$'\n'$cwd$'\n'$usage
-      assert_screen "unproven footer uses the generic proof: $usage" "$generic" "$CAPS_STYLED" "$changed" '' "$pi_idle"
-      assert_screen "unproven footer, cursor: $usage" "$generic" "$CAPS_TMUX" "$changed" 1 "$pi_idle"
-      assert_screen "unproven footer, native working: $usage" unknown "$CAPS_STYLED" "$changed" '' "$pi_working"
+      assert_screen "Working edge over an unproven footer: $usage" unknown "$CAPS_STYLED" "$changed" '' "$pi_idle"
     done
     changed=${top/38;2;/38;2;1;}$'\n'$editor$'\n'$tail
     assert_screen "mismatched styled top" unknown "$CAPS_STYLED" "$changed" '' "$pi_idle"
     for status in '────────' '❯ lower draft' 'Esc to cancel · Enter to select'; do
       assert_screen "unsafe row after Pi footer" unknown "$CAPS_STYLED" "$screen"$'\n'"$status" '' "$pi_idle"
     done
-    assert_screen "dialog above styled Pi editor" unknown "$CAPS_STYLED" $'Do you want to continue? [y/N]\n'"$screen" '' "$pi_idle"
-    assert_screen "menu above styled Pi editor" unknown "$CAPS_STYLED" $'Esc to cancel · Enter to select\n'"$screen" '' "$pi_idle"
-    assert_screen "three rows after the footer fall back to the generic proof" "$generic" "$CAPS_STYLED" "$screen"$'\nrow one\nrow two\nrow three' '' "$pi_idle"
+    for status in 'Do you want to continue? [y/N]' 'Allow the retry to run again?' 'Esc to cancel · Enter to select'; do
+      assert_screen "dialog above styled Pi editor: $status" unknown "$CAPS_STYLED" "$status"$'\n'"$screen" '' "$pi_idle"
+    done
+    assert_screen "three rows after the footer" unknown "$CAPS_STYLED" "$screen"$'\nrow one\nrow two\nrow three' '' "$pi_idle"
   done
   # Same proven footer with two separate extension rows, and a usage row cut
   # immediately after the complete fixed prefix. Neither requires model text.
@@ -931,7 +927,19 @@ test_matrix_pi_styled_editor_footer() {
   changed=$changed$editor$editor
   assert_screen "usage wider than editor" unknown "$CAPS_STYLED" "$changed" '' "$pi_idle"
   assert_screen "Working boundary without footer is not proof" unknown "$CAPS_STYLED" "$top"$'\n'"$editor"$'\n'"$lower" '' "$pi_idle"
-  pass "matrix: real styled Pi Working/idle edges, clipped usage, and 0-2 status rows require complete proof; drafts and counterfactuals refuse"
+  # The identical-rule idle pair stays with the generic proof: transcript text
+  # that only the Working-edge proof scans must not refuse an idle composer.
+  screen=$(< "$ROOT/tests/fixtures/composer/pi-idle-combined-status.ansi")
+  assert_screen "idle Pi pair" empty "$CAPS_STYLED" "$screen" '' "$pi_idle"
+  assert_screen "idle Pi pair, cursor" empty "$CAPS_TMUX" "$screen" 1 "$pi_idle"
+  for status in 'Do you want to merge this PR now?' 'I can allow the retry to run again?' 'Use the arrows to navigate the list.'; do
+    assert_screen "idle Pi pair under a transcript question: $status" empty "$CAPS_STYLED" "$status"$'\n'"$screen" '' "$pi_idle"
+    assert_screen "idle Pi pair under a transcript question, cursor: $status" empty "$CAPS_TMUX" "$status"$'\n'"$screen" 2 "$pi_idle"
+  done
+  changed=$'Esc to cancel · Enter to select'$'\n\n\n\n\n\n\n\n\n'"$screen"
+  assert_screen "idle Pi pair under quoted menu scrollback" empty "$CAPS_STYLED" "$changed" '' "$pi_idle"
+  assert_screen "idle Pi pair, native working" unknown "$CAPS_STYLED" "$screen" '' "$pi_working"
+  pass "matrix: real styled Pi Working edges, clipped usage, and 0-2 status rows need native idle and complete proof; idle pairs keep the generic proof"
 }
 
 test_matrix_pi_dollar_status_footer_is_empty() {

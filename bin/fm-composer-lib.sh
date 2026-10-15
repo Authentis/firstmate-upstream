@@ -77,10 +77,10 @@
 #                different, self-proving thing: real claude 2.x draws exactly
 #                that (`─` rule, `❯`+NBSP, `─` rule), so the glyph inside the
 #                pair carries the shape and no identity is needed.
-#                Pi also has a stricter styled editor/footer proof, including
-#                its Working top edge (_fm_composer_pi_styled_footer); with a
-#                native idle/done Pi identity it can prove the composer
-#                without inferring worker state from that rendered label.
+#                Pi's Working top edge has its own stricter styled
+#                editor/footer proof (_fm_composer_pi_styled_footer); only a
+#                backend-native idle/done Pi state can make it empty, never
+#                tmux's identity, which infers state from rendered text.
 #
 # THE COMPOSER FOOTER ZONE (task firstmate-doorbell-vals-pending-p1): a
 # harness draws its own furniture BELOW the composer - a user statusLine, a
@@ -2338,16 +2338,17 @@ fm_composer_send_refusal() {  # <screen> <composer-state> [harness]
   return 0
 }
 
-# Pi's full styled editor/footer is stronger proof than a generic pair of
-# transcript rules. Real Pi captures include a Working top edge, a width-cut
-# usage row, and zero to two extension rows. Keep this proof separate from the
-# generic separator predicate: a titled transcript rule must never become an
-# empty composer. Return 1 when no Pi footer sits under a styled lower rule, so
-# the generic proof still decides; otherwise print a verdict, refusing
-# incomplete or ambiguous geometry. Pi editor text counts regardless of
-# intensity, colour, or resemblance to another prompt.
-_fm_composer_pi_styled_footer() {  # <screen> [cursor-row]
-  printf '%s\n' "$1" | LC_ALL=C awk -v cy="${2:-}" '
+# Real Pi captures can top the editor with a `── <spinner> Working ─…` edge
+# instead of a plain rule, above a width-cut usage row and zero to two
+# extension rows. Only that Working edge under Pi's full styled footer gets
+# this proof; keep it separate from the generic separator predicate so a
+# titled transcript rule never becomes an empty composer. Return 1 for any
+# other shape, including the plain identical-rule pair, so the unchanged
+# generic proof decides; otherwise print a verdict, refusing incomplete or
+# ambiguous geometry. Pi editor text counts regardless of intensity, colour,
+# or resemblance to another prompt.
+_fm_composer_pi_styled_footer() {  # <screen>
+  printf '%s\n' "$1" | LC_ALL=C awk '
     function rule(s, t) {
       t = s
       return gsub(/─/, "", t) >= 40 && t == ""
@@ -2389,25 +2390,21 @@ _fm_composer_pi_styled_footer() {  # <screen> [cursor-row]
       if (!footer) exit 1
       lower = footer - 1
       if (!rule(plain[lower]) || raw[lower] !~ boundary || substr(raw[lower], length(raw[lower])-3) != reset) exit 1
-      if (unsafe) { print verdict; exit }
-      colour = substr(raw[lower], 1, index(raw[lower], "─") - 1)
       upper = lower - 1
       while (upper > 0 && !rule(plain[upper]) && !working(plain[upper])) upper--
-      if (!upper || lower-upper < 2 || lower-upper > 9 || (cy != "" && (cy+1 <= upper || cy+1 >= lower))) {
-        print verdict; exit
-      }
+      if (!upper || !working(plain[upper])) exit 1
+      if (unsafe || lower-upper < 2 || lower-upper > 9) { print verdict; exit }
+      colour = substr(raw[lower], 1, index(raw[lower], "─") - 1)
       count = 0; working_count = 0
       for (i = 1; i <= lower; i++) {
         if (raw[i] == raw[lower]) count++
         if (working(plain[i])) working_count++
       }
-      if (working(plain[upper])) {
-        spinner = substr(plain[upper], 8, 3)
-        expected = colour "── " spinner reset " " colour "Working " substr(plain[upper], 20) reset
-        if (raw[upper] != expected || count != 1 || working_count != 1 || width(substr(plain[upper], 20))+13 != width(plain[lower])) {
-          print verdict; exit
-        }
-      } else if (raw[upper] != raw[lower] || count != 2 || working_count != 0) { print verdict; exit }
+      spinner = substr(plain[upper], 8, 3)
+      expected = colour "── " spinner reset " " colour "Working " substr(plain[upper], 20) reset
+      if (raw[upper] != expected || count != 1 || working_count != 1 || width(substr(plain[upper], 20))+13 != width(plain[lower])) {
+        print verdict; exit
+      }
       w = width(plain[lower])
       usage_cells = plain[footer+1]
       gsub(/↑|↓|•/, " ", usage_cells)
@@ -2417,7 +2414,7 @@ _fm_composer_pi_styled_footer() {  # <screen> [cursor-row]
       }
       for (i = upper > 8 ? upper-8 : 1; i < upper; i++) {
         s = tolower(plain[i])
-        if (s ~ /do you want to|allow .{1,80}\?|press enter to send|\[y\/n\]|\(y\/n\)|esc to (cancel|clear|exit|close)|enter.* to (confirm|select)|to navigate/) {
+        if (s ~ /do you want to|allow [^?][^?]*\?|press enter to send|\[y\/n\]|\(y\/n\)|esc to (cancel|clear|exit|close)|enter.* to (confirm|select)|to navigate/) {
           print verdict; exit
         }
       }
@@ -2451,10 +2448,12 @@ EOF
     case "$cy" in *[!0-9]*) printf 'unknown'; return 0 ;; esac
   fi
   _fm_composer_menu_agent_set "$identity" "$has_identity"
+  # The cursor capability is tmux's, whose Pi state is inferred from rendered
+  # busy text that never matches the Working edge, so it cannot vouch for it.
   local pi_footer_state pi_status=${identity#pi$'\t'}
-  if [ "$styled" = 1 ] && { [ "$pi_status" != "$identity" ] \
+  if [ "$styled" = 1 ] && [ "$cursor" = 0 ] && { [ "$pi_status" != "$identity" ] \
        || { [ -z "$identity" ] && [ "$has_identity" = 1 ]; }; } \
-     && pi_footer_state=$(_fm_composer_pi_styled_footer "$screen" "$cy"); then
+     && pi_footer_state=$(_fm_composer_pi_styled_footer "$screen"); then
     if [ -z "$identity" ]; then
       printf 'need-identity'
     elif [ "$pi_footer_state" = empty ] && [ "$pi_status" != idle ] && [ "$pi_status" != 'done' ]; then
