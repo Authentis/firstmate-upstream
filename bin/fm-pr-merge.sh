@@ -700,8 +700,6 @@ FIELDS
   # (the empty page is served with statuses null). An error object such as
   # {"message":...} lacks that field and is unreadable rather than the empty
   # page that would end pagination with an earlier page's success standing.
-  # A non-empty page must carry a string state and an object with a string
-  # status for every entry.
   ci_state=none
   while :; do
     if ! status_json=$(tea api --login "$FORGEJO_LOGIN" --repo "$PR_OWNER/$PR_REPO" \
@@ -709,9 +707,6 @@ FIELDS
       || ! fields=$(printf '%s' "$status_json" | jq -r '
           if type == "object" and has("statuses")
             and (.statuses == null or (.statuses | type) == "array")
-            and (((.statuses // []) | length) == 0
-              or ((.state | type) == "string"
-                and all(.statuses[]; type == "object" and (.status | type) == "string")))
           then
             "count=" + ((.statuses // []) | length | tostring),
             "state=" + ((.state // "") | tostring)

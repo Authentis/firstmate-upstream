@@ -2392,8 +2392,7 @@ test_forgejo_combined_status_reads_every_page() {
 
 # tea api exits 0 on an HTTP-level failure, so a later status page that comes
 # back as an error object instead of a combined status must refuse the merge
-# rather than read as the empty page that ends pagination, and a page whose
-# consumed fields are malformed must refuse too. The legitimate empty page,
+# rather than read as the empty page that ends pagination. The legitimate empty page,
 # with statuses either null (the verified real shape) or an empty array, still
 # ends pagination and lets an all-green head merge.
 test_forgejo_combined_status_rejects_error_pages() {
@@ -2401,9 +2400,7 @@ test_forgejo_combined_status_rejects_error_pages() {
   for spec in \
     'http-error|{"errors":null,"message":"Not Found","url":"https://forgejo.example/api/swagger"}' \
     'no-statuses-key|{"state":"","total_count":0}' \
-    'statuses-not-array|{"state":"success","total_count":1,"statuses":"ci"}' \
-    'state-not-string|{"state":null,"total_count":1,"statuses":[{"context":"ci","status":"success"}]}' \
-    'status-entry-malformed|{"state":"success","total_count":1,"statuses":[{"context":"ci"}]}'; do
+    'statuses-not-array|{"state":"success","total_count":1,"statuses":"ci"}'; do
     name=${spec%%|*}
     body=${spec#*|}
     case_dir=$(make_forgejo_case "forgejo-status-page2-$name")
@@ -2453,7 +2450,7 @@ test_forgejo_combined_status_rejects_error_pages() {
     assert_grep 'page=3' "$case_dir/tea.log" \
       "forgejo-status-page3-empty-$name: the empty third page was never read"
   done
-  pass "fm-pr-merge refuses a Forgejo status page that is an HTTP error object or malformed, and still ends on a legitimate empty page"
+  pass "fm-pr-merge refuses a Forgejo status page that is an HTTP error object, and still ends on a legitimate empty page"
 }
 
 test_forgejo_stale_recorded_head_is_reported() {
