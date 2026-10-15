@@ -77,6 +77,10 @@
 #                different, self-proving thing: real claude 2.x draws exactly
 #                that (`─` rule, `❯`+NBSP, `─` rule), so the glyph inside the
 #                pair carries the shape and no identity is needed.
+#                Pi also has a stricter styled editor/footer proof, including
+#                its Working top edge (_fm_composer_pi_styled_footer); with an
+#                explicitly supplied Pi identity it can prove the composer
+#                without inferring worker state from that rendered label.
 #
 # THE COMPOSER FOOTER ZONE (task firstmate-doorbell-vals-pending-p1): a
 # harness draws its own furniture BELOW the composer - a user statusLine, a
@@ -772,8 +776,9 @@ fm_composer_classify_content() {  # <bordered> <content> [idle_re] [idle_case] [
 #   [cursor_row] zero-based row index of the cursor within <screen>, only
 #                meaningful when caps carry cursor=1.
 #   [identity]   "<agent>\t<status>" from the backend's native identity probe,
-#                or `probe-absent` when the probe found no live identity; only
-#                meaningful when caps carry identity=1.
+#                or `probe-absent` when the probe found no live identity.
+#                An explicit harness name alone can prove only the strict
+#                styled Pi editor/footer, not the generic separator pair.
 # Prints exactly one verdict: empty | pending | pending-unproven | unknown,
 # or the internal sentinel `need-identity` when caps declare identity=1, no
 # identity result was supplied, and the verdict depends on it. Adapters answer
@@ -2334,6 +2339,103 @@ fm_composer_send_refusal() {  # <screen> <composer-state> [harness]
   return 0
 }
 
+# Pi's full styled editor/footer is stronger proof than a generic pair of
+# transcript rules. Real Pi captures include a Working top edge, a width-cut
+# usage row, and zero to two extension rows. Keep this proof separate from the
+# generic separator predicate: a titled transcript rule must never become an
+# empty composer. Return 1 when this is not the styled Pi surface; otherwise
+# print a verdict, refusing incomplete or ambiguous geometry. Pi editor text
+# counts regardless of intensity, colour, or resemblance to another prompt.
+_fm_composer_pi_styled_footer() {  # <screen> [cursor-row]
+  printf '%s\n' "$1" | LC_ALL=C awk -v cy="${2:-}" '
+    function rule(s, t) {
+      t = s
+      return gsub(/─/, "", t) >= 40 && t == ""
+    }
+    # Byte-locale codepoint count: the proven footer uses ASCII plus arrows
+    # and a middle dot, all single-column; editor cells are checked in bytes.
+    function width(s, t) {
+      t = s; gsub(/[\200-\277]/, "", t)
+      return length(t)
+    }
+    function working(s) {
+      # Two dashes (6 bytes), space, braille (3), space, Working, space:
+      # the closing dash run starts at byte 20, independent of ambient locale.
+      return s ~ /^── \342[\240-\243][\200-\277] Working / && rule(substr(s, 20))
+    }
+    BEGIN {
+      esc = sprintf("%c", 27); reset = esc "[0m"
+      boundary = "^" esc "\\[0m" esc "\\[38;2;[0-9]+;[0-9]+;[0-9]+m"
+      number = "[0-9]+(\\.[0-9]+)?[kKMGT]?"
+      usage = "^↑" number " ↓" number " R" number " CH[0-9]+(\\.[0-9]+)?% \\$[0-9]+(\\.[0-9]+)? \\((sub|api)\\) "
+    }
+    {
+      sub(/\r$/, ""); raw[++n] = $0; plain[n] = $0
+      gsub(/\033\[[0-9;]*m/, "", plain[n])
+      safe = plain[n]; gsub(/\t/, " ", safe)
+      if (safe ~ /[[:cntrl:]]/) unsafe = 1
+      if ($0 ~ boundary && rule(plain[n]) && substr($0, length($0)-3) == reset) seen = 1
+    }
+    END {
+      if (!seen) exit 1
+      verdict = "unknown"
+      if (unsafe) { print verdict; exit }
+      while (n && plain[n] ~ /^ *$/) n--
+      footer = 0
+      for (extra = 0; extra <= 2; extra++) {
+        i = n - 1 - extra
+        if (i < 4) continue
+        if (plain[i] ~ /^(~\/|\/)[^ ]/ && plain[i+1] ~ usage) {
+          footer = i; break
+        }
+      }
+      if (!footer) { print verdict; exit }
+      lower = footer - 1
+      if (!rule(plain[lower]) || raw[lower] !~ boundary || substr(raw[lower], length(raw[lower])-3) != reset) {
+        print verdict; exit
+      }
+      colour = substr(raw[lower], 1, index(raw[lower], "─") - 1)
+      upper = lower - 1
+      while (upper > 0 && !rule(plain[upper]) && !working(plain[upper])) upper--
+      if (!upper || lower-upper < 2 || lower-upper > 9 || (cy != "" && (cy+1 <= upper || cy+1 >= lower))) {
+        print verdict; exit
+      }
+      count = 0; working_count = 0
+      for (i = 1; i <= lower; i++) {
+        if (raw[i] == raw[lower]) count++
+        if (working(plain[i])) working_count++
+      }
+      if (working(plain[upper])) {
+        spinner = substr(plain[upper], 8, 3)
+        expected = colour "── " spinner reset " " colour "Working " substr(plain[upper], 20) reset
+        if (raw[upper] != expected || count != 1 || working_count != 1 || width(substr(plain[upper], 20))+13 != width(plain[lower])) {
+          print verdict; exit
+        }
+      } else if (raw[upper] != raw[lower] || count != 2 || working_count != 0) { print verdict; exit }
+      w = width(plain[lower])
+      usage_cells = plain[footer+1]
+      gsub(/↑|↓|•/, " ", usage_cells)
+      if (usage_cells ~ /[^ -~]/ || width(plain[footer+1]) > w) { print verdict; exit }
+      for (i = footer+2; i <= n; i++) {
+        if (index(plain[i], "────────") || plain[i] ~ /^(❯|›|⟩|→|❭|>|\$|%|#)/) { print verdict; exit }
+      }
+      for (i = upper > 8 ? upper-8 : 1; i < upper; i++) {
+        s = tolower(plain[i])
+        if (s ~ /do you want to|allow .{1,80}\?|press enter to send|\[y\/n\]|\(y\/n\)|esc to (cancel|clear|exit|close)|enter.* to (confirm|select)|to navigate/) {
+          print verdict; exit
+        }
+      }
+      verdict = "empty"
+      for (i = upper+1; i < lower; i++) {
+        if (length(plain[i]) > w) { print "unknown"; exit }
+        if (plain[i] ~ /[^ ]/) verdict = "pending"
+        else if (length(plain[i]) != w) { print "unknown"; exit }
+      }
+      print verdict
+    }
+  '
+}
+
 fm_composer_classify_screen() {  # <caps> <screen> [cursor_row] [identity]
   local caps=$1 screen=$2 cy=${3:-} identity=${4:-}
   local styled=0 cursor=0 has_identity=0 kv plain
@@ -2353,6 +2455,23 @@ EOF
     case "$cy" in *[!0-9]*) printf 'unknown'; return 0 ;; esac
   fi
   _fm_composer_menu_agent_set "$identity" "$has_identity"
+  local pi_footer_state agent=${identity%%$'\t'*} agent_status=${identity#*$'\t'}
+  if [ "$styled" = 1 ] && { [ "$agent" = pi ] || [ "$agent" = pi-signed ] \
+       || { [ -z "$identity" ] && [ "$has_identity" = 1 ]; }; } \
+     && pi_footer_state=$(_fm_composer_pi_styled_footer "$screen" "$cy"); then
+    if [ -z "$identity" ]; then
+      printf 'need-identity'
+    elif [ "$pi_footer_state" = empty ] && [ "$agent_status" != "$identity" ] \
+         && [ "$agent_status" != idle ] && [ "$agent_status" != 'done' ]; then
+      # A native working/blocked state still cannot authorize typing.
+      printf 'unknown'
+    elif fm_composer_open_menu "$screen" all; then
+      printf 'unknown'
+    else
+      printf '%s' "$pi_footer_state"
+    fi
+    return 0
+  fi
   plain=$(printf '%s\n' "$screen" | fm_composer_strip_ansi)
   _fm_composer_scan_screen "$plain" "$cy"
   if [ -n "$cy" ]; then

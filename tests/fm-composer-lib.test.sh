@@ -855,6 +855,72 @@ test_matrix_pi_separated_needs_identity() {
   pass "matrix: pi's separated composer needs identity + structure; the blank row alone never proves it"
 }
 
+test_matrix_pi_styled_editor_footer() {
+  # Sanitized tails of real 171-column Pi captures: preserve ANSI and editor
+  # cells exactly, replace private cwd/model/counters without changing width.
+  # Replay only; never send keys to a running pane or open a settings menu.
+  local file screen top rest editor tail typed changed lower pi_idle pi_working status harness
+  pi_idle=$'pi\tidle'; pi_working=$'pi\tworking'
+  for file in "$ROOT"/tests/fixtures/composer/*.ansi; do
+    screen=$(< "$file")
+    top=${screen%%$'\n'*}; rest=${screen#*$'\n'}
+    editor=${rest%%$'\n'*}; tail=${rest#*$'\n'}; lower=${tail%%$'\n'*}
+    assert_screen "styled Pi capture ${file##*/}" empty "$CAPS_STYLED" "$screen" '' pi
+    assert_screen "styled Pi signed capture" empty "$CAPS_STYLED" "$screen" '' pi-signed
+    assert_screen "styled Pi with native idle" empty "$CAPS_STYLED" "$screen" '' "$pi_idle"
+    assert_screen "styled Pi cursor" empty "$CAPS_TMUX" "$screen" 1 "$pi_idle"
+    assert_screen "styled Pi cursor outside editor" unknown "$CAPS_TMUX" "$screen" 3 "$pi_idle"
+    assert_screen "styled Pi native working still refuses" unknown "$CAPS_STYLED" "$screen" '' "$pi_working"
+    assert_screen "styled Pi native blocked still refuses" unknown "$CAPS_STYLED" "$screen" '' $'pi\tblocked'
+    assert_screen "styled Pi needs the lazy probe" need-identity "$CAPS_STYLED" "$screen"
+    assert_screen "styled Pi absent identity" unknown "$CAPS_STYLED" "$screen" '' probe-absent
+    assert_screen "styled Pi without identity" unknown "$CAPS_STYLED_NOID" "$screen"
+    assert_screen "unstyled Pi proof is insufficient" unknown "$CAPS_PLAIN" "$screen" '' pi
+    for harness in claude codex opencode grok kimi cursor omp muse agy devin commandcode gemini rovo; do
+      assert_screen "Pi footer cannot prove $harness" unknown "$CAPS_STYLED" "$screen" '' "$harness"
+    done
+    for typed in 'draft input' '❯' '/settings' "\$0.001 (sub)" "${ESC}[2mdim draft${ESC}[0m" "${ESC}[38;2;10;10;10mdark draft${ESC}[0m"; do
+      changed=$top$'\n'$typed$'\n'$tail
+      assert_screen "every Pi editor byte counts: $typed" pending "$CAPS_STYLED" "$changed" '' pi
+      assert_screen "native working Pi with draft" pending "$CAPS_STYLED" "$changed" '' "$pi_working"
+    done
+    changed=$top$'\n'$editor$'\n'$editor$'\n'$tail
+    assert_screen "multiline Pi editor" empty "$CAPS_STYLED" "$changed" '' pi
+    changed=$top$'\n \n'$tail
+    assert_screen "clipped blank editor" unknown "$CAPS_STYLED" "$changed" '' "$pi_idle"
+    changed=$top$'\n'$lower$'\n'$editor$'\n'$tail
+    assert_screen "typed duplicate boundary is ambiguous" unknown "$CAPS_STYLED" "$changed" '' "$pi_idle"
+    changed=$top$'\n'$editor$'\n'$editor$'\n'$lower
+    assert_screen "missing footer" unknown "$CAPS_STYLED" "$changed" '' "$pi_idle"
+    changed=$top$'\n'$editor$'\n'${tail/↑/x}
+    assert_screen "missing usage prefix" unknown "$CAPS_STYLED" "$changed" '' "$pi_idle"
+    changed=${top/38;2;/38;2;1;}$'\n'$editor$'\n'$tail
+    assert_screen "mismatched styled top" unknown "$CAPS_STYLED" "$changed" '' "$pi_idle"
+    for status in '────────' '❯ lower draft' 'Esc to cancel · Enter to select'; do
+      assert_screen "unsafe row after Pi footer" unknown "$CAPS_STYLED" "$screen"$'\n'"$status" '' "$pi_idle"
+    done
+    assert_screen "dialog above styled Pi editor" unknown "$CAPS_STYLED" $'Do you want to continue? [y/N]\n'"$screen" '' "$pi_idle"
+    assert_screen "menu above styled Pi editor" unknown "$CAPS_STYLED" $'Esc to cancel · Enter to select\n'"$screen" '' "$pi_idle"
+    assert_screen "unrelated row after styled Pi" unknown "$CAPS_STYLED" "$screen"$'\nrow one\nrow two\nrow three' '' "$pi_idle"
+  done
+  # Same proven footer with two separate extension rows, and a usage row cut
+  # immediately after the complete fixed prefix. Neither requires model text.
+  screen=$(< "$ROOT/tests/fixtures/composer/pi-working-no-status.ansi")
+  assert_screen "two extension status rows" empty "$CAPS_STYLED" "$screen"$'\nbh O▕██░▏ P▕█░░▏ X▕██░▏\nunified-exec: 1 session running' '' pi
+  top=${screen%%$'\n'*}; rest=${screen#*$'\n'}
+  editor=${rest%%$'\n'*}; tail=${rest#*$'\n'}
+  lower=${tail%%$'\n'*}; rest=${tail#*$'\n'}; rest=${rest%%$'\n'*}
+  changed=$top$'\n'$editor$'\n'$lower$'\n'$rest$'\n↑1M ↓1k R1M CH11.1% $1.111 (api) '
+  assert_screen "usage row clipped after fixed prefix" empty "$CAPS_STYLED" "$changed" '' pi
+  changed=$top$'\n'$editor$'\n'$lower$'\n'$rest$'\n↑1M ↓1k R1M CH11.1% $1.111 (api'
+  assert_screen "usage prefix itself clipped" unknown "$CAPS_STYLED" "$changed" '' "$pi_idle"
+  changed=$top$'\n'$editor$'\n'$lower$'\n'$rest$'\n↑1M ↓1k R1M CH11.1% $1.111 (sub) '
+  changed=$changed$editor$editor
+  assert_screen "usage wider than editor" unknown "$CAPS_STYLED" "$changed" '' "$pi_idle"
+  assert_screen "Working boundary without footer is not proof" unknown "$CAPS_STYLED" "$top"$'\n'"$editor"$'\n'"$lower" '' pi
+  pass "matrix: real styled Pi Working/idle edges, clipped usage, and 0-2 status rows require complete proof; drafts and counterfactuals refuse"
+}
+
 test_matrix_pi_dollar_status_footer_is_empty() {
   # Pi's status row `$0.000 (sub) 5.4%/272k (auto)` at column 0 used to read
   # as a dead-shell prompt, so an idle separated composer classified unknown.
@@ -1490,6 +1556,7 @@ test_matrix_herdr_halfblock_rule_bounds_bare_wrap
 test_matrix_omp_status_row_bounds_bare_composer
 test_matrix_codex_idle_starfield_furniture
 test_matrix_pi_separated_needs_identity
+test_matrix_pi_styled_editor_footer
 test_matrix_pi_dollar_status_footer_is_empty
 test_matrix_opencode_leftbar_signals
 test_matrix_opencode_wrapped_label
