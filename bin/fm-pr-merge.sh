@@ -105,7 +105,7 @@
 # absent stops the merge before any state is recorded.
 #
 # Opt-in review-receipt gate: when config/merge-receipt-required has a line for
-# this project (docs/configuration.md owns the schema), both forge verifiers add
+# this project (docs/configuration.md owns the schema), every forge verifier adds
 # one more refusal after their live conditions and before any forge merge
 # command unless this exact PR number has, for the live head they just read,
 # either a PASS receipt or a waiver in that line's data directory (relative to
@@ -147,7 +147,7 @@
 # because there is no established translation from a gh/glab-style flag into
 # a Forgejo API field yet.
 #
-# Before either forge merge, the task's existing per-task control lock
+# Before any forge merge, the task's existing per-task control lock
 # serializes the captain-hold check through the forge command. A still-held or
 # unreadable row refuses before that command, so a captain approval must be
 # recorded as an `answer --release` before this entrypoint is invoked. While
@@ -1793,7 +1793,7 @@ forgejo_confirm_merged() {
   [ "$merged" = true ]
 }
 
-# Record before either forge call. This arms the merge poll without claiming a
+# Record before any forge call. This arms the merge poll without claiming a
 # landed outcome, so even a provider read failure after a real merge cannot
 # leave teardown without the PR identity it needs to verify the result.
 precheck_expected_head || exit 1
