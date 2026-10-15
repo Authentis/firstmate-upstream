@@ -1,0 +1,5 @@
+$ tea api --login fm-lab --repo labowner/labrepo "/repos/{owner}/{repo}/commits/cccc…/status?limit=50&page=2"   (server answers HTTP 500)
+{"errors": null, "message": "internal server error", "url": "http://127.0.0.1:38457/api/swagger"}tea exit status: 0
+
+$ same request, page=1 (HTTP 200 combined status)
+{"state": "success", "sha": "cccccccccccccccccccccccccccccccccccccccc", "total_count": 1, "statuses": [{"context": "ci/build", "status": "success"}]}tea exit status: 0

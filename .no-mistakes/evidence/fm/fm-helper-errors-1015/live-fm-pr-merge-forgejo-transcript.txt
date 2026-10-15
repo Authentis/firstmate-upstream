@@ -1,0 +1,99 @@
+# fm-pr-merge.sh live run: real tea v0.16.0 client -> local Forgejo-API mock (http://127.0.0.1:38457), disposable FM lab home per run
+# FIXED = bin/fm-pr-merge.sh at 86b3b6f6; BASE = bin/fm-pr-merge.sh at fc8972cd
+
+=== S1 FIXED: later status page is an HTTP 500 error object: fm-pr-merge.sh task-x1 https://127.0.0.1/labowner/labrepo/pulls/9  [server mode: page2-http-error]
+armed: state/task-x1.check.sh
+error: refusing to merge https://127.0.0.1/labowner/labrepo/pulls/9
+  - the combined commit status is "unreadable", not success
+--- fm-pr-merge exit status: 1
+--- requests the mock Forgejo received:
+    page2-http-error GET /api/v1/repos/labowner/labrepo
+    page2-http-error GET /api/v1/repos/labowner/labrepo/pulls/9
+    page2-http-error GET /api/v1/repos/labowner/labrepo/commits/cccccccccccccccccccccccccccccccccccccccc/status?limit=50&page=1
+    page2-http-error GET /api/v1/repos/labowner/labrepo/commits/cccccccccccccccccccccccccccccccccccccccc/status?limit=50&page=2
+--- no merge was posted
+--- task meta after run:
+    window=fm-task-x1
+    worktree=/tmp/fmlab-01M50HX/home.jD2yi4/wt
+    project=/tmp/fmlab-01M50HX/home.jD2yi4/project
+    kind=ship
+    mode=no-mistakes
+    pr=https://127.0.0.1/labowner/labrepo/pulls/9
+
+=== S1 BASE (pre-fix reproduction): later status page is an HTTP 500 error object: .fm-pr-merge.base.sh task-x1 https://127.0.0.1/labowner/labrepo/pulls/9  [server mode: page2-http-error]
+armed: state/task-x1.check.sh
+verified: https://127.0.0.1/labowner/labrepo/pulls/9 is open and mergeable, with a successful combined status at head cccccccccccccccccccccccccccccccccccccccc
+--- fm-pr-merge exit status: 0
+--- requests the mock Forgejo received:
+    page2-http-error GET /api/v1/repos/labowner/labrepo
+    page2-http-error GET /api/v1/repos/labowner/labrepo/pulls/9
+    page2-http-error GET /api/v1/repos/labowner/labrepo/commits/cccccccccccccccccccccccccccccccccccccccc/status?limit=50&page=1
+    page2-http-error GET /api/v1/repos/labowner/labrepo/commits/cccccccccccccccccccccccccccccccccccccccc/status?limit=50&page=2
+    page2-http-error POST /api/v1/repos/labowner/labrepo/pulls/9/merge
+    page2-http-error GET /api/v1/repos/labowner/labrepo/pulls/9
+--- MERGE POSTED: {"Do":"merge","head_commit_id":"cccccccccccccccccccccccccccccccccccccccc"}
+--- task meta after run:
+    window=fm-task-x1
+    worktree=/tmp/fmlab-01M50HX/home.5W8RWQ/wt
+    project=/tmp/fmlab-01M50HX/home.5W8RWQ/project
+    kind=ship
+    mode=no-mistakes
+    pr=https://127.0.0.1/labowner/labrepo/pulls/9
+
+=== S2 FIXED: later status page is an HTTP 404 error object: fm-pr-merge.sh task-x1 https://127.0.0.1/labowner/labrepo/pulls/9  [server mode: page2-http-404]
+armed: state/task-x1.check.sh
+error: refusing to merge https://127.0.0.1/labowner/labrepo/pulls/9
+  - the combined commit status is "unreadable", not success
+--- fm-pr-merge exit status: 1
+--- requests the mock Forgejo received:
+    page2-http-404 GET /api/v1/repos/labowner/labrepo
+    page2-http-404 GET /api/v1/repos/labowner/labrepo/pulls/9
+    page2-http-404 GET /api/v1/repos/labowner/labrepo/commits/cccccccccccccccccccccccccccccccccccccccc/status?limit=50&page=1
+    page2-http-404 GET /api/v1/repos/labowner/labrepo/commits/cccccccccccccccccccccccccccccccccccccccc/status?limit=50&page=2
+--- no merge was posted
+--- task meta after run:
+    window=fm-task-x1
+    worktree=/tmp/fmlab-01M50HX/home.Ckm4FW/wt
+    project=/tmp/fmlab-01M50HX/home.Ckm4FW/project
+    kind=ship
+    mode=no-mistakes
+    pr=https://127.0.0.1/labowner/labrepo/pulls/9
+
+=== S3 FIXED: first status page is an HTTP 500 error object: fm-pr-merge.sh task-x1 https://127.0.0.1/labowner/labrepo/pulls/9  [server mode: page1-http-error]
+armed: state/task-x1.check.sh
+error: refusing to merge https://127.0.0.1/labowner/labrepo/pulls/9
+  - the combined commit status is "unreadable", not success
+--- fm-pr-merge exit status: 1
+--- requests the mock Forgejo received:
+    page1-http-error GET /api/v1/repos/labowner/labrepo
+    page1-http-error GET /api/v1/repos/labowner/labrepo/pulls/9
+    page1-http-error GET /api/v1/repos/labowner/labrepo/commits/cccccccccccccccccccccccccccccccccccccccc/status?limit=50&page=1
+--- no merge was posted
+--- task meta after run:
+    window=fm-task-x1
+    worktree=/tmp/fmlab-01M50HX/home.LD8Ovf/wt
+    project=/tmp/fmlab-01M50HX/home.LD8Ovf/project
+    kind=ship
+    mode=no-mistakes
+    pr=https://127.0.0.1/labowner/labrepo/pulls/9
+
+=== S4 FIXED: legitimate empty page (statuses null) ends pagination, all-green head merges: fm-pr-merge.sh task-x1 https://127.0.0.1/labowner/labrepo/pulls/9  [server mode: page2-empty-null]
+armed: state/task-x1.check.sh
+verified: https://127.0.0.1/labowner/labrepo/pulls/9 is open and mergeable, with a successful combined status at head cccccccccccccccccccccccccccccccccccccccc
+--- fm-pr-merge exit status: 0
+--- requests the mock Forgejo received:
+    page2-empty-null GET /api/v1/repos/labowner/labrepo
+    page2-empty-null GET /api/v1/repos/labowner/labrepo/pulls/9
+    page2-empty-null GET /api/v1/repos/labowner/labrepo/commits/cccccccccccccccccccccccccccccccccccccccc/status?limit=50&page=1
+    page2-empty-null GET /api/v1/repos/labowner/labrepo/commits/cccccccccccccccccccccccccccccccccccccccc/status?limit=50&page=2
+    page2-empty-null POST /api/v1/repos/labowner/labrepo/pulls/9/merge
+    page2-empty-null GET /api/v1/repos/labowner/labrepo/pulls/9
+--- MERGE POSTED: {"Do":"merge","head_commit_id":"cccccccccccccccccccccccccccccccccccccccc"}
+--- task meta after run:
+    window=fm-task-x1
+    worktree=/tmp/fmlab-01M50HX/home.R9nI2i/wt
+    project=/tmp/fmlab-01M50HX/home.R9nI2i/project
+    kind=ship
+    mode=no-mistakes
+    pr=https://127.0.0.1/labowner/labrepo/pulls/9
+

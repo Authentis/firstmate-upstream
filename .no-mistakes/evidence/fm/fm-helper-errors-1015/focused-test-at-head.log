@@ -1,0 +1,4 @@
+ok - fm-pr-merge reads every Forgejo combined-status page before merging
+ok - fm-pr-merge treats an unconfigured Forgejo combined status as none, refusing rather than skipping the check
+ok - fm-pr-merge refuses a Forgejo status page that is an HTTP error object, and still ends on a legitimate empty page
+FOCUSED-DONE

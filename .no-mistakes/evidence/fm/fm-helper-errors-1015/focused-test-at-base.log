@@ -1,0 +1,3 @@
+ok - fm-pr-merge reads every Forgejo combined-status page before merging
+ok - fm-pr-merge treats an unconfigured Forgejo combined status as none, refusing rather than skipping the check
+not ok - forgejo-status-page2-http-error: an unreadable later status page should refuse: expected exit 1, got 0
