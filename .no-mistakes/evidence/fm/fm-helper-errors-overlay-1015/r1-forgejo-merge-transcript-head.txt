@@ -1,0 +1,78 @@
+==================================================================
+SCENARIO: r1: page 1 green, page 2 is an HTTP error object (tea api exits 0)
+tree: /tmp/fmgate/head
+--- tea status page 1: {"state":"success","total_count":1,"statuses":[{"context":"ci-1","status":"success"}]}
+--- tea status page 2: {"errors":null,"message":"Not Found","url":"https://forgejo.example/api/swagger"}
+$ bin/fm-pr-merge.sh task-x1 https://forgejo.example/fixture/fixture-repo/pulls/9
+  stdout| armed: state/task-x1.check.sh
+  stderr| ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  stderr| ●  WATCHER DOWN - SUPERVISION IS OFF
+  stderr| ●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+  stderr| ●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+  stderr| ●  This is a supervision warning only; the guarded operation WILL still run.
+  stderr| ●  watcher supervision needs Stop-owned automatic recovery; inspect the hook registration and startup status before ending the turn.
+  stderr| ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  stderr| error: refusing to merge https://forgejo.example/fixture/fixture-repo/pulls/9
+  stderr|   - the combined commit status is "unreadable", not success
+exit: 1
+tea api calls:
+  /repos/{owner}/{repo}/commits/cccccccccccccccccccccccccccccccccccccccc/status?limit=50&page=1
+  /repos/{owner}/{repo}/commits/cccccccccccccccccccccccccccccccccccccccc/status?limit=50&page=2
+RESULT: no merge issued
+==================================================================
+SCENARIO: r1 guard: page 1 green, page 2 is the real empty page (statuses null)
+tree: /tmp/fmgate/head
+--- tea status page 1: {"state":"success","total_count":1,"statuses":[{"context":"ci-1","status":"success"}]}
+--- tea status page 2: {"state":"","sha":"","total_count":0,"statuses":null,"repository":null,"commit_url":"","url":""}
+$ bin/fm-pr-merge.sh task-x1 https://forgejo.example/fixture/fixture-repo/pulls/9
+  stdout| armed: state/task-x1.check.sh
+  stderr| ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  stderr| ●  WATCHER DOWN - SUPERVISION IS OFF
+  stderr| ●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+  stderr| ●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+  stderr| ●  This is a supervision warning only; the guarded operation WILL still run.
+  stderr| ●  watcher supervision needs Stop-owned automatic recovery; inspect the hook registration and startup status before ending the turn.
+  stderr| ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  stderr| verified: https://forgejo.example/fixture/fixture-repo/pulls/9 is open and mergeable, with a successful combined status at head cccccccccccccccccccccccccccccccccccccccc
+exit: 0
+tea api calls:
+  /repos/{owner}/{repo}/commits/cccccccccccccccccccccccccccccccccccccccc/status?limit=50&page=1
+  /repos/{owner}/{repo}/commits/cccccccccccccccccccccccccccccccccccccccc/status?limit=50&page=2
+  /repos/{owner}/{repo}/pulls/9/merge
+RESULT: MERGE WAS ISSUED
+==================================================================
+SCENARIO: receipt gate: green Forgejo PR, receipts required, none written
+tree: /tmp/fmgate/head
+--- tea status page 1: {"state":"success","total_count":1,"statuses":[{"context":"ci-1","status":"success"}]}
+--- config/merge-receipt-required: fixture/fixture-repo data
+$ bin/fm-pr-merge.sh task-x1 https://forgejo.example/fixture/fixture-repo/pulls/9
+  stdout| armed: state/task-x1.check.sh
+  stderr| ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  stderr| ●  WATCHER DOWN - SUPERVISION IS OFF
+  stderr| ●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+  stderr| ●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+  stderr| ●  This is a supervision warning only; the guarded operation WILL still run.
+  stderr| ●  watcher supervision needs Stop-owned automatic recovery; inspect the hook registration and startup status before ending the turn.
+  stderr| ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  stderr| error: refusing to merge https://forgejo.example/fixture/fixture-repo/pulls/9
+  stderr|   - no review receipt at /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-pr-merge-tests.raU8zW/demo-receipt-missing/home/data/xreview/9.md for PR 9 at head cccccccccccccccccccccccccccccccccccccccc
+exit: 1
+tea api calls:
+  /repos/{owner}/{repo}/commits/cccccccccccccccccccccccccccccccccccccccc/status?limit=50&page=1
+  /repos/{owner}/{repo}/commits/cccccccccccccccccccccccccccccccccccccccc/status?limit=50&page=2
+RESULT: no merge issued
+==================================================================
+SCENARIO: receipt gate: same PR with a PASS receipt at the live head
+tree: /tmp/fmgate/head
+--- tea status page 1: {"state":"success","total_count":1,"statuses":[{"context":"ci-1","status":"success"}]}
+--- config/merge-receipt-required: fixture/fixture-repo data
+$ bin/fm-pr-merge.sh task-x1 https://forgejo.example/fixture/fixture-repo/pulls/9
+  stdout| armed: state/task-x1.check.sh
+  stderr| WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+  stderr| verified: https://forgejo.example/fixture/fixture-repo/pulls/9 is open and mergeable, with a successful combined status at head cccccccccccccccccccccccccccccccccccccccc
+exit: 0
+tea api calls:
+  /repos/{owner}/{repo}/commits/cccccccccccccccccccccccccccccccccccccccc/status?limit=50&page=1
+  /repos/{owner}/{repo}/commits/cccccccccccccccccccccccccccccccccccccccc/status?limit=50&page=2
+  /repos/{owner}/{repo}/pulls/9/merge
+RESULT: MERGE WAS ISSUED

@@ -1,0 +1,36 @@
+==================================================================
+SCENARIO (changed): child.meta records lease_id=child-lease-1; treehouse status reports lease 'successor-lease' on the child slot
+tree: /tmp/fmgate/base
+child slot before: untracked-work.txt nested-repo/file.txt 
+$ bin/fm-teardown.sh domain --force
+  stderr| ●  WATCHER DOWN - SUPERVISION IS OFF
+  stderr| ●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+  stderr| ●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+  stderr| ●  This is a supervision warning only; the guarded operation WILL still run.
+  stderr| ●  watcher supervision needs Stop-owned automatic recovery; inspect the hook registration and startup status before ending the turn.
+  stderr| ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  stderr| failed to return worktree: lease precondition failed
+  stderr| teardown: child worktree return was not performed; treehouse refused the forced lease-bound return of slot /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-secondmate-safety.vX5wpy/demo-child-pool-changed/1/alpha under lease child-lease-1 (its lease changed); the slot was not released
+exit: 1
+treehouse calls:
+  treehouse return --force --if-lease-id child-lease-1 /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-secondmate-safety.vX5wpy/demo-child-pool-changed/1/alpha
+child slot after: 
+child record kept: yes
+==================================================================
+SCENARIO (matching): child.meta records lease_id=child-lease-1; treehouse status reports lease 'child-lease-1' on the child slot
+tree: /tmp/fmgate/base
+child slot before: untracked-work.txt nested-repo/file.txt 
+$ bin/fm-teardown.sh domain --force
+  stdout| teardown domain complete (window firstmate:fm-domain, worktree /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-secondmate-safety.vX5wpy/demo-subhome-matching)
+  stderr| ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  stderr| ●  WATCHER DOWN - SUPERVISION IS OFF
+  stderr| ●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+  stderr| ●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+  stderr| ●  This is a supervision warning only; the guarded operation WILL still run.
+  stderr| ●  watcher supervision needs Stop-owned automatic recovery; inspect the hook registration and startup status before ending the turn.
+  stderr| ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+exit: 0
+treehouse calls:
+  treehouse return --force --if-lease-id child-lease-1 /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-secondmate-safety.vX5wpy/demo-child-pool-matching/1/alpha
+child slot after: 
+child record kept: no

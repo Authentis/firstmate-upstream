@@ -1,0 +1,4 @@
+ok - an explicit --force teardown and a scout return a dirty slot forced, still lease-bound
+not ok - the scrub removed a successor's untracked file
+ok - secondmate force teardown returns child slots bound to their lease and keeps a re-leased slot
+not ok - changed: a successor's untracked file was scrubbed
