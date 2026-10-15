@@ -1,0 +1,49 @@
+### head 872ad4b6
+## Working edge (herdr native pi idle) - draft must stay pending
+typed draft 'hello'                                                      pending
+dim draft                                                                pending
+prompt-like draft '/settings'                                            pending
+## Working edge - dialogs/menus must refuse
+permission dialog above                                                  unknown
+selection menu below footer                                              unknown
+## Working edge - unproven footers fall to generic proof (still refuses)
+Working edge + footer '0.0%/272k (auto)'                                 unknown
+Working edge + footer '$0.000 (sub) 0.0%/272k (auto)'                    unknown
+Working edge + footer '↑1.1k ↓11 R1k W1k $0.011 (api) 1.0%/272k (auto)' unknown
+Working edge, no footer at all                                           unknown
+Working edge, recoloured top (styling mismatch)                          unknown
+## Identical-rule idle pair - fresh/dollar-first/cache-write footers (review round 1)
+idle pair + footer '0.0%/272k (auto)' (herdr)                            empty
+idle pair + footer '0.0%/272k (auto)' (tmux cursor)                      empty
+idle pair + footer '$0.000 (sub) 0.0%/272k (auto)' (herdr)               empty
+idle pair + footer '$0.000 (sub) 0.0%/272k (auto)' (tmux cursor)         empty
+idle pair + footer '↑1.1k ↓11 R1k W1k $0.011 (api) 1.0%/272k (auto)' (herdr) empty
+idle pair + footer '↑1.1k ↓11 R1k W1k $0.011 (api) 1.0%/272k (auto)' (tmux cursor) empty
+## Identical-rule idle pair under transcript text the strict proof would refuse
+transcript question above idle pair                                      empty
+idle pair with draft                                                     pending
+
+### base e3f5ac4d
+## Working edge (herdr native pi idle) - draft must stay pending
+typed draft 'hello'                                                      unknown
+dim draft                                                                unknown
+prompt-like draft '/settings'                                            unknown
+## Working edge - dialogs/menus must refuse
+permission dialog above                                                  unknown
+selection menu below footer                                              unknown
+## Working edge - unproven footers fall to generic proof (still refuses)
+Working edge + footer '0.0%/272k (auto)'                                 unknown
+Working edge + footer '$0.000 (sub) 0.0%/272k (auto)'                    unknown
+Working edge + footer '↑1.1k ↓11 R1k W1k $0.011 (api) 1.0%/272k (auto)' unknown
+Working edge, no footer at all                                           unknown
+Working edge, recoloured top (styling mismatch)                          unknown
+## Identical-rule idle pair - fresh/dollar-first/cache-write footers (review round 1)
+idle pair + footer '0.0%/272k (auto)' (herdr)                            empty
+idle pair + footer '0.0%/272k (auto)' (tmux cursor)                      empty
+idle pair + footer '$0.000 (sub) 0.0%/272k (auto)' (herdr)               empty
+idle pair + footer '$0.000 (sub) 0.0%/272k (auto)' (tmux cursor)         empty
+idle pair + footer '↑1.1k ↓11 R1k W1k $0.011 (api) 1.0%/272k (auto)' (herdr) empty
+idle pair + footer '↑1.1k ↓11 R1k W1k $0.011 (api) 1.0%/272k (auto)' (tmux cursor) empty
+## Identical-rule idle pair under transcript text the strict proof would refuse
+transcript question above idle pair                                      empty
+idle pair with draft                                                     pending

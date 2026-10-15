@@ -1,0 +1,16 @@
+# fm_composer_classify_screen verdicts on the three real 1430 Pi captures (private, read-only; verdicts only) and the sanitized fixtures
+# herdr caps styled=1 cursor=0 identity=1; tmux caps styled=1 cursor=1 identity=1 with cursor on the editor row
+### base e3f5ac4d
+netcup-sm-1430.ansi        herdr pi\tidle=unknown  pi\tdone=unknown  pi\tworking=unknown  pi\tblocked=unknown  no-id=unknown        claude=unknown  | tmux(cy=63) pi\tidle=unknown
+bosgame-sm-1430.ansi       herdr pi\tidle=unknown  pi\tdone=unknown  pi\tworking=unknown  pi\tblocked=unknown  no-id=unknown        claude=unknown  | tmux(cy=62) pi\tidle=unknown
+fm-1430.ansi               herdr pi\tidle=empty    pi\tdone=empty    pi\tworking=unknown  pi\tblocked=unknown  no-id=need-identity  claude=unknown  | tmux(cy=62) pi\tidle=empty
+pi-working-no-status.ansi  herdr pi\tidle=unknown  pi\tdone=unknown  pi\tworking=unknown  pi\tblocked=unknown  no-id=unknown        claude=unknown  | tmux(cy=1) pi\tidle=unknown
+pi-working-one-status.ansi herdr pi\tidle=unknown  pi\tdone=unknown  pi\tworking=unknown  pi\tblocked=unknown  no-id=unknown        claude=unknown  | tmux(cy=1) pi\tidle=unknown
+pi-idle-combined-status.ansi herdr pi\tidle=empty    pi\tdone=empty    pi\tworking=unknown  pi\tblocked=unknown  no-id=need-identity  claude=unknown  | tmux(cy=1) pi\tidle=empty
+### head 872ad4b6
+netcup-sm-1430.ansi        herdr pi\tidle=empty    pi\tdone=empty    pi\tworking=unknown  pi\tblocked=unknown  no-id=need-identity  claude=unknown  | tmux(cy=63) pi\tidle=unknown
+bosgame-sm-1430.ansi       herdr pi\tidle=empty    pi\tdone=empty    pi\tworking=unknown  pi\tblocked=unknown  no-id=need-identity  claude=unknown  | tmux(cy=62) pi\tidle=unknown
+fm-1430.ansi               herdr pi\tidle=empty    pi\tdone=empty    pi\tworking=unknown  pi\tblocked=unknown  no-id=need-identity  claude=unknown  | tmux(cy=62) pi\tidle=empty
+pi-working-no-status.ansi  herdr pi\tidle=empty    pi\tdone=empty    pi\tworking=unknown  pi\tblocked=unknown  no-id=need-identity  claude=unknown  | tmux(cy=1) pi\tidle=unknown
+pi-working-one-status.ansi herdr pi\tidle=empty    pi\tdone=empty    pi\tworking=unknown  pi\tblocked=unknown  no-id=need-identity  claude=unknown  | tmux(cy=1) pi\tidle=unknown
+pi-idle-combined-status.ansi herdr pi\tidle=empty    pi\tdone=empty    pi\tworking=unknown  pi\tblocked=unknown  no-id=need-identity  claude=unknown  | tmux(cy=1) pi\tidle=empty

@@ -1,0 +1,7 @@
+session=fm-lab-picomp-59589-9947
+pane=w1:p1
+native identity: pi idle
+head fm_backend_composer_state herdr(fm-lab-picomp-59589-9947:w1:p1) = empty
+base fm_backend_composer_state herdr(fm-lab-picomp-59589-9947:w1:p1) = empty
+head classify(live capture, pi<TAB>working) = unknown
+teardown rc=0

@@ -1,0 +1,4 @@
+private socket=/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-lab.pw7sOg/tmux/tmux-501/fm-lab
+head fm_backend_composer_state tmux(picomp:0.0) = empty
+base fm_backend_composer_state tmux(picomp:0.0) = empty
+kill-server done
