@@ -1899,7 +1899,7 @@ EOF
   rc=$?
   set -e
 
-  [ "$rc" -eq 4 ] || fail "nested process-event restoration failure was collapsed at a recursive teardown boundary"
+  [ "$rc" -eq 5 ] || fail "nested process-event restoration failure was collapsed at a recursive teardown boundary"
   grep -F 'active waits may remain retired; recover registrations from ' "$err" >/dev/null || fail "nested restoration failure did not report its recovery backup"
   backup=$(find "$TMP_ROOT" -maxdepth 1 -type d -name '.fm-procevent-restore.*' \
     -exec test -e '{}/leaf-source.source' \; -print -quit)
@@ -1966,7 +1966,7 @@ EOF
   rc=$?
   set -e
 
-  [ "$rc" -eq 4 ] || fail "failed process-event restoration did not return its distinct recoverable status"
+  [ "$rc" -eq 5 ] || fail "failed process-event restoration did not return its distinct recoverable status"
   grep -F 'active waits may remain retired; recover registrations from ' "$err" >/dev/null || fail "failed process-event restoration did not report its recovery backup"
   backup=$(find "$TMP_ROOT" -maxdepth 1 -type d -name '.fm-procevent-restore.*' \
     -exec test -e '{}/source.source' \; -print -quit)
@@ -2263,7 +2263,7 @@ case "${1:-}" in
       echo "failed to return worktree: lease precondition failed: lease identity does not match worktree" >&2
       exit 1
     fi
-    [ -n "$target" ] && rm -rf -- "$target"
+    [ -d "$target" ] || exit 1
     exit 0
     ;;
 esac
@@ -2282,7 +2282,8 @@ SH
       || fail "forced secondmate teardown did not return the child slot bound to its recorded lease ($slot_lease)"
     if [ "$slot_lease" = child-lease-1 ]; then
       [ "$rc" -eq 0 ] || { cat "$err" >&2; fail "forced secondmate teardown failed to return a child slot it still leases"; }
-      [ ! -d "$childwt" ] || fail "forced secondmate teardown left the returned child slot"
+      ! grep -F 'the pool lost this slot' "$err" >/dev/null \
+        || fail "forced secondmate teardown reported a clean child return as a lost slot"
     else
       [ "$rc" -ne 0 ] || fail "forced secondmate teardown succeeded after the child's lease-bound return was refused"
       [ -d "$childwt" ] || fail "forced secondmate teardown removed a child slot whose lease changed"

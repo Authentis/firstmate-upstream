@@ -4892,6 +4892,38 @@ test_receipt_gate_covers_gitlab_merges() {
   pass "fm-pr-merge applies the receipt gate to GitLab merge requests too"
 }
 
+test_receipt_gate_covers_forgejo_merges() {
+  local case_dir
+  case_dir=$(make_forgejo_case receipt-forgejo)
+  printf '%s\n' "$FJ_OWNER/$FJ_REPO data" > "$case_dir/home/config/merge-receipt-required"
+  set +e
+  run_pr_merge "$case_dir" task-x1 "$FJ_URL" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  RECEIPT_RC=$?
+  set -e
+  expect_code 1 "$RECEIPT_RC" "receipt-forgejo: an open, mergeable, green Forgejo merge with no receipt should be refused"
+  assert_grep "no review receipt at" "$case_dir/stderr" "receipt-forgejo: the refusal did not say why"
+  [ -z "$(tea_merge_line "$case_dir/tea.log")" ] || fail "receipt-forgejo: tea merged despite the refusal"
+
+  write_receipt "$case_dir" 9 "$FJ_STALE_HEAD" 'VERDICT: PASS'
+  set +e
+  run_pr_merge "$case_dir" task-x1 "$FJ_URL" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  RECEIPT_RC=$?
+  set -e
+  expect_code 1 "$RECEIPT_RC" "receipt-forgejo: a PASS receipt for an older head should be refused"
+  assert_grep "is stale: it reviewed head $FJ_STALE_HEAD but the current head is $FJ_HEAD" "$case_dir/stderr" \
+    "receipt-forgejo: the stale receipt was not checked against the live head"
+  [ -z "$(tea_merge_line "$case_dir/tea.log")" ] || fail "receipt-forgejo: tea merged on a stale receipt"
+
+  write_receipt "$case_dir" 9 "$FJ_HEAD" 'VERDICT: PASS'
+  set +e
+  run_pr_merge "$case_dir" task-x1 "$FJ_URL" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  RECEIPT_RC=$?
+  set -e
+  expect_code 0 "$RECEIPT_RC" "receipt-forgejo: a PASS receipt at the live head should merge"
+  [ -n "$(tea_merge_line "$case_dir/tea.log")" ] || fail "receipt-forgejo: tea did not merge"
+  pass "fm-pr-merge applies the receipt gate to Forgejo pull requests too"
+}
+
 test_receipt_gate_off_leaves_merges_unchanged
 test_receipt_missing_refuses
 test_receipt_stale_head_refuses
@@ -4905,6 +4937,7 @@ test_receipt_gate_reports_with_other_refusals_and_after_green_checks
 test_receipt_config_errors_refuse
 test_receipt_first_matching_scope_wins
 test_receipt_gate_covers_gitlab_merges
+test_receipt_gate_covers_forgejo_merges
 
 # --expect-head: a caller that checked one exact head makes a head that moved
 # after that check a refusal rather than a merge of the newer head.

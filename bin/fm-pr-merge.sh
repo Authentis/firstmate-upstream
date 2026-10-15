@@ -914,6 +914,10 @@ FIELDS
     || refusals="$refusals  - the combined commit status is \"$ci_state\", not success
 "
 
+  merge_receipt_gate "$live_head"
+  [ -z "$FM_MERGE_RECEIPT_REFUSAL" ] || refusals="$refusals$FM_MERGE_RECEIPT_REFUSAL
+"
+
   if [ -n "$refusals" ]; then
     printf 'error: refusing to merge %s\n' "$URL" >&2
     printf '%s' "$refusals" >&2
