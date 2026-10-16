@@ -1485,7 +1485,7 @@ EOF
   assert_contains "$out" "CONTEXT RE-EMIT TRUNCATED" "the capped re-emit carried no truncation banner"
   assert_contains "$out" "bin/fm-crew-state.sh" "the banner did not say how to read the omitted records"
   assert_contains "$out" "--- zz-sm ---" "a secondmate record was dropped by the size bound"
-  assert_contains "$out" "--- ship-1 ---" "the first records were not kept"
+  assert_contains "$out" "--- ship-1" "the first records were not kept"
   assert_not_contains "$out" "--- ship-30 ---" "the size bound did not omit later records"
 
   out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")

@@ -486,7 +486,7 @@ case "\${1:-}" in
     esac
     ;;
   capture-pane) printf 'working\n' ;;
-  display-message) printf '0\n' ;;
+  display-message) printf '/dev/fm-fake-no-such-tty\n' ;;
   *) exit 0 ;;
 esac
 SH
