@@ -1,0 +1,106 @@
+Oracle (independent): gh pr view https://github.com/kunchenguid/firstmate/pull/7373 --json headRefOid -> 648dd35e7c34915e8e09061a2eebf89b9247a343
+
+=== S1 baseline (pre-fix 230db821) record-only, no worktree line  (script: /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-base.Spt3en/bin/fm-pr-check.sh, mode=no-mistakes, no worktree= line) ===
+exit=1
+--- output:
+  ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ●  WATCHER DOWN - SUPERVISION IS OFF
+  ●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+  ●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+  ●  This is a supervision warning only; the guarded operation WILL still run.
+  ●  watcher supervision needs Stop-owned automatic recovery; inspect the hook registration and startup status before ending the turn.
+  ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  error: named head cannot be verified: worktree missing
+--- task-a.meta after:
+  window=firstmate:fm-task-a
+  endpoint_task_id=task-a
+  project=<lab>/project
+  kind=ship
+  mode=no-mistakes
+--- pr_head matches forge oracle: no
+--- poll armed: no
+
+=== S1 fixed: record-only, no worktree line  (script: <worktree>/bin/fm-pr-check.sh, mode=no-mistakes, no worktree= line) ===
+exit=0
+--- output:
+  ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ●  WATCHER DOWN - SUPERVISION IS OFF
+  ●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+  ●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+  ●  This is a supervision warning only; the guarded operation WILL still run.
+  ●  watcher supervision needs Stop-owned automatic recovery; inspect the hook registration and startup status before ending the turn.
+  ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  armed: state/task-a.check.sh
+--- task-a.meta after:
+  window=firstmate:fm-task-a
+  endpoint_task_id=task-a
+  project=<lab>/project
+  kind=ship
+  mode=no-mistakes
+  pr=https://github.com/kunchenguid/firstmate/pull/7373
+  pr_head=648dd35e7c34915e8e09061a2eebf89b9247a343
+--- pr_head matches forge oracle: yes
+--- poll armed: yes
+
+=== S2 fixed: worktree line names a missing dir  (script: <worktree>/bin/fm-pr-check.sh, mode=no-mistakes, worktree=/nonexistent/fm-record-only-wt) ===
+exit=0
+--- output:
+  ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ●  WATCHER DOWN - SUPERVISION IS OFF
+  ●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+  ●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+  ●  This is a supervision warning only; the guarded operation WILL still run.
+  ●  watcher supervision needs Stop-owned automatic recovery; inspect the hook registration and startup status before ending the turn.
+  ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  armed: state/task-a.check.sh
+--- task-a.meta after:
+  window=firstmate:fm-task-a
+  endpoint_task_id=task-a
+  worktree=/nonexistent/fm-record-only-wt
+  project=<lab>/project
+  kind=ship
+  mode=no-mistakes
+  pr=https://github.com/kunchenguid/firstmate/pull/7373
+  pr_head=648dd35e7c34915e8e09061a2eebf89b9247a343
+--- pr_head matches forge oracle: yes
+--- poll armed: yes
+
+=== S3 adversarial fixed: unreadable forge head (nonexistent PR)  (script: <worktree>/bin/fm-pr-check.sh, mode=no-mistakes, no worktree= line) ===
+exit=1
+--- output:
+  ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ●  WATCHER DOWN - SUPERVISION IS OFF
+  ●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+  ●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+  ●  This is a supervision warning only; the guarded operation WILL still run.
+  ●  watcher supervision needs Stop-owned automatic recovery; inspect the hook registration and startup status before ending the turn.
+  ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  error: named head cannot be verified: worktree missing
+--- task-a.meta after:
+  window=firstmate:fm-task-a
+  endpoint_task_id=task-a
+  project=<lab>/project
+  kind=ship
+  mode=no-mistakes
+--- pr_head matches forge oracle: no
+--- poll armed: no
+
+=== S4 adversarial fixed: direct-PR record-only still refused  (script: <worktree>/bin/fm-pr-check.sh, mode=direct-PR, no worktree= line) ===
+exit=1
+--- output:
+  ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ●  WATCHER DOWN - SUPERVISION IS OFF
+  ●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+  ●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+  ●  This is a supervision warning only; the guarded operation WILL still run.
+  ●  watcher supervision needs Stop-owned automatic recovery; inspect the hook registration and startup status before ending the turn.
+  ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  error: named head cannot be verified: worktree missing
+--- task-a.meta after:
+  window=firstmate:fm-task-a
+  endpoint_task_id=task-a
+  project=<lab>/project
+  kind=ship
+  mode=direct-PR
+--- pr_head matches forge oracle: no
+--- poll armed: no
