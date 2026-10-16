@@ -100,20 +100,25 @@ register_check() {  # <dir> <id> <output>
     || fail "could not register check $2"
 }
 
-test_own_outbound_signal_folds_and_digest_delivers() {
+# A remote mate's own outbound parent channel is excluded from the watcher's
+# signal scan (bin/fm-classify-lib.sh status_scan_parent_channel_exclude), so
+# its reports neither wake nor queue a row; the fold has nothing of it to
+# record. The folded rows the digest and the routine drain deliver are the
+# ones a repeated check output produces.
+test_own_outbound_report_is_not_scanned_and_folded_rows_deliver() {
   local dir state
   dir=$(make_fold_case own-outbound secondmate)
   state="$dir/state"
   printf 'done [at=%s]: reported the finished lane to the parent\n' "$(date +%s)" > "$state/parent-replies.status"
   watch_fold_bg "$dir"
   wait_poll_cycle "$state" "$WATCH_PID" || fail "watcher woke on its own outbound parent-channel report"
-  wait_poll_cycle "$state" "$WATCH_PID" || fail "watcher woke on a folded row's re-arm"
+  wait_poll_cycle "$state" "$WATCH_PID" || fail "watcher woke on a later cycle with its own outbound report"
   stop_watcher
-  [ "$(queue_rows "$dir")" -eq 1 ] || fail "own outbound report was not queued durably as one row"
-  grep -q $'\town-outbound$' "$state/.wake-fold" || fail "own outbound row was not recorded as folded"
-  grep -q 'folded own outbound parent-channel signal' "$state/.watch-triage.log" \
-    || fail "fold was not logged"
+  [ "$(queue_rows "$dir")" -eq 0 ] || fail "own outbound report was queued: $(cat "$state/.wake-queue")"
+  [ ! -s "$state/.wake-fold" ] || fail "own outbound report was recorded as folded"
 
+  fold_append "$dir" check "$state/x.check.sh" "check: $state/x.check.sh: same" check-repeat \
+    || fail "could not queue a folded row"
   watch_fold_bg "$dir" FM_WAKE_FOLD_DIGEST_SECS=1
   wait_for_exit "$WATCH_PID" 100 || fail "digest did not wake for the folded row"
   WATCH_PID=
@@ -123,10 +128,10 @@ test_own_outbound_signal_folds_and_digest_delivers() {
   drain "$dir" --ack-if-routine || fail "routine drain failed"
   grep -q '^ROUTINE: nothing presented needs handling' "$dir/drain.out" \
     || fail "routine drain did not acknowledge: $(cat "$dir/drain.out" "$dir/drain.err")"
-  grep -q 'parent-replies.status' "$dir/drain.out" || fail "routine drain did not present the folded row"
+  grep -q 'x.check.sh' "$dir/drain.out" || fail "routine drain did not present the folded row"
   grep -q WAKE_ACK_REQUIRED "$dir/drain.err" && fail "routine drain still asked for an acknowledgement"
   [ ! -s "$state/.wake-queue" ] || fail "routine acknowledgement left rows queued"
-  pass "own outbound parent-channel report folds, the digest delivers it, and one drain call acknowledges it"
+  pass "a mate's own outbound parent-channel report neither wakes nor queues, and a folded row is delivered by the digest and one drain call"
 }
 
 test_worker_terminal_events_never_fold() {
@@ -264,11 +269,15 @@ test_switch_off_and_away_restore_unfolded_waking() {
       switch-off) printf 'off\n' > "$dir/config/wake-fold" ;;
       away) : > "$state/.afk" ;;
     esac
-    printf 'done [at=%s]: reported to the parent\n' "$(date +%s)" > "$state/parent-replies.status"
-    watch_fold_bg "$dir"
-    wait_for_exit "$WATCH_PID" 100 || fail "$mode: own outbound report did not wake"
+    register_check "$dir" tool-updates 'tool updates: br update available'
+    watch_fold_bg "$dir" FM_CHECK_INTERVAL=0
+    wait_for_exit "$WATCH_PID" 100 || fail "$mode: first check output did not wake"
     WATCH_PID=
-    grep -q "^signal:.*parent-replies.status" "$dir/watch.out" || fail "$mode: own outbound report was not the wake"
+    drain "$dir" || fail "$mode: drain after the first check failed"
+    ack_drain_err "$state" "$dir/drain.err" >/dev/null 2>&1 || fail "$mode: could not acknowledge the first check"
+    watch_fold_bg "$dir" FM_CHECK_INTERVAL=0
+    wait_for_exit "$WATCH_PID" 100 || fail "$mode: an identical check output did not wake"
+    WATCH_PID=
     [ ! -s "$state/.wake-fold" ] || fail "$mode: a row was recorded as folded"
   done
 
@@ -283,7 +292,7 @@ test_switch_off_and_away_restore_unfolded_waking() {
   pass "config/wake-fold=off and an away record each restore immediate waking and a plain drain"
 }
 
-test_own_outbound_signal_folds_and_digest_delivers
+test_own_outbound_report_is_not_scanned_and_folded_rows_deliver
 test_worker_terminal_events_never_fold
 test_check_repeat_folds_and_new_text_wakes
 test_rearm_folds_only_when_every_row_is_folded

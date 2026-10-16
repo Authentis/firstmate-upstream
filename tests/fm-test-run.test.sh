@@ -2048,7 +2048,7 @@ assert doc["summary"]["total"]==5
 # leaves a child and a grandchild running, in the shape that orphaned eleven
 # processes before.
 guard_kill_case() {  # <label> <signal> <runner-args...>
-  local label=$1 sig=$2 tmp pid_file pids runner_pid p lock_left
+  local label=$1 sig=$2 tmp pids runner_pid p lock_left
   shift 2
   tmp=$(mktemp -d "${TMPDIR:-/tmp}/fm-test-run-kill.XXXXXX")
   guard_fixture "$tmp"
