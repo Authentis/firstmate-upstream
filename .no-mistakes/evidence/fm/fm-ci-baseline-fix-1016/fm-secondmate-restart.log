@@ -1,0 +1,172 @@
+ok - persist-gated remote restart resolves the secondmate id pin and sends explicit model/thinking values
+ok - remote restart refuses empty/default/dash Pi models before relaunch transport
+ok - T1 persist is a gate, and asks for open records and task status only
+ok - T2 the mate persists before anything is stopped
+ok - T2b an arrived persist answer is resolved before timeout
+ok - T2c a reply between the preliminary scan and timeout decision wins
+ok - T3 a runtime that cannot prove a restart falls back to the re-read message
+ok - T4 every named mate is accounted for, including one this home does not know
+ok - T5 a refused restart leaves the mate running and reports an unknown outcome
+ok - T8 a local restart re-resolves this home's pin and reports the runtime that came up
+ok - native Ultra survives local restart and the remote restart transport
+ok - T6 a remote mate restarts through the host-local control plane over the fm-on hop
+ok - T7 an unreachable host is reported honestly instead of claimed as reloaded
+ok - T9 the persist gate retains its explicitly allocated correlation
+ok - T10 pending persist answers are polled as one fleet
+ok - T11 post-stop restart failure is never misreported as a nudge
+ok - T12 relaunch waits do not block fleet persistence polling
+ok - T13 a dead restart worker cannot hang the parent
+ok - T14 a result published during reaping is honored
+ok - T15 an already-current live mate is named by the update pass and genuinely restarted
+ok - T16 an already-current mate with an unprovable runtime keeps the honest nudge path
+# all fm-secondmate-restart tests passed
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/concurrent-waits-11967/home/state/sm2.git-hooks/prepare-commit-msg': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/concurrent-waits-11967/home/state/sm2.git-hooks/pre-commit': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/concurrent-waits-11967/home/state/sm2.git-hooks/applypatch-msg': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/concurrent-waits-11967/home/state/sm2.git-hooks/pre-rebase': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/concurrent-waits-11967/home/state/sm2.git-hooks/pre-merge-commit': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/concurrent-waits-11967/home/state/sm2.git-hooks/post-applypatch': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/concurrent-waits-11967/home/state/sm2.git-hooks/post-checkout': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/concurrent-waits-11967/home/state/sm2.git-hooks/commit-msg': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/concurrent-waits-11967/home/state/sm2.git-hooks/sendemail-validate': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/concurrent-waits-11967/home/state/sm2.git-hooks/pre-auto-gc': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/concurrent-waits-11967/home/state/sm2.git-hooks/post-rewrite': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/concurrent-waits-11967/home/state/sm2.git-hooks/pre-push': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/concurrent-waits-11967/home/state/sm2.git-hooks/post-merge': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/concurrent-waits-11967/home/state/sm2.git-hooks/pre-applypatch': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/concurrent-waits-11967/home/state/sm2.git-hooks/post-commit': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/pin-5652/home/state/sm1.git-hooks/prepare-commit-msg': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/pin-5652/home/state/sm1.git-hooks/pre-commit': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/pin-5652/home/state/sm1.git-hooks/applypatch-msg': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/pin-5652/home/state/sm1.git-hooks/pre-rebase': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/pin-5652/home/state/sm1.git-hooks/pre-merge-commit': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/pin-5652/home/state/sm1.git-hooks/post-applypatch': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/pin-5652/home/state/sm1.git-hooks/post-checkout': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/pin-5652/home/state/sm1.git-hooks/commit-msg': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/pin-5652/home/state/sm1.git-hooks/sendemail-validate': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/pin-5652/home/state/sm1.git-hooks/pre-auto-gc': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/pin-5652/home/state/sm1.git-hooks/post-rewrite': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/pin-5652/home/state/sm1.git-hooks/pre-push': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/pin-5652/home/state/sm1.git-hooks/post-merge': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/pin-5652/home/state/sm1.git-hooks/pre-applypatch': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/pin-5652/home/state/sm1.git-hooks/post-commit': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/relaunch-polling-4813/home/state/sm2.git-hooks/prepare-commit-msg': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/relaunch-polling-4813/home/state/sm2.git-hooks/pre-commit': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/relaunch-polling-4813/home/state/sm2.git-hooks/applypatch-msg': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/relaunch-polling-4813/home/state/sm2.git-hooks/pre-rebase': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/relaunch-polling-4813/home/state/sm2.git-hooks/pre-merge-commit': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/relaunch-polling-4813/home/state/sm2.git-hooks/post-applypatch': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/relaunch-polling-4813/home/state/sm2.git-hooks/post-checkout': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/relaunch-polling-4813/home/state/sm2.git-hooks/commit-msg': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/relaunch-polling-4813/home/state/sm2.git-hooks/sendemail-validate': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/relaunch-polling-4813/home/state/sm2.git-hooks/pre-auto-gc': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/relaunch-polling-4813/home/state/sm2.git-hooks/post-rewrite': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/relaunch-polling-4813/home/state/sm2.git-hooks/pre-push': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/relaunch-polling-4813/home/state/sm2.git-hooks/post-merge': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/relaunch-polling-4813/home/state/sm2.git-hooks/pre-applypatch': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/relaunch-polling-4813/home/state/sm2.git-hooks/post-commit': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/post-stop-25483/home/state/sm1.git-hooks/prepare-commit-msg': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/post-stop-25483/home/state/sm1.git-hooks/pre-commit': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/post-stop-25483/home/state/sm1.git-hooks/applypatch-msg': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/post-stop-25483/home/state/sm1.git-hooks/pre-rebase': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/post-stop-25483/home/state/sm1.git-hooks/pre-merge-commit': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/post-stop-25483/home/state/sm1.git-hooks/post-applypatch': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/post-stop-25483/home/state/sm1.git-hooks/post-checkout': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/post-stop-25483/home/state/sm1.git-hooks/commit-msg': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/post-stop-25483/home/state/sm1.git-hooks/sendemail-validate': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/post-stop-25483/home/state/sm1.git-hooks/pre-auto-gc': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/post-stop-25483/home/state/sm1.git-hooks/post-rewrite': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/post-stop-25483/home/state/sm1.git-hooks/pre-push': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/post-stop-25483/home/state/sm1.git-hooks/post-merge': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/post-stop-25483/home/state/sm1.git-hooks/pre-applypatch': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/post-stop-25483/home/state/sm1.git-hooks/post-commit': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/answer-at-timeout-decision-19967/home/state/sm1.git-hooks/prepare-commit-msg': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/answer-at-timeout-decision-19967/home/state/sm1.git-hooks/pre-commit': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/answer-at-timeout-decision-19967/home/state/sm1.git-hooks/applypatch-msg': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/answer-at-timeout-decision-19967/home/state/sm1.git-hooks/pre-rebase': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/answer-at-timeout-decision-19967/home/state/sm1.git-hooks/pre-merge-commit': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/answer-at-timeout-decision-19967/home/state/sm1.git-hooks/post-applypatch': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/answer-at-timeout-decision-19967/home/state/sm1.git-hooks/post-checkout': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/answer-at-timeout-decision-19967/home/state/sm1.git-hooks/commit-msg': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/answer-at-timeout-decision-19967/home/state/sm1.git-hooks/sendemail-validate': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/answer-at-timeout-decision-19967/home/state/sm1.git-hooks/pre-auto-gc': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/answer-at-timeout-decision-19967/home/state/sm1.git-hooks/post-rewrite': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/answer-at-timeout-decision-19967/home/state/sm1.git-hooks/pre-push': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/answer-at-timeout-decision-19967/home/state/sm1.git-hooks/post-merge': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/answer-at-timeout-decision-19967/home/state/sm1.git-hooks/pre-applypatch': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/answer-at-timeout-decision-19967/home/state/sm1.git-hooks/post-commit': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/order-3445/home/state/sm1.git-hooks/prepare-commit-msg': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/order-3445/home/state/sm1.git-hooks/pre-commit': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/order-3445/home/state/sm1.git-hooks/applypatch-msg': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/order-3445/home/state/sm1.git-hooks/pre-rebase': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/order-3445/home/state/sm1.git-hooks/pre-merge-commit': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/order-3445/home/state/sm1.git-hooks/post-applypatch': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/order-3445/home/state/sm1.git-hooks/post-checkout': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/order-3445/home/state/sm1.git-hooks/commit-msg': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/order-3445/home/state/sm1.git-hooks/sendemail-validate': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/order-3445/home/state/sm1.git-hooks/pre-auto-gc': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/order-3445/home/state/sm1.git-hooks/post-rewrite': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/order-3445/home/state/sm1.git-hooks/pre-push': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/order-3445/home/state/sm1.git-hooks/post-merge': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/order-3445/home/state/sm1.git-hooks/pre-applypatch': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/order-3445/home/state/sm1.git-hooks/post-commit': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/unknown-8373/home/state/sm1.git-hooks/prepare-commit-msg': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/unknown-8373/home/state/sm1.git-hooks/pre-commit': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/unknown-8373/home/state/sm1.git-hooks/applypatch-msg': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/unknown-8373/home/state/sm1.git-hooks/pre-rebase': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/unknown-8373/home/state/sm1.git-hooks/pre-merge-commit': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/unknown-8373/home/state/sm1.git-hooks/post-applypatch': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/unknown-8373/home/state/sm1.git-hooks/post-checkout': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/unknown-8373/home/state/sm1.git-hooks/commit-msg': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/unknown-8373/home/state/sm1.git-hooks/sendemail-validate': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/unknown-8373/home/state/sm1.git-hooks/pre-auto-gc': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/unknown-8373/home/state/sm1.git-hooks/post-rewrite': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/unknown-8373/home/state/sm1.git-hooks/pre-push': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/unknown-8373/home/state/sm1.git-hooks/post-merge': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/unknown-8373/home/state/sm1.git-hooks/pre-applypatch': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/unknown-8373/home/state/sm1.git-hooks/post-commit': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/arrived-at-bound-4162/home/state/sm1.git-hooks/prepare-commit-msg': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/arrived-at-bound-4162/home/state/sm1.git-hooks/pre-commit': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/arrived-at-bound-4162/home/state/sm1.git-hooks/applypatch-msg': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/arrived-at-bound-4162/home/state/sm1.git-hooks/pre-rebase': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/arrived-at-bound-4162/home/state/sm1.git-hooks/pre-merge-commit': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/arrived-at-bound-4162/home/state/sm1.git-hooks/post-applypatch': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/arrived-at-bound-4162/home/state/sm1.git-hooks/post-checkout': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/arrived-at-bound-4162/home/state/sm1.git-hooks/commit-msg': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/arrived-at-bound-4162/home/state/sm1.git-hooks/sendemail-validate': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/arrived-at-bound-4162/home/state/sm1.git-hooks/pre-auto-gc': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/arrived-at-bound-4162/home/state/sm1.git-hooks/post-rewrite': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/arrived-at-bound-4162/home/state/sm1.git-hooks/pre-push': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/arrived-at-bound-4162/home/state/sm1.git-hooks/post-merge': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/arrived-at-bound-4162/home/state/sm1.git-hooks/pre-applypatch': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/arrived-at-bound-4162/home/state/sm1.git-hooks/post-commit': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/already-current-8330/home/state/sm1.git-hooks/prepare-commit-msg': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/already-current-8330/home/state/sm1.git-hooks/pre-commit': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/already-current-8330/home/state/sm1.git-hooks/applypatch-msg': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/already-current-8330/home/state/sm1.git-hooks/pre-rebase': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/already-current-8330/home/state/sm1.git-hooks/pre-merge-commit': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/already-current-8330/home/state/sm1.git-hooks/post-applypatch': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/already-current-8330/home/state/sm1.git-hooks/post-checkout': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/already-current-8330/home/state/sm1.git-hooks/commit-msg': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/already-current-8330/home/state/sm1.git-hooks/sendemail-validate': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/already-current-8330/home/state/sm1.git-hooks/pre-auto-gc': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/already-current-8330/home/state/sm1.git-hooks/post-rewrite': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/already-current-8330/home/state/sm1.git-hooks/pre-push': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/already-current-8330/home/state/sm1.git-hooks/post-merge': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/already-current-8330/home/state/sm1.git-hooks/pre-applypatch': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/already-current-8330/home/state/sm1.git-hooks/post-commit': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/native-local-14469/home/state/sm1.git-hooks/prepare-commit-msg': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/native-local-14469/home/state/sm1.git-hooks/pre-commit': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/native-local-14469/home/state/sm1.git-hooks/applypatch-msg': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/native-local-14469/home/state/sm1.git-hooks/pre-rebase': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/native-local-14469/home/state/sm1.git-hooks/pre-merge-commit': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/native-local-14469/home/state/sm1.git-hooks/post-applypatch': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/native-local-14469/home/state/sm1.git-hooks/post-checkout': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/native-local-14469/home/state/sm1.git-hooks/commit-msg': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/native-local-14469/home/state/sm1.git-hooks/sendemail-validate': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/native-local-14469/home/state/sm1.git-hooks/pre-auto-gc': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/native-local-14469/home/state/sm1.git-hooks/post-rewrite': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/native-local-14469/home/state/sm1.git-hooks/pre-push': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/native-local-14469/home/state/sm1.git-hooks/post-merge': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/native-local-14469/home/state/sm1.git-hooks/pre-applypatch': Permission denied
+rm: cannot remove '/tmp/fm-secondmate-restart.QsuoFI/native-local-14469/home/state/sm1.git-hooks/post-commit': Permission denied

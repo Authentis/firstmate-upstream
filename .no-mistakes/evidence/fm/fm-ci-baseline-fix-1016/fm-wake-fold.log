@@ -1,0 +1,7 @@
+ok - a mate's own outbound parent-channel report neither wakes nor queues, and a folded row is delivered by the digest and one drain call
+ok - needs-decision, failed, done, and blocked worker lines wake at once and are never acknowledged as routine
+ok - an identical check output folds, new check text wakes at once, and the folded repeat rides along
+ok - a re-arm folds only while every queued row is folded; a captain note beside them wakes at once
+ok - recovery with any unfolded row, or with an empty queue, still re-arms at once
+ok - the one-call acknowledgement needs only folded rows and an open-decision set already shown
+ok - config/wake-fold=off and an away record each restore immediate waking and a plain drain
