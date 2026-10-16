@@ -1156,6 +1156,26 @@ test_portable_serial_shards_partition_the_serial_lane() {
   pass "portable serial shards are a deterministic disjoint cover of the serial lane"
 }
 
+test_portable_serial_supervision_host_has_its_own_shard() {
+  local count shard listed host_shard=""
+  count=$("$RUNNER" --list-lanes | grep -c '^portable-serial-[0-9]*of[0-9]*$')
+  shard=1
+  while [ "$shard" -le "$count" ]; do
+    listed=$("$RUNNER" --list --lane "portable-serial-${shard}of${count}")
+    if printf '%s\n' "$listed" | grep -qx 'tests/fm-supervision-host.test.sh'; then
+      [ -z "$host_shard" ] || fail "tests/fm-supervision-host.test.sh is in two shards"
+      host_shard=$shard
+      # Observed at 1030s-1620s on hosted runners, it alone nearly fills a
+      # 30-minute job, so no other script may share its runner.
+      [ "$listed" = "tests/fm-supervision-host.test.sh" ] \
+        || fail "tests/fm-supervision-host.test.sh must run alone in its shard, got: $listed"
+    fi
+    shard=$((shard + 1))
+  done
+  [ -n "$host_shard" ] || fail "tests/fm-supervision-host.test.sh is in no portable serial shard"
+  pass "tests/fm-supervision-host.test.sh owns portable-serial-${host_shard}of${count} alone"
+}
+
 test_portable_serial_hint_coverage_is_reported_and_bounded() {
   local out serial unhinted max budget
   # Shards are packed from measured duration hints, so an unmeasured script is
@@ -2121,6 +2141,7 @@ test_list_scheduled_non_lane_selections_use_serial_weights
 test_portable_shard_union_and_coverage_guard
 test_portable_parallel_lanes_stay_duration_balanced
 test_portable_serial_shards_partition_the_serial_lane
+test_portable_serial_supervision_host_has_its_own_shard
 test_portable_serial_hint_coverage_is_reported_and_bounded
 test_portable_serial_packing_budget_boundary
 test_portable_serial_shard_lane_refusals
