@@ -71,7 +71,7 @@ A relaunch does take one session reference when the endpoint's own runtime recor
 
 ## Transactional relaunch
 
-`relaunch` is the only verb that changes durable records, so it runs as a transaction with a journal at `state/<id>.control-relaunch`, the prior record preserved beside it, and a ship or scout's prior instructions preserved when a progress note is appended.
+`relaunch` is the only verb that rewrites a task's record (`launch-check` changes one only through it, and otherwise writes just its verdict file and a `failed:` status line), so it runs as a transaction with a journal at `state/<id>.control-relaunch`, the prior record preserved beside it, and a ship or scout's prior instructions preserved when a progress note is appended.
 
 1. **Resolve the profile.**
    Secondmate profiles follow the [keyed/default pin contract](configuration.md#choose-the-secondmate-harness); other profiles allow explicit `--harness`, `--model`, and `--effort` overrides.
