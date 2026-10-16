@@ -730,6 +730,7 @@ $RULE1
    Outside the worktree, write only that task material and the status and steering-inbox records authorized below.
    Leave the worktree clean before reporting done.
 3. $FORGE_RULE_LINE
+   Run full suites, families, and lanes only on a portable-lane host (bosgame or netcup); the Mac runs only Darwin-only tests, one \`tests/<name>.test.sh\` at a time under \`taskpolicy -b\`, never \`bin/fm-test-run.sh\` with \`--all\`, \`--family\`, or \`--lane\`.
 4. Report status by appending one line:
    \`$STATUS_APPEND\`
    States: working, needs-decision, blocked, $PAUSED_VERB, done, failed.
