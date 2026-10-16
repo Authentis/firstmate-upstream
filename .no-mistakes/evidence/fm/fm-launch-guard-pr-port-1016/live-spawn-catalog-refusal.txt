@@ -1,0 +1,23 @@
+pi=~/.local/bin/pi 1.2.0; opencode=~/.opencode/bin/opencode 1.18.35
+--- fm-spawn pi-fabricated --harness pi --model meta-muse-spark-1.3-contributor
+error: pi model 'meta-muse-spark-1.3-contributor' cannot launch: no listed model matches it exactly in 'pi --list-models' (the authenticated catalog); choose a listed <provider>/<id>
+exit=1  meta_written=no
+--- fm-spawn pi-fabricated2 --harness pi --model fm-guard/not-a-model-zz
+error: pi model 'fm-guard/not-a-model-zz' cannot launch: provider fm-guard is not listed in 'pi --list-models' (the authenticated catalog); choose a listed <provider>/<id>
+exit=1  meta_written=no
+--- fm-spawn oc-fabricated --harness opencode --model opencode/not-a-model-zz
+error: opencode model 'opencode/not-a-model-zz' is not listed by 'opencode models'; choose a listed <provider>/<model>
+exit=1  meta_written=no
+--- fm-spawn pi-listed --harness pi --model aihubmix/coding-glm-5.3-free
+error: pi model 'aihubmix/coding-glm-5.3-free' cannot launch: provider aihubmix is not listed in 'pi --list-models' (the authenticated catalog); choose a listed <provider>/<id>
+exit=1  meta_written=no
+--- fm-spawn oc-listed --harness opencode --model opencode/big-pickle
+spawned oc-listed harness=opencode kind=scout window=firstmate:fm-oc-listed worktree=/tmp/fm-lgpp-scratch/run.h0WG/wt
+exit=0  meta_written=model=opencode/big-pickle
+=== rerun with the real Pi auth dir (sandboxed HOME has no Pi login)
+--- fm-spawn pi-listed-real-auth --harness pi --model aihubmix/coding-glm-5.3-free
+spawned pi-listed-real-auth harness=pi kind=scout window=firstmate:fm-pi-listed-real-auth worktree=/tmp/fm-lgpp-scratch/run.h0WG/wt
+exit=0  meta_written=model=aihubmix/coding-glm-5.3-free
+--- fm-spawn pi-fabricated-real-auth --harness pi --model aihubmix/not-a-model-zz
+error: pi model 'aihubmix/not-a-model-zz' cannot launch: provider aihubmix is listed but does not list model not-a-model-zz in 'pi --list-models' (the authenticated catalog); choose a listed <provider>/<id>
+exit=1  meta_written=no

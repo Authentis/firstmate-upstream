@@ -1,0 +1,25 @@
+ok - launch-check: a live agent with an adapter turn under this incarnation is building, recorded once
+ok - launch-check: the launch seed alone is pending inside the window and an explicit failure after it
+ok - launch-check: an adapter turn recorded under a different incarnation never proves this launch
+ok - launch-check: an adapter turn that already ended (StopFailure) never reads building
+ok - launch-check: a turn seen inside the window is pending, and building only once the window has passed
+ok - launch-check: a failed launch reads failed in fm-crew-state, not working from the untouched launch seed
+ok - launch-check: a done declaration after the launch is completed, never building or relaunched; an older one proves nothing
+ok - launch-check: a needs-decision declaration after the launch is held, never building or relaunched
+ok - launch-check: a working declaration forbids a relaunch but never certifies building before the window
+ok - launch-check: a commit made in the worktree after the launch forbids a relaunch
+ok - launch-check: an attributed no-mistakes run holds custody and blocks a relaunch
+ok - launch-check: a dead launch relaunches once on the next eligible route; a second failure is final and recorded once
+ok - launch-check: a relaunch that never comes up is recorded as failed and never retried
+ok - launch-check: catalog-refused fallbacks are skipped and an all-ineligible list fails explicitly
+ok - launch-check: a fallback whose Pi or OpenCode listing is unavailable, empty, or timed out is ineligible
+ok - launch-check: fm-spawn's own launch failure line relaunches; a worker's failure declaration holds
+ok - relaunch: an unavailable catalog refuses a ship relaunch before the old agent is stopped
+ok - relaunch: a ship relaunch verified before the stop makes no second catalog call after it
+ok - launch-check: an attributed no-mistakes run holds the task even when its agent has a running turn
+ok - relaunch: a missing opencode executable refuses a ship relaunch before the old agent is stopped
+ok - relaunch: a Cursor relaunch to an unlisted model refuses before the old agent is stopped
+ok - relaunch: a Cursor relaunch verified before the stop makes no second catalog call after it
+ok - launch-check: a harness with no adapter turn source is unproven, not building, and untouched
+ok - launch-check: a secondmate is refused
+ok - launch-check: --fallback is shape-checked and scoped to the verb

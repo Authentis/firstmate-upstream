@@ -1,0 +1,4 @@
+ok - Pi: canonical, bare, case, thinking-suffix, and slash-id matches launch; absent, ambiguous, and unlisted-provider ids refuse unless this launch registers that provider
+ok - Pi: an unavailable, empty, or timed-out listing refuses; a pinned root lists its own authentication
+ok - OpenCode: listed and bare-listed ids launch; unlisted ids and unavailable, empty, or timed-out listings refuse; uncovered harnesses pass
+ok - fm-spawn: catalog refusals, including unavailable, empty, and timed-out listings, happen before any record exists; a listed model launches

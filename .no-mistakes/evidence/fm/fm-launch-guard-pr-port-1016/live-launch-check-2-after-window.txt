@@ -1,0 +1,12 @@
+1792166213
+v1 gen=g1792166141.11241.8049 seq=19 state=idle source=opencode-plugin event=session-status-idle ts=1792166201
+done [at=1792166198]: README.md is 1 line (wc -l); report at data/lglive/report.md
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lgpp-scratch/lab.2ek8
+launch-check completed lglive harness=opencode model=opencode/big-pickle evidence=the worker declared done at 1792166198, after this launch; not building and not relaunched
+LC2_RC=0
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lgpp-scratch/lab.2ek8
+launch-check completed lglive (recorded for this incarnation) harness=opencode model=opencode/big-pickle
+LC3_RC=0
+spawn_first=1792166141
+verdict=completed s1792166141.3660.9239
+bash-5.3$

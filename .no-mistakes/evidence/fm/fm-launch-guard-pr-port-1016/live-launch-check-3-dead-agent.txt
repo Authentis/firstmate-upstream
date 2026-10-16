@@ -1,0 +1,16 @@
+# opencode worker process killed by the tester
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lgpp-scratch/lab.2ek8
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lgpp-scratch/lab.2ek8
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+relaunched lgdead harness=opencode from=opencode model=big-pickle effort=default backend=tmux endpoint=primary:fm-lgdead worktree=/tmp/fm-lgpp-scratch/lab.2ek8/pool/.treehouse/demo-19399a/2/demo
+launch-check relaunched lgdead from=opencode/opencode/big-pickle to=opencode/big-pickle reason=the agent process is not running (endpoint reads 'dead'); check again after 60s
+LCD_RC=3
+tail: /tmp/fm-lgpp-scratch/lab.2ek8/state/lgdead.status: No such file or directory
+spawn_first=1792166229
+relaunch=s1792166229.52763.14961 opencode/big-pickle
+relaunch_result=ok s1792166246.85703.30415
+state: working · source: pane · harness busy (fm-spawn)
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lgpp-scratch/lab.2ek8
+launch-check pending lgdead harness=opencode model=big-pickle evidence=agent alive 3s after launch; judged once the launch is 120s old
+LCD2_RC=3
+bash-5.3$ 

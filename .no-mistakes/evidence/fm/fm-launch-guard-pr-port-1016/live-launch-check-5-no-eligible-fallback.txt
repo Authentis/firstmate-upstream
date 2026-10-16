@@ -1,0 +1,14 @@
+# opencode worker killed by the tester; every fallback is catalog-ineligible
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lgpp-scratch/lab.2ek8
+notice: launch-check skips fallback 'opencode/opencode/big-pickle': it is the route that just failed
+error: opencode model 'opencode/not-a-model-zz' is not listed by 'opencode models'; choose a listed <provider>/<model>
+notice: launch-check skips fallback 'opencode/opencode/not-a-model-zz': its harness catalog refuses the model
+error: pi model 'fm-guard/not-a-model-zz' cannot launch: provider fm-guard is not listed in 'pi --list-models' (the authenticated catalog); choose a listed <provider>/<id>
+notice: launch-check skips fallback 'pi/fm-guard/not-a-model-zz': its harness catalog refuses the model
+launch-check failed lgbad harness=opencode model=opencode/big-pickle reason=the agent process is not running (endpoint reads 'dead'), and no eligible fallback route was given
+LCB_RC=4
+failed [at=1792166301]: launch check: the agent process is not running (endpoint reads 'dead'), and no eligible fallback route was given; not building
+spawn_first=1792166288
+verdict=failed s1792166288.48841.22202
+0
+bash-5.3$ 

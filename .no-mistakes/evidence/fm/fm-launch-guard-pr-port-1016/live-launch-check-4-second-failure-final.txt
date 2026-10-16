@@ -1,0 +1,14 @@
+# relaunched opencode worker killed by the tester
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lgpp-scratch/lab.2ek8
+launch-check failed lgdead harness=opencode model=big-pickle reason=the agent process is not running (endpoint reads 'dead') after the one allowed relaunch (onto opencode/big-pickle, ok s1792166246.85703.30415)
+LCD3_RC=4
+failed [at=1792166269]: launch check: the agent process is not running (endpoint reads 'dead') after the one allowed relaunch (onto opencode/big-pickle, ok s1792166246.85703.30415); not building
+spawn_first=1792166229
+relaunch=s1792166229.52763.14961 opencode/big-pickle
+relaunch_result=ok s1792166246.85703.30415
+verdict=failed s1792166246.85703.30415
+state: failed · source: status-log · launch check failed this launch (state/lgdead.launch-check); not building
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lgpp-scratch/lab.2ek8
+launch-check failed lgdead (recorded for this incarnation) harness=opencode model=big-pickle
+LCD4_RC=4
+bash-5.3$ 

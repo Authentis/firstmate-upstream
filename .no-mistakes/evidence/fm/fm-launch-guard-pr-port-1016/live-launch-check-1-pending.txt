@@ -1,0 +1,6 @@
+1792166152
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /tmp/fm-lgpp-scratch/lab.2ek8
+launch-check pending lglive harness=opencode model=opencode/big-pickle evidence=agent alive 11s after launch; judged once the launch is 60s old
+LC1_RC=3
+v1 gen=g1792166141.11241.8049 seq=3 state=busy source=opencode-plugin event=session-busy ts=1792166149
+bash-5.3$
