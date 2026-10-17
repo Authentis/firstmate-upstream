@@ -107,7 +107,7 @@ Only an away record is away: no record, or the record daemon-backed quiet mode w
 
 The host asks the Pi branch's offer rule (`branchOfferForWake`, through `bin/fm-branch-dispatch.mjs offer`) whether the branch may take the close.
 So a close reaches main off Pi exactly when it would on Pi: a check trigger, a decision-owned signal or stale trigger, and a scan that is unsafe or holds nothing for the branch stay main's.
-While the wake fold is active, the rows it records in `state/.wake-fold` (the home's own outbound parent-channel echo and a repeated check output) are claimable without a task instead of vetoing the scan, and the fold's `check: wake digest:` close goes to the host when no queued row is left for main; a `check: rearm-resurface` close always stays main's.
+While the wake fold is active, the rows it records in `state/.wake-fold` (a repeated check output) are claimable without a task instead of vetoing the scan, and the fold's `check: wake digest:` close goes to the host when no queued row is left for main; a `check: rearm-resurface` close always stays main's.
 `config/wake-fold` set to `off`, or any away or quiet record, restores the unfolded offer rule exactly; [`bin/fm-wake-fold-lib.sh`](../bin/fm-wake-fold-lib.sh) owns the fold and `scopeForUnreadWake` owns the rule.
 On that main-only pass-through the host starts the successor watcher cycle and leaves it running, then prints the close unchanged.
 That successor, like one a turn hands back at its start (see [Away](#away)), runs in a process group of its own, so the harness tearing down the hook's group after the rewake does not stop it.
