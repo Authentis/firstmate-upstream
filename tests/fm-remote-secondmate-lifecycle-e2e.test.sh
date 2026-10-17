@@ -1299,8 +1299,17 @@ FM_STATE_OVERRIDE="$WATCH_STATE" FM_SECONDMATE_LIVENESS_SECS=1 FM_POLL=1 \
   remote_env exec "$ROOT/bin/fm-watch.sh" \
   > "$TMP_ROOT/watch-liveness.out" 2> "$TMP_ROOT/watch-liveness.err" &
 watch_pid=$!
+# The relaunch is dominated by the inheritance push, which makes one transactional
+# remote write per declared item, so its duration grows with the declared list
+# rather than with host speed. Measured on a portable-lane host with this fixture:
+# about 340 ticks fixed plus 72 per item (14 items ~1350 ticks, 16 items ~1500).
+# The bound allows 35% over that line, so adding an inheritable item does not trip
+# a fixed number while a hang or a per-item slowdown still does.
+inherit_items=$(bash -c '. "$1/bin/fm-config-inherit-lib.sh"; fm_config_inherit_items' _ "$ROOT" | grep -c .)
+[ "$inherit_items" -gt 0 ] || fail "could not count the declared inheritance items"
+relaunch_bound=$((450 + 100 * inherit_items))
 watch_wait=0
-while kill -0 "$watch_pid" 2>/dev/null && [ "$watch_wait" -lt 1500 ]; do
+while kill -0 "$watch_pid" 2>/dev/null && [ "$watch_wait" -lt "$relaunch_bound" ]; do
   sleep 0.02
   watch_wait=$((watch_wait + 1))
 done
