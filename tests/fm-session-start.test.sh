@@ -1028,6 +1028,8 @@ $rec
 EOF
   make_fake_toolchain "$fakebin"
   make_fake_ps_claude "$fakebin"
+  # A live endpoint keeps task-a out of the dead-record collapse.
+  make_fake_tmux "$fakebin" fm-sess:w1
   # Force a MISSING diagnostic line so the bootstrap section is non-trivial.
   rm -f "$fakebin/node"
 
