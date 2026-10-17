@@ -98,6 +98,7 @@ STATE="$HOME_DIR/state"
 if [ "$CMD" = timer ]; then
   # shellcheck source=bin/fm-periodic-timer-lib.sh
   . "$SCRIPT_DIR/fm-periodic-timer-lib.sh"
+  HOME_DIR=$(fm_timer_abs_dir "$HOME_DIR")
   case "${ARGS[0]:-}" in
     install) fm_timer_install status-probe 300 "$HOME_DIR" "$SCRIPT_DIR/fm-status-probe.sh" run --home "$HOME_DIR" ;;
     remove) fm_timer_remove status-probe "$HOME_DIR" ;;

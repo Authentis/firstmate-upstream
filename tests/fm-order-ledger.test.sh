@@ -297,6 +297,81 @@ test_a_failed_pending_read_is_an_error_not_an_empty_list() {
   pass "pending fails rather than printing a partial list when the ledger cannot be read"
 }
 
+test_a_torn_last_line_is_set_aside_before_the_next_write() {
+  local out
+  make_case torn
+  ledger append first >/dev/null
+  printf '{"id":2,"ts":17' >> "$HOME_DIR/state/orders.jsonl"
+  out=$(ledger append second 2>/dev/null) || fail "append after a torn tail"
+  assert_equals "2" "$out" "the torn line never became an order, so its id is reused"
+  assert_equals "2" "$(jq -s 'length' "$HOME_DIR/state/orders.jsonl")" "the ledger is whole JSON lines again"
+  assert_equals '{"id":2,"ts":17' "$(cat "$HOME_DIR/state/orders.jsonl.torn")" "the torn text is kept aside"
+  pass "a torn last line is set aside and the next append publishes a complete ledger"
+}
+
+test_a_failed_publish_leaves_the_ledger_untouched() {
+  local rc=0 before
+  make_case publishfail
+  ledger append first >/dev/null
+  before=$(cat "$HOME_DIR/state/orders.jsonl")
+  chmod 500 "$HOME_DIR/state"
+  ledger append second >/dev/null 2>&1 || rc=$?
+  chmod 700 "$HOME_DIR/state"
+  if [ "$(id -u)" != 0 ]; then
+    [ "$rc" -ne 0 ] || fail "an append that could not publish reported success"
+  fi
+  assert_equals "$before" "$(cat "$HOME_DIR/state/orders.jsonl")" "the ledger is unchanged"
+  assert_equals "" "$(find "$HOME_DIR/state" -name 'orders.jsonl.*')" "no partial copy is left behind"
+  pass "an append that cannot be published leaves the ledger as it was"
+}
+
+test_ack_ids_are_range_checked_before_arithmetic() {
+  local rc=0
+  make_case idrange
+  ledger append one >/dev/null
+  ledger ack 18446744073709551617 >/dev/null 2>&1 || rc=$?
+  expect_code 2 "$rc" "an id that would wrap to 1 in bash arithmetic"
+  assert_absent "$HOME_DIR/state/orders.acks.jsonl" "no order was acked by a wrapped id"
+  rc=0
+  ledger ack 99999999999999999999999 >/dev/null 2>&1 || rc=$?
+  expect_code 2 "$rc" "a very long id"
+  ledger ack 0000000000000000001 >/dev/null 2>&1 || fail "leading zeros on a small id"
+  assert_equals "" "$(ledger pending)" "an id with leading zeros acks that order"
+  pass "ack refuses ids too large for bash arithmetic and never acks a different order"
+}
+
+test_an_outbox_write_failure_is_reported_and_never_duplicates_the_wake() {
+  local rc=0
+  make_case outboxfail
+  ledger append one >/dev/null
+  mkdir "$HOME_DIR/state/orders.outbox"
+  ledger poll --once >/dev/null 2>&1 || rc=$?
+  [ "$rc" -ne 0 ] || fail "a poll that could not record the outbox line reported success"
+  ledger poll --once >/dev/null 2>&1 || true
+  assert_equals "1" "$(grep -c 'orders:1' "$HOME_DIR/state/.wake-queue")" "the queued wake is its own proof, so it is not queued twice"
+  rmdir "$HOME_DIR/state/orders.outbox"
+  ledger poll --once || fail "poll once the outbox is writable"
+  assert_equals "1 queued" "$(cat "$HOME_DIR/state/orders.outbox")" "the outbox line is recorded"
+  assert_equals "1" "$(grep -c 'orders:1' "$HOME_DIR/state/.wake-queue")" "still one wake"
+  pass "a real outbox write failure fails the poll, keeps one wake, and recovers on the next poll"
+}
+
+test_a_wake_queue_write_failure_leaves_the_order_to_be_announced_later() {
+  local rc=0
+  make_case wakefail
+  ledger append one >/dev/null
+  mkdir "$HOME_DIR/state/.wake-queue"
+  ledger poll --once >/dev/null 2>&1 || rc=$?
+  [ "$rc" -ne 0 ] || fail "a poll that could not queue the wake reported success"
+  assert_absent "$HOME_DIR/state/orders.outbox" "no outbox line without a wake"
+  assert_equals "1 firstmate one" "$(ledger pending)" "the order is still pending"
+  rmdir "$HOME_DIR/state/.wake-queue"
+  ledger poll --once || fail "poll once the queue is writable"
+  assert_equals "1" "$(grep -c 'orders:1' "$HOME_DIR/state/.wake-queue")" "the wake is queued on the later poll"
+  assert_equals "1 queued" "$(cat "$HOME_DIR/state/orders.outbox")" "and recorded"
+  pass "a real wake-queue write failure fails the poll and the order is announced on a later one"
+}
+
 # Two secondmate homes, each polled by a real process, with every terminal tool
 # failing and recorded. A stand-in secondmate acts on the wake it finds and acks.
 test_a_replay_with_the_doorbell_off_is_acked_within_60_seconds_on_both_homes() {
@@ -352,6 +427,11 @@ test_a_consumed_wake_is_not_queued_again
 test_another_producer_advancing_the_queue_never_skips_an_order
 test_a_wake_queued_before_its_outbox_line_is_not_duplicated
 test_a_failed_pending_read_is_an_error_not_an_empty_list
+test_a_torn_last_line_is_set_aside_before_the_next_write
+test_a_failed_publish_leaves_the_ledger_untouched
+test_ack_ids_are_range_checked_before_arithmetic
+test_an_outbox_write_failure_is_reported_and_never_duplicates_the_wake
+test_a_wake_queue_write_failure_leaves_the_order_to_be_announced_later
 test_a_held_lock_times_out_with_the_owner_named
 test_concurrent_polls_announce_each_order_once
 test_a_failed_read_keeps_the_last_good_pending_view

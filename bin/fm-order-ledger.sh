@@ -157,6 +157,45 @@ print_pending() {
   fi
 }
 
+# publish_line <file> <line>: add one complete line to an append-only file by
+# writing the whole new content beside it and renaming over it. A failed write
+# leaves the old file untouched, so a torn line is never published.
+publish_line() {
+  local file=$1 line=$2 tmp
+  if [ -e "$file" ] && [ ! -f "$file" ]; then
+    printf 'fm-order-ledger: %s is not a regular file\n' "$file" >&2
+    return 1
+  fi
+  tmp=$(mktemp "$file.XXXXXX") || return 1
+  if ! { { [ ! -f "$file" ] || cat -- "$file"; } > "$tmp" && printf '%s\n' "$line" >> "$tmp" \
+    && mv -f -- "$tmp" "$file"; }; then
+    rm -f -- "$tmp"
+    return 1
+  fi
+}
+
+# repair_tail <file>: a file whose last byte is not a newline ends in a torn
+# line (a crash or full disk under an older writer). Under the lock, set the
+# torn line aside in <file>.torn and republish the complete lines.
+repair_tail() {
+  local file=$1 tmp
+  [ -s "$file" ] && [ -f "$file" ] || return 0
+  [ -n "$(tail -c1 "$file")" ] || return 0
+  tmp=$(mktemp "$file.XXXXXX") || return 1
+  if ! { tail -n1 "$file" >> "$file.torn" && sed '$d' "$file" > "$tmp" && mv -f -- "$tmp" "$file"; }; then
+    rm -f -- "$tmp"
+    return 1
+  fi
+  printf 'fm-order-ledger: set aside a torn last line of %s in %s.torn\n' "$file" "$file" >&2
+}
+
+repair_tails() {
+  local f
+  for f in "$ORDERS" "$ACKS" "$OUTBOX"; do
+    repair_tail "$f" || return 1
+  done
+}
+
 cmd_append() {
   local text last id ts line
   if [ "${#ARGS[@]}" -eq 1 ] && [ "${ARGS[0]}" = "-" ]; then
@@ -167,6 +206,7 @@ cmd_append() {
   [ -n "$text" ] || die "append needs the order text"
   mkdir -p "$STATE" || die "cannot create $STATE"
   lock_acquire || exit 2
+  repair_tails || die "could not repair the torn tail of the ledger files"
   last=0
   if [ -s "$ORDERS" ]; then
     last=$(jq -s 'map(.id) | max // 0' "$ORDERS" 2>/dev/null) || die "$ORDERS is not valid JSON lines"
@@ -175,7 +215,7 @@ cmd_append() {
   ts=$(date +%s)
   line=$(jq -cn --argjson id "$id" --argjson ts "$ts" --arg from "$FROM" --arg text "$text" \
     '{id:$id,ts:$ts,from:$from,text:$text}') || die "could not encode the order"
-  printf '%s\n' "$line" >> "$ORDERS" || die "could not append to $ORDERS"
+  publish_line "$ORDERS" "$line" || die "could not append to $ORDERS"
   printf '%s\n' "$id"
 }
 
@@ -185,11 +225,21 @@ cmd_ack() {
   [ -f "$ORDERS" ] || die "no order ledger at $ORDERS"
   mkdir -p "$STATE" || die "cannot create $STATE"
   lock_acquire || exit 2
+  repair_tails || die "could not repair the torn tail of the ledger files"
   ts=$(date +%s)
   for id in "${ARGS[@]}"; do
     case "$id" in
       ''|*[!0-9]*) printf 'fm-order-ledger: not a line id: %s\n' "$id" >&2; rc=2; continue ;;
     esac
+    # Ids stay below 10^15 so bash and jq agree on them; longer digit strings
+    # would wrap in bash arithmetic and could ack a different order.
+    id=${id#"${id%%[!0]*}"}
+    : "${id:=0}"
+    if [ "${#id}" -gt 15 ]; then
+      printf 'fm-order-ledger: line id out of range: %s\n' "$id" >&2
+      rc=2
+      continue
+    fi
     id=$((10#$id))
     if ! order_exists "$id"; then
       printf 'fm-order-ledger: no order line with id %s\n' "$id" >&2
@@ -200,7 +250,7 @@ cmd_ack() {
       printf 'already acked %s\n' "$id"
       continue
     fi
-    printf '{"id":%s,"ts":%s}\n' "$id" "$ts" >> "$ACKS" || die "could not append to $ACKS"
+    publish_line "$ACKS" "$(printf '{"id":%s,"ts":%s}' "$id" "$ts")" || die "could not append to $ACKS"
     printf 'acked %s\n' "$id"
   done
   return "$rc"
@@ -226,7 +276,7 @@ announce_order() {
     status=1
   fi
   if [ "$status" -eq 0 ]; then
-    printf '%s queued\n' "$id" >> "$OUTBOX" || status=1
+    publish_line "$OUTBOX" "$id queued" || status=1
   fi
   fm_lock_release "$FM_WAKE_QUEUE_LOCK"
   return "$status"
@@ -237,6 +287,7 @@ announce_order() {
 # so a failed read keeps the last good view instead of erasing it.
 poll_pass_locked() {
   local tmp line id from text rc=0
+  repair_tails || return 1
   tmp=$(mktemp "$STATE/.orders.pending.XXXXXX") || return 1
   if ! pending_lines > "$tmp" || ! mv -f -- "$tmp" "$PENDING_VIEW"; then
     rm -f -- "$tmp"
@@ -275,6 +326,7 @@ cmd_timer() {
   local sub=${ARGS[0]:-}
   # shellcheck source=bin/fm-periodic-timer-lib.sh
   . "$SCRIPT_DIR/fm-periodic-timer-lib.sh"
+  HOME_DIR=$(fm_timer_abs_dir "$HOME_DIR")
   case "$sub" in
     install) fm_timer_install order-poll 15 "$HOME_DIR" "$SCRIPT_DIR/fm-order-ledger.sh" poll --home "$HOME_DIR" --once ;;
     remove) fm_timer_remove order-poll "$HOME_DIR" ;;

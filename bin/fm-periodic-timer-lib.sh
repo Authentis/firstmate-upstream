@@ -14,8 +14,25 @@
 
 _FM_TIMER_UNAME=$(uname 2>/dev/null || echo unknown)
 
+# fm_timer_abs_dir <dir> -> the directory as an absolute path, resolved against
+# the current directory. A unit runs from no particular directory, so a relative
+# home would name a different home there, and its label hash must not depend on
+# where the installer was run from. Symlinks are kept as given.
+fm_timer_abs_dir() {
+  local dir=$1
+  if [ -d "$dir" ]; then
+    (cd "$dir" && pwd)
+    return
+  fi
+  case "$dir" in
+    /*) printf '%s\n' "$dir" ;;
+    *) printf '%s/%s\n' "$PWD" "${dir#./}" ;;
+  esac
+}
+
 fm_timer_label() {  # <job> <home> -> label
-  local job=$1 home=$2 sum
+  local job=$1 home sum
+  home=$(fm_timer_abs_dir "$2")
   sum=$(printf '%s' "$home" | { shasum -a 256 2>/dev/null || sha256sum; } | cut -c1-8)
   printf 'fm-%s-%s\n' "$job" "$sum"
 }
@@ -84,6 +101,7 @@ _fm_timer_write() {
 # (separated by a line holding only `---`) for systemd.
 fm_timer_render() {
   local kind=$1 label=$2 interval=$3 home=$4 arg
+  home=$(fm_timer_abs_dir "$home")
   shift 4
   if [ "$kind" = launchd ]; then
     printf '<?xml version="1.0" encoding="UTF-8"?>\n'
@@ -118,6 +136,7 @@ fm_timer_render() {
 # fm_timer_install <job> <interval> <home> <command-path> [arg...]
 fm_timer_install() {
   local job=$1 interval=$2 home=$3 kind label dir
+  home=$(fm_timer_abs_dir "$home")
   shift 3
   kind=$(fm_timer_kind)
   label=$(fm_timer_label "$job" "$home")
@@ -143,6 +162,7 @@ fm_timer_install() {
 # fm_timer_remove <job> <home>
 fm_timer_remove() {
   local job=$1 home=$2 kind label dir
+  home=$(fm_timer_abs_dir "$home")
   kind=$(fm_timer_kind)
   label=$(fm_timer_label "$job" "$home")
   dir=$(fm_timer_dir)

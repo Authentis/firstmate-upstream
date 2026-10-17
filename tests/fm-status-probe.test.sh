@@ -400,6 +400,20 @@ test_systemd_exec_words_are_quoted_for_systemd() {
   pass "the systemd unit quotes spaces, quotes, % and \$ the way systemd reads them"
 }
 
+test_a_relative_home_is_made_absolute_in_the_unit() {
+  local rel abs outrel outabs
+  make_case relhome
+  abs="$HOME_DIR"
+  rel=$(cd "$TMP_ROOT/relhome" && "$PROBE" timer print --home home) || fail "relative print failed"
+  abs=$("$PROBE" timer print --home "$abs") || fail "absolute print failed"
+  outrel=$rel
+  outabs=$abs
+  assert_equals "$outabs" "$outrel" "a relative --home renders the same unit as the absolute path"
+  assert_contains "$outrel" "$HOME_DIR" "the unit names the absolute home"
+  assert_not_contains "$outrel" "--home home" "no relative path reaches the unit"
+  pass "a relative --home becomes an absolute path before the label is hashed and the unit rendered"
+}
+
 test_merged_requires_a_merge_commit_on_main
 test_a_merged_pr_without_a_readable_merge_commit_is_unknown
 test_the_forge_host_reaches_every_api_query
@@ -409,6 +423,7 @@ test_read_reports_unknown_on_stale_or_missing_data
 test_read_marks_a_section_unknown_when_its_source_is_not_ok
 test_systemd_exec_words_are_quoted_for_systemd
 test_timer_units_carry_a_path_and_are_written_whole
+test_a_relative_home_is_made_absolute_in_the_unit
 test_gate_result_comes_from_the_matching_run
 test_lane_freshness_uses_pid_and_mtime
 test_gate_waits_are_parsed_from_the_run_status
