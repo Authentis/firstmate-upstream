@@ -124,14 +124,21 @@ lock_acquire() {
   fi
 }
 
-# check_ledger_files: a ledger path that exists must be a regular file. An acks
-# path that is a directory would otherwise read as "no acknowledgements" and list
-# every order as pending again.
+# check_ledger_files: fail loudly, naming the file, when a ledger file cannot be
+# trusted: a path that exists but is not a regular file (an acks path that is a
+# directory would otherwise read as "no acknowledgements" and list every order as
+# pending again), or a file with any line that is not a JSON object carrying a
+# numeric id (a malformed acks file would otherwise hide or invent acknowledgements).
 check_ledger_files() {
   local f
   for f in "$ORDERS" "$ACKS"; do
     if [ -e "$f" ] && [ ! -f "$f" ]; then
       printf 'fm-order-ledger: %s is not a regular file\n' "$f" >&2
+      return 1
+    fi
+    [ -s "$f" ] || continue
+    if ! jq -e -s 'all(.[]; type == "object" and (.id | type) == "number")' "$f" >/dev/null 2>&1; then
+      printf 'fm-order-ledger: %s is malformed: every line must be a JSON object with a numeric id\n' "$f" >&2
       return 1
     fi
   done
@@ -164,7 +171,7 @@ print_pending() {
   lock_acquire || exit 2
   out=$(pending_lines) || rc=$?
   lock_release
-  [ "$rc" -eq 0 ] || die "cannot read $ORDERS"
+  [ "$rc" -eq 0 ] || die "cannot read the order ledger"
   [ -n "$out" ] || return 0
   if [ "$JSON" -eq 1 ]; then
     printf '%s\n' "$out"

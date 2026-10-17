@@ -327,8 +327,10 @@ test_a_ledger_path_that_is_not_a_regular_file_is_refused() {
   ledger ack 1 >/dev/null
   rm "$HOME_DIR/state/orders.acks.jsonl"
   mkdir "$HOME_DIR/state/orders.acks.jsonl"
-  out=$(ledger pending 2>/dev/null) || rc=$?
+  out=$(ledger pending 2>&1) || rc=$?
   [ "$rc" -ne 0 ] || fail "pending over a directory-shaped acks path reported success"
+  assert_contains "$out" "orders.acks.jsonl is not a regular file" "the message names the file"
+  out=$(ledger pending 2>/dev/null) || true
   assert_equals "" "$out" "no order is listed as pending again"
   rc=0
   ledger ack 2 >/dev/null 2>&1 || rc=$?
@@ -342,6 +344,35 @@ test_a_ledger_path_that_is_not_a_regular_file_is_refused() {
   [ "$rc" -ne 0 ] || fail "a poll over a directory-shaped acks path reported success"
   assert_equals "0" "$(cat "$HOME_DIR/state/.wake-queue" 2>/dev/null | grep -c 'orders:')" "no wake is queued for orders that may be acknowledged"
   pass "a ledger or acks path that is not a regular file is refused instead of re-listing every order"
+}
+
+test_a_malformed_ledger_file_fails_loudly_with_the_file_named() {
+  local rc err bad
+  make_case malformed
+  ledger append one >/dev/null
+  ledger append two >/dev/null
+  for bad in '{not json' '{"ts":1}' '[1,2]' '{"id":"1"}'; do
+    printf '%s\n' "$bad" > "$HOME_DIR/state/orders.acks.jsonl"
+    rc=0
+    err=$(ledger pending 2>&1 >/dev/null) || rc=$?
+    [ "$rc" -ne 0 ] || fail "pending succeeded over a malformed acks file: $bad"
+    assert_contains "$err" "orders.acks.jsonl is malformed" "pending names the file for: $bad"
+    assert_equals "" "$(ledger pending 2>/dev/null)" "and lists no orders for: $bad"
+    rc=0
+    ledger ack 1 >/dev/null 2>&1 || rc=$?
+    expect_code 2 "$rc" "ack over a malformed acks file: $bad"
+    rc=0
+    ledger append three >/dev/null 2>&1 || rc=$?
+    expect_code 2 "$rc" "append over a malformed acks file: $bad"
+    rc=0
+    ledger poll --once >/dev/null 2>&1 || rc=$?
+    [ "$rc" -ne 0 ] || fail "poll succeeded over a malformed acks file: $bad"
+  done
+  assert_equals "2" "$(wc -l < "$HOME_DIR/state/orders.jsonl" | tr -d ' ')" "no order was added"
+  rm "$HOME_DIR/state/orders.acks.jsonl"
+  printf '{"id":1,"ts":1}\n' > "$HOME_DIR/state/orders.acks.jsonl"
+  assert_equals "2 firstmate two" "$(ledger pending)" "a well-formed acks file still works"
+  pass "a malformed ledger or acks file exits non-zero naming the file, never success with no orders"
 }
 
 # Two secondmate homes, each polled by a real process, with every terminal tool
@@ -402,6 +433,7 @@ test_a_consumed_wake_for_a_pending_order_is_queued_again_until_acked
 test_another_producer_advancing_the_queue_never_skips_an_order
 test_a_failed_pending_read_is_an_error_not_an_empty_list
 test_a_ledger_path_that_is_not_a_regular_file_is_refused
+test_a_malformed_ledger_file_fails_loudly_with_the_file_named
 test_a_failed_publish_leaves_the_ledger_untouched
 test_ack_ids_are_range_checked_before_arithmetic
 test_a_wake_queue_write_failure_leaves_the_order_to_be_announced_later

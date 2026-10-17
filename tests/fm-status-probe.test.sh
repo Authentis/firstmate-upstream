@@ -32,8 +32,9 @@ case "$1 $2" in
     [ -f "$f" ] || exit 1
     cat "$f"
     ;;
-  "api repos/o/r") echo main ;;
+  "api repos/o/r") if [ -f "$FAKE/default-branch" ]; then cat "$FAKE/default-branch"; echo; else echo main; fi ;;
   "api repos/o/r/compare/"*)
+    echo "$2" >> "$FAKE/compare.log"
     id=${2#repos/o/r/compare/}
     id=${id%%...*}
     f="$FAKE/compare-$id"
@@ -144,6 +145,19 @@ test_a_relative_log_path_resolves_against_the_selected_home() {
   assert_equals "live" "$(printf '%s' "$out" | jq -r '.lanes[] | select(.id=="rel") | .state')" "so the lane reads live"
   assert_equals "$HOME_DIR/logs/lane.log" "$(printf '%s' "$out" | jq -r '.lanes[] | select(.id=="rel") | .log')" "and the resolved path is reported"
   pass "a relative lane log path is resolved against the selected home, not the caller's directory"
+}
+
+test_a_hash_in_the_default_branch_name_is_sent_to_the_forge_encoded() {
+  local out
+  make_case hashbranch
+  printf 'rel#1' > "$FAKE/default-branch"
+  pr_json MERGED mc1 'rel#1' > "$FAKE/pr-1.json"
+  echo ahead > "$FAKE/compare-mc1"
+  out=$(run_probe --pr https://github.com/o/r/pull/1) || fail "probe failed"
+  assert_equals "true" "$(printf '%s' "$out" | jq -r '.prs[0].merged')" "merged into a default branch whose name holds a hash"
+  assert_contains "$(cat "$FAKE/compare.log")" "mc1...rel%231" "the compare query carries the encoded branch, not a truncated path"
+  assert_not_contains "$(cat "$FAKE/compare.log")" "#" "no raw hash reaches the API path"
+  pass "a # in the default branch name is percent-encoded in the compare query instead of ending the path"
 }
 
 test_merged_requires_a_merge_commit_on_main() {
@@ -452,6 +466,7 @@ test_a_run_table_that_cannot_be_decoded_marks_the_source_not_ok() {
   pass "an unterminated quote, a short row, or a wrong row count marks the no-mistakes source not ok"
 }
 
+test_a_hash_in_the_default_branch_name_is_sent_to_the_forge_encoded
 test_a_relative_log_path_resolves_against_the_selected_home
 test_no_mistakes_runs_inside_the_selected_home
 test_a_run_table_missing_a_required_column_is_not_trusted

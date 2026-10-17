@@ -308,6 +308,18 @@ gate_for_url() {  # <pr-url> -> newest no-mistakes run status for the url, or em
   jq -r --arg u "$1" 'select(.pr == $u) | .status' "$NM_RUNS" | head -n1
 }
 
+# ref_path <ref> -> the ref safe to put in an API path. A branch name may hold a
+# #, ?, %, or space, and a raw # would end the path there so the compare would
+# silently name a different ref; the slash stays, as the compare API reads it.
+ref_path() {
+  local r=$1
+  r=${r//%/%25}
+  r=${r//#/%23}
+  r=${r//\?/%3F}
+  r=${r// /%20}
+  printf '%s' "$r"
+}
+
 # gh_note <message>: one PR could not be fully read. The source is then
 # incomplete, but the remaining PRs are still queried.
 GH_AVAILABLE=false
@@ -353,7 +365,7 @@ if [ -s "$PR_URLS" ]; then
     else
       default=$("$GH" api --hostname "$host" "repos/$slug" --jq .default_branch 2>/dev/null) || default=
       cmp=
-      [ -z "$default" ] || cmp=$("$GH" api --hostname "$host" "repos/$slug/compare/$mcommit...$default" --jq .status 2>/dev/null) || cmp=
+      [ -z "$default" ] || cmp=$("$GH" api --hostname "$host" "repos/$slug/compare/$mcommit...$(ref_path "$default")" --jq .status 2>/dev/null) || cmp=
       if [ -z "$default" ] || [ -z "$cmp" ]; then
         merged=null
         gh_note "could not prove the merge commit of $url"
