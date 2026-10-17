@@ -234,7 +234,6 @@ test_concurrent_polls_announce_each_order_once() {
   done
   wait
   assert_equals "3" "$(grep -c 'orders:' "$HOME_DIR/state/.wake-queue")" "wake rows after six racing polls"
-  assert_equals "3" "$(wc -l < "$HOME_DIR/state/orders.outbox" | tr -d ' ')" "one outbox line per order"
   pass "racing polls queue exactly one wake per order"
 }
 
@@ -253,16 +252,22 @@ test_a_failed_read_keeps_the_last_good_pending_view() {
   pass "a poll that cannot read the ledger keeps the last good pending view"
 }
 
-test_a_consumed_wake_is_not_queued_again() {
+test_a_consumed_wake_for_a_pending_order_is_queued_again_until_acked() {
   make_case consumed
   ledger append one >/dev/null
   ledger poll --once || fail "first poll"
   assert_equals "1" "$(grep -c 'orders:1' "$HOME_DIR/state/.wake-queue")" "the wake is queued"
+  ledger poll --once || fail "second poll"
+  assert_equals "1" "$(grep -c 'orders:1' "$HOME_DIR/state/.wake-queue")" "a queued wake is never stacked"
   : > "$HOME_DIR/state/.wake-queue"
   ledger poll --once || fail "poll after the wake was consumed"
-  assert_equals "0" "$(grep -c 'orders:1' "$HOME_DIR/state/.wake-queue")" "a handled wake is not queued again"
-  assert_equals "1" "$(wc -l < "$HOME_DIR/state/orders.outbox" | tr -d ' ')" "the outbox keeps its single line"
-  pass "an announced order whose wake was consumed is never queued again"
+  assert_equals "1" "$(grep -c 'orders:1' "$HOME_DIR/state/.wake-queue")" "a consumed wake for a still-pending order is delivered again"
+  ledger ack 1 >/dev/null
+  : > "$HOME_DIR/state/.wake-queue"
+  ledger poll --once || fail "poll after the ack"
+  assert_equals "0" "$(grep -c 'orders:1' "$HOME_DIR/state/.wake-queue")" "an acknowledged order is never delivered again"
+  assert_equals "" "$(find "$HOME_DIR/state" \( -iname '*outbox*' -o -iname '*announced*' \))" "delivery keeps no record of its own"
+  pass "delivery repeats for a pending order until it is acked, never stacks, and keeps no state besides the ledger"
 }
 
 test_another_producer_advancing_the_queue_never_skips_an_order() {
@@ -271,20 +276,9 @@ test_another_producer_advancing_the_queue_never_skips_an_order() {
   printf '40\n' > "$HOME_DIR/state/.wake-queue.seq"
   ledger poll --once || fail "poll"
   assert_contains "$(cat "$HOME_DIR/state/.wake-queue")" "orders:1" "the order is queued although the queue sequence moved on"
-  assert_equals "1 queued" "$(cat "$HOME_DIR/state/orders.outbox")" "and its own outbox line records it"
   pass "an order never queued is queued even when another producer advanced the wake sequence"
 }
 
-test_a_wake_queued_before_its_outbox_line_is_not_duplicated() {
-  make_case crashwindow
-  ledger append one >/dev/null
-  ledger poll --once || fail "first poll"
-  : > "$HOME_DIR/state/orders.outbox"
-  ledger poll --once || fail "poll after the outbox line was lost"
-  assert_equals "1" "$(grep -c 'orders:1' "$HOME_DIR/state/.wake-queue")" "the order's own queued wake is its proof"
-  assert_equals "1 queued" "$(cat "$HOME_DIR/state/orders.outbox")" "the outbox line is restored"
-  pass "an order whose wake is queued but whose outbox line is missing is recorded, not queued twice"
-}
 
 test_a_failed_pending_read_is_an_error_not_an_empty_list() {
   local rc=0 out
@@ -340,21 +334,6 @@ test_ack_ids_are_range_checked_before_arithmetic() {
   pass "ack refuses ids too large for bash arithmetic and never acks a different order"
 }
 
-test_an_outbox_write_failure_is_reported_and_never_duplicates_the_wake() {
-  local rc=0
-  make_case outboxfail
-  ledger append one >/dev/null
-  mkdir "$HOME_DIR/state/orders.outbox"
-  ledger poll --once >/dev/null 2>&1 || rc=$?
-  [ "$rc" -ne 0 ] || fail "a poll that could not record the outbox line reported success"
-  ledger poll --once >/dev/null 2>&1 || true
-  assert_equals "1" "$(grep -c 'orders:1' "$HOME_DIR/state/.wake-queue")" "the queued wake is its own proof, so it is not queued twice"
-  rmdir "$HOME_DIR/state/orders.outbox"
-  ledger poll --once || fail "poll once the outbox is writable"
-  assert_equals "1 queued" "$(cat "$HOME_DIR/state/orders.outbox")" "the outbox line is recorded"
-  assert_equals "1" "$(grep -c 'orders:1' "$HOME_DIR/state/.wake-queue")" "still one wake"
-  pass "a real outbox write failure fails the poll, keeps one wake, and recovers on the next poll"
-}
 
 test_a_wake_queue_write_failure_leaves_the_order_to_be_announced_later() {
   local rc=0
@@ -363,12 +342,10 @@ test_a_wake_queue_write_failure_leaves_the_order_to_be_announced_later() {
   mkdir "$HOME_DIR/state/.wake-queue"
   ledger poll --once >/dev/null 2>&1 || rc=$?
   [ "$rc" -ne 0 ] || fail "a poll that could not queue the wake reported success"
-  assert_absent "$HOME_DIR/state/orders.outbox" "no outbox line without a wake"
   assert_equals "1 firstmate one" "$(ledger pending)" "the order is still pending"
   rmdir "$HOME_DIR/state/.wake-queue"
   ledger poll --once || fail "poll once the queue is writable"
   assert_equals "1" "$(grep -c 'orders:1' "$HOME_DIR/state/.wake-queue")" "the wake is queued on the later poll"
-  assert_equals "1 queued" "$(cat "$HOME_DIR/state/orders.outbox")" "and recorded"
   pass "a real wake-queue write failure fails the poll and the order is announced on a later one"
 }
 
@@ -423,14 +400,12 @@ test_ids_rise_by_one_and_each_order_is_one_line
 test_waiters_on_a_dead_owners_lock_never_share_an_id
 test_a_signalled_append_stops_and_leaves_another_writers_lock
 test_a_signalled_poll_releases_the_ledger_lock_it_holds
-test_a_consumed_wake_is_not_queued_again
+test_a_consumed_wake_for_a_pending_order_is_queued_again_until_acked
 test_another_producer_advancing_the_queue_never_skips_an_order
-test_a_wake_queued_before_its_outbox_line_is_not_duplicated
 test_a_failed_pending_read_is_an_error_not_an_empty_list
 test_a_torn_last_line_is_set_aside_before_the_next_write
 test_a_failed_publish_leaves_the_ledger_untouched
 test_ack_ids_are_range_checked_before_arithmetic
-test_an_outbox_write_failure_is_reported_and_never_duplicates_the_wake
 test_a_wake_queue_write_failure_leaves_the_order_to_be_announced_later
 test_a_held_lock_times_out_with_the_owner_named
 test_concurrent_polls_announce_each_order_once

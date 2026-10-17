@@ -10,9 +10,8 @@
 #   state/orders.acks.jsonl   append-only acknowledgements {"id":<n>,"ts":<epoch>}.
 #   state/orders.pending      the current pending lines, rewritten by every poll;
 #                             a poll that cannot read the ledger keeps the old view.
-#   state/orders.outbox       append-only announcement outbox: `<id> queued` once
-#                             that order's own wake has been appended.
-# An order is pending until its own id is acknowledged. Acking one id never
+# The ledger and its acknowledgements are the only record of an order: delivery
+# keeps no state of its own. An order is pending until its own id is acknowledged. Acking one id never
 # acknowledges another, whatever the numeric order, and acking twice is a no-op.
 #
 # Usage:
@@ -24,18 +23,19 @@
 #   fm-order-ledger.sh ack [--home <dir>] <id>...
 #       Acknowledge the named line ids; an id with no order line is refused.
 #   fm-order-ledger.sh poll [--home <dir>] [--once] [--interval <seconds>]
-#       Secondmate side: refresh state/orders.pending and queue one wake per
-#       newly seen pending order, every --interval seconds (default 15) until
-#       stopped; --once does a single pass.
+#       Secondmate side: refresh state/orders.pending and make sure every
+#       pending order has a wake queued, every --interval seconds (default 15)
+#       until stopped; --once does a single pass. A wake is added only when none
+#       for that order is already queued, so delivery repeats until the order is
+#       acknowledged and never stacks duplicates.
 #   fm-order-ledger.sh timer install|remove|print [--home <dir>]
 #       Run `poll --once` every 15 seconds from the host's launchd or systemd.
 #
 # Every writer takes the home's ledger lock (fm-wake-lib.sh's owner-checked
 # lock, so a dead owner is reclaimed by exactly one waiter and a signal releases
 # only this process's own hold); FM_ORDER_LOCK_WAIT bounds the wait (default 30s).
-# A poll holds it for the whole pass and queues each wake together with its
-# outbox line under the wake-queue lock; the proof an order was announced is
-# keyed to that order alone.
+# A poll holds it for the whole pass and, per pending order, adds the wake under
+# the wake-queue lock only if that order's own wake is not already queued.
 #
 # --home selects the secondmate home (default FM_HOME, else this checkout).
 # To order a remote secondmate, run `append` in its home through bin/fm-on.sh.
@@ -86,7 +86,6 @@ STATE="$HOME_DIR/state"
 ORDERS="$STATE/orders.jsonl"
 ACKS="$STATE/orders.acks.jsonl"
 PENDING_VIEW="$STATE/orders.pending"
-OUTBOX="$STATE/orders.outbox"
 LOCK="$STATE/.orders.lock"
 
 # The wake library owns the portable owner-checked lock, and the wake queue the
@@ -191,7 +190,7 @@ repair_tail() {
 
 repair_tails() {
   local f
-  for f in "$ORDERS" "$ACKS" "$OUTBOX"; do
+  for f in "$ORDERS" "$ACKS"; do
     repair_tail "$f" || return 1
   done
 }
@@ -256,27 +255,18 @@ cmd_ack() {
   return "$rc"
 }
 
-# announce_order <id> <from> <text>: queue the wake for an order once.
-# Under the wake-queue lock the wake is appended and then the order's outbox
-# line is written, so a `queued` line proves this order's own wake was appended
-# (a wake consumed since is never queued again). With no line, the order's own
-# key in the queue proves a wake that was appended before the line could be
-# written; with neither, the order was never queued and is queued now. Nothing
-# about other producers or the queue's global sequence is used as proof, so an
-# order is never skipped because something else advanced the queue.
+# announce_order <id> <from> <text>: make sure the order has a wake queued.
+# The order is pending, so its wake is wanted until it is acknowledged. Under
+# the wake-queue lock the wake is added only when no wake for this order is
+# queued, which makes the call idempotent without any record of its own: a wake
+# the secondmate has consumed while the order is still pending is queued again,
+# and an acknowledged order is never polled.
 announce_order() {
   local id=$1 from=$2 text=$3 status=0
   fm_lock_acquire_wait_max "$FM_WAKE_QUEUE_LOCK" "${FM_ORDER_LOCK_WAIT:-30}" || return 1
-  if [ -f "$OUTBOX" ] && awk -v id="$id" '$1 == id && $2 == "queued" { found = 1 } END { exit !found }' "$OUTBOX"; then
-    fm_lock_release "$FM_WAKE_QUEUE_LOCK"
-    return 0
-  fi
   if ! fm_wake_queued_keys_locked check | grep -qxF -- "orders:$id" \
     && ! fm_wake_append_locked check "orders:$id" "check: order $id from $from pending in state/orders.jsonl - $text; ack with bin/fm-order-ledger.sh ack $id"; then
     status=1
-  fi
-  if [ "$status" -eq 0 ]; then
-    publish_line "$OUTBOX" "$id queued" || status=1
   fi
   fm_lock_release "$FM_WAKE_QUEUE_LOCK"
   return "$status"

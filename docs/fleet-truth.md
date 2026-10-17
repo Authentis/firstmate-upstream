@@ -37,7 +37,8 @@ Secondmate and firstmate reports follow this rule.
 The secondmate polls it every 15 seconds (`timer install` wires that), so an order is seen within a quarter of the 60-second acknowledgement bound, and acknowledges an order by its line id.
 An order stays pending, and visible through `pending` and `state/orders.pending`, until its own id is acknowledged.
 No terminal doorbell or window ring is anywhere in the path, so a failed ring cannot hide an order.
-A poll that cannot read the ledger keeps the last good pending view, and concurrent writers and polls serialize on the home's ledger lock so ids and wakes never duplicate.
+Each poll makes sure every pending order has exactly one wake queued, so delivery repeats until the order is acknowledged and the ledger stays the only record of it.
+A poll that cannot read the ledger keeps the last good pending view, and writers and polls serialize on the home's ledger lock so ids never duplicate.
 The script header owns the commands and file formats.
 
 ## Canary
