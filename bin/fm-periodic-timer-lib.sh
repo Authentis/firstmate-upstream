@@ -60,9 +60,9 @@ _fm_timer_xml() {
 
 # _fm_timer_sd_quote <word> [command] -> the word as one systemd word:
 # double-quoted, with the backslash, double quote, newline, and % that systemd
-# would otherwise expand escaped the systemd way. A command-line word also
-# escapes $, which ExecStart expands; an Environment assignment does not expand
-# it, so there $ stays literal.
+# would otherwise expand escaped the systemd way. An argument after the
+# executable also escapes $, which ExecStart expands there; the executable path
+# and an Environment assignment are not expanded, so $ stays literal in them.
 _fm_timer_sd_quote() {
   local s=$1
   s=${s//\\/\\\\}
@@ -123,6 +123,8 @@ fm_timer_render() {
     printf '[Unit]\nDescription=Firstmate %s\n\n' "$label"
     printf '[Service]\nType=oneshot\nEnvironment=%s\nEnvironment=%s\nExecStart=' \
       "$(_fm_timer_sd_quote "FM_HOME=$home")" "$(_fm_timer_sd_quote "PATH=$(_fm_timer_path)")"
+    printf '%s ' "$(_fm_timer_sd_quote "$1")"
+    shift
     for arg in "$@"; do
       printf '%s ' "$(_fm_timer_sd_quote "$arg" command)"
     done

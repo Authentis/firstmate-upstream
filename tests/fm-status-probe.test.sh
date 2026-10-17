@@ -172,7 +172,7 @@ test_gate_waits_are_parsed_from_the_run_status() {
   make_case waits
   cat > "$FAKE/nm-list" <<'EOF'
 current_branch: main
-runs[2]{id,branch,status,head,pr}:
+runs[3]{id,branch,status,head,pr}:
   "RUNA",fm/a,running,abc,""
   "RUNB",fm/b,running,def,""
   "RUNC",fm/c,completed,fed,""
@@ -397,6 +397,11 @@ test_systemd_exec_words_are_quoted_for_systemd() {
     || fail "render failed"
   # shellcheck disable=SC2016 # the expected text holds a literal $
   assert_contains "$out" 'Environment="FM_HOME=/h/$x%%y"' "Environment keeps $ literal and escapes %"
+  out=$(bash -c '. "$1"; fm_timer_render systemd lbl 5 /h "$2" "$3"' _ "$ROOT/bin/fm-periodic-timer-lib.sh" '/srv/fm$copy/bin/x' 'a$b') \
+    || fail "render failed"
+  line=$(printf '%s\n' "$out" | sed -n 's/^ExecStart=//p')
+  # shellcheck disable=SC2016 # the expected text holds literal $ for systemd
+  assert_equals '"/srv/fm$copy/bin/x" "a$$b" ' "$line" "the executable path keeps its dollar, later arguments double it"
   pass "the systemd unit quotes spaces, quotes, % and \$ the way systemd reads them"
 }
 
@@ -414,6 +419,46 @@ test_a_relative_home_is_made_absolute_in_the_unit() {
   pass "a relative --home becomes an absolute path before the label is hashed and the unit rendered"
 }
 
+test_run_rows_decode_branches_with_commas_and_quotes() {
+  local out
+  make_case decode
+  cat > "$FAKE/nm-list" <<'EOT'
+current_branch: main
+runs[2]{id,branch,status,head,pr}:
+  "RUNQ","fm/a,b \"x\" \\y",running,abc,"https://github.com/o/r/pull/9"
+  "RUNZ",fm/plain,completed,def,""
+EOT
+  cat > "$FAKE/nm-run-RUNQ" <<'EOT'
+current_branch: main
+gate:
+  step: ci
+  status: awaiting_approval
+EOT
+  pr_json OPEN "" main > "$FAKE/pr-9.json"
+  out=$(run_probe --pr https://github.com/o/r/pull/9) || fail "probe failed"
+  assert_equals "true" "$(printf '%s' "$out" | jq -r '.sources.no_mistakes.ok')" "the table decoded"
+  assert_equals 'fm/a,b "x" \y' "$(printf '%s' "$out" | jq -r '.gate_waits[0].branch')" "the branch is one field, unescaped"
+  assert_equals "RUNQ" "$(printf '%s' "$out" | jq -r '.gate_waits[0].run_id')" "its run is not hidden"
+  assert_equals "running" "$(printf '%s' "$out" | jq -r '.prs[0].gate')" "the PR column still matches its run"
+  pass "a branch name holding a comma, quotes, or a backslash decodes as one field and its run is reported"
+}
+
+test_a_run_table_that_cannot_be_decoded_marks_the_source_not_ok() {
+  local out table
+  make_case baddecode
+  for table in 'runs[1]{id,branch,status,head,pr}:\n  "RUNA","fm/open,running,abc,""' \
+               'runs[1]{id,branch,status,head,pr}:\n  "RUNA",fm/a,running,abc' \
+               'runs[2]{id,branch,status,head,pr}:\n  "RUNA",fm/a,running,abc,""'; do
+    printf 'current_branch: main\n%b\n' "$table" > "$FAKE/nm-list"
+    out=$(run_probe) || fail "probe failed"
+    assert_equals "false" "$(printf '%s' "$out" | jq -r '.sources.no_mistakes.ok')" "an undecodable table is not read as complete"
+    assert_contains "$(printf '%s' "$out" | jq -r '.sources.no_mistakes.error')" "decode" "the error says why"
+  done
+  pass "an unterminated quote, a short row, or a wrong row count marks the no-mistakes source not ok"
+}
+
+test_run_rows_decode_branches_with_commas_and_quotes
+test_a_run_table_that_cannot_be_decoded_marks_the_source_not_ok
 test_merged_requires_a_merge_commit_on_main
 test_a_merged_pr_without_a_readable_merge_commit_is_unknown
 test_the_forge_host_reaches_every_api_query

@@ -155,28 +155,83 @@ SCRATCH=$(mktemp -d "${TMPDIR:-/tmp}/fm-status-probe.XXXXXX") || die "cannot cre
 trap 'rm -rf -- "$SCRATCH"' EXIT HUP INT TERM
 
 # ---- no-mistakes runs -------------------------------------------------------
+# decode_runs_table: read `no-mistakes axi status` output on stdin and print one
+# JSON object per row of its `runs[N]{field,...}:` table, keyed by the header's
+# own field names. The table is TOON: a field is bare text or a double-quoted
+# string with backslash escapes, and the delimiter is a comma outside quotes, so
+# a branch name holding a comma or a quote decodes to the one field it is. A row
+# whose field count differs from the header, an unterminated quote, or a row
+# count that differs from the header's makes the decode fail, so a run is never
+# silently split or dropped.
+decode_runs_table() {
+  awk '
+    function jstr(s,   out, i, c) {
+      out = ""
+      for (i = 1; i <= length(s); i++) {
+        c = substr(s, i, 1)
+        if (c == "\\") out = out "\\\\"
+        else if (c == "\"") out = out "\\\""
+        else if (c == "\n") out = out "\\n"
+        else if (c == "\r") out = out "\\r"
+        else if (c == "\t") out = out "\\t"
+        else out = out c
+      }
+      return "\"" out "\""
+    }
+    # split_row: fill vals[1..n] from one delimited line; return n, or -1 when a quote is left open.
+    function split_row(line, vals,   n, i, c, nx, field, q, was_quoted) {
+      n = 0; field = ""; q = 0; was_quoted = 0
+      for (i = 1; i <= length(line); i++) {
+        c = substr(line, i, 1)
+        if (q) {
+          if (c == "\\") {
+            nx = substr(line, ++i, 1)
+            field = field (nx == "n" ? "\n" : nx == "t" ? "\t" : nx == "r" ? "\r" : nx)
+          } else if (c == "\"") q = 0
+          else field = field c
+        } else if (c == "\"") { q = 1; was_quoted = 1 }
+        else if (c == ",") { vals[++n] = (was_quoted ? field : trim(field)); field = ""; was_quoted = 0 }
+        else field = field c
+      }
+      if (q) return -1
+      vals[++n] = (was_quoted ? field : trim(field))
+      return n
+    }
+    function trim(s) { sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s); return s }
+    /^runs\[[0-9]+\]\{.*\}:[ \t]*$/ {
+      in_runs = 1; rows = 0
+      want = $0; sub(/^runs\[/, "", want); sub(/\].*$/, "", want)
+      hdr = $0; sub(/^runs\[[0-9]+\]\{/, "", hdr); sub(/\}:[ \t]*$/, "", hdr)
+      nf = split_row(hdr, names)
+      if (nf < 1) bad = 1
+      next
+    }
+    in_runs && /^[^ \t]/ { in_runs = 0; if (rows != want) bad = 1 }
+    in_runs {
+      line = $0; sub(/^[ \t]+/, "", line)
+      n = split_row(line, vals)
+      if (n != nf) { bad = 1; next }
+      obj = ""
+      for (i = 1; i <= nf; i++) obj = obj (i > 1 ? "," : "") jstr(names[i]) ":" jstr(vals[i])
+      print "{" obj "}"
+      rows++
+    }
+    END { if (in_runs && rows != want) bad = 1; exit bad ? 3 : 0 }
+  '
+}
+
 NM_OK=false
 NM_ERR=
-NM_RUNS="$SCRATCH/nm-runs.tsv"   # id <TAB> branch <TAB> status <TAB> pr
+NM_RUNS="$SCRATCH/nm-runs.jsonl"   # one decoded run row per line
 : > "$NM_RUNS"
 if command -v "$NM" >/dev/null 2>&1; then
   if nm_list=$("$NM" axi status 2>&1); then
     NM_OK=true
-    printf '%s\n' "$nm_list" | awk '
-      /^runs\[[0-9]+\]\{/ { in_runs = 1; next }
-      in_runs && /^[^ ]/ { in_runs = 0 }
-      in_runs {
-        line = $0; sub(/^[ \t]+/, "", line)
-        n = 0; field = ""; q = 0
-        for (i = 1; i <= length(line); i++) {
-          c = substr(line, i, 1)
-          if (c == "\"") { q = !q; continue }
-          if (c == "," && !q) { f[++n] = field; field = ""; continue }
-          field = field c
-        }
-        f[++n] = field
-        if (n >= 3) printf "%s\t%s\t%s\t%s\n", f[1], f[2], f[3], (n >= 5 ? f[5] : "")
-      }' > "$NM_RUNS"
+    if ! printf '%s\n' "$nm_list" | decode_runs_table > "$NM_RUNS"; then
+      NM_OK=false
+      NM_ERR="could not decode the run list of $NM axi status"
+      : > "$NM_RUNS"
+    fi
   else
     NM_ERR=$(printf '%s' "$nm_list" | head -c 300 | tr '\n' ' ')
   fi
@@ -202,8 +257,11 @@ GATES="$SCRATCH/gates.jsonl"
 : > "$GATES"
 NM_UNREAD=
 if [ "$NM_OK" = true ]; then
-  while IFS=$'\t' read -r rid rbranch rstatus _rpr; do
+  while IFS= read -r row; do
+    rstatus=$(printf '%s' "$row" | jq -r '.status // ""')
     [ "$rstatus" = running ] || continue
+    rid=$(printf '%s' "$row" | jq -r '.id // ""')
+    rbranch=$(printf '%s' "$row" | jq -r '.branch // ""')
     if ! detail=$("$NM" axi status --run "$rid" 2>/dev/null); then
       NM_UNREAD="${NM_UNREAD:+$NM_UNREAD }$rid"
       continue
@@ -242,7 +300,7 @@ PR_URLS="$SCRATCH/pr-urls.txt"
 } | sed '/^$/d' | sort -u > "$PR_URLS"
 
 gate_for_url() {  # <pr-url> -> newest no-mistakes run status for the url, or empty
-  awk -F'\t' -v u="$1" '$4 == u { print $3; exit }' "$NM_RUNS"
+  jq -r --arg u "$1" 'select(.pr == $u) | .status' "$NM_RUNS" | head -n1
 }
 
 # gh_note <message>: one PR could not be fully read. The source is then
