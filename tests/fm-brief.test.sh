@@ -221,6 +221,27 @@ test_ship_modes_generate_clean_briefs() {
   pass "fm-brief.sh: no-mistakes/direct-PR/local-only briefs generate cleanly"
 }
 
+# The host-load rule rides rule 3 of every worker brief, beside the forge line:
+# a ship brief (with either forge) and a scout brief both carry it verbatim.
+test_ship_and_scout_carry_the_host_load_rule() {
+  local home brief rule
+  home="$TMP_ROOT/host-load-home"
+  mkdir -p "$home/data"
+  # shellcheck disable=SC2016 # Backticks are literal generated brief text.
+  rule='   Run full suites, families, and lanes only on a portable-lane host (bosgame or netcup); the Mac runs only Darwin-only tests, one `tests/<name>.test.sh` at a time under `taskpolicy -b`, never `bin/fm-test-run.sh` with `--all`, `--family`, or `--lane`.'
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" brief-host-ship some-proj --mode direct-PR >/dev/null 2>&1 \
+    || fail "a ship brief should scaffold"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" brief-host-forgejo some-proj --mode direct-PR --forge forgejo >/dev/null 2>&1 \
+    || fail "a forgejo ship brief should scaffold"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" brief-host-scout some-proj --scout >/dev/null 2>&1 \
+    || fail "a scout brief should scaffold"
+  for brief in brief-host-ship brief-host-forgejo brief-host-scout; do
+    grep -A1 '^3\. ' "$home/data/$brief/brief.md" | tail -1 | grep -qxF -- "$rule" \
+      || fail "$brief must carry the host-load rule as the second line of rule 3"
+  done
+  pass "ship (both forges) and scout briefs carry the host-load rule in rule 3"
+}
+
 # --forge forgejo is the Forgejo value of the project's registered forge binding
 # (bin/fm-project-mode.sh --forge), passed at intake exactly like --mode. It
 # names tea instead of gh-axi in the ship brief's forge-CLI rule and in the
@@ -1649,3 +1670,4 @@ test_branch_prefix_value_is_validated
 test_branch_prefix_command_is_shell_safe
 test_crewmate_scaffolds_forbid_pool_administration
 test_crewmate_scaffolds_carry_the_live_pane_test_rule
+test_ship_and_scout_carry_the_host_load_rule
