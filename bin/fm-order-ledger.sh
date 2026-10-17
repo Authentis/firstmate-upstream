@@ -11,8 +11,9 @@
 #   state/orders.pending      the current pending lines, rewritten by every poll;
 #                             a poll that cannot read the ledger keeps the old view.
 # The ledger and its acknowledgements are the only record of an order: delivery
-# keeps no state of its own. An order is pending until its own id is acknowledged. Acking one id never
-# acknowledges another, whatever the numeric order, and acking twice is a no-op.
+# keeps no state of its own. An order is pending until its own id is
+# acknowledged. Acking one id never acknowledges another, whatever the numeric
+# order, and acking twice is a no-op.
 #
 # Usage:
 #   fm-order-ledger.sh append [--home <dir>] [--from <name>] [--] <text>...
@@ -23,19 +24,19 @@
 #   fm-order-ledger.sh ack [--home <dir>] <id>...
 #       Acknowledge the named line ids; an id with no order line is refused.
 #   fm-order-ledger.sh poll [--home <dir>] [--once] [--interval <seconds>]
-#       Secondmate side: refresh state/orders.pending and make sure every
-#       pending order has a wake queued, every --interval seconds (default 15)
-#       until stopped; --once does a single pass. A wake is added only when none
-#       for that order is already queued, so delivery repeats until the order is
-#       acknowledged and never stacks duplicates.
-#   fm-order-ledger.sh timer install|remove|print [--home <dir>]
-#       Run `poll --once` every 15 seconds from the host's launchd or systemd.
+#       Secondmate side: refresh state/orders.pending and keep one wake queued
+#       (key orders:pending) while any order is pending, every --interval seconds
+#       (default 15) until stopped; --once does a single pass. The wake is added
+#       only when none is queued, so delivery repeats until every order is
+#       acknowledged and never stacks. Its text only points at `pending`, so a
+#       wake that outlives the orders it named finds nothing pending. Run the
+#       poll from whatever supervises the home; this script installs no timer.
 #
 # Every writer takes the home's ledger lock (fm-wake-lib.sh's owner-checked
 # lock, so a dead owner is reclaimed by exactly one waiter and a signal releases
 # only this process's own hold); FM_ORDER_LOCK_WAIT bounds the wait (default 30s).
-# A poll holds it for the whole pass and, per pending order, adds the wake under
-# the wake-queue lock only if that order's own wake is not already queued.
+# Ledger lines are published by writing the whole new file beside the old one and
+# renaming, so a failed write never leaves a torn line.
 #
 # --home selects the secondmate home (default FM_HOME, else this checkout).
 # To order a remote secondmate, run `append` in its home through bin/fm-on.sh.
@@ -87,6 +88,7 @@ ORDERS="$STATE/orders.jsonl"
 ACKS="$STATE/orders.acks.jsonl"
 PENDING_VIEW="$STATE/orders.pending"
 LOCK="$STATE/.orders.lock"
+WAKE_KEY="orders:pending"
 
 # The wake library owns the portable owner-checked lock, and the wake queue the
 # ledger announces into lives in the same home.
@@ -173,28 +175,6 @@ publish_line() {
   fi
 }
 
-# repair_tail <file>: a file whose last byte is not a newline ends in a torn
-# line (a crash or full disk under an older writer). Under the lock, set the
-# torn line aside in <file>.torn and republish the complete lines.
-repair_tail() {
-  local file=$1 tmp
-  [ -s "$file" ] && [ -f "$file" ] || return 0
-  [ -n "$(tail -c1 "$file")" ] || return 0
-  tmp=$(mktemp "$file.XXXXXX") || return 1
-  if ! { tail -n1 "$file" >> "$file.torn" && sed '$d' "$file" > "$tmp" && mv -f -- "$tmp" "$file"; }; then
-    rm -f -- "$tmp"
-    return 1
-  fi
-  printf 'fm-order-ledger: set aside a torn last line of %s in %s.torn\n' "$file" "$file" >&2
-}
-
-repair_tails() {
-  local f
-  for f in "$ORDERS" "$ACKS"; do
-    repair_tail "$f" || return 1
-  done
-}
-
 cmd_append() {
   local text last id ts line
   if [ "${#ARGS[@]}" -eq 1 ] && [ "${ARGS[0]}" = "-" ]; then
@@ -205,7 +185,6 @@ cmd_append() {
   [ -n "$text" ] || die "append needs the order text"
   mkdir -p "$STATE" || die "cannot create $STATE"
   lock_acquire || exit 2
-  repair_tails || die "could not repair the torn tail of the ledger files"
   last=0
   if [ -s "$ORDERS" ]; then
     last=$(jq -s 'map(.id) | max // 0' "$ORDERS" 2>/dev/null) || die "$ORDERS is not valid JSON lines"
@@ -224,7 +203,6 @@ cmd_ack() {
   [ -f "$ORDERS" ] || die "no order ledger at $ORDERS"
   mkdir -p "$STATE" || die "cannot create $STATE"
   lock_acquire || exit 2
-  repair_tails || die "could not repair the torn tail of the ledger files"
   ts=$(date +%s)
   for id in "${ARGS[@]}"; do
     case "$id" in
@@ -255,42 +233,34 @@ cmd_ack() {
   return "$rc"
 }
 
-# announce_order <id> <from> <text>: make sure the order has a wake queued.
-# The order is pending, so its wake is wanted until it is acknowledged. Under
-# the wake-queue lock the wake is added only when no wake for this order is
-# queued, which makes the call idempotent without any record of its own: a wake
-# the secondmate has consumed while the order is still pending is queued again,
-# and an acknowledged order is never polled.
-announce_order() {
-  local id=$1 from=$2 text=$3 status=0
+# ensure_order_wake <count> <ids>: make sure the one pending wake is queued. A
+# wake the secondmate consumed while orders are still pending is queued again,
+# so delivery repeats until every order is acknowledged and never stacks.
+ensure_order_wake() {
+  local count=$1 ids=$2 status=0
   fm_lock_acquire_wait_max "$FM_WAKE_QUEUE_LOCK" "${FM_ORDER_LOCK_WAIT:-30}" || return 1
-  if ! fm_wake_queued_keys_locked check | grep -qxF -- "orders:$id" \
-    && ! fm_wake_append_locked check "orders:$id" "check: order $id from $from pending in state/orders.jsonl - $text; ack with bin/fm-order-ledger.sh ack $id"; then
+  if ! fm_wake_queued_keys_locked check | grep -qxF -- "$WAKE_KEY" \
+    && ! fm_wake_append_locked check "$WAKE_KEY" "check: $count order(s) pending in state/orders.jsonl (ids $ids) - list them with bin/fm-order-ledger.sh pending and ack each by id with bin/fm-order-ledger.sh ack <id>"; then
     status=1
   fi
   fm_lock_release "$FM_WAKE_QUEUE_LOCK"
   return "$status"
 }
 
-# poll_pass_locked: refresh the visible pending view and queue a wake per new
-# order. The view is replaced only by a complete, successful read of the ledger,
-# so a failed read keeps the last good view instead of erasing it.
+# poll_pass_locked: refresh the visible pending view and queue the wake while any
+# order is pending. The view is replaced only by a complete, successful read of
+# the ledger, so a failed read keeps the last good view instead of erasing it.
 poll_pass_locked() {
-  local tmp line id from text rc=0
-  repair_tails || return 1
+  local tmp count ids
   tmp=$(mktemp "$STATE/.orders.pending.XXXXXX") || return 1
   if ! pending_lines > "$tmp" || ! mv -f -- "$tmp" "$PENDING_VIEW"; then
     rm -f -- "$tmp"
     return 1
   fi
   [ -s "$PENDING_VIEW" ] || return 0
-  while IFS= read -r line; do
-    id=$(printf '%s' "$line" | jq -r '.id') || { rc=1; continue; }
-    from=$(printf '%s' "$line" | jq -r '.from') || { rc=1; continue; }
-    text=$(printf '%s' "$line" | jq -r '.text | gsub("\n"; " ") | .[0:160]') || { rc=1; continue; }
-    announce_order "$id" "$from" "$text" || rc=1
-  done < "$PENDING_VIEW"
-  return "$rc"
+  count=$(jq -s 'length' "$PENDING_VIEW") || return 1
+  ids=$(jq -rs 'map(.id | tostring) | join(",")' "$PENDING_VIEW") || return 1
+  ensure_order_wake "$count" "$ids"
 }
 
 poll_pass() {
@@ -312,25 +282,10 @@ cmd_poll() {
   done
 }
 
-cmd_timer() {
-  local sub=${ARGS[0]:-}
-  # shellcheck source=bin/fm-periodic-timer-lib.sh
-  . "$SCRIPT_DIR/fm-periodic-timer-lib.sh"
-  HOME_DIR=$(fm_timer_abs_dir "$HOME_DIR")
-  case "$sub" in
-    install) fm_timer_install order-poll 15 "$HOME_DIR" "$SCRIPT_DIR/fm-order-ledger.sh" poll --home "$HOME_DIR" --once ;;
-    remove) fm_timer_remove order-poll "$HOME_DIR" ;;
-    print) fm_timer_render "$(fm_timer_kind)" "$(fm_timer_label order-poll "$HOME_DIR")" 15 "$HOME_DIR" \
-      "$SCRIPT_DIR/fm-order-ledger.sh" poll --home "$HOME_DIR" --once ;;
-    *) die "timer needs install, remove, or print" ;;
-  esac
-}
-
 case "$CMD" in
   append) cmd_append ;;
   pending) print_pending ;;
   ack) cmd_ack ;;
   poll) cmd_poll ;;
-  timer) cmd_timer ;;
   *) die "unknown command: $CMD" ;;
 esac

@@ -16,7 +16,7 @@ In short:
 
 Lane records are `key=value` files: `state/lanes/<id>.lane`, or a `state/<id>.meta` that carries `pid=` or `log=`.
 
-Install the 5-minute timer on a host with `bin/fm-status-probe.sh timer install --home <home>`, which uses launchd on macOS and a systemd user timer elsewhere.
+Run `bin/fm-status-probe.sh run` about every 5 minutes from whatever supervises the host; the script installs no timer.
 
 ### Reading it
 
@@ -34,10 +34,10 @@ Secondmate and firstmate reports follow this rule.
 ## Order ledger
 
 `bin/fm-order-ledger.sh` keeps one append-only `state/orders.jsonl` per secondmate home, with ids that rise by one.
-The secondmate polls it every 15 seconds (`timer install` wires that), so an order is seen within a quarter of the 60-second acknowledgement bound, and acknowledges an order by its line id.
+The secondmate runs `poll` every 15 seconds from whatever supervises its home (the script installs no timer), so an order is seen within a quarter of the 60-second acknowledgement bound, and acknowledges an order by its line id.
 An order stays pending, and visible through `pending` and `state/orders.pending`, until its own id is acknowledged.
 No terminal doorbell or window ring is anywhere in the path, so a failed ring cannot hide an order.
-Each poll makes sure every pending order has exactly one wake queued, so delivery repeats until the order is acknowledged and the ledger stays the only record of it.
+While any order is pending, each poll makes sure exactly one wake is queued, so delivery repeats until every order is acknowledged and the ledger stays the only record of it; the wake only points at `pending`, so one that outlives its orders finds nothing pending.
 A poll that cannot read the ledger keeps the last good pending view, and writers and polls serialize on the home's ledger lock so ids never duplicate.
 The script header owns the commands and file formats.
 

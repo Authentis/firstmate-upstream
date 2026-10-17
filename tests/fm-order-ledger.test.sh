@@ -85,17 +85,14 @@ test_ack_refuses_an_unknown_id() {
 }
 
 test_poll_surfaces_pending_orders_with_no_terminal_ring() {
-  local queue
   make_case poll
   ledger append 'do the thing' >/dev/null
   ledger append 'and the other' >/dev/null
   ledger poll --once || fail "poll failed"
   assert_equals "2" "$(wc -l < "$HOME_DIR/state/orders.pending" | tr -d ' ')" "pending view"
-  queue=$(cat "$HOME_DIR/state/.wake-queue" 2>/dev/null || true)
-  assert_contains "$queue" "orders:1" "wake for order 1"
-  assert_contains "$queue" "orders:2" "wake for order 2"
+  assert_equals "1" "$(grep -c "orders:pending" "$HOME_DIR/state/.wake-queue")" "one wake stands for both orders"
   ledger poll --once || fail "second poll failed"
-  assert_equals "2" "$(grep -c 'orders:' "$HOME_DIR/state/.wake-queue")" "an order is announced once"
+  assert_equals "1" "$(grep -c 'orders:pending' "$HOME_DIR/state/.wake-queue")" "the wake is queued once"
   ledger ack 1 >/dev/null
   ledger poll --once || fail "third poll failed"
   assert_equals "1" "$(wc -l < "$HOME_DIR/state/orders.pending" | tr -d ' ')" "pending view after ack"
@@ -111,25 +108,8 @@ test_an_unacked_order_survives_a_failed_announcement() {
   chmod 700 "$HOME_DIR/state"
   assert_equals "1 firstmate kept" "$(ledger pending)" "the order is still pending"
   ledger poll --once || fail "poll after the failure"
-  assert_contains "$(cat "$HOME_DIR/state/.wake-queue")" "orders:1" "the order is announced on a later poll"
+  assert_contains "$(cat "$HOME_DIR/state/.wake-queue")" "orders:pending" "the order is announced on a later poll"
   pass "an order is never lost or silenced when one poll cannot announce it"
-}
-
-test_timer_runs_the_poll_every_15_seconds() {
-  local out dir="$TMP_ROOT/timer-units"
-  make_case timer
-  out=$("$LEDGER" timer print --home "$HOME_DIR") || fail "timer print failed"
-  assert_contains "$out" "$HOME_DIR" "unit names the home"
-  case "$out" in
-    *StartInterval*) assert_contains "$out" "<integer>15</integer>" "launchd 15 second interval" ;;
-    *) assert_contains "$out" "OnUnitActiveSec=15" "systemd 15 second interval" ;;
-  esac
-  mkdir -p "$dir"
-  FM_TIMER_DIR=$dir FM_TIMER_NOLOAD=1 "$LEDGER" timer install --home "$HOME_DIR" || fail "install"
-  [ -n "$(ls "$dir")" ] || fail "install wrote no unit"
-  FM_TIMER_DIR=$dir FM_TIMER_NOLOAD=1 "$LEDGER" timer remove --home "$HOME_DIR" || fail "remove"
-  assert_equals "" "$(ls "$dir")" "remove deletes the units"
-  pass "the poll timer is scoped to one home and runs every 15 seconds"
 }
 
 # hold_lock <seconds> [lock-name]: a separate process that owns a lock in the
@@ -233,8 +213,8 @@ test_concurrent_polls_announce_each_order_once() {
     ledger poll --once &
   done
   wait
-  assert_equals "3" "$(grep -c 'orders:' "$HOME_DIR/state/.wake-queue")" "wake rows after six racing polls"
-  pass "racing polls queue exactly one wake per order"
+  assert_equals "1" "$(grep -c 'orders:pending' "$HOME_DIR/state/.wake-queue")" "wake rows after six racing polls"
+  pass "racing polls queue exactly one wake"
 }
 
 test_a_failed_read_keeps_the_last_good_pending_view() {
@@ -255,19 +235,21 @@ test_a_failed_read_keeps_the_last_good_pending_view() {
 test_a_consumed_wake_for_a_pending_order_is_queued_again_until_acked() {
   make_case consumed
   ledger append one >/dev/null
+  ledger append two >/dev/null
   ledger poll --once || fail "first poll"
-  assert_equals "1" "$(grep -c 'orders:1' "$HOME_DIR/state/.wake-queue")" "the wake is queued"
+  assert_equals "1" "$(grep -c 'orders:pending' "$HOME_DIR/state/.wake-queue")" "the wake is queued"
   ledger poll --once || fail "second poll"
-  assert_equals "1" "$(grep -c 'orders:1' "$HOME_DIR/state/.wake-queue")" "a queued wake is never stacked"
+  assert_equals "1" "$(grep -c 'orders:pending' "$HOME_DIR/state/.wake-queue")" "a queued wake is never stacked"
   : > "$HOME_DIR/state/.wake-queue"
   ledger poll --once || fail "poll after the wake was consumed"
-  assert_equals "1" "$(grep -c 'orders:1' "$HOME_DIR/state/.wake-queue")" "a consumed wake for a still-pending order is delivered again"
+  assert_equals "1" "$(grep -c 'orders:pending' "$HOME_DIR/state/.wake-queue")" "a consumed wake for a still-pending order is delivered again"
   ledger ack 1 >/dev/null
+  ledger ack 2 >/dev/null
   : > "$HOME_DIR/state/.wake-queue"
-  ledger poll --once || fail "poll after the ack"
-  assert_equals "0" "$(grep -c 'orders:1' "$HOME_DIR/state/.wake-queue")" "an acknowledged order is never delivered again"
+  ledger poll --once || fail "poll after the acks"
+  assert_equals "0" "$(grep -c 'orders:' "$HOME_DIR/state/.wake-queue")" "nothing is delivered once every order is acknowledged"
   assert_equals "" "$(find "$HOME_DIR/state" \( -iname '*outbox*' -o -iname '*announced*' \))" "delivery keeps no record of its own"
-  pass "delivery repeats for a pending order until it is acked, never stacks, and keeps no state besides the ledger"
+  pass "delivery repeats until every order is acked, never stacks, and keeps no state besides the ledger"
 }
 
 test_another_producer_advancing_the_queue_never_skips_an_order() {
@@ -275,7 +257,7 @@ test_another_producer_advancing_the_queue_never_skips_an_order() {
   ledger append one >/dev/null
   printf '40\n' > "$HOME_DIR/state/.wake-queue.seq"
   ledger poll --once || fail "poll"
-  assert_contains "$(cat "$HOME_DIR/state/.wake-queue")" "orders:1" "the order is queued although the queue sequence moved on"
+  assert_contains "$(cat "$HOME_DIR/state/.wake-queue")" "orders:pending" "the order is queued although the queue sequence moved on"
   pass "an order never queued is queued even when another producer advanced the wake sequence"
 }
 
@@ -289,18 +271,6 @@ test_a_failed_pending_read_is_an_error_not_an_empty_list() {
   [ "$rc" -ne 0 ] || fail "pending reported success over a corrupt ledger"
   assert_equals "" "$out" "no partial list is printed"
   pass "pending fails rather than printing a partial list when the ledger cannot be read"
-}
-
-test_a_torn_last_line_is_set_aside_before_the_next_write() {
-  local out
-  make_case torn
-  ledger append first >/dev/null
-  printf '{"id":2,"ts":17' >> "$HOME_DIR/state/orders.jsonl"
-  out=$(ledger append second 2>/dev/null) || fail "append after a torn tail"
-  assert_equals "2" "$out" "the torn line never became an order, so its id is reused"
-  assert_equals "2" "$(jq -s 'length' "$HOME_DIR/state/orders.jsonl")" "the ledger is whole JSON lines again"
-  assert_equals '{"id":2,"ts":17' "$(cat "$HOME_DIR/state/orders.jsonl.torn")" "the torn text is kept aside"
-  pass "a torn last line is set aside and the next append publishes a complete ledger"
 }
 
 test_a_failed_publish_leaves_the_ledger_untouched() {
@@ -345,7 +315,7 @@ test_a_wake_queue_write_failure_leaves_the_order_to_be_announced_later() {
   assert_equals "1 firstmate one" "$(ledger pending)" "the order is still pending"
   rmdir "$HOME_DIR/state/.wake-queue"
   ledger poll --once || fail "poll once the queue is writable"
-  assert_equals "1" "$(grep -c 'orders:1' "$HOME_DIR/state/.wake-queue")" "the wake is queued on the later poll"
+  assert_equals "1" "$(grep -c 'orders:pending' "$HOME_DIR/state/.wake-queue")" "the wake is queued on the later poll"
   pass "a real wake-queue write failure fails the poll and the order is announced on a later one"
 }
 
@@ -367,10 +337,13 @@ test_a_replay_with_the_doorbell_off_is_acked_within_60_seconds_on_both_homes() {
     pollers+=("$!")
     (
       while :; do
-        # shellcheck disable=SC2013 # the values are numeric order ids
-        for i in $(awk -F'\t' '$4 ~ /^orders:/ { sub(/^orders:/, "", $4); print $4 }' "$dir/$name/state/.wake-queue" 2>/dev/null); do
-          "$LEDGER" ack --home "$dir/$name" "$i" >/dev/null 2>&1
-        done
+        # On the order wake, do what the wake says: list what is pending, ack each.
+        if grep -q 'orders:pending' "$dir/$name/state/.wake-queue" 2>/dev/null; then
+          # shellcheck disable=SC2013 # the values are numeric order ids
+          for i in $("$LEDGER" pending --home "$dir/$name" | awk '{print $1}'); do
+            "$LEDGER" ack --home "$dir/$name" "$i" >/dev/null 2>&1
+          done
+        fi
         sleep 0.5
       done
     ) &
@@ -403,7 +376,6 @@ test_a_signalled_poll_releases_the_ledger_lock_it_holds
 test_a_consumed_wake_for_a_pending_order_is_queued_again_until_acked
 test_another_producer_advancing_the_queue_never_skips_an_order
 test_a_failed_pending_read_is_an_error_not_an_empty_list
-test_a_torn_last_line_is_set_aside_before_the_next_write
 test_a_failed_publish_leaves_the_ledger_untouched
 test_ack_ids_are_range_checked_before_arithmetic
 test_a_wake_queue_write_failure_leaves_the_order_to_be_announced_later
@@ -416,4 +388,3 @@ test_ack_advances_only_the_acked_line_id
 test_ack_refuses_an_unknown_id
 test_poll_surfaces_pending_orders_with_no_terminal_ring
 test_an_unacked_order_survives_a_failed_announcement
-test_timer_runs_the_poll_every_15_seconds

@@ -45,6 +45,7 @@ esac
 SH
   cat > "$FAKEBIN/no-mistakes" <<'SH'
 #!/usr/bin/env bash
+[ "$1 $2" != "axi status" ] || pwd -P >> "$FAKE/nm-cwd.log"
 if [ "$1 $2" = "axi status" ] && [ "${3:-}" = "--run" ]; then
   f="$FAKE/nm-run-$4"
   [ -f "$f" ] || exit 1
@@ -67,20 +68,6 @@ pr_json() {  # <state> <merge-oid-or-empty> <base>
   local mc=null
   [ -z "$2" ] || mc="{\"oid\":\"$2\"}"
   printf '{"state":"%s","headRefOid":"headsha","mergeCommit":%s,"baseRefName":"%s"}\n' "$1" "$mc" "$3"
-}
-
-test_units_run_inside_the_home_and_escape_xml_text() {
-  local out
-  out=$(bash -c '. "$1"; fm_timer_render launchd lbl 5 "$2" "$3"' _ "$ROOT/bin/fm-periodic-timer-lib.sh" '/h/a&b<c>' '/bin/x&y') \
-    || fail "launchd render failed"
-  assert_contains "$out" "<key>WorkingDirectory</key><string>/h/a&amp;b&lt;c&gt;</string>" "launchd job runs inside the home"
-  assert_contains "$out" "<key>FM_HOME</key><string>/h/a&amp;b&lt;c&gt;</string>" "ampersands and angle brackets are escaped once"
-  assert_contains "$out" "<string>/bin/x&amp;y</string>" "an argument is escaped too"
-  assert_not_contains "$out" "&amp;amp;" "nothing is escaped twice"
-  out=$(bash -c '. "$1"; fm_timer_render systemd lbl 5 "$2" /bin/x' _ "$ROOT/bin/fm-periodic-timer-lib.sh" '/h/with 5%') \
-    || fail "systemd render failed"
-  assert_contains "$out" "WorkingDirectory=/h/with 5%%" "systemd job runs inside the home, % escaped"
-  pass "both unit kinds run inside the home, and the launchd XML escapes & < > exactly once"
 }
 
 test_a_run_table_missing_a_required_column_is_not_trusted() {
@@ -115,6 +102,34 @@ SH
   assert_absent "$HOME_DIR/state/status.json" "a signalled probe publishes nothing"
   assert_equals "" "$(find "$scratch" -mindepth 1 -maxdepth 1)" "its scratch directory is removed"
   pass "a signalled probe exits with the signal status and removes its scratch directory"
+}
+
+test_no_mistakes_runs_inside_the_selected_home() {
+  local out other="$TMP_ROOT/elsewhere" want
+  make_case cwd
+  mkdir -p "$other"
+  cat > "$FAKE/nm-list" <<'EOT'
+current_branch: main
+runs[1]{id,branch,status,head,pr}:
+  "RUNA",fm/a,running,abc,""
+EOT
+  cat > "$FAKE/nm-run-RUNA" <<'EOT'
+current_branch: main
+gate:
+  step: ci
+  status: awaiting_approval
+EOT
+  want=$(cd "$HOME_DIR" && pwd -P)
+  out=$(cd "$other" && FAKE=$FAKE PATH="$FAKEBIN:$PATH" "$PROBE" run --home "$HOME_DIR" --stdout) || fail "probe failed"
+  assert_equals "1" "$(printf '%s' "$out" | jq '.gate_waits | length')" "the gate wait was read"
+  assert_equals "$want
+$want" "$(cat "$FAKE/nm-cwd.log")" "both no-mistakes queries ran inside the selected home"
+  rm -f "$FAKE/nm-cwd.log"
+  out=$(cd "$other" && FAKE=$FAKE PATH="$FAKEBIN:$PATH" "$PROBE" run --home "$TMP_ROOT/no-such-home" --stdout) || fail "probe failed"
+  assert_equals "false" "$(printf '%s' "$out" | jq -r '.sources.no_mistakes.ok')" "a missing home is a source failure, not the caller's directory"
+  assert_contains "$(printf '%s' "$out" | jq -r '.sources.no_mistakes.error')" "no-such-home" "the error names the home"
+  assert_absent "$FAKE/nm-cwd.log" "no-mistakes never ran in the caller's directory"
+  pass "no-mistakes runs inside the selected home, wherever the probe was started"
 }
 
 test_merged_requires_a_merge_commit_on_main() {
@@ -275,23 +290,6 @@ test_status_json_is_published_atomically() {
   pass "a run replaces state/status.json and leaves no temporary file"
 }
 
-test_timer_units_name_the_home_and_interval() {
-  local out dir="$TMP_ROOT/timer-units"
-  make_case timer
-  out=$("$PROBE" timer print --home "$HOME_DIR") || fail "timer print failed"
-  assert_contains "$out" "$HOME_DIR" "unit names the home"
-  case "$out" in
-    *StartInterval*) assert_contains "$out" "<integer>300</integer>" "launchd 5-minute interval" ;;
-    *) assert_contains "$out" "OnUnitActiveSec=300" "systemd 5-minute interval" ;;
-  esac
-  mkdir -p "$dir"
-  FM_TIMER_DIR=$dir FM_TIMER_NOLOAD=1 "$PROBE" timer install --home "$HOME_DIR" || fail "timer install failed"
-  [ -n "$(ls "$dir")" ] || fail "install wrote no unit"
-  FM_TIMER_DIR=$dir FM_TIMER_NOLOAD=1 "$PROBE" timer remove --home "$HOME_DIR" || fail "timer remove failed"
-  assert_equals "" "$(ls "$dir")" "remove deletes the units"
-  pass "the timer is scoped to one home, runs every 5 minutes, and installs and removes cleanly"
-}
-
 test_one_unreadable_pr_does_not_stop_the_remaining_queries() {
   local out
   make_case partial
@@ -402,71 +400,6 @@ test_read_marks_a_section_unknown_when_its_source_is_not_ok() {
   pass "a fresh file still reads unknown for a section whose source did not answer"
 }
 
-test_timer_units_carry_a_path_and_are_written_whole() {
-  local out dir="$TMP_ROOT/timer-write" rc=0
-  out=$(FM_TIMER_PATH=/opt/tools/bin:/usr/bin bash -c '. "$1"; fm_timer_render launchd lbl 5 /h /bin/x' _ "$ROOT/bin/fm-periodic-timer-lib.sh") \
-    || fail "launchd render failed"
-  assert_contains "$out" "<key>PATH</key><string>/opt/tools/bin:/usr/bin</string>" "launchd job gets a PATH"
-  assert_contains "$out" "<key>FM_HOME</key><string>/h</string>" "launchd job keeps FM_HOME"
-  out=$(FM_TIMER_PATH=/opt/tools/bin:/usr/bin bash -c '. "$1"; fm_timer_render systemd lbl 5 /h /bin/x' _ "$ROOT/bin/fm-periodic-timer-lib.sh") \
-    || fail "systemd render failed"
-  assert_contains "$out" 'Environment="PATH=/opt/tools/bin:/usr/bin"' "systemd job gets a PATH"
-  # shellcheck disable=SC2016 # "$1" must reach the child shell unexpanded
-  out=$(PATH=/custom/bin:/usr/bin "$BASH" -c '. "$1"; fm_timer_render launchd lbl 5 /h /bin/x' _ "$ROOT/bin/fm-periodic-timer-lib.sh") \
-    || fail "default render failed"
-  assert_contains "$out" "<string>/custom/bin:/usr/bin:/opt/homebrew/bin:" "the installer's PATH comes first"
-
-  make_case timerwrite
-  mkdir -p "$dir"
-  FM_TIMER_DIR=$dir FM_TIMER_NOLOAD=1 "$PROBE" timer install --home "$HOME_DIR" || fail "install"
-  out=$(find "$dir" -type f | head -n1)
-  printf 'sentinel\n' > "$out"
-  chmod 500 "$dir"
-  FM_TIMER_DIR=$dir FM_TIMER_NOLOAD=1 "$PROBE" timer install --home "$HOME_DIR" >/dev/null 2>&1 || rc=$?
-  chmod 700 "$dir"
-  if [ "$(id -u)" != 0 ]; then
-    [ "$rc" -ne 0 ] || fail "an install that could not write reported success"
-    assert_equals "sentinel" "$(cat "$out")" "the installed unit is not truncated by a failed write"
-  fi
-  FM_TIMER_DIR=$dir FM_TIMER_NOLOAD=1 "$PROBE" timer install --home "$HOME_DIR" || fail "reinstall"
-  assert_equals "" "$(find "$dir" -name '*.??????' ! -name '*.plist' ! -name '*.service' ! -name '*.timer')" "no temporary unit file remains"
-  pass "timer jobs get a PATH, and a unit is written whole or the install fails with the old unit intact"
-}
-
-test_systemd_exec_words_are_quoted_for_systemd() {
-  local out line
-  out=$(bash -c '. "$1"; fm_timer_render systemd lbl 5 "/h/with space" "/bin/x y" "a\"b" "p%q" "\$HOME" "plain"' _ "$ROOT/bin/fm-periodic-timer-lib.sh") \
-    || fail "render failed"
-  line=$(printf '%s\n' "$out" | sed -n 's/^ExecStart=//p')
-  # shellcheck disable=SC2016 # the expected text holds literal $$ for systemd
-  assert_equals '"/bin/x y" "a\"b" "p%%q" "$$HOME" "plain" ' "$line" "systemd-quoted ExecStart words"
-  assert_contains "$out" 'Environment="FM_HOME=/h/with space"' "quoted environment assignment"
-  out=$(bash -c '. "$1"; fm_timer_render systemd lbl 5 "$2" "/bin/a"' _ "$ROOT/bin/fm-periodic-timer-lib.sh" '/h/$x%y') \
-    || fail "render failed"
-  # shellcheck disable=SC2016 # the expected text holds a literal $
-  assert_contains "$out" 'Environment="FM_HOME=/h/$x%%y"' "Environment keeps $ literal and escapes %"
-  out=$(bash -c '. "$1"; fm_timer_render systemd lbl 5 /h "$2" "$3"' _ "$ROOT/bin/fm-periodic-timer-lib.sh" '/srv/fm$copy/bin/x' 'a$b') \
-    || fail "render failed"
-  line=$(printf '%s\n' "$out" | sed -n 's/^ExecStart=//p')
-  # shellcheck disable=SC2016 # the expected text holds literal $ for systemd
-  assert_equals '"/srv/fm$copy/bin/x" "a$$b" ' "$line" "the executable path keeps its dollar, later arguments double it"
-  pass "the systemd unit quotes spaces, quotes, % and \$ the way systemd reads them"
-}
-
-test_a_relative_home_is_made_absolute_in_the_unit() {
-  local rel abs outrel outabs
-  make_case relhome
-  abs="$HOME_DIR"
-  rel=$(cd "$TMP_ROOT/relhome" && "$PROBE" timer print --home home) || fail "relative print failed"
-  abs=$("$PROBE" timer print --home "$abs") || fail "absolute print failed"
-  outrel=$rel
-  outabs=$abs
-  assert_equals "$outabs" "$outrel" "a relative --home renders the same unit as the absolute path"
-  assert_contains "$outrel" "$HOME_DIR" "the unit names the absolute home"
-  assert_not_contains "$outrel" "--home home" "no relative path reaches the unit"
-  pass "a relative --home becomes an absolute path before the label is hashed and the unit rendered"
-}
-
 test_run_rows_decode_branches_with_commas_and_quotes() {
   local out
   make_case decode
@@ -505,7 +438,7 @@ test_a_run_table_that_cannot_be_decoded_marks_the_source_not_ok() {
   pass "an unterminated quote, a short row, or a wrong row count marks the no-mistakes source not ok"
 }
 
-test_units_run_inside_the_home_and_escape_xml_text
+test_no_mistakes_runs_inside_the_selected_home
 test_a_run_table_missing_a_required_column_is_not_trusted
 test_a_signalled_probe_stops_and_cleans_up
 test_run_rows_decode_branches_with_commas_and_quotes
@@ -517,12 +450,8 @@ test_one_unreadable_pr_does_not_stop_the_remaining_queries
 test_an_unreadable_running_run_marks_the_source_not_ok
 test_read_reports_unknown_on_stale_or_missing_data
 test_read_marks_a_section_unknown_when_its_source_is_not_ok
-test_systemd_exec_words_are_quoted_for_systemd
-test_timer_units_carry_a_path_and_are_written_whole
-test_a_relative_home_is_made_absolute_in_the_unit
 test_gate_result_comes_from_the_matching_run
 test_lane_freshness_uses_pid_and_mtime
 test_gate_waits_are_parsed_from_the_run_status
 test_failed_sources_are_reported_not_hidden
 test_status_json_is_published_atomically
-test_timer_units_name_the_home_and_interval

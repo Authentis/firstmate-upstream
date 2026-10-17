@@ -19,7 +19,6 @@ The shared no-mistakes gate lifecycle boundary is summarized in [architecture.md
 | `fm-fleet-ledger.sh`     | Append the opt-in fleet activity ledger's records ([contract](fleet-ledger.md))      |
 | `fm-status-probe.sh`     | Write a host's `state/status.json` of PRs, lanes, and gate waits that reports must quote ([contract](fleet-truth.md)) |
 | `fm-order-ledger.sh`     | Append, poll, and acknowledge a secondmate's `orders.jsonl` order ledger ([contract](fleet-truth.md)) |
-| `fm-periodic-timer-lib.sh` | Shared launchd and systemd timer wiring for the status probe and order poll |
 | `fm-fleet-view.sh`       | Render the fleet snapshot as a human Markdown view                                   |
 | `fm-bearings-snapshot.sh` | Project the bounded remote-ledger fleet snapshot to compact TOON; `--include-prs` adds live GitHub enrichment |
 | `fm-bearings-board.sh`   | Build and arm the stable interactive `/bearings lavish` fleet board                  |

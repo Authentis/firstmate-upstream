@@ -3,7 +3,7 @@
 #
 # One run observes this host and atomically replaces state/status.json (schema
 # `fm-status-probe.v1`) with three sections plus a record of which sources
-# answered. A 5-minute timer keeps it current (`timer install`).
+# answered.
 #
 #   prs[]         One entry per PR url recorded as `pr=` in state/*.meta or given
 #                 with --pr. Fields: url, head_sha, state (the forge's own
@@ -43,7 +43,9 @@
 #       whose source is not ok reads "unknown" instead of a value (a PR's gate
 #       reads "unknown" while no-mistakes is not ok). Exits 0 for a
 #       fresh file and 3 for a verdict of unknown.
-#   fm-status-probe.sh timer install|remove|print [--home <dir>]
+#
+# Run `run` about every 5 minutes from whatever supervises the host; this script
+# installs no timer. Its no-mistakes queries run inside the selected home.
 #
 # Environment seams: FM_PROBE_GH (default gh) and FM_PROBE_NM (default
 # no-mistakes) name the tools; FM_PROBE_FRESH_SECONDS (default 300) is the lane
@@ -70,7 +72,7 @@ command -v jq >/dev/null 2>&1 || die "jq is required"
 CMD=run
 case "${1:-}" in
   -h|--help|help) usage; exit 0 ;;
-  run|timer|read) CMD=$1; shift ;;
+  run|read) CMD=$1; shift ;;
 esac
 
 HOME_DIR=${FM_HOME:-$FM_ROOT}
@@ -94,20 +96,6 @@ case "$MAX_AGE" in ''|*[!0-9]*) die "--max-age must be whole seconds" ;; esac
 
 STATE="$HOME_DIR/state"
 [ -n "$OUT" ] || OUT="$STATE/status.json"
-
-if [ "$CMD" = timer ]; then
-  # shellcheck source=bin/fm-periodic-timer-lib.sh
-  . "$SCRIPT_DIR/fm-periodic-timer-lib.sh"
-  HOME_DIR=$(fm_timer_abs_dir "$HOME_DIR")
-  case "${ARGS[0]:-}" in
-    install) fm_timer_install status-probe 300 "$HOME_DIR" "$SCRIPT_DIR/fm-status-probe.sh" run --home "$HOME_DIR" ;;
-    remove) fm_timer_remove status-probe "$HOME_DIR" ;;
-    print) fm_timer_render "$(fm_timer_kind)" "$(fm_timer_label status-probe "$HOME_DIR")" 300 "$HOME_DIR" \
-      "$SCRIPT_DIR/fm-status-probe.sh" run --home "$HOME_DIR" ;;
-    *) die "timer needs install, remove, or print" ;;
-  esac
-  exit $?
-fi
 
 NOW=$(date +%s)
 
@@ -229,12 +217,19 @@ decode_runs_table() {
   '
 }
 
+# nm_in_home <args...>: run no-mistakes inside the selected home. It answers for
+# the repository it runs in, and a timer starts the probe from no particular
+# directory, so the home is where it has to run, not where the caller happens to be.
+nm_in_home() {
+  (cd "$HOME_DIR" 2>/dev/null && "$NM" "$@")
+}
+
 NM_OK=false
 NM_ERR=
 NM_RUNS="$SCRATCH/nm-runs.jsonl"   # one decoded run row per line
 : > "$NM_RUNS"
 if command -v "$NM" >/dev/null 2>&1; then
-  if nm_list=$("$NM" axi status 2>&1); then
+  if nm_list=$(nm_in_home axi status 2>&1); then
     NM_OK=true
     if ! printf '%s\n' "$nm_list" | decode_runs_table > "$NM_RUNS"; then
       NM_OK=false
@@ -243,6 +238,7 @@ if command -v "$NM" >/dev/null 2>&1; then
     fi
   else
     NM_ERR=$(printf '%s' "$nm_list" | head -c 300 | tr '\n' ' ')
+    [ -n "$NM_ERR" ] || NM_ERR="$NM axi status failed in $HOME_DIR"
   fi
 else
   NM_ERR="$NM not found"
@@ -271,7 +267,7 @@ if [ "$NM_OK" = true ]; then
     [ "$rstatus" = running ] || continue
     rid=$(printf '%s' "$row" | jq -r '.id // ""')
     rbranch=$(printf '%s' "$row" | jq -r '.branch // ""')
-    if ! detail=$("$NM" axi status --run "$rid" 2>/dev/null); then
+    if ! detail=$(nm_in_home axi status --run "$rid" 2>/dev/null); then
       NM_UNREAD="${NM_UNREAD:+$NM_UNREAD }$rid"
       continue
     fi
