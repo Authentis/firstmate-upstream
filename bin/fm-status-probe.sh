@@ -152,7 +152,12 @@ else
 fi
 
 SCRATCH=$(mktemp -d "${TMPDIR:-/tmp}/fm-status-probe.XXXXXX") || die "cannot create a scratch directory"
-trap 'rm -rf -- "$SCRATCH"' EXIT HUP INT TERM
+# Cleanup lives on EXIT; a signal exits through it with the conventional status,
+# so a signalled probe stops instead of carrying on with its scratch directory gone.
+trap 'rm -rf -- "$SCRATCH"' EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 # ---- no-mistakes runs -------------------------------------------------------
 # decode_runs_table: read `no-mistakes axi status` output on stdin and print one
@@ -203,7 +208,11 @@ decode_runs_table() {
       want = $0; sub(/^runs\[/, "", want); sub(/\].*$/, "", want)
       hdr = $0; sub(/^runs\[[0-9]+\]\{/, "", hdr); sub(/\}:[ \t]*$/, "", hdr)
       nf = split_row(hdr, names)
-      if (nf < 1) bad = 1
+      seen_table = 1
+      # The probe reads these columns by name; a table without one of them would
+      # decode to rows that silently lack it, so it is not a table to trust.
+      for (i = 1; i <= nf; i++) have[names[i]] = 1
+      if (nf < 1 || !("id" in have) || !("branch" in have) || !("status" in have) || !("pr" in have)) bad = 1
       next
     }
     in_runs && /^[^ \t]/ { in_runs = 0; if (rows != want) bad = 1 }
@@ -216,7 +225,7 @@ decode_runs_table() {
       print "{" obj "}"
       rows++
     }
-    END { if (in_runs && rows != want) bad = 1; exit bad ? 3 : 0 }
+    END { if (!seen_table || (in_runs && rows != want)) bad = 1; exit bad ? 3 : 0 }
   '
 }
 

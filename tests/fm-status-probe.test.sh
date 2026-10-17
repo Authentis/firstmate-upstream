@@ -69,6 +69,54 @@ pr_json() {  # <state> <merge-oid-or-empty> <base>
   printf '{"state":"%s","headRefOid":"headsha","mergeCommit":%s,"baseRefName":"%s"}\n' "$1" "$mc" "$3"
 }
 
+test_units_run_inside_the_home_and_escape_xml_text() {
+  local out
+  out=$(bash -c '. "$1"; fm_timer_render launchd lbl 5 "$2" "$3"' _ "$ROOT/bin/fm-periodic-timer-lib.sh" '/h/a&b<c>' '/bin/x&y') \
+    || fail "launchd render failed"
+  assert_contains "$out" "<key>WorkingDirectory</key><string>/h/a&amp;b&lt;c&gt;</string>" "launchd job runs inside the home"
+  assert_contains "$out" "<key>FM_HOME</key><string>/h/a&amp;b&lt;c&gt;</string>" "ampersands and angle brackets are escaped once"
+  assert_contains "$out" "<string>/bin/x&amp;y</string>" "an argument is escaped too"
+  assert_not_contains "$out" "&amp;amp;" "nothing is escaped twice"
+  out=$(bash -c '. "$1"; fm_timer_render systemd lbl 5 "$2" /bin/x' _ "$ROOT/bin/fm-periodic-timer-lib.sh" '/h/with 5%') \
+    || fail "systemd render failed"
+  assert_contains "$out" "WorkingDirectory=/h/with 5%%" "systemd job runs inside the home, % escaped"
+  pass "both unit kinds run inside the home, and the launchd XML escapes & < > exactly once"
+}
+
+test_a_run_table_missing_a_required_column_is_not_trusted() {
+  local out table
+  make_case needcols
+  for table in 'runs[1]{id,branch,head,pr}:\n  "RUNA",fm/a,abc,""' \
+               'runs[1]{id,branch,status,head}:\n  "RUNA",fm/a,running,abc' \
+               'runs[1]{branch,status,head,pr}:\n  fm/a,running,abc,""' \
+               'count: 0 of 0 total'; do
+    printf 'current_branch: main\n%b\n' "$table" > "$FAKE/nm-list"
+    out=$(run_probe) || fail "probe failed"
+    assert_equals "false" "$(printf '%s' "$out" | jq -r '.sources.no_mistakes.ok')" "a table without the expected columns is not read as complete: $table"
+  done
+  pass "a run table without its id, branch, status, and pr columns, or without a table at all, marks the source not ok"
+}
+
+test_a_signalled_probe_stops_and_cleans_up() {
+  local pid rc=0 scratch="$TMP_ROOT/sigscratch"
+  make_case signal
+  mkdir -p "$scratch"
+  cat > "$FAKEBIN/no-mistakes" <<'SH'
+#!/usr/bin/env bash
+sleep 30
+SH
+  FAKE=$FAKE TMPDIR=$scratch PATH="$FAKEBIN:$PATH" "$PROBE" run --home "$HOME_DIR" >/dev/null 2>&1 &
+  pid=$!
+  sleep 1
+  kill -0 "$pid" 2>/dev/null || fail "the probe ended before it was signalled"
+  kill -TERM "$pid"
+  wait "$pid" || rc=$?
+  assert_equals "143" "$rc" "a signalled probe exits"
+  assert_absent "$HOME_DIR/state/status.json" "a signalled probe publishes nothing"
+  assert_equals "" "$(find "$scratch" -mindepth 1 -maxdepth 1)" "its scratch directory is removed"
+  pass "a signalled probe exits with the signal status and removes its scratch directory"
+}
+
 test_merged_requires_a_merge_commit_on_main() {
   local out
   make_case merged
@@ -457,6 +505,9 @@ test_a_run_table_that_cannot_be_decoded_marks_the_source_not_ok() {
   pass "an unterminated quote, a short row, or a wrong row count marks the no-mistakes source not ok"
 }
 
+test_units_run_inside_the_home_and_escape_xml_text
+test_a_run_table_missing_a_required_column_is_not_trusted
+test_a_signalled_probe_stops_and_cleans_up
 test_run_rows_decode_branches_with_commas_and_quotes
 test_a_run_table_that_cannot_be_decoded_marks_the_source_not_ok
 test_merged_requires_a_merge_commit_on_main

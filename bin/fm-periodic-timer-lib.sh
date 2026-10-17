@@ -52,10 +52,9 @@ fm_timer_dir() {
 }
 
 _fm_timer_xml() {
-  local s=$1
-  s=${s//&/&amp;}
-  s=${s//</&lt;}
-  printf '%s' "${s//>/&gt;}"
+  # sed rather than ${s//&/&amp;}: Bash 5.2 reads an unquoted & in a
+  # replacement as the matched text, which would corrupt the XML.
+  printf '%s' "$1" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'
 }
 
 # _fm_timer_sd_quote <word> [command] -> the word as one systemd word:
@@ -116,13 +115,14 @@ fm_timer_render() {
     printf '    <key>FM_HOME</key><string>%s</string>\n' "$(_fm_timer_xml "$home")"
     printf '    <key>PATH</key><string>%s</string>\n' "$(_fm_timer_xml "$(_fm_timer_path)")"
     printf '  </dict>\n'
+    printf '  <key>WorkingDirectory</key><string>%s</string>\n' "$(_fm_timer_xml "$home")"
     printf '  <key>StartInterval</key><integer>%s</integer>\n' "$interval"
     printf '  <key>RunAtLoad</key><true/>\n'
     printf '</dict>\n</plist>\n'
   else
     printf '[Unit]\nDescription=Firstmate %s\n\n' "$label"
-    printf '[Service]\nType=oneshot\nEnvironment=%s\nEnvironment=%s\nExecStart=' \
-      "$(_fm_timer_sd_quote "FM_HOME=$home")" "$(_fm_timer_sd_quote "PATH=$(_fm_timer_path)")"
+    printf '[Service]\nType=oneshot\nWorkingDirectory=%s\nEnvironment=%s\nEnvironment=%s\nExecStart=' \
+      "${home//%/%%}" "$(_fm_timer_sd_quote "FM_HOME=$home")" "$(_fm_timer_sd_quote "PATH=$(_fm_timer_path)")"
     printf '%s ' "$(_fm_timer_sd_quote "$1")"
     shift
     for arg in "$@"; do
