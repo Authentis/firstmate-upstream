@@ -1899,7 +1899,7 @@ EOF
   rc=$?
   set -e
 
-  [ "$rc" -eq 4 ] || fail "nested process-event restoration failure was collapsed at a recursive teardown boundary"
+  [ "$rc" -eq 5 ] || fail "nested process-event restoration failure was collapsed at a recursive teardown boundary"
   grep -F 'active waits may remain retired; recover registrations from ' "$err" >/dev/null || fail "nested restoration failure did not report its recovery backup"
   backup=$(find "$TMP_ROOT" -maxdepth 1 -type d -name '.fm-procevent-restore.*' \
     -exec test -e '{}/leaf-source.source' \; -print -quit)
@@ -1966,7 +1966,7 @@ EOF
   rc=$?
   set -e
 
-  [ "$rc" -eq 4 ] || fail "failed process-event restoration did not return its distinct recoverable status"
+  [ "$rc" -eq 5 ] || fail "failed process-event restoration did not return its distinct recoverable status"
   grep -F 'active waits may remain retired; recover registrations from ' "$err" >/dev/null || fail "failed process-event restoration did not report its recovery backup"
   backup=$(find "$TMP_ROOT" -maxdepth 1 -type d -name '.fm-procevent-restore.*' \
     -exec test -e '{}/source.source' \; -print -quit)
@@ -2237,11 +2237,17 @@ lease_id=child-lease-1
 EOF
     fakebin=$(make_fake_tmux "$TMP_ROOT/force-lease-child-fake-$slot_lease")
     log="$TMP_ROOT/force-lease-child-fake-$slot_lease/tmux.log"
+    # Status still reports the child's lease, so the lease checks before the
+    # scrub pass; a slot re-leased after that is refused by the return itself.
     cat > "$fakebin/treehouse" <<'SH'
 #!/usr/bin/env bash
 set -u
 printf 'treehouse %s\n' "$*" >> "${FM_FAKE_TMUX_LOG:-/dev/null}"
 case "${1:-}" in
+  status)
+    printf '[{"name":"1","path":"%s","lease_id":"child-lease-1"}]\n' "$FM_FAKE_CHILD_WT"
+    exit 0
+    ;;
   return)
     shift
     target= want=
@@ -2257,7 +2263,7 @@ case "${1:-}" in
       echo "failed to return worktree: lease precondition failed: lease identity does not match worktree" >&2
       exit 1
     fi
-    [ -n "$target" ] && rm -rf -- "$target"
+    [ -d "$target" ] || exit 1
     exit 0
     ;;
 esac
@@ -2267,7 +2273,7 @@ SH
 
     set +e
     PATH="$fakebin:$PATH" FM_HOME="$home" FM_FAKE_TMUX_LOG="$log" FM_FAKE_TMUX_CAPTURE="$TMP_ROOT/force-lease-child-fake-$slot_lease/pane.txt" \
-      FM_FAKE_SLOT_LEASE="$slot_lease" \
+      FM_FAKE_SLOT_LEASE="$slot_lease" FM_FAKE_CHILD_WT="$childwt" \
       "$ROOT/bin/fm-teardown.sh" domain --force >/dev/null 2>"$err"
     rc=$?
     set -e
@@ -2276,7 +2282,8 @@ SH
       || fail "forced secondmate teardown did not return the child slot bound to its recorded lease ($slot_lease)"
     if [ "$slot_lease" = child-lease-1 ]; then
       [ "$rc" -eq 0 ] || { cat "$err" >&2; fail "forced secondmate teardown failed to return a child slot it still leases"; }
-      [ ! -d "$childwt" ] || fail "forced secondmate teardown left the returned child slot"
+      ! grep -F 'the pool lost this slot' "$err" >/dev/null \
+        || fail "forced secondmate teardown reported a clean child return as a lost slot"
     else
       [ "$rc" -ne 0 ] || fail "forced secondmate teardown succeeded after the child's lease-bound return was refused"
       [ -d "$childwt" ] || fail "forced secondmate teardown removed a child slot whose lease changed"
@@ -2286,6 +2293,113 @@ SH
     fi
   done
   pass "secondmate force teardown returns child slots bound to their lease and keeps a re-leased slot"
+}
+
+# A forced secondmate cleanup scrubs a child's slot of untracked files and
+# nested repositories before returning it, so the child's lease is confirmed
+# with Treehouse first: a slot reported under another lease, or a pool status
+# that cannot be read, may hold a successor's work and is left untouched, while
+# the slot the child still leases is scrubbed and returned bound to its lease.
+test_secondmate_force_teardown_verifies_child_lease_before_scrub() {
+  local mode home subhome childproj childwt fakebin log err rc slot_lease
+  for mode in changed unreadable matching; do
+    home="$TMP_ROOT/force-scrub-home-$mode"
+    subhome="$TMP_ROOT/force-scrub-subhome-$mode"
+    childproj="$subhome/projects/alpha"
+    childwt="$TMP_ROOT/force-scrub-child-pool-$mode/1/alpha"
+    err="$TMP_ROOT/force-scrub-child-$mode.err"
+    mkdir -p "$home/state" "$home/data" "$subhome/state" "$(dirname "$childwt")"
+    fm_git_worktree "$childproj" "$childwt" "force-scrub-child-$mode"
+    printf '{"worktrees":[{"name":"1","path":"%s"}]}\n' "$childwt" \
+      > "$TMP_ROOT/force-scrub-child-pool-$mode/treehouse-state.json"
+    printf 'domain\n' > "$subhome/.fm-secondmate-home"
+    cat > "$home/state/domain.meta" <<EOF
+window=firstmate:fm-domain
+worktree=$subhome
+project=$subhome
+harness=echo
+kind=secondmate
+mode=secondmate
+yolo=off
+home=$subhome
+projects=alpha
+EOF
+    printf '%s\n' '- domain - design domain (home: '"$subhome"'; scope: design domain; projects: alpha; added 2026-06-22)' > "$home/data/secondmates.md"
+    cat > "$subhome/state/child.meta" <<EOF
+window=firstmate:fm-child
+worktree=$childwt
+project=$childproj
+harness=echo
+kind=ship
+mode=no-mistakes
+yolo=off
+lease_id=child-lease-1
+EOF
+    # Untracked work, a nested repository, and hooks in the slot: the child's
+    # own scratch while it holds the lease, a successor's once it does not.
+    printf 'work\n' > "$childwt/untracked-work.txt"
+    git init -q "$childwt/nested-repo"
+    printf 'nested\n' > "$childwt/nested-repo/file.txt"
+    mkdir -p "$childwt/.claude"
+    printf '{}\n' > "$childwt/.claude/settings.local.json"
+    fakebin=$(make_fake_tmux "$TMP_ROOT/force-scrub-child-fake-$mode")
+    log="$TMP_ROOT/force-scrub-child-fake-$mode/tmux.log"
+    # Like the real one, the return refuses a lease that is not the slot's; an
+    # accepted return leaves the slot in place so the scrub's effect stays visible.
+    cat > "$fakebin/treehouse" <<'SH'
+#!/usr/bin/env bash
+set -u
+printf 'treehouse %s\n' "$*" >> "${FM_FAKE_TMUX_LOG:-/dev/null}"
+case "${1:-}" in
+  status)
+    [ "$FM_FAKE_SLOT_LEASE" != unreadable ] || exit 1
+    printf '[{"name":"1","path":"%s","lease_id":"%s"}]\n' "$FM_FAKE_CHILD_WT" "$FM_FAKE_SLOT_LEASE"
+    exit 0
+    ;;
+  return)
+    case " $* " in
+      *" --if-lease-id $FM_FAKE_SLOT_LEASE "*) exit 0 ;;
+    esac
+    echo "failed to return worktree: lease precondition failed: lease identity does not match worktree" >&2
+    exit 1
+    ;;
+esac
+exit 0
+SH
+    chmod +x "$fakebin/treehouse"
+    case "$mode" in
+      matching) slot_lease='child-lease-1' ;;
+      changed) slot_lease='successor-lease' ;;
+      unreadable) slot_lease=unreadable ;;
+    esac
+
+    set +e
+    PATH="$fakebin:$PATH" FM_HOME="$home" FM_FAKE_TMUX_LOG="$log" FM_FAKE_TMUX_CAPTURE="$TMP_ROOT/force-scrub-child-fake-$mode/pane.txt" \
+      FM_FAKE_SLOT_LEASE="$slot_lease" FM_FAKE_CHILD_WT="$childwt" \
+      "$ROOT/bin/fm-teardown.sh" domain --force >/dev/null 2>"$err"
+    rc=$?
+    set -e
+
+    if [ "$mode" = matching ]; then
+      [ "$rc" -eq 0 ] || { cat "$err" >&2; fail "matching: forced secondmate cleanup failed for a child slot it still leases"; }
+      [ ! -e "$childwt/untracked-work.txt" ] || fail "matching: the child's own untracked scratch was not scrubbed"
+      [ ! -e "$childwt/nested-repo" ] || fail "matching: the child's own nested repository was not scrubbed"
+      grep -F "treehouse return --force --if-lease-id child-lease-1 $childwt" "$log" >/dev/null \
+        || fail "matching: the child slot was not returned bound to its lease"
+    else
+      [ "$rc" -ne 0 ] || fail "$mode: forced secondmate cleanup succeeded without confirming the child's lease"
+      [ -f "$childwt/untracked-work.txt" ] || fail "$mode: a successor's untracked file was scrubbed"
+      [ -f "$childwt/nested-repo/file.txt" ] || fail "$mode: a successor's nested repository was scrubbed"
+      [ -f "$childwt/.claude/settings.local.json" ] || fail "$mode: a successor's hooks were removed"
+      ! grep -F 'treehouse return' "$log" >/dev/null || fail "$mode: a return was attempted for an unconfirmed child slot"
+      [ -e "$subhome/state/child.meta" ] || fail "$mode: the child record was cleared after the lease refusal"
+      grep -F 'forced cleanup stopped at child child' "$err" >/dev/null \
+        || fail "$mode: the refusal did not name the child it stopped at"
+    fi
+    grep -F 'treehouse status --json' "$log" >/dev/null \
+      || fail "$mode: forced secondmate cleanup did not confirm the child's lease with Treehouse"
+  done
+  pass "secondmate force teardown confirms a child's lease before scrubbing its slot and leaves a successor's work untouched"
 }
 
 test_secondmate_force_teardown_allows_non_state_operational_dir_symlinks_inside_home() {
@@ -3264,6 +3378,7 @@ test_secondmate_force_teardown_discards_child_work
 test_secondmate_force_teardown_refuses_duplicated_child_slot
 test_secondmate_force_teardown_preserves_child_on_unproven_lock
 test_secondmate_force_teardown_returns_child_slot_bound_to_its_lease
+test_secondmate_force_teardown_verifies_child_lease_before_scrub
 test_secondmate_force_teardown_allows_non_state_operational_dir_symlinks_inside_home
 test_secondmate_force_teardown_refuses_operational_dir_symlink_outside_home
 test_secondmate_teardown_refuses_registered_nested_home

@@ -90,6 +90,70 @@ PL
   pass "Perl fallback honors the cleanup bound before escalating an INT-ignoring direct watcher"
 }
 
+# A supervision host whose TERM cleanup blocks (its EXIT cleanup waits on a lock
+# another process holds) must still be killed after the outer bound's grace on
+# the Perl fallback, so the foreground checkpoint returns. The outer bound is
+# the host's park limit plus 120 seconds, so with the smallest limits this
+# waits about two minutes; the watchdog fails instead of hanging.
+test_perl_timeout_fallback_kills_a_host_whose_cleanup_blocks() {
+  local home fallback_bin tool tool_path status host_pid checkpoint_pid waited
+  home=$(make_home perl-fallback-host)
+  fallback_bin="$home/fallback-bin"
+  mkdir -p "$home/root/bin" "$fallback_bin"
+  cp "$CHECKPOINT" "$home/root/bin/fm-watch-checkpoint.sh"
+  cp "$ROOT/bin/fm-supervision-engine-lib.sh" "$home/root/bin/fm-supervision-engine-lib.sh"
+  for tool in bash dirname mktemp rm perl grep cat; do
+    tool_path=$(command -v "$tool") || fail "could not locate $tool for the Perl fallback fixture"
+    ln -s "$tool_path" "$fallback_bin/$tool"
+  done
+  cat > "$home/root/bin/fm-supervision-host.sh" <<'PL'
+#!/usr/bin/env perl
+use strict;
+use warnings;
+$SIG{TERM} = sub {
+  open my $term_file, '>', "$ENV{FM_HOME}/host-termed" or die "open term marker: $!";
+  close $term_file;
+  sleep 600;
+  exit 0;
+};
+open my $pid_file, '>', "$ENV{FM_HOME}/host.pid" or die "open pid file: $!";
+printf {$pid_file} "%s\n", $$;
+close $pid_file;
+sleep 600;
+PL
+  chmod +x "$home/root/bin/fm-watch-checkpoint.sh" "$home/root/bin/fm-supervision-host.sh"
+  : > "$home/config/supervision-host"
+
+  PATH="$fallback_bin" FM_HOME="$home" FM_SUPERVISION_HOST_TURN_TIMEOUT=1 FM_SUPERVISION_ENGINE_GRACE=1 \
+    "$home/root/bin/fm-watch-checkpoint.sh" --seconds 1 >"$home/out.txt" 2>"$home/err.txt" &
+  checkpoint_pid=$!
+  waited=0
+  while kill -0 "$checkpoint_pid" 2>/dev/null && [ "$waited" -lt 170 ]; do
+    sleep 1
+    waited=$((waited + 1))
+  done
+  if kill -0 "$checkpoint_pid" 2>/dev/null; then
+    [ ! -s "$home/host.pid" ] || kill -KILL "$(cat "$home/host.pid")" 2>/dev/null || true
+    kill -KILL "$checkpoint_pid" 2>/dev/null || true
+    wait "$checkpoint_pid" 2>/dev/null || true
+    fail "the Perl fallback never escalated past TERM for a host whose cleanup blocks"
+  fi
+  status=0
+  wait "$checkpoint_pid" || status=$?
+
+  expect_code 1 "$status" "Perl fallback host checkpoint exit"
+  assert_contains "$(cat "$home/err.txt")" "the supervision host outlived its own bound of 1s" \
+    "the checkpoint did not report the host that outlived its bound"
+  [ -e "$home/host-termed" ] || fail "the host was killed without first receiving TERM"
+  [ -s "$home/host.pid" ] || fail "the blocking host did not start"
+  host_pid=$(cat "$home/host.pid")
+  if kill -0 "$host_pid" 2>/dev/null; then
+    kill -KILL "$host_pid" 2>/dev/null || true
+    fail "the host whose cleanup blocks survived the Perl fallback escalation"
+  fi
+  pass "Perl fallback kills a supervision host whose TERM cleanup blocks, so the checkpoint returns"
+}
+
 test_announced_recovery_is_not_reannounced_by_next_checkpoint() {
   local home out err status marker
   home=$(make_home announced-recovery)
@@ -346,6 +410,7 @@ test_real_host_checkpoint_ends_quietly_at_its_bound() {
 
 test_quiet_checkpoint_exits_124_cleanly
 test_perl_timeout_fallback_honors_cleanup_bound_before_escalating
+test_perl_timeout_fallback_kills_a_host_whose_cleanup_blocks
 test_announced_recovery_is_not_reannounced_by_next_checkpoint
 test_never_announced_recovery_is_announced_once
 test_queue_append_during_checkpoint_still_resurfaces
