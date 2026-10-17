@@ -265,15 +265,25 @@ test_a_consumed_wake_is_not_queued_again() {
   pass "an announced order whose wake was consumed is never queued again"
 }
 
-test_an_outbox_line_without_a_wake_is_retried() {
-  make_case lostwake
+test_another_producer_advancing_the_queue_never_skips_an_order() {
+  make_case otherproducer
   ledger append one >/dev/null
-  printf '1 1\n' > "$HOME_DIR/state/orders.outbox"
+  printf '40\n' > "$HOME_DIR/state/.wake-queue.seq"
   ledger poll --once || fail "poll"
-  assert_contains "$(cat "$HOME_DIR/state/.wake-queue")" "orders:1" "an attempt that never appended the wake is repeated"
-  ledger poll --once || fail "second poll"
-  assert_equals "1" "$(grep -c 'orders:1' "$HOME_DIR/state/.wake-queue")" "and then holds"
-  pass "an outbox line whose wake never reached the queue is retried exactly once"
+  assert_contains "$(cat "$HOME_DIR/state/.wake-queue")" "orders:1" "the order is queued although the queue sequence moved on"
+  assert_equals "1 queued" "$(cat "$HOME_DIR/state/orders.outbox")" "and its own outbox line records it"
+  pass "an order never queued is queued even when another producer advanced the wake sequence"
+}
+
+test_a_wake_queued_before_its_outbox_line_is_not_duplicated() {
+  make_case crashwindow
+  ledger append one >/dev/null
+  ledger poll --once || fail "first poll"
+  : > "$HOME_DIR/state/orders.outbox"
+  ledger poll --once || fail "poll after the outbox line was lost"
+  assert_equals "1" "$(grep -c 'orders:1' "$HOME_DIR/state/.wake-queue")" "the order's own queued wake is its proof"
+  assert_equals "1 queued" "$(cat "$HOME_DIR/state/orders.outbox")" "the outbox line is restored"
+  pass "an order whose wake is queued but whose outbox line is missing is recorded, not queued twice"
 }
 
 test_a_failed_pending_read_is_an_error_not_an_empty_list() {
@@ -339,7 +349,8 @@ test_waiters_on_a_dead_owners_lock_never_share_an_id
 test_a_signalled_append_stops_and_leaves_another_writers_lock
 test_a_signalled_poll_releases_the_ledger_lock_it_holds
 test_a_consumed_wake_is_not_queued_again
-test_an_outbox_line_without_a_wake_is_retried
+test_another_producer_advancing_the_queue_never_skips_an_order
+test_a_wake_queued_before_its_outbox_line_is_not_duplicated
 test_a_failed_pending_read_is_an_error_not_an_empty_list
 test_a_held_lock_times_out_with_the_owner_named
 test_concurrent_polls_announce_each_order_once

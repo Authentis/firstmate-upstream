@@ -40,7 +40,8 @@
 #   fm-status-probe.sh read [--home <dir>] [--out <file>] [--max-age <seconds>]
 #       Print status.json with a verdict. Data older than --max-age (default
 #       900, three probe intervals), a missing or unreadable file, or a section
-#       whose source is not ok reads "unknown" instead of a value. Exits 0 for a
+#       whose source is not ok reads "unknown" instead of a value (a PR's gate
+#       reads "unknown" while no-mistakes is not ok). Exits 0 for a
 #       fresh file and 3 for a verdict of unknown.
 #   fm-status-probe.sh timer install|remove|print [--home <dir>]
 #
@@ -133,7 +134,9 @@ if [ "$CMD" = read ]; then
            verdict:(if $stale then "unknown" else "fresh" end),
            reason:(if $stale then "status.json is \($age)s old; the limit is \($max)s" else null end)}
     | if $stale then . + {prs:"unknown",lanes:"unknown",gate_waits:"unknown"}
-      else . + {prs:(if .sources.gh.ok == true then .prs else "unknown" end),
+      else . + {prs:(if .sources.gh.ok != true then "unknown"
+                     elif .sources.no_mistakes.ok != true then (.prs | map(.gate = "unknown"))
+                     else .prs end),
                 gate_waits:(if .sources.no_mistakes.ok == true then .gate_waits else "unknown" end)}
       end' "$OUT") || die "could not read $OUT"
   printf '%s\n' "$RESULT"

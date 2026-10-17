@@ -289,7 +289,7 @@ write_status() {  # <generated-epoch> [gh-ok] [nm-ok]
   jq -n --argjson g "$1" --argjson gh "${2:-true}" --argjson nm "${3:-true}" \
     '{schema:"fm-status-probe.v1",generated:$g,host:"h",fm_home:"x",
       sources:{gh:{ok:$gh,error:null},no_mistakes:{ok:$nm,error:null}},
-      prs:[{url:"u",merged:true}],lanes:[{id:"l",state:"live"}],gate_waits:[{run_id:"r"}]}' \
+      prs:[{url:"u",merged:true,gate:"completed"}],lanes:[{id:"l",state:"live"}],gate_waits:[{run_id:"r"}]}' \
     > "$HOME_DIR/state/status.json"
 }
 
@@ -344,7 +344,45 @@ test_read_marks_a_section_unknown_when_its_source_is_not_ok() {
   write_status "$(date +%s)" true false
   out=$("$PROBE" read --home "$HOME_DIR") || fail "fresh file was refused"
   assert_equals "unknown" "$(printf '%s' "$out" | jq -r .gate_waits)" "gate waits without no-mistakes"
+  write_status "$(date +%s)" true false
+  out=$("$PROBE" read --home "$HOME_DIR") || fail "fresh file was refused"
+  assert_equals "unknown" "$(printf '%s' "$out" | jq -r '.prs[0].gate')" "a PR's gate without no-mistakes"
+  assert_equals "true" "$(printf '%s' "$out" | jq -r '.prs[0].merged')" "the forge's merged field still reads"
+  write_status "$(date +%s)"
+  out=$("$PROBE" read --home "$HOME_DIR") || fail "fresh file was refused"
+  assert_equals "completed" "$(printf '%s' "$out" | jq -r '.prs[0].gate')" "the gate reads when both sources answered"
   pass "a fresh file still reads unknown for a section whose source did not answer"
+}
+
+test_timer_units_carry_a_path_and_are_written_whole() {
+  local out dir="$TMP_ROOT/timer-write" rc=0
+  out=$(FM_TIMER_PATH=/opt/tools/bin:/usr/bin bash -c '. "$1"; fm_timer_render launchd lbl 5 /h /bin/x' _ "$ROOT/bin/fm-periodic-timer-lib.sh") \
+    || fail "launchd render failed"
+  assert_contains "$out" "<key>PATH</key><string>/opt/tools/bin:/usr/bin</string>" "launchd job gets a PATH"
+  assert_contains "$out" "<key>FM_HOME</key><string>/h</string>" "launchd job keeps FM_HOME"
+  out=$(FM_TIMER_PATH=/opt/tools/bin:/usr/bin bash -c '. "$1"; fm_timer_render systemd lbl 5 /h /bin/x' _ "$ROOT/bin/fm-periodic-timer-lib.sh") \
+    || fail "systemd render failed"
+  assert_contains "$out" 'Environment="PATH=/opt/tools/bin:/usr/bin"' "systemd job gets a PATH"
+  # shellcheck disable=SC2016 # "$1" must reach the child shell unexpanded
+  out=$(PATH=/custom/bin:/usr/bin "$BASH" -c '. "$1"; fm_timer_render launchd lbl 5 /h /bin/x' _ "$ROOT/bin/fm-periodic-timer-lib.sh") \
+    || fail "default render failed"
+  assert_contains "$out" "<string>/custom/bin:/usr/bin:/opt/homebrew/bin:" "the installer's PATH comes first"
+
+  make_case timerwrite
+  mkdir -p "$dir"
+  FM_TIMER_DIR=$dir FM_TIMER_NOLOAD=1 "$PROBE" timer install --home "$HOME_DIR" || fail "install"
+  out=$(find "$dir" -type f | head -n1)
+  printf 'sentinel\n' > "$out"
+  chmod 500 "$dir"
+  FM_TIMER_DIR=$dir FM_TIMER_NOLOAD=1 "$PROBE" timer install --home "$HOME_DIR" >/dev/null 2>&1 || rc=$?
+  chmod 700 "$dir"
+  if [ "$(id -u)" != 0 ]; then
+    [ "$rc" -ne 0 ] || fail "an install that could not write reported success"
+    assert_equals "sentinel" "$(cat "$out")" "the installed unit is not truncated by a failed write"
+  fi
+  FM_TIMER_DIR=$dir FM_TIMER_NOLOAD=1 "$PROBE" timer install --home "$HOME_DIR" || fail "reinstall"
+  assert_equals "" "$(find "$dir" -name '*.??????' ! -name '*.plist' ! -name '*.service' ! -name '*.timer')" "no temporary unit file remains"
+  pass "timer jobs get a PATH, and a unit is written whole or the install fails with the old unit intact"
 }
 
 test_systemd_exec_words_are_quoted_for_systemd() {
@@ -370,6 +408,7 @@ test_an_unreadable_running_run_marks_the_source_not_ok
 test_read_reports_unknown_on_stale_or_missing_data
 test_read_marks_a_section_unknown_when_its_source_is_not_ok
 test_systemd_exec_words_are_quoted_for_systemd
+test_timer_units_carry_a_path_and_are_written_whole
 test_gate_result_comes_from_the_matching_run
 test_lane_freshness_uses_pid_and_mtime
 test_gate_waits_are_parsed_from_the_run_status

@@ -56,6 +56,29 @@ _fm_timer_sd_quote() {
   printf '"%s"' "$s"
 }
 
+# _fm_timer_path -> the PATH a timer job runs with: the installer's own PATH
+# (where jq, gh, and no-mistakes were found) then the standard system and
+# Homebrew directories, because launchd and systemd start jobs with a bare one.
+# FM_TIMER_PATH overrides it.
+_fm_timer_path() {
+  if [ -n "${FM_TIMER_PATH:-}" ]; then
+    printf '%s\n' "$FM_TIMER_PATH"
+  else
+    printf '%s\n' "${PATH:+$PATH:}/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+  fi
+}
+
+# _fm_timer_write <destination> <text>: publish a unit file by temp file and
+# rename, so a failed write never leaves a truncated unit behind.
+_fm_timer_write() {
+  local dest=$1 text=$2 tmp
+  tmp=$(mktemp "$dest.XXXXXX") || return 1
+  if ! { printf '%s\n' "$text" > "$tmp" && chmod 0644 "$tmp" && mv -f -- "$tmp" "$dest"; }; then
+    rm -f -- "$tmp"
+    return 1
+  fi
+}
+
 # fm_timer_render <kind> <label> <interval-seconds> <home> <command-path> [arg...]
 # Prints the unit text: the plist for launchd, or the service then the timer
 # (separated by a line holding only `---`) for systemd.
@@ -71,13 +94,17 @@ fm_timer_render() {
       printf '    <string>%s</string>\n' "$(_fm_timer_xml "$arg")"
     done
     printf '  </array>\n'
-    printf '  <key>EnvironmentVariables</key><dict><key>FM_HOME</key><string>%s</string></dict>\n' "$(_fm_timer_xml "$home")"
+    printf '  <key>EnvironmentVariables</key>\n  <dict>\n'
+    printf '    <key>FM_HOME</key><string>%s</string>\n' "$(_fm_timer_xml "$home")"
+    printf '    <key>PATH</key><string>%s</string>\n' "$(_fm_timer_xml "$(_fm_timer_path)")"
+    printf '  </dict>\n'
     printf '  <key>StartInterval</key><integer>%s</integer>\n' "$interval"
     printf '  <key>RunAtLoad</key><true/>\n'
     printf '</dict>\n</plist>\n'
   else
     printf '[Unit]\nDescription=Firstmate %s\n\n' "$label"
-    printf '[Service]\nType=oneshot\nEnvironment=%s\nExecStart=' "$(_fm_timer_sd_quote "FM_HOME=$home")"
+    printf '[Service]\nType=oneshot\nEnvironment=%s\nEnvironment=%s\nExecStart=' \
+      "$(_fm_timer_sd_quote "FM_HOME=$home")" "$(_fm_timer_sd_quote "PATH=$(_fm_timer_path)")"
     for arg in "$@"; do
       printf '%s ' "$(_fm_timer_sd_quote "$arg" command)"
     done
@@ -97,15 +124,17 @@ fm_timer_install() {
   dir=$(fm_timer_dir)
   mkdir -p "$dir" || return 1
   if [ "$kind" = launchd ]; then
-    fm_timer_render "$kind" "$label" "$interval" "$home" "$@" > "$dir/com.firstmate.$label.plist" || return 1
+    local plist
+    plist=$(fm_timer_render "$kind" "$label" "$interval" "$home" "$@") || return 1
+    _fm_timer_write "$dir/com.firstmate.$label.plist" "$plist" || return 1
     [ "${FM_TIMER_NOLOAD:-}" = 1 ] && return 0
     launchctl bootout "gui/$(id -u)/com.firstmate.$label" >/dev/null 2>&1 || true
     launchctl bootstrap "gui/$(id -u)" "$dir/com.firstmate.$label.plist"
   else
     local text
     text=$(fm_timer_render "$kind" "$label" "$interval" "$home" "$@") || return 1
-    printf '%s\n' "$text" | sed '/^---$/,$d' > "$dir/$label.service"
-    printf '%s\n' "$text" | sed '1,/^---$/d' > "$dir/$label.timer"
+    _fm_timer_write "$dir/$label.service" "$(printf '%s\n' "$text" | sed '/^---$/,$d')" || return 1
+    _fm_timer_write "$dir/$label.timer" "$(printf '%s\n' "$text" | sed '1,/^---$/d')" || return 1
     [ "${FM_TIMER_NOLOAD:-}" = 1 ] && return 0
     systemctl --user daemon-reload && systemctl --user enable --now "$label.timer"
   fi

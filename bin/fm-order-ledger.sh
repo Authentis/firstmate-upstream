@@ -10,9 +10,8 @@
 #   state/orders.acks.jsonl   append-only acknowledgements {"id":<n>,"ts":<epoch>}.
 #   state/orders.pending      the current pending lines, rewritten by every poll;
 #                             a poll that cannot read the ledger keeps the old view.
-#   state/orders.outbox       append-only announcement outbox, one `<id> <seq>` line
-#                             per attempt; the last line for an id wins. <seq> is
-#                             the wake-queue sequence number the wake was given.
+#   state/orders.outbox       append-only announcement outbox: `<id> queued` once
+#                             that order's own wake has been appended.
 # An order is pending until its own id is acknowledged. Acking one id never
 # acknowledges another, whatever the numeric order, and acking twice is a no-op.
 #
@@ -35,9 +34,8 @@
 # lock, so a dead owner is reclaimed by exactly one waiter and a signal releases
 # only this process's own hold); FM_ORDER_LOCK_WAIT bounds the wait (default 30s).
 # A poll holds it for the whole pass and queues each wake together with its
-# outbox line under the wake-queue lock. The outbox line is written first and
-# names the wake's sequence number, so a retry re-queues only a wake that was
-# never appended: a wake that was appended and then consumed is never queued again.
+# outbox line under the wake-queue lock; the proof an order was announced is
+# keyed to that order alone.
 #
 # --home selects the secondmate home (default FM_HOME, else this checkout).
 # To order a remote secondmate, run `append` in its home through bin/fm-on.sh.
@@ -209,31 +207,26 @@ cmd_ack() {
 }
 
 # announce_order <id> <from> <text>: queue the wake for an order once.
-# Under the wake-queue lock the outbox line (id and the sequence number the wake
-# will take) is written before the wake is appended. The wake is already out
-# when the queue's sequence has reached the recorded number, even if the wake was
-# consumed since, so only an attempt that never appended is repeated; a failed
-# append records sequence 0 so the next poll tries again.
+# Under the wake-queue lock the wake is appended and then the order's outbox
+# line is written, so a `queued` line proves this order's own wake was appended
+# (a wake consumed since is never queued again). With no line, the order's own
+# key in the queue proves a wake that was appended before the line could be
+# written; with neither, the order was never queued and is queued now. Nothing
+# about other producers or the queue's global sequence is used as proof, so an
+# order is never skipped because something else advanced the queue.
 announce_order() {
-  local id=$1 from=$2 text=$3 status=0 recorded cur next
+  local id=$1 from=$2 text=$3 status=0
   fm_lock_acquire_wait_max "$FM_WAKE_QUEUE_LOCK" "${FM_ORDER_LOCK_WAIT:-30}" || return 1
-  recorded=
-  [ ! -f "$OUTBOX" ] || recorded=$(awk -v id="$id" '$1 == id { seq = $2 } END { if (seq != "") print seq }' "$OUTBOX")
-  cur=$(cat "$STATE/.wake-queue.seq" 2>/dev/null || echo 0)
-  case "$cur" in ''|*[!0-9]*) cur=0 ;; esac
-  case "$recorded" in ''|*[!0-9]*) recorded= ;; esac
-  if [ -n "$recorded" ] && [ "$recorded" -gt 0 ] && [ "$cur" -ge "$recorded" ]; then
+  if [ -f "$OUTBOX" ] && awk -v id="$id" '$1 == id && $2 == "queued" { found = 1 } END { exit !found }' "$OUTBOX"; then
     fm_lock_release "$FM_WAKE_QUEUE_LOCK"
     return 0
   fi
-  next=$((cur + 1))
-  if ! printf '%s %s\n' "$id" "$next" >> "$OUTBOX"; then
-    fm_lock_release "$FM_WAKE_QUEUE_LOCK"
-    return 1
-  fi
-  if ! fm_wake_append_locked check "orders:$id" "check: order $id from $from pending in state/orders.jsonl - $text; ack with bin/fm-order-ledger.sh ack $id"; then
-    printf '%s 0\n' "$id" >> "$OUTBOX" || true
+  if ! fm_wake_queued_keys_locked check | grep -qxF -- "orders:$id" \
+    && ! fm_wake_append_locked check "orders:$id" "check: order $id from $from pending in state/orders.jsonl - $text; ack with bin/fm-order-ledger.sh ack $id"; then
     status=1
+  fi
+  if [ "$status" -eq 0 ]; then
+    printf '%s queued\n' "$id" >> "$OUTBOX" || status=1
   fi
   fm_lock_release "$FM_WAKE_QUEUE_LOCK"
   return "$status"
