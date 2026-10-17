@@ -24,7 +24,7 @@ ok - tmux endpoint liveness is reported per task: alive for a live window, dead 
 ok - dead-endpoint records without a status file collapse to a bounded count while every other record stays whole
 ok - a context re-emit bounds its work-under-way section with a truncation banner and always keeps secondmates
 ok - herdr endpoint liveness is reported per task: alive, dead for exit 1, dead for any other probe status
-_: line 4: 858947 Killed                  "$@"
+_: line 4: 987786 Killed                  "$@"
 ok - a killed per-task endpoint read becomes that task's error line and the digest completes
 ok - a hung per-task endpoint read hits its configured bound, reports the task, and leaves nothing stuck
 ok - a padded-zero per-read bound falls back to the 10s default instead of removing the bound
