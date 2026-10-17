@@ -319,6 +319,31 @@ test_a_wake_queue_write_failure_leaves_the_order_to_be_announced_later() {
   pass "a real wake-queue write failure fails the poll and the order is announced on a later one"
 }
 
+test_a_ledger_path_that_is_not_a_regular_file_is_refused() {
+  local rc=0 out
+  make_case notfile
+  ledger append one >/dev/null
+  ledger append two >/dev/null
+  ledger ack 1 >/dev/null
+  rm "$HOME_DIR/state/orders.acks.jsonl"
+  mkdir "$HOME_DIR/state/orders.acks.jsonl"
+  out=$(ledger pending 2>/dev/null) || rc=$?
+  [ "$rc" -ne 0 ] || fail "pending over a directory-shaped acks path reported success"
+  assert_equals "" "$out" "no order is listed as pending again"
+  rc=0
+  ledger ack 2 >/dev/null 2>&1 || rc=$?
+  expect_code 2 "$rc" "ack with a directory-shaped acks path"
+  rc=0
+  ledger append three >/dev/null 2>&1 || rc=$?
+  expect_code 2 "$rc" "append with a directory-shaped acks path"
+  assert_equals "2" "$(wc -l < "$HOME_DIR/state/orders.jsonl" | tr -d ' ')" "nothing was appended"
+  rc=0
+  ledger poll --once >/dev/null 2>&1 || rc=$?
+  [ "$rc" -ne 0 ] || fail "a poll over a directory-shaped acks path reported success"
+  assert_equals "0" "$(cat "$HOME_DIR/state/.wake-queue" 2>/dev/null | grep -c 'orders:')" "no wake is queued for orders that may be acknowledged"
+  pass "a ledger or acks path that is not a regular file is refused instead of re-listing every order"
+}
+
 # Two secondmate homes, each polled by a real process, with every terminal tool
 # failing and recorded. A stand-in secondmate acts on the wake it finds and acks.
 test_a_replay_with_the_doorbell_off_is_acked_within_60_seconds_on_both_homes() {
@@ -376,6 +401,7 @@ test_a_signalled_poll_releases_the_ledger_lock_it_holds
 test_a_consumed_wake_for_a_pending_order_is_queued_again_until_acked
 test_another_producer_advancing_the_queue_never_skips_an_order
 test_a_failed_pending_read_is_an_error_not_an_empty_list
+test_a_ledger_path_that_is_not_a_regular_file_is_refused
 test_a_failed_publish_leaves_the_ledger_untouched
 test_ack_ids_are_range_checked_before_arithmetic
 test_a_wake_queue_write_failure_leaves_the_order_to_be_announced_later

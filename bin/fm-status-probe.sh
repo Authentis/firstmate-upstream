@@ -385,6 +385,12 @@ emit_lane() {  # <id> <file>
   local id=$1 file=$2 pid log alive=false mt age=null fresh=false lstate=dead
   pid=$(lane_value "$file" pid)
   log=$(lane_value "$file" log)
+  # A relative log path is relative to the selected home, not to wherever the
+  # probe was started.
+  case "$log" in
+    ''|/*) ;;
+    *) log="$HOME_DIR/$log" ;;
+  esac
   case "$pid" in
     ''|*[!0-9]*) pid= ;;
     *) kill -0 "$pid" 2>/dev/null && alive=true ;;

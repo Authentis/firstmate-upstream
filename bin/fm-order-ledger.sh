@@ -124,9 +124,24 @@ lock_acquire() {
   fi
 }
 
-# pending_lines: orders whose own id has no acknowledgement line.
+# check_ledger_files: a ledger path that exists must be a regular file. An acks
+# path that is a directory would otherwise read as "no acknowledgements" and list
+# every order as pending again.
+check_ledger_files() {
+  local f
+  for f in "$ORDERS" "$ACKS"; do
+    if [ -e "$f" ] && [ ! -f "$f" ]; then
+      printf 'fm-order-ledger: %s is not a regular file\n' "$f" >&2
+      return 1
+    fi
+  done
+}
+
+# pending_lines: orders whose own id has no acknowledgement line. The lookup is
+# linear in the acks per order, which is known and fine at ledger sizes in use.
 pending_lines() {
   local acks=/dev/null
+  check_ledger_files || return 1
   [ -f "$ORDERS" ] || return 0
   [ -f "$ACKS" ] && acks=$ACKS
   jq -c --slurpfile acks "$acks" \
@@ -185,6 +200,7 @@ cmd_append() {
   [ -n "$text" ] || die "append needs the order text"
   mkdir -p "$STATE" || die "cannot create $STATE"
   lock_acquire || exit 2
+  check_ledger_files || exit 2
   last=0
   if [ -s "$ORDERS" ]; then
     last=$(jq -s 'map(.id) | max // 0' "$ORDERS" 2>/dev/null) || die "$ORDERS is not valid JSON lines"
@@ -203,6 +219,7 @@ cmd_ack() {
   [ -f "$ORDERS" ] || die "no order ledger at $ORDERS"
   mkdir -p "$STATE" || die "cannot create $STATE"
   lock_acquire || exit 2
+  check_ledger_files || exit 2
   ts=$(date +%s)
   for id in "${ARGS[@]}"; do
     case "$id" in

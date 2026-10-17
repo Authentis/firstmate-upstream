@@ -132,6 +132,20 @@ $want" "$(cat "$FAKE/nm-cwd.log")" "both no-mistakes queries ran inside the sele
   pass "no-mistakes runs inside the selected home, wherever the probe was started"
 }
 
+test_a_relative_log_path_resolves_against_the_selected_home() {
+  local out other="$TMP_ROOT/elsewhere2"
+  make_case rellog
+  mkdir -p "$other" "$HOME_DIR/logs"
+  : > "$HOME_DIR/logs/lane.log"
+  : > "$other/logs-decoy"
+  printf 'pid=%s\nlog=logs/lane.log\n' "$$" > "$HOME_DIR/state/lanes/rel.lane"
+  out=$(cd "$other" && FAKE=$FAKE PATH="$FAKEBIN:$PATH" "$PROBE" run --home "$HOME_DIR" --stdout) || fail "probe failed"
+  assert_equals "true" "$(printf '%s' "$out" | jq -r '.lanes[] | select(.id=="rel") | .fresh')" "the log under the selected home is found from any directory"
+  assert_equals "live" "$(printf '%s' "$out" | jq -r '.lanes[] | select(.id=="rel") | .state')" "so the lane reads live"
+  assert_equals "$HOME_DIR/logs/lane.log" "$(printf '%s' "$out" | jq -r '.lanes[] | select(.id=="rel") | .log')" "and the resolved path is reported"
+  pass "a relative lane log path is resolved against the selected home, not the caller's directory"
+}
+
 test_merged_requires_a_merge_commit_on_main() {
   local out
   make_case merged
@@ -438,6 +452,7 @@ test_a_run_table_that_cannot_be_decoded_marks_the_source_not_ok() {
   pass "an unterminated quote, a short row, or a wrong row count marks the no-mistakes source not ok"
 }
 
+test_a_relative_log_path_resolves_against_the_selected_home
 test_no_mistakes_runs_inside_the_selected_home
 test_a_run_table_missing_a_required_column_is_not_trusted
 test_a_signalled_probe_stops_and_cleans_up
