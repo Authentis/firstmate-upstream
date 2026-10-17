@@ -264,6 +264,7 @@ if [ -s "$PR_URLS" ]; then
       continue
     fi
     slug=$(printf '%s\n' "$url" | sed -n 's#^https://[^/]*/\([^/]*/[^/]*\)/pull/[0-9]*$#\1#p')
+    host=$(printf '%s\n' "$url" | sed -n 's#^https://\([^/]*\)/.*#\1#p')
     view=$("$GH" pr view "$url" --json state,headRefOid,mergeCommit,baseRefName 2>/dev/null) || view=
     if [ -z "$view" ] || [ -z "$slug" ] || ! printf '%s' "$view" | jq -e . >/dev/null 2>&1; then
       gh_note "could not read $url"
@@ -276,12 +277,16 @@ if [ -s "$PR_URLS" ]; then
     mcommit=$(printf '%s' "$view" | jq -r '.mergeCommit.oid // ""')
     base=$(printf '%s' "$view" | jq -r '.baseRefName // ""')
     merged=false
-    if [ "$pstate" != MERGED ] || [ -z "$mcommit" ]; then
+    if [ "$pstate" != MERGED ]; then
       merged=false
+    elif [ -z "$mcommit" ]; then
+      # The forge says merged but names no merge commit, so nothing can be proven.
+      merged=null
+      gh_note "merged PR $url has no readable merge commit"
     else
-      default=$("$GH" api "repos/$slug" --jq .default_branch 2>/dev/null) || default=
+      default=$("$GH" api --hostname "$host" "repos/$slug" --jq .default_branch 2>/dev/null) || default=
       cmp=
-      [ -z "$default" ] || cmp=$("$GH" api "repos/$slug/compare/$mcommit...$default" --jq .status 2>/dev/null) || cmp=
+      [ -z "$default" ] || cmp=$("$GH" api --hostname "$host" "repos/$slug/compare/$mcommit...$default" --jq .status 2>/dev/null) || cmp=
       if [ -z "$default" ] || [ -z "$cmp" ]; then
         merged=null
         gh_note "could not prove the merge commit of $url"

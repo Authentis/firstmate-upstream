@@ -18,6 +18,14 @@ make_case() {  # <name>
   FAKEBIN=$(fm_fakebin "$dir")
   cat > "$FAKEBIN/gh" <<'SH'
 #!/usr/bin/env bash
+if [ "$1" = api ]; then
+  if [ "$2" = --hostname ]; then
+    echo "$3" >> "$FAKE/api-hosts.log"
+    set -- api "${@:4}"
+  else
+    echo NOHOST >> "$FAKE/api-hosts.log"
+  fi
+fi
 case "$1 $2" in
   "pr view")
     f="$FAKE/pr-${3##*/}.json"
@@ -87,6 +95,29 @@ test_merged_requires_a_merge_commit_on_main() {
   assert_equals "false" "$(printf '%s' "$out" | jq -r '.sources.gh.ok')" "an unprovable PR marks the gh source incomplete"
   assert_equals "mc1" "$(printf '%s' "$out" | jq -r '.prs[] | select(.url|endswith("/1")) | .merge_commit')" "merge commit is recorded"
   pass "merged is true only with a merge commit proven on the default branch; closed-unmerged reads unmerged"
+}
+
+test_a_merged_pr_without_a_readable_merge_commit_is_unknown() {
+  local out
+  make_case nomc
+  pr_json MERGED "" main > "$FAKE/pr-1.json"
+  out=$(run_probe --pr https://github.com/o/r/pull/1) || fail "probe failed"
+  assert_equals "null" "$(printf '%s' "$out" | jq -r '.prs[0].merged')" "merged state with no merge commit"
+  assert_equals "MERGED" "$(printf '%s' "$out" | jq -r '.prs[0].state')" "the forge's word is still reported"
+  assert_equals "false" "$(printf '%s' "$out" | jq -r '.sources.gh.ok')" "the source is incomplete"
+  assert_contains "$(printf '%s' "$out" | jq -r '.sources.gh.error')" "pull/1" "the error names the PR"
+  pass "a merged PR whose merge commit cannot be read is unknown and marks the forge source incomplete"
+}
+
+test_the_forge_host_reaches_every_api_query() {
+  local out
+  make_case host
+  pr_json MERGED mc1 main > "$FAKE/pr-1.json"
+  echo ahead > "$FAKE/compare-mc1"
+  out=$(run_probe --pr https://git.example.com/o/r/pull/1) || fail "probe failed"
+  assert_equals "true" "$(printf '%s' "$out" | jq -r '.prs[0].merged')" "merged on the named host"
+  assert_equals "git.example.com git.example.com" "$(tr '\n' ' ' < "$FAKE/api-hosts.log" | sed 's/ $//')" "both api queries carry the host"
+  pass "both forge API queries are sent to the PR's own host"
 }
 
 test_gate_result_comes_from_the_matching_run() {
@@ -324,10 +355,16 @@ test_systemd_exec_words_are_quoted_for_systemd() {
   # shellcheck disable=SC2016 # the expected text holds literal $$ for systemd
   assert_equals '"/bin/x y" "a\"b" "p%%q" "$$HOME" "plain" ' "$line" "systemd-quoted ExecStart words"
   assert_contains "$out" 'Environment="FM_HOME=/h/with space"' "quoted environment assignment"
+  out=$(bash -c '. "$1"; fm_timer_render systemd lbl 5 "$2" "/bin/a"' _ "$ROOT/bin/fm-periodic-timer-lib.sh" '/h/$x%y') \
+    || fail "render failed"
+  # shellcheck disable=SC2016 # the expected text holds a literal $
+  assert_contains "$out" 'Environment="FM_HOME=/h/$x%%y"' "Environment keeps $ literal and escapes %"
   pass "the systemd unit quotes spaces, quotes, % and \$ the way systemd reads them"
 }
 
 test_merged_requires_a_merge_commit_on_main
+test_a_merged_pr_without_a_readable_merge_commit_is_unknown
+test_the_forge_host_reaches_every_api_query
 test_one_unreadable_pr_does_not_stop_the_remaining_queries
 test_an_unreadable_running_run_marks_the_source_not_ok
 test_read_reports_unknown_on_stale_or_missing_data

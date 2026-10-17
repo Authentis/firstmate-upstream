@@ -132,10 +132,12 @@ test_timer_runs_the_poll_every_15_seconds() {
   pass "the poll timer is scoped to one home and runs every 15 seconds"
 }
 
-# hold_lock <seconds>: a separate process that owns the ledger lock for a while.
+# hold_lock <seconds> [lock-name]: a separate process that owns a lock in the
+# home's state directory (the ledger lock unless another name is given).
 hold_lock() {
+  : > "$TMP_ROOT/held.out"
   FM_HOME=$HOME_DIR bash -c '. "$1"; fm_lock_acquire_wait "$2"; echo held; sleep "$3"' \
-    _ "$ROOT/bin/fm-wake-lib.sh" "$HOME_DIR/state/.orders.lock" "$1" > "$TMP_ROOT/held.out" &
+    _ "$ROOT/bin/fm-wake-lib.sh" "$HOME_DIR/state/${2:-.orders.lock}" "$1" > "$TMP_ROOT/held.out" &
   HOLDER=$!
   local n=0
   until grep -q held "$TMP_ROOT/held.out" 2>/dev/null; do
@@ -171,9 +173,11 @@ test_a_signalled_append_stops_and_leaves_another_writers_lock() {
   local pid rc=0 owner
   make_case signal
   hold_lock 30
-  ledger append waiting >/dev/null 2>&1 &
+  "$LEDGER" append waiting --home "$HOME_DIR" >/dev/null 2>&1 &
   pid=$!
   sleep 1
+  kill -0 "$pid" 2>/dev/null || fail "the append ended before it was signalled"
+  assert_contains "$(ps -o command= -p "$pid")" "fm-order-ledger.sh" "the signalled process is the ledger script itself"
   kill -TERM "$pid"
   wait "$pid" || rc=$?
   assert_equals "143" "$rc" "a signalled append exits"
@@ -183,6 +187,27 @@ test_a_signalled_append_stops_and_leaves_another_writers_lock() {
   kill "$HOLDER" 2>/dev/null
   wait "$HOLDER" 2>/dev/null
   pass "a signalled append exits without writing and without deleting another writer's lock"
+}
+
+# A poll owns the ledger lock while it waits for the wake-queue lock, so a signal
+# there must release the ledger lock it holds instead of leaving it behind.
+test_a_signalled_poll_releases_the_ledger_lock_it_holds() {
+  local pid rc=0
+  make_case pollsignal
+  ledger append pending >/dev/null
+  hold_lock 30 .wake-queue.lock
+  "$LEDGER" poll --once --home "$HOME_DIR" >/dev/null 2>&1 &
+  pid=$!
+  sleep 1
+  kill -0 "$pid" 2>/dev/null || fail "the poll ended before it was signalled"
+  [ -e "$HOME_DIR/state/.orders.lock" ] || fail "the poll does not hold the ledger lock while it waits"
+  kill -TERM "$pid"
+  wait "$pid" || rc=$?
+  assert_equals "143" "$rc" "a signalled poll exits"
+  kill "$HOLDER" 2>/dev/null
+  wait "$HOLDER" 2>/dev/null
+  assert_equals "2" "$(FM_ORDER_LOCK_WAIT=5 ledger append next)" "the ledger lock is free for the next writer"
+  pass "a poll signalled while it holds the ledger lock exits and releases it"
 }
 
 test_a_held_lock_times_out_with_the_owner_named() {
@@ -209,8 +234,7 @@ test_concurrent_polls_announce_each_order_once() {
   done
   wait
   assert_equals "3" "$(grep -c 'orders:' "$HOME_DIR/state/.wake-queue")" "wake rows after six racing polls"
-  assert_equals "3" "$(sort -u "$HOME_DIR/state/orders.announced" | wc -l | tr -d ' ')" "announced ids"
-  assert_equals "3" "$(wc -l < "$HOME_DIR/state/orders.announced" | tr -d ' ')" "each id is recorded once"
+  assert_equals "3" "$(wc -l < "$HOME_DIR/state/orders.outbox" | tr -d ' ')" "one outbox line per order"
   pass "racing polls queue exactly one wake per order"
 }
 
@@ -227,6 +251,40 @@ test_a_failed_read_keeps_the_last_good_pending_view() {
   assert_equals "$before" "$(cat "$HOME_DIR/state/orders.pending")" "the pending view survives a failed read"
   assert_equals "" "$(find "$HOME_DIR/state" -name '.orders.pending.*')" "no partial view is left behind"
   pass "a poll that cannot read the ledger keeps the last good pending view"
+}
+
+test_a_consumed_wake_is_not_queued_again() {
+  make_case consumed
+  ledger append one >/dev/null
+  ledger poll --once || fail "first poll"
+  assert_equals "1" "$(grep -c 'orders:1' "$HOME_DIR/state/.wake-queue")" "the wake is queued"
+  : > "$HOME_DIR/state/.wake-queue"
+  ledger poll --once || fail "poll after the wake was consumed"
+  assert_equals "0" "$(grep -c 'orders:1' "$HOME_DIR/state/.wake-queue")" "a handled wake is not queued again"
+  assert_equals "1" "$(wc -l < "$HOME_DIR/state/orders.outbox" | tr -d ' ')" "the outbox keeps its single line"
+  pass "an announced order whose wake was consumed is never queued again"
+}
+
+test_an_outbox_line_without_a_wake_is_retried() {
+  make_case lostwake
+  ledger append one >/dev/null
+  printf '1 1\n' > "$HOME_DIR/state/orders.outbox"
+  ledger poll --once || fail "poll"
+  assert_contains "$(cat "$HOME_DIR/state/.wake-queue")" "orders:1" "an attempt that never appended the wake is repeated"
+  ledger poll --once || fail "second poll"
+  assert_equals "1" "$(grep -c 'orders:1' "$HOME_DIR/state/.wake-queue")" "and then holds"
+  pass "an outbox line whose wake never reached the queue is retried exactly once"
+}
+
+test_a_failed_pending_read_is_an_error_not_an_empty_list() {
+  local rc=0 out
+  make_case pendingfail
+  ledger append one >/dev/null
+  printf '{not json\n' >> "$HOME_DIR/state/orders.jsonl"
+  out=$(ledger pending 2>/dev/null) || rc=$?
+  [ "$rc" -ne 0 ] || fail "pending reported success over a corrupt ledger"
+  assert_equals "" "$out" "no partial list is printed"
+  pass "pending fails rather than printing a partial list when the ledger cannot be read"
 }
 
 # Two secondmate homes, each polled by a real process, with every terminal tool
@@ -279,6 +337,10 @@ test_a_replay_with_the_doorbell_off_is_acked_within_60_seconds_on_both_homes() {
 test_ids_rise_by_one_and_each_order_is_one_line
 test_waiters_on_a_dead_owners_lock_never_share_an_id
 test_a_signalled_append_stops_and_leaves_another_writers_lock
+test_a_signalled_poll_releases_the_ledger_lock_it_holds
+test_a_consumed_wake_is_not_queued_again
+test_an_outbox_line_without_a_wake_is_retried
+test_a_failed_pending_read_is_an_error_not_an_empty_list
 test_a_held_lock_times_out_with_the_owner_named
 test_concurrent_polls_announce_each_order_once
 test_a_failed_read_keeps_the_last_good_pending_view

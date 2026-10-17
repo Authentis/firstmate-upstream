@@ -10,7 +10,9 @@
 #   state/orders.acks.jsonl   append-only acknowledgements {"id":<n>,"ts":<epoch>}.
 #   state/orders.pending      the current pending lines, rewritten by every poll;
 #                             a poll that cannot read the ledger keeps the old view.
-#   state/orders.announced    ids a poll has already turned into a wake.
+#   state/orders.outbox       append-only announcement outbox, one `<id> <seq>` line
+#                             per attempt; the last line for an id wins. <seq> is
+#                             the wake-queue sequence number the wake was given.
 # An order is pending until its own id is acknowledged. Acking one id never
 # acknowledges another, whatever the numeric order, and acking twice is a no-op.
 #
@@ -33,7 +35,9 @@
 # lock, so a dead owner is reclaimed by exactly one waiter and a signal releases
 # only this process's own hold); FM_ORDER_LOCK_WAIT bounds the wait (default 30s).
 # A poll holds it for the whole pass and queues each wake together with its
-# announced mark under the wake-queue lock, so an order is announced once.
+# outbox line under the wake-queue lock. The outbox line is written first and
+# names the wake's sequence number, so a retry re-queues only a wake that was
+# never appended: a wake that was appended and then consumed is never queued again.
 #
 # --home selects the secondmate home (default FM_HOME, else this checkout).
 # To order a remote secondmate, run `append` in its home through bin/fm-on.sh.
@@ -84,7 +88,7 @@ STATE="$HOME_DIR/state"
 ORDERS="$STATE/orders.jsonl"
 ACKS="$STATE/orders.acks.jsonl"
 PENDING_VIEW="$STATE/orders.pending"
-ANNOUNCED="$STATE/orders.announced"
+OUTBOX="$STATE/orders.outbox"
 LOCK="$STATE/.orders.lock"
 
 # The wake library owns the portable owner-checked lock, and the wake queue the
@@ -138,11 +142,20 @@ is_acked() {  # <id>
   [ -f "$ACKS" ] && [ -n "$(jq -c --argjson id "$1" 'select(.id == $id)' "$ACKS" 2>/dev/null)" ]
 }
 
+# print_pending: read under the ledger lock, so a concurrent append is never
+# seen half-written, and fail rather than print a partial list.
 print_pending() {
+  local out rc=0
+  [ -f "$ORDERS" ] || return 0
+  lock_acquire || exit 2
+  out=$(pending_lines) || rc=$?
+  lock_release
+  [ "$rc" -eq 0 ] || die "cannot read $ORDERS"
+  [ -n "$out" ] || return 0
   if [ "$JSON" -eq 1 ]; then
-    pending_lines
+    printf '%s\n' "$out"
   else
-    pending_lines | jq -r '"\(.id) \(.from) \(.text | gsub("\n"; " "))"'
+    printf '%s\n' "$out" | jq -r '"\(.id) \(.from) \(.text | gsub("\n"; " "))"' || die "cannot format the pending orders"
   fi
 }
 
@@ -195,18 +208,31 @@ cmd_ack() {
   return "$rc"
 }
 
-# announce_order <id> <from> <text>: queue the wake and record the announcement
-# in one wake-queue lock hold, so two passes never announce the same order.
+# announce_order <id> <from> <text>: queue the wake for an order once.
+# Under the wake-queue lock the outbox line (id and the sequence number the wake
+# will take) is written before the wake is appended. The wake is already out
+# when the queue's sequence has reached the recorded number, even if the wake was
+# consumed since, so only an attempt that never appended is repeated; a failed
+# append records sequence 0 so the next poll tries again.
 announce_order() {
-  local id=$1 from=$2 text=$3 status=0
+  local id=$1 from=$2 text=$3 status=0 recorded cur next
   fm_lock_acquire_wait_max "$FM_WAKE_QUEUE_LOCK" "${FM_ORDER_LOCK_WAIT:-30}" || return 1
-  if [ -f "$ANNOUNCED" ] && grep -qxF -- "$id" "$ANNOUNCED"; then
+  recorded=
+  [ ! -f "$OUTBOX" ] || recorded=$(awk -v id="$id" '$1 == id { seq = $2 } END { if (seq != "") print seq }' "$OUTBOX")
+  cur=$(cat "$STATE/.wake-queue.seq" 2>/dev/null || echo 0)
+  case "$cur" in ''|*[!0-9]*) cur=0 ;; esac
+  case "$recorded" in ''|*[!0-9]*) recorded= ;; esac
+  if [ -n "$recorded" ] && [ "$recorded" -gt 0 ] && [ "$cur" -ge "$recorded" ]; then
     fm_lock_release "$FM_WAKE_QUEUE_LOCK"
     return 0
   fi
-  if fm_wake_append_locked check "orders:$id" "check: order $id from $from pending in state/orders.jsonl - $text; ack with bin/fm-order-ledger.sh ack $id"; then
-    printf '%s\n' "$id" >> "$ANNOUNCED" || status=1
-  else
+  next=$((cur + 1))
+  if ! printf '%s %s\n' "$id" "$next" >> "$OUTBOX"; then
+    fm_lock_release "$FM_WAKE_QUEUE_LOCK"
+    return 1
+  fi
+  if ! fm_wake_append_locked check "orders:$id" "check: order $id from $from pending in state/orders.jsonl - $text; ack with bin/fm-order-ledger.sh ack $id"; then
+    printf '%s 0\n' "$id" >> "$OUTBOX" || true
     status=1
   fi
   fm_lock_release "$FM_WAKE_QUEUE_LOCK"
