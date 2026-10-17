@@ -213,7 +213,126 @@ test_timer_units_name_the_home_and_interval() {
   pass "the timer is scoped to one home, runs every 5 minutes, and installs and removes cleanly"
 }
 
+test_one_unreadable_pr_does_not_stop_the_remaining_queries() {
+  local out
+  make_case partial
+  pr_json MERGED mc1 main > "$FAKE/pr-1.json"
+  echo ahead > "$FAKE/compare-mc1"
+  pr_json MERGED mc3 main > "$FAKE/pr-3.json"
+  echo ahead > "$FAKE/compare-mc3"
+  out=$(run_probe \
+    --pr https://github.com/o/r/pull/1 --pr https://github.com/o/r/pull/2 \
+    --pr https://github.com/o/r/pull/3) || fail "probe failed"
+  assert_equals "true" "$(printf '%s' "$out" | jq -r '.prs[] | select(.url|endswith("/1")) | .merged')" "PR before the failure"
+  assert_equals "null" "$(printf '%s' "$out" | jq -r '.prs[] | select(.url|endswith("/2")) | .merged')" "the unreadable PR"
+  assert_equals "true" "$(printf '%s' "$out" | jq -r '.prs[] | select(.url|endswith("/3")) | .merged')" "PR after the failure is still queried"
+  assert_equals "mc3" "$(printf '%s' "$out" | jq -r '.prs[] | select(.url|endswith("/3")) | .merge_commit')" "its merge commit is read"
+  assert_equals "false" "$(printf '%s' "$out" | jq -r '.sources.gh.ok')" "the source is incomplete"
+  assert_contains "$(printf '%s' "$out" | jq -r '.sources.gh.error')" "pull/2" "the error names the unreadable PR"
+  pass "one unreadable PR marks the forge source incomplete but every later PR is still queried"
+}
+
+test_an_unreadable_running_run_marks_the_source_not_ok() {
+  local out
+  make_case unread
+  cat > "$FAKE/nm-list" <<'EOF'
+current_branch: main
+runs[2]{id,branch,status,head,pr}:
+  "RUNA",fm/a,running,abc,""
+  "RUNB",fm/b,running,def,""
+EOF
+  cat > "$FAKE/nm-run-RUNB" <<'EOF'
+current_branch: main
+gate:
+  step: ci
+  status: awaiting_approval
+EOF
+  out=$(run_probe) || fail "probe failed"
+  assert_equals "false" "$(printf '%s' "$out" | jq -r '.sources.no_mistakes.ok')" "a skipped run query is not hidden"
+  assert_contains "$(printf '%s' "$out" | jq -r '.sources.no_mistakes.error')" "RUNA" "the error names the unread run"
+  assert_equals "RUNB" "$(printf '%s' "$out" | jq -r '.gate_waits[0].run_id')" "the readable run is still reported"
+  pass "a running run whose status cannot be read marks the no-mistakes source not ok"
+}
+
+write_status() {  # <generated-epoch> [gh-ok] [nm-ok]
+  jq -n --argjson g "$1" --argjson gh "${2:-true}" --argjson nm "${3:-true}" \
+    '{schema:"fm-status-probe.v1",generated:$g,host:"h",fm_home:"x",
+      sources:{gh:{ok:$gh,error:null},no_mistakes:{ok:$nm,error:null}},
+      prs:[{url:"u",merged:true}],lanes:[{id:"l",state:"live"}],gate_waits:[{run_id:"r"}]}' \
+    > "$HOME_DIR/state/status.json"
+}
+
+test_read_reports_unknown_on_stale_or_missing_data() {
+  local out rc=0 now
+  make_case stale
+  now=$(date +%s)
+  out=$("$PROBE" read --home "$HOME_DIR") || rc=$?
+  expect_code 3 "$rc" "no status.json"
+  assert_equals "unknown" "$(printf '%s' "$out" | jq -r .verdict)" "missing file verdict"
+  assert_equals "unknown" "$(printf '%s' "$out" | jq -r .prs)" "missing file pr section"
+
+  write_status "$((now - 10))"
+  out=$("$PROBE" read --home "$HOME_DIR") || fail "a fresh file was refused"
+  assert_equals "fresh" "$(printf '%s' "$out" | jq -r .verdict)" "fresh verdict"
+  assert_equals "true" "$(printf '%s' "$out" | jq -r '.prs[0].merged')" "fresh values pass through"
+
+  write_status "$((now - 2000))"
+  rc=0
+  out=$("$PROBE" read --home "$HOME_DIR") || rc=$?
+  expect_code 3 "$rc" "stale status.json"
+  assert_equals "unknown" "$(printf '%s' "$out" | jq -r .verdict)" "stale verdict"
+  assert_equals "unknown unknown unknown" \
+    "$(printf '%s' "$out" | jq -r '"\(.prs) \(.lanes) \(.gate_waits)"')" "every section reads unknown on stale data"
+  assert_contains "$(printf '%s' "$out" | jq -r .reason)" "limit is 900s" "the reason names the limit"
+
+  rc=0
+  out=$("$PROBE" read --home "$HOME_DIR" --max-age 5000) || rc=$?
+  expect_code 0 "$rc" "a looser limit accepts the same file"
+
+  write_status "$((now + 5000))"
+  rc=0
+  "$PROBE" read --home "$HOME_DIR" >/dev/null || rc=$?
+  expect_code 3 "$rc" "a timestamp from the future"
+
+  printf 'not json' > "$HOME_DIR/state/status.json"
+  rc=0
+  out=$("$PROBE" read --home "$HOME_DIR") || rc=$?
+  expect_code 3 "$rc" "corrupt file"
+  assert_equals "unknown" "$(printf '%s' "$out" | jq -r .verdict)" "corrupt verdict"
+  pass "read reports unknown, not the old values, for stale, future, missing, or corrupt status.json"
+}
+
+test_read_marks_a_section_unknown_when_its_source_is_not_ok() {
+  local out
+  make_case srcunknown
+  write_status "$(date +%s)" false true
+  out=$("$PROBE" read --home "$HOME_DIR") || fail "fresh file was refused"
+  assert_equals "unknown" "$(printf '%s' "$out" | jq -r .prs)" "prs without the forge"
+  assert_equals "live" "$(printf '%s' "$out" | jq -r '.lanes[0].state')" "lanes do not depend on the forge"
+  assert_equals "r" "$(printf '%s' "$out" | jq -r '.gate_waits[0].run_id')" "gate waits still read"
+  write_status "$(date +%s)" true false
+  out=$("$PROBE" read --home "$HOME_DIR") || fail "fresh file was refused"
+  assert_equals "unknown" "$(printf '%s' "$out" | jq -r .gate_waits)" "gate waits without no-mistakes"
+  pass "a fresh file still reads unknown for a section whose source did not answer"
+}
+
+test_systemd_exec_words_are_quoted_for_systemd() {
+  local out line
+  out=$(bash -c '. "$1"; fm_timer_render systemd lbl 5 "/h/with space" "/bin/x y" "a\"b" "p%q" "\$HOME" "plain"' _ "$ROOT/bin/fm-periodic-timer-lib.sh") \
+    || fail "render failed"
+  line=$(printf '%s\n' "$out" | sed -n 's/^ExecStart=//p')
+  # shellcheck disable=SC2016 # the expected text holds literal $$ for systemd
+  assert_equals '"/bin/x y" "a\"b" "p%%q" "$$HOME" "plain" ' "$line" "systemd-quoted ExecStart words"
+  assert_contains "$out" 'Environment="FM_HOME=/h/with space"' "quoted environment assignment"
+  pass "the systemd unit quotes spaces, quotes, % and \$ the way systemd reads them"
+}
+
 test_merged_requires_a_merge_commit_on_main
+test_one_unreadable_pr_does_not_stop_the_remaining_queries
+test_an_unreadable_running_run_marks_the_source_not_ok
+test_read_reports_unknown_on_stale_or_missing_data
+test_read_marks_a_section_unknown_when_its_source_is_not_ok
+test_systemd_exec_words_are_quoted_for_systemd
 test_gate_result_comes_from_the_matching_run
 test_lane_freshness_uses_pid_and_mtime
 test_gate_waits_are_parsed_from_the_run_status

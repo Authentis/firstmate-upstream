@@ -8,7 +8,8 @@
 #                             {"id":<n>,"ts":<epoch>,"from":"<name>","text":"<order>"}
 #                             with ids that start at 1 and rise by exactly 1.
 #   state/orders.acks.jsonl   append-only acknowledgements {"id":<n>,"ts":<epoch>}.
-#   state/orders.pending      the current pending lines, rewritten by every poll.
+#   state/orders.pending      the current pending lines, rewritten by every poll;
+#                             a poll that cannot read the ledger keeps the old view.
 #   state/orders.announced    ids a poll has already turned into a wake.
 # An order is pending until its own id is acknowledged. Acking one id never
 # acknowledges another, whatever the numeric order, and acking twice is a no-op.
@@ -23,10 +24,16 @@
 #       Acknowledge the named line ids; an id with no order line is refused.
 #   fm-order-ledger.sh poll [--home <dir>] [--once] [--interval <seconds>]
 #       Secondmate side: refresh state/orders.pending and queue one wake per
-#       newly seen pending order, every --interval seconds (default 60) until
+#       newly seen pending order, every --interval seconds (default 15) until
 #       stopped; --once does a single pass.
 #   fm-order-ledger.sh timer install|remove|print [--home <dir>]
-#       Run `poll --once` every 60 seconds from the host's launchd or systemd.
+#       Run `poll --once` every 15 seconds from the host's launchd or systemd.
+#
+# Every writer takes the home's ledger lock (fm-wake-lib.sh's owner-checked
+# lock, so a dead owner is reclaimed by exactly one waiter and a signal releases
+# only this process's own hold); FM_ORDER_LOCK_WAIT bounds the wait (default 30s).
+# A poll holds it for the whole pass and queues each wake together with its
+# announced mark under the wake-queue lock, so an order is announced once.
 #
 # --home selects the secondmate home (default FM_HOME, else this checkout).
 # To order a remote secondmate, run `append` in its home through bin/fm-on.sh.
@@ -56,7 +63,7 @@ shift
 HOME_DIR=${FM_HOME:-$FM_ROOT}
 FROM=firstmate
 ONCE=0
-INTERVAL=${FM_ORDER_POLL_INTERVAL:-60}
+INTERVAL=${FM_ORDER_POLL_INTERVAL:-15}
 JSON=0
 ARGS=()
 while [ "$#" -gt 0 ]; do
@@ -80,23 +87,38 @@ PENDING_VIEW="$STATE/orders.pending"
 ANNOUNCED="$STATE/orders.announced"
 LOCK="$STATE/.orders.lock"
 
-lock_acquire() {
-  local tries=0 owner
-  while ! mkdir "$LOCK" 2>/dev/null; do
-    owner=$(cat "$LOCK/pid" 2>/dev/null || true)
-    if [ -n "$owner" ] && ! kill -0 "$owner" 2>/dev/null; then
-      rm -rf -- "$LOCK"
-      continue
-    fi
-    tries=$((tries + 1))
-    [ "$tries" -le 100 ] || die "ledger lock is held by $owner"
-    sleep 0.1
-  done
-  printf '%s\n' "$$" > "$LOCK/pid"
+# The wake library owns the portable owner-checked lock, and the wake queue the
+# ledger announces into lives in the same home.
+load_wake_lib() {
+  local lib="$FM_ROOT/bin/fm-wake-lib.sh"
+  command -v fm_lock_try_acquire >/dev/null 2>&1 && return 0
+  [ -r "$lib" ] || { printf 'fm-order-ledger: missing %s\n' "$lib" >&2; return 1; }
+  mkdir -p "$STATE" || return 1
+  export FM_HOME="$HOME_DIR" FM_STATE_OVERRIDE="$STATE"
+  unset FM_WAKE_QUEUE FM_WAKE_QUEUE_LOCK
+  # shellcheck disable=SC1090,SC1091
+  . "$lib"
 }
 
 lock_release() {
-  rm -rf -- "$LOCK"
+  fm_lock_release "$LOCK"
+}
+
+# lock_acquire: take the ledger lock, or return 1 with the reason on stderr.
+# A signal exits through the EXIT trap, which releases only a hold this process
+# owns, so an interrupted writer never keeps writing unlocked and never removes
+# another writer's lock.
+lock_acquire() {
+  load_wake_lib || return 1
+  [ -d "$STATE" ] && [ -w "$STATE" ] || { printf 'fm-order-ledger: %s is not writable\n' "$STATE" >&2; return 1; }
+  trap lock_release EXIT
+  trap 'exit 129' HUP
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  if ! fm_lock_acquire_wait_max "$LOCK" "${FM_ORDER_LOCK_WAIT:-30}"; then
+    printf 'fm-order-ledger: ledger lock is held by %s\n' "${FM_LOCK_HELD_PID:-another process}" >&2
+    return 1
+  fi
 }
 
 # pending_lines: orders whose own id has no acknowledgement line.
@@ -133,8 +155,7 @@ cmd_append() {
   fi
   [ -n "$text" ] || die "append needs the order text"
   mkdir -p "$STATE" || die "cannot create $STATE"
-  lock_acquire
-  trap lock_release EXIT HUP INT TERM
+  lock_acquire || exit 2
   last=0
   if [ -s "$ORDERS" ]; then
     last=$(jq -s 'map(.id) | max // 0' "$ORDERS" 2>/dev/null) || die "$ORDERS is not valid JSON lines"
@@ -152,8 +173,7 @@ cmd_ack() {
   [ "${#ARGS[@]}" -ge 1 ] || die "ack needs at least one line id"
   [ -f "$ORDERS" ] || die "no order ledger at $ORDERS"
   mkdir -p "$STATE" || die "cannot create $STATE"
-  lock_acquire
-  trap lock_release EXIT HUP INT TERM
+  lock_acquire || exit 2
   ts=$(date +%s)
   for id in "${ARGS[@]}"; do
     case "$id" in
@@ -175,31 +195,50 @@ cmd_ack() {
   return "$rc"
 }
 
-# poll_pass: refresh the visible pending view and queue a wake per new order.
-poll_pass() {
-  local tmp line id from text wake_lib="$FM_ROOT/bin/fm-wake-lib.sh"
-  mkdir -p "$STATE" || return 1
+# announce_order <id> <from> <text>: queue the wake and record the announcement
+# in one wake-queue lock hold, so two passes never announce the same order.
+announce_order() {
+  local id=$1 from=$2 text=$3 status=0
+  fm_lock_acquire_wait_max "$FM_WAKE_QUEUE_LOCK" "${FM_ORDER_LOCK_WAIT:-30}" || return 1
+  if [ -f "$ANNOUNCED" ] && grep -qxF -- "$id" "$ANNOUNCED"; then
+    fm_lock_release "$FM_WAKE_QUEUE_LOCK"
+    return 0
+  fi
+  if fm_wake_append_locked check "orders:$id" "check: order $id from $from pending in state/orders.jsonl - $text; ack with bin/fm-order-ledger.sh ack $id"; then
+    printf '%s\n' "$id" >> "$ANNOUNCED" || status=1
+  else
+    status=1
+  fi
+  fm_lock_release "$FM_WAKE_QUEUE_LOCK"
+  return "$status"
+}
+
+# poll_pass_locked: refresh the visible pending view and queue a wake per new
+# order. The view is replaced only by a complete, successful read of the ledger,
+# so a failed read keeps the last good view instead of erasing it.
+poll_pass_locked() {
+  local tmp line id from text rc=0
   tmp=$(mktemp "$STATE/.orders.pending.XXXXXX") || return 1
-  pending_lines > "$tmp"
-  mv -f -- "$tmp" "$PENDING_VIEW"
+  if ! pending_lines > "$tmp" || ! mv -f -- "$tmp" "$PENDING_VIEW"; then
+    rm -f -- "$tmp"
+    return 1
+  fi
   [ -s "$PENDING_VIEW" ] || return 0
-  [ -r "$wake_lib" ] || return 0
   while IFS= read -r line; do
-    id=$(printf '%s' "$line" | jq -r '.id')
-    if [ -f "$ANNOUNCED" ] && grep -qx "$id" "$ANNOUNCED"; then
-      continue
-    fi
-    from=$(printf '%s' "$line" | jq -r '.from')
-    text=$(printf '%s' "$line" | jq -r '.text | gsub("\n"; " ") | .[0:160]')
-    if (
-      FM_HOME=$HOME_DIR
-      # shellcheck disable=SC1090,SC1091
-      . "$wake_lib"
-      fm_wake_append check "orders:$id" "check: order $id from $from pending in state/orders.jsonl - $text; ack with bin/fm-order-ledger.sh ack $id"
-    ); then
-      printf '%s\n' "$id" >> "$ANNOUNCED"
-    fi
+    id=$(printf '%s' "$line" | jq -r '.id') || { rc=1; continue; }
+    from=$(printf '%s' "$line" | jq -r '.from') || { rc=1; continue; }
+    text=$(printf '%s' "$line" | jq -r '.text | gsub("\n"; " ") | .[0:160]') || { rc=1; continue; }
+    announce_order "$id" "$from" "$text" || rc=1
   done < "$PENDING_VIEW"
+  return "$rc"
+}
+
+poll_pass() {
+  local rc=0
+  lock_acquire || return 1
+  poll_pass_locked || rc=$?
+  lock_release
+  return "$rc"
 }
 
 cmd_poll() {
@@ -207,7 +246,6 @@ cmd_poll() {
     poll_pass
     return
   fi
-  trap 'exit 0' HUP INT TERM
   while :; do
     poll_pass || printf 'fm-order-ledger: poll pass failed\n' >&2
     sleep "$INTERVAL"
@@ -219,9 +257,9 @@ cmd_timer() {
   # shellcheck source=bin/fm-periodic-timer-lib.sh
   . "$SCRIPT_DIR/fm-periodic-timer-lib.sh"
   case "$sub" in
-    install) fm_timer_install order-poll 60 "$HOME_DIR" "$SCRIPT_DIR/fm-order-ledger.sh" poll --home "$HOME_DIR" --once ;;
+    install) fm_timer_install order-poll 15 "$HOME_DIR" "$SCRIPT_DIR/fm-order-ledger.sh" poll --home "$HOME_DIR" --once ;;
     remove) fm_timer_remove order-poll "$HOME_DIR" ;;
-    print) fm_timer_render "$(fm_timer_kind)" "$(fm_timer_label order-poll "$HOME_DIR")" 60 "$HOME_DIR" \
+    print) fm_timer_render "$(fm_timer_kind)" "$(fm_timer_label order-poll "$HOME_DIR")" 15 "$HOME_DIR" \
       "$SCRIPT_DIR/fm-order-ledger.sh" poll --home "$HOME_DIR" --once ;;
     *) die "timer needs install, remove, or print" ;;
   esac

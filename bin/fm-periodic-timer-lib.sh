@@ -41,6 +41,19 @@ _fm_timer_xml() {
   printf '%s' "${s//>/&gt;}"
 }
 
+# _fm_timer_sd_quote <word> -> the word as one systemd command-line or
+# environment word: double-quoted, with the backslash, double quote, newline,
+# and the % and $ that systemd would otherwise expand escaped the systemd way.
+_fm_timer_sd_quote() {
+  local s=$1
+  s=${s//\\/\\\\}
+  s=${s//\"/\\\"}
+  s=${s//$'\n'/\\n}
+  s=${s//%/%%}
+  s=${s//\$/\$\$}
+  printf '"%s"' "$s"
+}
+
 # fm_timer_render <kind> <label> <interval-seconds> <home> <command-path> [arg...]
 # Prints the unit text: the plist for launchd, or the service then the timer
 # (separated by a line holding only `---`) for systemd.
@@ -62,8 +75,10 @@ fm_timer_render() {
     printf '</dict>\n</plist>\n'
   else
     printf '[Unit]\nDescription=Firstmate %s\n\n' "$label"
-    printf '[Service]\nType=oneshot\nEnvironment=FM_HOME=%s\nExecStart=' "$home"
-    printf '%q ' "$@"
+    printf '[Service]\nType=oneshot\nEnvironment=%s\nExecStart=' "$(_fm_timer_sd_quote "FM_HOME=$home")"
+    for arg in "$@"; do
+      printf '%s ' "$(_fm_timer_sd_quote "$arg")"
+    done
     printf '\n---\n'
     printf '[Unit]\nDescription=Firstmate %s every %ss\n\n' "$label" "$interval"
     printf '[Timer]\nOnBootSec=%s\nOnUnitActiveSec=%s\nAccuracySec=1s\n\n' "$interval" "$interval"

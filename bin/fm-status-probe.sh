@@ -31,13 +31,22 @@
 # must quote the matching status.json field (section, key, value); a claim with
 # no matching field is not counted. docs/status-probe.md owns the rule.
 #
+# A source is ok only when every query it was asked answered: one unreadable PR,
+# an unprovable merge commit, or a running no-mistakes run whose status could
+# not be read marks the whole source not ok, and the remaining queries still run.
+#
 # Usage:
 #   fm-status-probe.sh [run] [--home <dir>] [--out <file>] [--pr <url>]... [--stdout]
+#   fm-status-probe.sh read [--home <dir>] [--out <file>] [--max-age <seconds>]
+#       Print status.json with a verdict. Data older than --max-age (default
+#       900, three probe intervals), a missing or unreadable file, or a section
+#       whose source is not ok reads "unknown" instead of a value. Exits 0 for a
+#       fresh file and 3 for a verdict of unknown.
 #   fm-status-probe.sh timer install|remove|print [--home <dir>]
 #
 # Environment seams: FM_PROBE_GH (default gh) and FM_PROBE_NM (default
 # no-mistakes) name the tools; FM_PROBE_FRESH_SECONDS (default 300) is the lane
-# freshness bound.
+# freshness bound; FM_PROBE_MAX_AGE_SECONDS sets the `read` default.
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -60,12 +69,13 @@ command -v jq >/dev/null 2>&1 || die "jq is required"
 CMD=run
 case "${1:-}" in
   -h|--help|help) usage; exit 0 ;;
-  run|timer) CMD=$1; shift ;;
+  run|timer|read) CMD=$1; shift ;;
 esac
 
 HOME_DIR=${FM_HOME:-$FM_ROOT}
 OUT=
 TO_STDOUT=0
+MAX_AGE=${FM_PROBE_MAX_AGE_SECONDS:-900}
 EXTRA_PRS=()
 ARGS=()
 while [ "$#" -gt 0 ]; do
@@ -74,10 +84,12 @@ while [ "$#" -gt 0 ]; do
     --out) [ "$#" -ge 2 ] || die "--out needs a file"; OUT=$2; shift 2 ;;
     --pr) [ "$#" -ge 2 ] || die "--pr needs a url"; EXTRA_PRS+=("$2"); shift 2 ;;
     --stdout) TO_STDOUT=1; shift ;;
+    --max-age) [ "$#" -ge 2 ] || die "--max-age needs seconds"; MAX_AGE=$2; shift 2 ;;
     *) ARGS+=("$1"); shift ;;
   esac
 done
 case "$FRESH" in ''|*[!0-9]*) die "FM_PROBE_FRESH_SECONDS must be whole seconds" ;; esac
+case "$MAX_AGE" in ''|*[!0-9]*) die "--max-age must be whole seconds" ;; esac
 
 STATE="$HOME_DIR/state"
 [ -n "$OUT" ] || OUT="$STATE/status.json"
@@ -96,6 +108,39 @@ if [ "$CMD" = timer ]; then
 fi
 
 NOW=$(date +%s)
+
+if [ "$CMD" = read ]; then
+  # Stale, missing, or unreadable data is never presented as a result: the
+  # verdict is unknown and every section reads "unknown". A section whose own
+  # source is not ok reads "unknown" too, even when the file is fresh.
+  if [ ! -f "$OUT" ]; then
+    reason="no status.json at $OUT"
+  elif ! jq -e '.schema == "fm-status-probe.v1" and (.generated | type == "number")' "$OUT" >/dev/null 2>&1; then
+    reason="$OUT is not a readable fm-status-probe.v1 file"
+  else
+    reason=
+  fi
+  if [ -n "$reason" ]; then
+    jq -n --argjson now "$NOW" --argjson max "$MAX_AGE" --arg reason "$reason" \
+      '{schema:"fm-status-probe.v1",verdict:"unknown",reason:$reason,generated:null,age_s:null,max_age_s:$max,
+        prs:"unknown",lanes:"unknown",gate_waits:"unknown"}'
+    exit 3
+  fi
+  RESULT=$(jq --argjson now "$NOW" --argjson max "$MAX_AGE" '
+    ($now - .generated) as $age
+    | ($age > $max or $age < -60) as $stale
+    | . + {age_s:$age,max_age_s:$max,
+           verdict:(if $stale then "unknown" else "fresh" end),
+           reason:(if $stale then "status.json is \($age)s old; the limit is \($max)s" else null end)}
+    | if $stale then . + {prs:"unknown",lanes:"unknown",gate_waits:"unknown"}
+      else . + {prs:(if .sources.gh.ok == true then .prs else "unknown" end),
+                gate_waits:(if .sources.no_mistakes.ok == true then .gate_waits else "unknown" end)}
+      end' "$OUT") || die "could not read $OUT"
+  printf '%s\n' "$RESULT"
+  [ "$(printf '%s' "$RESULT" | jq -r .verdict)" = fresh ] || exit 3
+  exit 0
+fi
+
 if [ "$(uname 2>/dev/null)" = Darwin ]; then
   path_mtime() { /usr/bin/stat -f %m "$1" 2>/dev/null; }
 else
@@ -151,10 +196,14 @@ age_to_seconds() {
 
 GATES="$SCRATCH/gates.jsonl"
 : > "$GATES"
+NM_UNREAD=
 if [ "$NM_OK" = true ]; then
   while IFS=$'\t' read -r rid rbranch rstatus _rpr; do
     [ "$rstatus" = running ] || continue
-    detail=$("$NM" axi status --run "$rid" 2>/dev/null) || continue
+    if ! detail=$("$NM" axi status --run "$rid" 2>/dev/null); then
+      NM_UNREAD="${NM_UNREAD:+$NM_UNREAD }$rid"
+      continue
+    fi
     step=$(printf '%s\n' "$detail" | awk '/^gate:/ { g = 1; next } g && /^[^ ]/ { g = 0 } g && $1 == "step:" { print $2; exit }')
     gstatus=$(printf '%s\n' "$detail" | awk '/^gate:/ { g = 1; next } g && /^[^ ]/ { g = 0 } g && $1 == "status:" { print $2; exit }')
     [ -n "$step" ] || continue
@@ -166,6 +215,12 @@ if [ "$NM_OK" = true ]; then
         age:(if $age == "" then null else $age end),
         age_s:(if $age_s == "" then null else ($age_s | tonumber) end)}' >> "$GATES"
   done < "$NM_RUNS"
+  # A running run whose status could not be read may be parked at a gate, so the
+  # gate_waits section is incomplete and must not read as complete.
+  if [ -n "$NM_UNREAD" ]; then
+    NM_OK=false
+    NM_ERR="could not read the status of running run(s): $NM_UNREAD"
+  fi
 fi
 
 # ---- PRs --------------------------------------------------------------------
@@ -186,15 +241,24 @@ gate_for_url() {  # <pr-url> -> newest no-mistakes run status for the url, or em
   awk -F'\t' -v u="$1" '$4 == u { print $3; exit }' "$NM_RUNS"
 }
 
+# gh_note <message>: one PR could not be fully read. The source is then
+# incomplete, but the remaining PRs are still queried.
+GH_AVAILABLE=false
+GH_FAILED=0
+gh_note() {
+  GH_FAILED=$((GH_FAILED + 1))
+  [ -n "$GH_ERR" ] || GH_ERR=$1
+}
+
 if [ -s "$PR_URLS" ]; then
   if command -v "$GH" >/dev/null 2>&1; then
-    GH_OK=true
+    GH_AVAILABLE=true
   else
     GH_ERR="$GH not found"
   fi
   while IFS= read -r url; do
     gate=$(gate_for_url "$url")
-    if [ "$GH_OK" != true ]; then
+    if [ "$GH_AVAILABLE" != true ]; then
       jq -cn --arg url "$url" --arg gate "$gate" \
         '{url:$url,head_sha:null,state:null,merged:null,merge_commit:null,gate:(if $gate == "" then null else $gate end)}' >> "$PRS"
       continue
@@ -202,8 +266,7 @@ if [ -s "$PR_URLS" ]; then
     slug=$(printf '%s\n' "$url" | sed -n 's#^https://[^/]*/\([^/]*/[^/]*\)/pull/[0-9]*$#\1#p')
     view=$("$GH" pr view "$url" --json state,headRefOid,mergeCommit,baseRefName 2>/dev/null) || view=
     if [ -z "$view" ] || [ -z "$slug" ] || ! printf '%s' "$view" | jq -e . >/dev/null 2>&1; then
-      GH_OK=partial
-      GH_ERR="could not read $url"
+      gh_note "could not read $url"
       jq -cn --arg url "$url" --arg gate "$gate" \
         '{url:$url,head_sha:null,state:null,merged:null,merge_commit:null,gate:(if $gate == "" then null else $gate end)}' >> "$PRS"
       continue
@@ -221,8 +284,7 @@ if [ -s "$PR_URLS" ]; then
       [ -z "$default" ] || cmp=$("$GH" api "repos/$slug/compare/$mcommit...$default" --jq .status 2>/dev/null) || cmp=
       if [ -z "$default" ] || [ -z "$cmp" ]; then
         merged=null
-        GH_OK=partial
-        GH_ERR="could not prove the merge commit of $url"
+        gh_note "could not prove the merge commit of $url"
       elif [ "$base" = "$default" ] && { [ "$cmp" = ahead ] || [ "$cmp" = identical ]; }; then
         merged=true
       fi
@@ -232,6 +294,11 @@ if [ -s "$PR_URLS" ]; then
       '{url:$url,head_sha:(if $head == "" then null else $head end),state:$st,merged:$merged,
         merge_commit:(if $mc == "" then null else $mc end),gate:(if $gate == "" then null else $gate end)}' >> "$PRS"
   done < "$PR_URLS"
+  if [ "$GH_AVAILABLE" = true ] && [ "$GH_FAILED" -eq 0 ]; then
+    GH_OK=true
+  elif [ "$GH_FAILED" -gt 1 ]; then
+    GH_ERR="$GH_ERR (and $((GH_FAILED - 1)) more)"
+  fi
 else
   GH_OK=true
 fi

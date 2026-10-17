@@ -115,27 +115,177 @@ test_an_unacked_order_survives_a_failed_announcement() {
   pass "an order is never lost or silenced when one poll cannot announce it"
 }
 
-test_timer_runs_the_poll_every_minute() {
+test_timer_runs_the_poll_every_15_seconds() {
   local out dir="$TMP_ROOT/timer-units"
   make_case timer
   out=$("$LEDGER" timer print --home "$HOME_DIR") || fail "timer print failed"
   assert_contains "$out" "$HOME_DIR" "unit names the home"
   case "$out" in
-    *StartInterval*) assert_contains "$out" "<integer>60</integer>" "launchd 60 second interval" ;;
-    *) assert_contains "$out" "OnUnitActiveSec=60" "systemd 60 second interval" ;;
+    *StartInterval*) assert_contains "$out" "<integer>15</integer>" "launchd 15 second interval" ;;
+    *) assert_contains "$out" "OnUnitActiveSec=15" "systemd 15 second interval" ;;
   esac
   mkdir -p "$dir"
   FM_TIMER_DIR=$dir FM_TIMER_NOLOAD=1 "$LEDGER" timer install --home "$HOME_DIR" || fail "install"
   [ -n "$(ls "$dir")" ] || fail "install wrote no unit"
   FM_TIMER_DIR=$dir FM_TIMER_NOLOAD=1 "$LEDGER" timer remove --home "$HOME_DIR" || fail "remove"
   assert_equals "" "$(ls "$dir")" "remove deletes the units"
-  pass "the poll timer is scoped to one home and runs every 60 seconds"
+  pass "the poll timer is scoped to one home and runs every 15 seconds"
+}
+
+# hold_lock <seconds>: a separate process that owns the ledger lock for a while.
+hold_lock() {
+  FM_HOME=$HOME_DIR bash -c '. "$1"; fm_lock_acquire_wait "$2"; echo held; sleep "$3"' \
+    _ "$ROOT/bin/fm-wake-lib.sh" "$HOME_DIR/state/.orders.lock" "$1" > "$TMP_ROOT/held.out" &
+  HOLDER=$!
+  local n=0
+  until grep -q held "$TMP_ROOT/held.out" 2>/dev/null; do
+    n=$((n + 1))
+    [ "$n" -le 100 ] || fail "the lock holder never started"
+    sleep 0.1
+  done
+}
+
+test_waiters_on_a_dead_owners_lock_never_share_an_id() {
+  local round i dead ids
+  make_case deadlock
+  for round in 1 2 3 4 5; do
+    sleep 0 &
+    dead=$!
+    wait "$dead"
+    rm -rf "$HOME_DIR/state/.orders.lock"
+    mkdir "$HOME_DIR/state/.orders.lock"
+    printf '%s\n' "$dead" > "$HOME_DIR/state/.orders.lock/pid"
+    for i in 1 2 3 4 5 6; do
+      ledger append "round $round order $i" >/dev/null &
+    done
+    wait
+  done
+  ids=$(jq -r .id "$HOME_DIR/state/orders.jsonl" | sort -n | uniq -d | tr '\n' ' ')
+  assert_equals "" "$ids" "duplicate ids after waiters raced to reclaim a dead owner's lock"
+  assert_equals "30" "$(wc -l < "$HOME_DIR/state/orders.jsonl" | tr -d ' ')" "every append landed"
+  assert_equals "30" "$(jq -r .id "$HOME_DIR/state/orders.jsonl" | sort -n | tail -n1)" "ids rose by exactly one"
+  pass "waiters racing to reclaim a dead owner's lock never duplicate an order id"
+}
+
+test_a_signalled_append_stops_and_leaves_another_writers_lock() {
+  local pid rc=0 owner
+  make_case signal
+  hold_lock 30
+  ledger append waiting >/dev/null 2>&1 &
+  pid=$!
+  sleep 1
+  kill -TERM "$pid"
+  wait "$pid" || rc=$?
+  assert_equals "143" "$rc" "a signalled append exits"
+  assert_absent "$HOME_DIR/state/orders.jsonl" "a signalled append writes nothing"
+  owner=$(cat "$HOME_DIR/state/.orders.lock/pid" 2>/dev/null || true)
+  assert_equals "$HOLDER" "$owner" "the other writer still owns its lock"
+  kill "$HOLDER" 2>/dev/null
+  wait "$HOLDER" 2>/dev/null
+  pass "a signalled append exits without writing and without deleting another writer's lock"
+}
+
+test_a_held_lock_times_out_with_the_owner_named() {
+  local rc=0 err
+  make_case timeout
+  hold_lock 30
+  err=$(FM_ORDER_LOCK_WAIT=1 ledger append blocked 2>&1) || rc=$?
+  kill "$HOLDER" 2>/dev/null
+  wait "$HOLDER" 2>/dev/null
+  expect_code 2 "$rc" "append behind a held lock"
+  assert_contains "$err" "$HOLDER" "the holder is named"
+  assert_absent "$HOME_DIR/state/orders.jsonl" "nothing is written without the lock"
+  pass "an append that cannot take the lock refuses and names the owner"
+}
+
+test_concurrent_polls_announce_each_order_once() {
+  local i
+  make_case polls
+  ledger append a >/dev/null
+  ledger append b >/dev/null
+  ledger append c >/dev/null
+  for i in 1 2 3 4 5 6; do
+    ledger poll --once &
+  done
+  wait
+  assert_equals "3" "$(grep -c 'orders:' "$HOME_DIR/state/.wake-queue")" "wake rows after six racing polls"
+  assert_equals "3" "$(sort -u "$HOME_DIR/state/orders.announced" | wc -l | tr -d ' ')" "announced ids"
+  assert_equals "3" "$(wc -l < "$HOME_DIR/state/orders.announced" | tr -d ' ')" "each id is recorded once"
+  pass "racing polls queue exactly one wake per order"
+}
+
+test_a_failed_read_keeps_the_last_good_pending_view() {
+  local rc=0 before
+  make_case badread
+  ledger append one >/dev/null
+  ledger append two >/dev/null
+  ledger poll --once || fail "first poll"
+  before=$(cat "$HOME_DIR/state/orders.pending")
+  printf '{not json\n' >> "$HOME_DIR/state/orders.jsonl"
+  ledger poll --once >/dev/null 2>&1 || rc=$?
+  [ "$rc" -ne 0 ] || fail "a poll over a corrupt ledger reported success"
+  assert_equals "$before" "$(cat "$HOME_DIR/state/orders.pending")" "the pending view survives a failed read"
+  assert_equals "" "$(find "$HOME_DIR/state" -name '.orders.pending.*')" "no partial view is left behind"
+  pass "a poll that cannot read the ledger keeps the last good pending view"
+}
+
+# Two secondmate homes, each polled by a real process, with every terminal tool
+# failing and recorded. A stand-in secondmate acts on the wake it finds and acks.
+test_a_replay_with_the_doorbell_off_is_acked_within_60_seconds_on_both_homes() {
+  local name start now elapsed worst=0 i dir
+  local -a pollers=() responders=()
+  make_case replay
+  dir="$TMP_ROOT/replay-homes"
+  for name in bosgame netcup; do
+    mkdir -p "$dir/$name/state"
+    "$LEDGER" append --home "$dir/$name" --from firstmate "replay one for $name" >/dev/null
+    "$LEDGER" append --home "$dir/$name" --from firstmate "replay two for $name" >/dev/null
+  done
+  start=$(date +%s)
+  for name in bosgame netcup; do
+    PATH="$FAKEBIN:$PATH" "$LEDGER" poll --home "$dir/$name" --interval 1 &
+    pollers+=("$!")
+    (
+      while :; do
+        # shellcheck disable=SC2013 # the values are numeric order ids
+        for i in $(awk -F'\t' '$4 ~ /^orders:/ { sub(/^orders:/, "", $4); print $4 }' "$dir/$name/state/.wake-queue" 2>/dev/null); do
+          "$LEDGER" ack --home "$dir/$name" "$i" >/dev/null 2>&1
+        done
+        sleep 0.5
+      done
+    ) &
+    responders+=("$!")
+  done
+  for name in bosgame netcup; do
+    i=0
+    until [ -z "$("$LEDGER" pending --home "$dir/$name")" ] && [ -s "$dir/$name/state/orders.acks.jsonl" ]; do
+      i=$((i + 1))
+      [ "$i" -le 120 ] || break
+      sleep 0.5
+    done
+    now=$(date +%s)
+    elapsed=$((now - start))
+    [ "$elapsed" -le "$worst" ] || worst=$elapsed
+    assert_equals "" "$("$LEDGER" pending --home "$dir/$name")" "$name has no pending order"
+    assert_equals "2" "$(wc -l < "$dir/$name/state/orders.acks.jsonl" | tr -d ' ')" "$name acked both orders"
+  done
+  kill "${pollers[@]}" "${responders[@]}" 2>/dev/null
+  wait "${pollers[@]}" "${responders[@]}" 2>/dev/null
+  [ "$worst" -le 60 ] || fail "the replay took ${worst}s, over 60"
+  assert_equals "" "$(cat "$RINGS")" "no terminal tool was called with the doorbell off"
+  pass "a replay with the doorbell off is acked on both secondmate homes in ${worst}s"
 }
 
 test_ids_rise_by_one_and_each_order_is_one_line
+test_waiters_on_a_dead_owners_lock_never_share_an_id
+test_a_signalled_append_stops_and_leaves_another_writers_lock
+test_a_held_lock_times_out_with_the_owner_named
+test_concurrent_polls_announce_each_order_once
+test_a_failed_read_keeps_the_last_good_pending_view
+test_a_replay_with_the_doorbell_off_is_acked_within_60_seconds_on_both_homes
 test_concurrent_appends_never_share_an_id
 test_ack_advances_only_the_acked_line_id
 test_ack_refuses_an_unknown_id
 test_poll_surfaces_pending_orders_with_no_terminal_ring
 test_an_unacked_order_survives_a_failed_announcement
-test_timer_runs_the_poll_every_minute
+test_timer_runs_the_poll_every_15_seconds

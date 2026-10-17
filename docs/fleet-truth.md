@@ -12,11 +12,17 @@ In short:
 - `prs[]` reports each PR with `merged` true only when the forge names a merge commit and the compare API shows that commit on the default branch tip, so a closed-unmerged PR reads false.
 - `lanes[]` reports each lane's recorded pid and log, with `state` live only when the pid is alive and the log was written in the last 5 minutes.
 - `gate_waits[]` lists running no-mistakes runs parked at a gate, parsed from `no-mistakes axi status --run <id>`.
-- `sources` says whether `gh` and `no-mistakes` answered; a section whose source is not ok proves nothing.
+- `sources` says whether `gh` and `no-mistakes` answered every query; one unreadable PR, an unprovable merge, or a running run whose status could not be read marks the source not ok, and a section whose source is not ok proves nothing.
 
 Lane records are `key=value` files: `state/lanes/<id>.lane`, or a `state/<id>.meta` that carries `pid=` or `log=`.
 
 Install the 5-minute timer on a host with `bin/fm-status-probe.sh timer install --home <home>`, which uses launchd on macOS and a systemd user timer elsewhere.
+
+### Reading it
+
+Read the file through `bin/fm-status-probe.sh read`, never from `status.json` directly.
+Data older than the limit (900 seconds, three probe intervals), a missing or unreadable file, and a section whose source is not ok each read `unknown` instead of a value, and `read` exits 3 on an overall `unknown` verdict.
+A report quotes only values that `read` returned as values.
 
 ### Reporting rule
 
@@ -28,9 +34,10 @@ Secondmate and firstmate reports follow this rule.
 ## Order ledger
 
 `bin/fm-order-ledger.sh` keeps one append-only `state/orders.jsonl` per secondmate home, with ids that rise by one.
-The secondmate polls it every 60 seconds (`timer install` wires that) and acknowledges an order by its line id.
+The secondmate polls it every 15 seconds (`timer install` wires that), so an order is seen within a quarter of the 60-second acknowledgement bound, and acknowledges an order by its line id.
 An order stays pending, and visible through `pending` and `state/orders.pending`, until its own id is acknowledged.
 No terminal doorbell or window ring is anywhere in the path, so a failed ring cannot hide an order.
+A poll that cannot read the ledger keeps the last good pending view, and concurrent writers and polls serialize on the home's ledger lock so ids and wakes never duplicate.
 The script header owns the commands and file formats.
 
 ## Canary
