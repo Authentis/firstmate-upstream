@@ -1741,6 +1741,23 @@ test_leftover_cli_child_does_not_pin_the_lock() {
   pass "a process left by the CLI cannot pin the cache lock"
 }
 
+# The same for a status-read slot: with one slot and no wait, a process the CLI
+# left behind must not keep the slot taken for the next read.
+test_leftover_cli_child_does_not_pin_a_status_slot() {
+  reset_fakes
+  local d
+  d=$(cache_case cache-leftover-slot)
+  FM_FAKE_AXI_STATUS="$(run_running fm/feat-load)"
+  export FM_FAKE_AXI_STATUS
+  cache_read "$d" FM_FAKE_NM_LEAVE="$d/leftover.pids" FM_NM_STATUS_SLOTS=1 FM_NM_STATUS_WAIT=0 > /dev/null
+  touch -t 202001010000 "$d"/cache/*.out
+  : > "$d/nm.log"
+  cache_read "$d" FM_FAKE_NM_LEAVE="$d/leftover.pids" FM_NM_STATUS_SLOTS=1 FM_NM_STATUS_WAIT=0 > /dev/null
+  [ "$(wc -l < "$d/nm.log")" -eq 1 ] || fail "a leftover CLI child kept the only status slot ($(wc -l < "$d/nm.log") spawns)"
+  xargs kill < "$d/leftover.pids" 2>/dev/null || true
+  pass "a process left by the CLI cannot pin a status slot"
+}
+
 # End to end through the executable: concurrent crew-state reads of one lane
 # share one run lookup.
 test_concurrent_crew_state_runs_share_one_status_spawn() {
@@ -6002,6 +6019,7 @@ test_dead_holder_releases_the_lock_immediately
 test_live_holder_past_the_readers_timeout_is_never_overtaken
 test_different_timeouts_share_one_lock
 test_leftover_cli_child_does_not_pin_the_lock
+test_leftover_cli_child_does_not_pin_a_status_slot
 test_concurrent_crew_state_runs_share_one_status_spawn
 test_cache_mtime_survives_gnu_stat_semantics
 test_library_sources_without_external_tools
