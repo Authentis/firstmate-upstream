@@ -20,7 +20,9 @@ new_home() {  # <name> -> sets H, with stub queue/cancel commands that log to $H
   printf '%s\n' '#!/usr/bin/env bash' 'echo "queue $*" >> "$H/calls"' > "$H/queue.sh"
   printf '%s\n' '#!/usr/bin/env bash' 'echo "cancel $*" >> "$H/calls"' > "$H/cancel.sh"
   chmod +x "$H/queue.sh" "$H/cancel.sh"
-  export H FLOOR_QUEUE_CMD="$H/queue.sh" FLOOR_CANCEL_CMD="$H/cancel.sh"
+  printf '%s\n' '#!/usr/bin/env bash' 'exit 0' > "$H/nohead.sh"   # forge lookup finds nothing: the pass keeps its captured head
+  chmod +x "$H/nohead.sh"
+  export H FLOOR_QUEUE_CMD="$H/queue.sh" FLOOR_CANCEL_CMD="$H/cancel.sh" FLOOR_HEAD_CMD="$H/nohead.sh"
   : > "$H/calls"
 }
 lone_pass() {  # <pr> <head> <secs>
@@ -172,6 +174,22 @@ BOSGAME_AUTOLAND_SOURCE_ONLY=1 bash -c '. "$1"; floor_sweep 7 "$2"' _ "$LANDER" 
 if [ -e "$H/state/.floor-q-7" ] && ! grep -q '^cancel' "$H/calls" && [ -d "$H/state/.floor-lock" ]; then
   pass "a sweep never mutates the queue records while another pass holds the lock"
 else fail "sweep lock: $(cat "$H/calls")"; fi
+
+new_home superseded-head-is-never-queued
+lone_pass 7 $HEAD1 12
+printf '%s\n' '#!/usr/bin/env bash' "echo $HEAD2" > "$H/head.sh"
+chmod +x "$H/head.sh"
+FLOOR_HEAD_CMD="$H/head.sh" run_floor 7 $HEAD1
+if [ "$(calls)" = 0 ] && [ ! -e "$H/state/.floor-q-7" ]; then pass "a head that moved while the pass waited for the lock is not queued"
+else fail "superseded: $(cat "$H/calls")"; fi
+
+new_home dead-holder-lock-is-recovered
+lone_pass 7 $HEAD1 12
+mkdir "$H/state/.floor-lock"
+echo 999999 > "$H/state/.floor-lock/pid"   # no such process
+run_floor 7 $HEAD1
+if [ "$(calls)" = 1 ] && [ ! -d "$H/state/.floor-lock" ]; then pass "a lock left by a dead pass is recovered and the queue proceeds"
+else fail "stale lock: $(cat "$H/calls")"; fi
 
 new_home cancel-ends-the-pass
 lone_pass 7 $HEAD1 12
