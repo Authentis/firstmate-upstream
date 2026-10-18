@@ -178,8 +178,19 @@ lock_acquire() {
 # shellcheck disable=SC2329 # invoked by the EXIT trap
 lock_release() {
   [ "$LOCKED" -eq 1 ] || return 0
-  # only a lock still carrying this invocation's token is ours to remove
-  [ "$(cat "$LOCK/pid" 2>/dev/null)" != "$$" ] || rm -r "$LOCK" 2>/dev/null
+  local guard="$LOCK.reclaim"
+  # Release takes the reclaim guard like a reclaimer, so a lock judged dead cannot
+  # be freed and retaken between a reclaimer's check and its removal. Only a lock
+  # still carrying this invocation's token is ours to remove; when the guard stays
+  # busy the lock is left, and the next invocation reclaims it as a dead owner's.
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    if mkdir "$guard" 2>/dev/null; then
+      [ "$(cat "$LOCK/pid" 2>/dev/null)" != "$$" ] || rm -r "$LOCK" 2>/dev/null
+      rmdir "$guard" 2>/dev/null
+      break
+    fi
+    sleep 0.05
+  done
   LOCKED=0
 }
 trap lock_release EXIT
