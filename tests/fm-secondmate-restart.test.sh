@@ -55,7 +55,7 @@ case "${1:-}" in
         [ -f "$ext" ] || continue
         id=${ext##*/}; id=${id%.pi-first-call.ts}
         grep -q '^kind=secondmate$' "$FM_STATE_OVERRIDE/$id.meta" || continue
-        node "$FM_ROOT_OVERRIDE/tests/assets/pi-first-call-fake.mjs" "$ext" || exit
+        node "$FM_TEST_PI_FIRST_CALL_FAKE" "$ext" || exit
       done
     fi
     shift
@@ -252,6 +252,7 @@ arm_answer() {
 run_restart() {  # <case-dir> <args...>
   local dir=$1; shift
   env PATH="$dir/fakebin:$PATH" FM_HOME="$dir/home" FM_FAKE_DIR="$dir/fake" \
+    FM_TEST_PI_FIRST_CALL_FAKE="$ROOT/tests/assets/pi-first-call-fake.mjs" \
     FM_SPAWN_NO_GUARD=1 FM_SECONDMATE_PERSIST_POLL=1 \
     FM_SECONDMATE_PERSIST_WAIT="${FM_TEST_PERSIST_WAIT:-30}" \
     FM_CONTROL_POLL=0.01 FM_CONTROL_EXIT_WAIT=0.05 FM_CONTROL_LAUNCH_WAIT=0.05 \

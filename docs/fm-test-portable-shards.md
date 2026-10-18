@@ -21,8 +21,10 @@ A failed script's duration is excluded even when its lane uploaded an artifact.
 In particular, run 36664663190's serial 5 finished in 22m15s with an assertion failure, not a timeout; treating that as a healthy whole-lane sample would hide the failure.
 Collect successful per-script measurements for every member before calculating a split.
 
-`tests/fm-supervision-host.test.sh` uses 789123 ms from run 36669175457, after the merged [host runtime fix](https://github.com/kunchenguid/firstmate/pull/6179), rather than its pre-fix maximum of 1065298 ms.
-That post-fix value has only one sample in this baseline, so further green runs must establish its variance.
+`tests/fm-supervision-host.test.sh` runs alone in its own portable serial shard.
+Its wait-bound cases took 1030 s and 1620 s on two hosted runs of the same head, so its older 789123 ms hint let the planner stack about 150 s of other scripts behind it until the 30-minute job limit cancelled the lane.
+Its hint is therefore the lane's 1200000 ms packing budget rather than a measured maximum: that weight exceeds every other shard's load, so the longest-processing-time planner never places another script beside it, and `tests/fm-test-run.test.sh` requires the isolation.
+Do not lower the hint toward a measured sample without keeping the script alone, and do not use the job timeout to absorb its variance.
 The native-Windows-only `tests/fm-pi-windows-shell-invocation.test.sh` retains its separate 5121 ms measurement from 2026-09-06T21:02Z instead of a portable capability skip.
 The session-start hint retains its pre-optimization maximum until CI measures the shorter fixture-only home-summary bound; do not discount a local speedup from CI packing weights.
 
