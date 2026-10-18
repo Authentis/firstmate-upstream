@@ -118,6 +118,14 @@ export default function (pi: ExtensionAPI) {
   // A tool result that arrived while a beat or another pull held the owner: it
   // runs once they finish, so the turn's last tool result is never left unchecked.
   let pullQueued = false;
+  // Callers of a queued pull wait for it: the awaited tool_result must not finish
+  // before the notice it triggered has been steered.
+  let queuedWaiters: Array<() => void> = [];
+  const releaseWaiters = (): Array<() => void> => {
+    const waiters = queuedWaiters;
+    queuedWaiters = [];
+    return waiters;
+  };
   // Bumped on every session start and shutdown: a pull that began in an earlier
   // session must not send a message or touch state in the one that replaced it.
   let generation = 0;
@@ -138,7 +146,9 @@ export default function (pi: ExtensionAPI) {
     if (process.env.FM_INBOX_PULL === "0") return;
     if (inFlight) {
       pullQueued = true;
-      return;
+      return new Promise<void>((resolve) => {
+        queuedWaiters.push(resolve);
+      });
     }
     const at = Date.now();
     // A notice still waiting to enter a request must not be steered twice; give
@@ -201,7 +211,8 @@ export default function (pi: ExtensionAPI) {
         inFlight = false;
         if (pullQueued) {
           pullQueued = false;
-          void pull();
+          const waiters = releaseWaiters();
+          void pull().finally(() => waiters.forEach((resolve) => resolve()));
         }
       }
     }
@@ -227,6 +238,7 @@ export default function (pi: ExtensionAPI) {
     awaiting = null;
     lastPeekAt = 0;
     pullQueued = false;
+    releaseWaiters().forEach((resolve) => resolve());
     inFlight = false;
     markLoaded();
     stopIdleTick();
@@ -248,7 +260,8 @@ export default function (pi: ExtensionAPI) {
         inFlight = false;
         if (pullQueued) {
           pullQueued = false;
-          void pull();
+          const waiters = releaseWaiters();
+          void pull().finally(() => waiters.forEach((resolve) => resolve()));
         }
       });
     };
@@ -284,6 +297,7 @@ export default function (pi: ExtensionAPI) {
   pi.on("session_shutdown", () => {
     generation += 1;
     stopped = true;
+    releaseWaiters().forEach((resolve) => resolve());
     stopIdleTick();
   });
 

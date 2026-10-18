@@ -20,9 +20,9 @@
 #           Throttled: a call less than FM_INBOX_PULL_MIN_INTERVAL
 #           seconds (default 30) after the previous scan prints nothing and
 #           scans nothing, but still refreshes the heartbeat.
-#   commit [--txn <id>]  Promote the pending marker to the cursor. The host calls it only
+#   commit --txn <id>  Promote the pending marker to the cursor. The host calls it only
 #           once the notice is inside a model request, naming the notice's
-#           transaction with --txn so a late commit cannot consume a newer
+#           transaction so a late or unbound commit cannot consume a newer
 #           set; without that call the
 #           same records are noticed again by the next unthrottled peek.
 #   beat    Refresh the heartbeat only (the extension's idle tick). With
@@ -396,7 +396,9 @@ cmd_peek() {
   fi
   [ -n "$txn" ] || txn="$NOW.$$"
   shown=$(printf '%s\n' "$rows" | wc -l | tr -d ' ')
-  if ! printf '%s\n' "$rows" | cut -f1,2 | write_atomic "$PULL/pending" || ! printf '%s\n' "$txn" | write_atomic "$PULL/pending-txn"; then
+  # The transaction id lands first: a stop between the two writes leaves the old
+  # set under a new id, so a late commit for the old id can only be ignored.
+  if ! printf '%s\n' "$txn" | write_atomic "$PULL/pending-txn" || ! printf '%s\n' "$rows" | cut -f1,2 | write_atomic "$PULL/pending"; then
     HB_ERROR="cannot write pending marker"
     log_line "$HB_ERROR"
     hb_write
@@ -422,8 +424,8 @@ cmd_commit() {
   fi
   # a commit names the transaction its notice carried; one for a set that has
   # since been replaced must not consume the newer set
-  if [ -n "$COMMIT_TXN" ] && [ "$(cat "$PULL/pending-txn" 2>/dev/null)" != "$COMMIT_TXN" ]; then
-    log_line "commit for transaction $COMMIT_TXN ignored: the open set is a different transaction"
+  if [ -z "$COMMIT_TXN" ] || [ "$(cat "$PULL/pending-txn" 2>/dev/null)" != "$COMMIT_TXN" ]; then
+    log_line "commit for transaction ${COMMIT_TXN:-(none)} ignored: the open set is a different transaction"
     hb_write
     return 0
   fi

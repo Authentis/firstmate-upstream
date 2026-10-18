@@ -48,6 +48,11 @@ pull() {
   [ ! -s "$H/stderr" ] || fail "fm-inbox-pull.sh $* wrote to stderr: $(cat "$H/stderr")"
 }
 
+# a commit names the transaction its notice carried, as the host does
+commit_txn() {
+  pull "$1" commit --txn "$(cat "$S/inbox-pull/pending-txn")"
+}
+
 hb() {  # <key> -> heartbeat value
   sed -n "s/^$1=//p" "$S/inbox-pull/heartbeat"
 }
@@ -85,7 +90,7 @@ test_two_phase_commit() {
   assert_absent "$S/inbox-pull/cursor" "peek moves no cursor"
   pull 1100 peek
   assert_equals 1 "$(count_notices "$out")" "without a commit the record is named again"
-  pull 1101 commit
+  commit_txn 1101
   assert_absent "$S/inbox-pull/pending" "commit consumes the pending marker"
   assert_present "$S/inbox-pull/cursor" "commit writes the cursor"
   assert_equals "$box" "$(hb last_notified_inbox)" "heartbeat names the inbox last notified"
@@ -97,7 +102,7 @@ test_two_phase_commit() {
   pull 1300 peek
   assert_equals 1 "$(count_notices "$out")" "only the new record is named"
   assert_contains "$out" "002.msg" "the new record is 002"
-  pull 1301 commit
+  commit_txn 1301
   pull 1400 peek
   assert_equals "" "$out" "both ids are now seen"
   pass "two-phase commit: no commit, no cursor; committed ids never repeat"
@@ -116,7 +121,7 @@ test_throttle_before_scan_and_heartbeat() {
   local box="$S/parent-route/chief.inbox"
   mk_msg "$box" 1
   pull 1000 peek
-  pull 1001 commit
+  commit_txn 1001
   mk_msg "$box" 2
   pull 1010 peek
   assert_equals "" "$out" "a peek inside the 30 s window prints nothing"
@@ -253,7 +258,7 @@ test_notice_cap() {
   pull 1000 peek
   assert_equals 20 "$(count_notices "$out")" "a notice names at most 20 records"
   assert_contains "$out" "+5 more waiting" "the remainder is counted"
-  pull 1001 commit
+  commit_txn 1001
   pull 1100 peek
   assert_equals 5 "$(count_notices "$out")" "the remaining records are named next"
   pass "notice cap: 20 per notice, the rest follow"
@@ -329,7 +334,7 @@ test_pending_is_an_open_transaction() {
   pull 1100 peek
   assert_contains "$out" "001.msg" "a second peek replays the open set"
   assert_not_contains "$out" "002.msg" "a second peek cannot swap the open set for newer records"
-  pull 1101 commit
+  commit_txn 1101
   pull 1200 peek
   assert_contains "$out" "002.msg" "the newer record is named once the first set is committed"
   assert_not_contains "$out" "001.msg" "the committed record is not named again"
@@ -349,6 +354,9 @@ test_commit_is_bound_to_its_transaction() {
   pull 1101 commit --txn "stale-$txn"
   assert_absent "$S/inbox-pull/cursor" "a commit for another transaction consumes nothing"
   assert_present "$S/inbox-pull/pending" "the open set survives a mismatched commit"
+  pull 1101 commit
+  assert_absent "$S/inbox-pull/cursor" "a commit naming no transaction consumes nothing"
+  assert_present "$S/inbox-pull/pending" "the open set survives an unbound commit"
   pull 1102 commit --txn "$txn"
   assert_present "$S/inbox-pull/cursor" "the matching commit promotes the set"
   pass "a commit is bound to the transaction its notice carried"
