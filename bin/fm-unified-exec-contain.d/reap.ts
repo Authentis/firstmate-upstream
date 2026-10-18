@@ -25,7 +25,8 @@ export interface ReapableSession {
 
 /** The firstmate watch timer: the process whose exit wakes the supervisor. */
 export function isWatchTimerCommand(command: string): boolean {
-	return /\bfm-watch(-arm)?\.sh\b/.test(command);
+	// The script must be what runs (optionally via a shell), not merely mentioned in a longer command.
+	return /^\s*(?:(?:\S*\/)?(?:bash|sh|zsh)\s+)?(?:\S*\/)?fm-watch[\w-]*\.sh(?:\s|$)/.test(command);
 }
 
 /** A session the store must never evict: the live watch timer, or one with an armed on_exit wake (live or exited). */

@@ -54,10 +54,21 @@ cat "$TMP_ROOT/dup-copy.ts" >>"$DUP/src/session-store.ts"
 "$SCRIPT" check "$DUP" >/dev/null 2>&1
 expect_code 2 "$?" "a duplicated patched block is not reported as patched"
 
+BARE=$(new_pkg bare)
+"$SCRIPT" apply "$BARE" >/dev/null
+printf '// extra\n\t\tctx.shuttingDown = true;\n' >>"$BARE/src/index.ts"
+"$SCRIPT" check "$BARE" >/dev/null 2>&1
+expect_code 2 "$?" "a bare unpatched anchor beside a patched one is refused"
+
 cat >"$TMP_ROOT/behavior.mjs" <<JS
 import assert from "node:assert/strict";
 import { SessionStore } from "$PKG/src/session-store.ts";
-import { createReaper, isPinnedSession } from "$PKG/src/reap.ts";
+import { createReaper, isPinnedSession, isWatchTimerCommand } from "$PKG/src/reap.ts";
+
+assert.ok(isWatchTimerCommand("bash /x/bin/fm-watch-arm.sh --restart"));
+assert.ok(isWatchTimerCommand("/x/bin/fm-watch.sh"));
+assert.ok(!isWatchTimerCommand("grep fm-watch.sh README.md; sleep 9999"), "a mention is not the timer");
+assert.ok(!isWatchTimerCommand("cat bin/fm-watch.sh"));
 
 let t = 1000;
 const mk = (id, o = {}) => ({
@@ -177,6 +188,26 @@ const exited = (id, o = {}) => mk(id, { hasExited: true, exitCode: 0, ...o });
   sessions.set(4, exited(4));
   await new Promise((r) => setTimeout(r, 1400));
   assert.equal(sessions.size, 3, "stopped timer reaps nothing");
+}
+// The patched entry point wires the reaper to the session lifecycle.
+{
+  process.env.PI_UNIFIED_EXEC_REAP_KEEP = "0";
+  process.env.PI_UNIFIED_EXEC_REAP_INTERVAL_MS = "1000";
+  process.env.PI_UNIFIED_EXEC_REAP_LOG = "$TMP_ROOT/wired-reap.log";
+  const mod = await import("$PKG/src/index.ts");
+  const handlers = {};
+  mod.default({ on: (name, fn) => (handlers[name] = fn) });
+  const ctx = mod.lastCtx;
+  ctx.store.insert(exited(1));
+  ctx.store.insert(mk(2));
+  await handlers.session_start({}, { ui: undefined });
+  await new Promise((r) => setTimeout(r, 1400));
+  assert.equal(ctx.store.get(1), undefined, "session_start armed the reaper");
+  assert.ok(ctx.store.get(2), "live session survived the reaper");
+  await handlers.session_shutdown();
+  ctx.store.insert(exited(3));
+  await new Promise((r) => setTimeout(r, 1400));
+  assert.ok(ctx.store.get(3), "session_shutdown stopped the reaper");
 }
 console.log("behavior ok");
 JS

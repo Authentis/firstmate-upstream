@@ -6,6 +6,10 @@ import { join } from "node:path";
 
 const MARK = "fm-unified-exec-contain";
 const [mode, pkg, reapSrc] = process.argv.slice(2);
+if (mode !== "apply" && mode !== "check") {
+  console.error("usage: node patch.mjs <apply|check> <package-dir> <reap.ts>");
+  process.exit(64);
+}
 const storePath = join(pkg, "src", "session-store.ts");
 const indexPath = join(pkg, "src", "index.ts");
 
@@ -75,7 +79,7 @@ for (const [file, edits] of Object.entries(EDITS)) {
       process.exit(2);
     }
     if (done === 1) {
-      if (!to.includes(from) && count(text, from) !== 0) {
+      if (count(text, from) !== (to.includes(from) ? 1 : 0)) {
         console.error(`old and patched text both present in ${file}: ${JSON.stringify(from.slice(0, 80))}`);
         process.exit(2);
       }
