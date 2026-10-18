@@ -124,3 +124,18 @@ assert_contains "$out" "would-retire lane-y" "contains: out would-retire lane-y"
 assert_absent "$H/teardown.log" "absent: H/teardown.log"
 assert_absent "$H/data/lane-retire.log" "absent: H/data/lane-retire.log"
 pass "dry run reports without acting"
+
+# dry run takes no bundle
+assert_absent "$H/data/bundles/lane-y.bundle" "dry run wrote a bundle"
+
+# log unwritable -> refused before any teardown
+H=$(new_home nolog)
+add_lane "$H" lane-l 1
+: > "$H/data/lane-retire.log"
+chmod 444 "$H/data/lane-retire.log"
+run_pass "$H" >/dev/null 2>&1 || fail "nolog pass exited non-zero"
+if [ -w "$H/data/lane-retire.log" ]; then :; else
+  assert_absent "$H/teardown.log" "retired without an audit record"
+  assert_present "$H/state/lane-l.meta" "record removed without an audit record"
+fi
+pass "unwritable log refuses retirement"

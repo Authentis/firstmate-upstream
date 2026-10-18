@@ -65,7 +65,6 @@ log() {  # <action> <id> <detail>
   printf '%s\n' "$line"
   [ "$DRY" = 1 ] && return 0
   mkdir -p "$(dirname "$LOG")" 2>/dev/null && printf '%s\n' "$line" >> "$LOG" 2>/dev/null
-  return 0
 }
 
 LOCK="$STATE/.lane-retire.lock"
@@ -110,6 +109,7 @@ bundle_lane() {  # <id> <worktree> <base>
   local id=$1 wt=$2 base=$3 n file
   n=$(git -C "$wt" rev-list --count "$base..HEAD" 2>/dev/null) || return 1
   [ "$n" -gt 0 ] || return 0
+  [ "$DRY" != 1 ] || return 0
   file="$BUNDLES/$id.bundle"
   mkdir -p "$BUNDLES" 2>/dev/null || return 1
   git -C "$wt" bundle create -q "$file.tmp" HEAD "^$base" >/dev/null 2>&1 \
@@ -117,6 +117,14 @@ bundle_lane() {  # <id> <worktree> <base>
     && mv -f "$file.tmp" "$file" 2>/dev/null \
     && git -C "$wt" bundle verify -q "$file" >/dev/null 2>&1 \
     || { rm -f "$file.tmp"; return 1; }
+}
+
+# Right before teardown: the record still names the lane that was inspected, the
+# worktree is still clean, and HEAD is still the commit the bundle covers.
+lane_unchanged() {  # <meta> <pr> <wt> <head>
+  [ -f "$1" ] && [ "$(fm_meta_get "$1" pr)" = "$2" ] && [ "$(fm_meta_get "$1" worktree)" = "$3" ] \
+    && [ "$(git -C "$3" rev-parse HEAD 2>/dev/null)" = "$4" ] \
+    && [ -z "$(git -C "$3" status --porcelain --untracked-files=all 2>/dev/null)" ]
 }
 
 retired=0 kept=0
@@ -161,6 +169,7 @@ for meta in "$STATE"/*.meta; do
     kept=$((kept + 1))
     continue
   fi
+  head0=$(git -C "$wt" rev-parse HEAD 2>/dev/null) || head0=
   if ! bundle_lane "$id" "$wt" "$base"; then
     log refuse "$id" "PR $st but no verified bundle of its commits"
     kept=$((kept + 1))
@@ -173,6 +182,16 @@ for meta in "$STATE"/*.meta; do
   fi
   args=("$id")
   [ "$st" != closed ] || args+=(--force)
+  if ! lane_unchanged "$meta" "$pr" "$wt" "$head0"; then
+    log refuse "$id" "PR $st but the lane changed after inspection; retry next pass"
+    kept=$((kept + 1))
+    continue
+  fi
+  if ! log intent "$id" "PR $st $pr"; then
+    echo "fm-lane-retire: cannot write $LOG; refusing to retire $id" >&2
+    kept=$((kept + 1))
+    continue
+  fi
   if "$TEARDOWN" "${args[@]}" >/dev/null 2>&1; then
     log retire "$id" "PR $st $pr"
     retired=$((retired + 1))
