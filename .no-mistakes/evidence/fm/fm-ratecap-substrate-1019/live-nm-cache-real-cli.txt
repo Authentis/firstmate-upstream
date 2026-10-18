@@ -1,0 +1,39 @@
+== cache hit: two crew-state style reads of `axi status` in the same TTL ==
+read 1 rc=1 spawns=1
+read 2 rc=1 spawns=2
+both reads returned the same output (2 lines)
+error: repo not initialized (run 'no-mistakes init' first)
+help[1]: Run `no-mistakes init` to set up the gate in this repository
+== TTL expiry: FM_NM_CACHE_TTL=2, wait 3s ==
+read 3 rc=1 spawns=3
+== no cache dir (teardown path) always reads live ==
+read 4 rc=1 spawns=4
+== kill switch FM_NM_LOWLOAD=0 bypasses cache and leaves update check on ==
+read 5 rc=1 spawns=5
+== slot cap: 6 distinct uncached reads at once, each CLI held 2s ==
+spawns=11
+--- spawn log ---
+1792360815.05 start pid=70239 update_check_off=1 args=axi status
+1792360815.19 end   pid=70239
+1792360815.35 start pid=71294 update_check_off=1 args=axi status
+1792360815.49 end   pid=71294
+1792360818.81 start pid=78680 update_check_off=1 args=axi status
+1792360818.92 end   pid=78680
+1792360818.97 start pid=79037 update_check_off=1 args=axi status
+1792360819.09 end   pid=79037
+1792360819.12 start pid=79482 update_check_off=unset args=axi status
+1792360819.23 end   pid=79482
+1792360819.43 start pid=80082 update_check_off=1 args=runs --limit 2
+1792360819.46 start pid=80122 update_check_off=1 args=runs --limit 3
+1792360821.69 end   pid=80082
+1792360821.71 end   pid=80122
+1792360821.77 start pid=84986 update_check_off=1 args=runs --limit 1
+1792360821.99 start pid=85481 update_check_off=1 args=runs --limit 6
+1792360824.01 end   pid=84986
+1792360824.19 start pid=90095 update_check_off=1 args=runs --limit 4
+1792360824.25 end   pid=85481
+1792360824.57 start pid=91184 update_check_off=1 args=runs --limit 5
+1792360826.43 end   pid=90095
+1792360826.78 end   pid=91184
+--- max concurrent CLI processes during slot-cap burst ---
+max_concurrent=2

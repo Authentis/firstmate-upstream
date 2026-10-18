@@ -1,0 +1,37 @@
+gh requests so far: 0
+$ fm-pr-read.sh kunchenguid firstmate 7501   # 1st call
+state=OPEN
+merged=false
+exit=0 gh requests: 1
+$ fm-pr-read.sh kunchenguid firstmate 7501   # 2nd call, same window
+state=OPEN
+merged=false
+exit=0 gh requests: 1
+$ 4 concurrent callers for PR 7500 (cold cache)
+   4 state=OPEN merged=false 
+gh requests: 2
+$ FM_PR_READ_NOW=now+301 fm-pr-read.sh kunchenguid firstmate 7501   # window expired
+state=OPEN
+merged=false
+exit=0 gh requests: 3
+$ fm-pr-read.sh Authentis no-such-repo-zz 1   # provider error, nothing cached
+exit=1 gh requests: 4
+global backoff file after non-rate-limit failure? no
+captured provider stderr:
+gh: Could not resolve to a Repository with the name 'Authentis/no-such-repo-zz'.
+$ fm-pr-read.sh Authentis no-such-repo-zz 1   # retry within window: no new request
+exit=1 gh requests: 4
+$ fm-pr-read.sh kunchenguid firstmate 7499   # a different PR still reads live
+state=OPEN
+merged=false
+exit=0 gh requests: 5
+--- lock-timeout: hold the machine-wide lock 8s, read 7501 with its window expired ---
+state=OPEN
+merged=false
+exit=0 waited=4s gh requests: 5
+--- gh request log ---
+01:59:31 gh api graphql
+01:59:32 gh api graphql
+01:59:33 gh api graphql
+01:59:33 gh api graphql
+01:59:34 gh api graphql

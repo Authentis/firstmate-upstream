@@ -1,0 +1,12 @@
+ok - one provider read per PR per window
+ok - concurrent callers serialize
+ok - secondary limit backs off globally and keeps the per-PR window
+ok - limit serves last good record
+ok - a non-rate-limit 403 spends only its own PR's window
+ok - lock timeout serves last good record
+tests/fm-pr-read-throttle.test.sh: line 137: 33574 Alarm clock: 14            PATH="$d/fakebin:$PATH" FM_FAKE_LOG="$d/log" FM_PR_READ_CACHE_DIR="$d/cache" FM_PR_READ_NOW=5000 perl -e 'alarm 2; exec @ARGV' "$READ" o r 11 > /dev/null 2>&1
+ok - a killed read still spends the window
+tests/fm-pr-read-throttle.test.sh: line 164: 43489 Killed: 9                  PATH="$d/fakebin:$PATH" FM_FAKE_LOG="$d/log" FM_PR_READ_CACHE_DIR="$d/cache" FM_PR_READ_NOW=6000 "$READ" o r 12 > /dev/null 2>&1
+ok - dead lock holder never blocks the next reader
+ok - one request per attempt, gh-axi only when gh is absent
+exit=0
