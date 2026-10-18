@@ -56,107 +56,96 @@ fm_nm_run_bounded() {  # <dir> <timeout_secs> <args...>
 # Shared, short-lived cache for a successful read-only no-mistakes call, keyed
 # by worktree and arguments, so a heartbeat over N lanes does not respawn the
 # CLI for each read. TTL FM_NM_CACHE_TTL seconds (default 120, 0 disables).
-# Every refresh holds the key's lock, re-checks freshness once it has it (a
-# racing writer may have just published), runs the call, and publishes
-# atomically.
 #
-# The lock is a time-slotted lease with no shared mutable name. Time is cut
-# into slots of LEASE = timeout + 5 seconds, and the lock for slot S is the
-# directory <key>.lock.S, taken with an exclusive mkdir at the moment of grant
-# (so its mtime is the start of the ownership interval, not of any queueing).
-# A slot name is only ever created while S is the current slot, so a past
-# name is never recreated; the creator alone removes its own directory, and a
-# delayed release can only name the directory it created. Exclusion across a
-# slot boundary: after its mkdir the taker re-reads the clock and backs off if
-# the slot has moved on (it may not have been granted in time), and it backs off
-# while the previous slot's lock is younger than the call's timeout (that
-# holder's bounded call may still be running). A lock older than that belongs
-# to a dead writer and simply stops mattering; directories from slots older
-# than the previous one are swept by age. A contender that cannot be granted
-# within its budget serves the previous (stale) entry, or returns failure when
-# there is none; a refresh never runs without the lock. Entries older than five
-# TTLs are pruned on publish. Only exit-0 non-empty output is cached, so an
-# error or timeout is never replayed. Prints the output and returns the call's
-# status.
+# One writer per key, by a kernel lock owned by the writing process. The lock
+# is an flock on <key>.lock taken by a small perl wrapper that then execs the
+# refresh with the lock descriptor inherited, so the lock is held through the
+# freshness re-check, the call, and the atomic publish, and the kernel drops it
+# the moment the holder exits or dies. There is no stale-lock takeover to race:
+# a dead holder releases itself, and a live but paused holder keeps the lock, so
+# its ownership can never be inferred from age or from a contender's timeout.
+# The lock identity is the key alone (worktree and arguments); a contender's
+# timeout only bounds its own wait. A contender that is not granted within
+# that wait serves the previous (stale) entry, or returns failure when there is
+# none; a refresh never runs without the lock. Lock files are never removed
+# (removing one a process holds or is opening would split its identity).
+# Entries older than five TTLs are pruned on publish. Only exit-0 non-empty
+# output is cached, so an error or timeout is never replayed. Prints the output
+# and returns the call's status.
+FM_NM_RUN_LIB_PATH=${BASH_SOURCE[0]}
+
 fm_nm_cache_mtime() {  # <path>
   stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null || echo 0
 }
 
-fm_nm_cache_now() {
-  printf '%s' "${FM_NM_CACHE_NOW:-$(date +%s)}"
+# Run <command...> holding an exclusive flock on <lockfile>, waiting up to
+# <wait_secs>. Exits 197 when the lock cannot be opened and 198 when it was not
+# granted in time; otherwise it becomes the command, which inherits the lock.
+fm_nm_cache_locked() {  # <lockfile> <wait_secs> <command...>
+  perl -e '
+    use Fcntl qw(:flock);
+    $^F = 255;
+    my ($path, $wait) = (shift, shift);
+    open(my $fh, ">>", $path) or exit 197;
+    my $end = time + $wait;
+    until (flock($fh, LOCK_EX | LOCK_NB)) {
+      exit 198 if time >= $end;
+      select(undef, undef, undef, 0.1);
+    }
+    exec @ARGV or exit 197;
+  ' "$@"
 }
 
-# Try to take the lock for <slot> (the slot the caller computed from the clock);
-# prints the lock directory on success.
-fm_nm_cache_try() {  # <lock_prefix> <slot> <timeout_secs>
-  local prefix=$1 slot=$2 timeout_secs=$3 lease now prev d
-  lease=$((timeout_secs + 5))
-  now=$(fm_nm_cache_now)
-  [ $((now / lease)) -eq "$slot" ] || return 1
-  mkdir "$prefix.$slot" 2>/dev/null || return 1
-  # Re-read the clock: a grant that crossed the boundary was not made in time.
-  now=$(fm_nm_cache_now)
-  prev="$prefix.$((slot - 1))"
-  if [ $((now / lease)) -ne "$slot" ] \
-    || { [ -d "$prev" ] && [ $((now - $(fm_nm_cache_mtime "$prev"))) -le $((timeout_secs + 1)) ]; }; then
-    rmdir "$prefix.$slot" 2>/dev/null
-    return 1
+# Child of the locked wrapper: re-check freshness, refresh, publish.
+fm_nm_cache_refresh() {  # <cache_dir> <file> <ttl> <dir> <timeout_secs> <args...>
+  local cache_dir=$1 file=$2 ttl=$3 dir=$4 timeout_secs=$5 now out rc=0
+  shift 5
+  now=$(date +%s)
+  if [ -s "$file" ] && [ $((now - $(fm_nm_cache_mtime "$file"))) -lt "$ttl" ]; then
+    cat "$file"
+    return 0
   fi
-  for d in "$prefix".*; do
-    [ -d "$d" ] || continue
-    [ "${d##*.}" -lt $((slot - 1)) ] 2>/dev/null || continue
-    [ $((now - $(fm_nm_cache_mtime "$d"))) -gt $((lease * 3)) ] && rmdir "$d" 2>/dev/null
-  done
-  printf '%s' "$prefix.$slot"
+  out=$(fm_nm_run_uncached "$dir" "$timeout_secs" "$@") || rc=$?
+  if [ "$rc" = 0 ] && [ -n "$out" ]; then
+    printf '%s\n' "$out" >"$file.$$" 2>/dev/null && mv -f "$file.$$" "$file" 2>/dev/null
+    find "$cache_dir" -name '*.out' -mmin +$((ttl * 5 / 60 + 1)) -exec rm -f {} + 2>/dev/null
+  fi
+  [ -z "$out" ] || printf '%s\n' "$out"
+  return "$rc"
 }
 
 fm_nm_cached_checked() {  # <cache_dir> <dir> <timeout_secs> <args...>
-  local cache_dir=$1 dir=$2 timeout_secs=$3 ttl key file prefix now out rc lock waited=0 lease
+  local cache_dir=$1 dir=$2 timeout_secs=$3 ttl key file now out rc=0
   shift 3
   ttl=${FM_NM_CACHE_TTL:-120}
   case "$ttl" in ''|*[!0-9]*) ttl=120 ;; esac
   if ! fm_nm_lowload_enabled || [ "$ttl" = 0 ] || [ -z "$cache_dir" ] \
-    || ! mkdir -p "$cache_dir" 2>/dev/null; then
+    || ! command -v perl >/dev/null 2>&1 || ! mkdir -p "$cache_dir" 2>/dev/null; then
     fm_nm_run_uncached "$dir" "$timeout_secs" "$@"
     return
   fi
-  lease=$((timeout_secs + 5))
   key=$(printf '%s\0' "$dir" "$@" | cksum | tr ' ' '-')
   file="$cache_dir/$key.out"
-  prefix="$cache_dir/$key.lock"
-  while :; do
-    now=$(date +%s)
-    if [ -s "$file" ] && [ $((now - $(fm_nm_cache_mtime "$file"))) -lt "$ttl" ]; then
-      cat "$file"
-      return 0
-    fi
-    if lock=$(fm_nm_cache_try "$prefix" $(($(fm_nm_cache_now) / lease)) "$timeout_secs"); then
-      now=$(date +%s)
-      if [ -s "$file" ] && [ $((now - $(fm_nm_cache_mtime "$file"))) -lt "$ttl" ]; then
-        rmdir "$lock" 2>/dev/null
-        cat "$file"
-        return 0
-      fi
-      rc=0
-      out=$(fm_nm_run_uncached "$dir" "$timeout_secs" "$@") || rc=$?
-      if [ "$rc" = 0 ] && [ -n "$out" ]; then
-        printf '%s\n' "$out" >"$file.$$" 2>/dev/null && mv -f "$file.$$" "$file" 2>/dev/null
-        find "$cache_dir" -name '*.out' -mmin +$((ttl * 5 / 60 + 1)) -exec rm -f {} + 2>/dev/null
-      fi
-      rmdir "$lock" 2>/dev/null
-      [ -z "$out" ] || printf '%s\n' "$out"
-      return "$rc"
-    fi
-    if [ "$waited" -ge $((lease + timeout_secs + 2)) ]; then
+  now=$(date +%s)
+  if [ -s "$file" ] && [ $((now - $(fm_nm_cache_mtime "$file"))) -lt "$ttl" ]; then
+    cat "$file"
+    return 0
+  fi
+  out=$(fm_nm_cache_locked "$cache_dir/$key.lock" $((timeout_secs + 3)) \
+    bash -c '. "$1"; shift; fm_nm_cache_refresh "$@"' _ "$FM_NM_RUN_LIB_PATH" \
+    "$cache_dir" "$file" "$ttl" "$dir" "$timeout_secs" "$@" 2>/dev/null) || rc=$?
+  case "$rc" in
+    197|198)
+      # Not granted: serve the previous entry, never refresh around the lock.
       if [ -s "$file" ]; then
         cat "$file"
         return 0
       fi
       return 1
-    fi
-    sleep 1
-    waited=$((waited + 1))
-  done
+      ;;
+  esac
+  [ -z "$out" ] || printf '%s\n' "$out"
+  return "$rc"
 }
 
 fm_nm_run_uncached() {  # <dir> <timeout_secs> <args...>
