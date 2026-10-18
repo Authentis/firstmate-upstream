@@ -222,7 +222,7 @@ The first recovery marks that generation announced, and later empty-queue arms l
 A non-successor watcher start checks the durable queue and recovery marker under their locks.
 If an announced-but-unacknowledged episode has an empty queue, the arm leaves that generation announced, making repeated empty-queue arms idempotent while a long-poll source is merely alive.
 If a durable row arrived after the announcement, the arm opens a fresh pending downtime generation so buried work still resurfaces once.
-While the wake fold is active, a recovery whose non-empty queue holds only folded rows leaves its generation announced without a re-arm wake, and the fold's bounded digest presents those rows instead ([`bin/fm-wake-fold-lib.sh`](../bin/fm-wake-fold-lib.sh)); an empty queue, any unfolded row, and a crashed predecessor's lock recovery re-arm as before.
+While the wake fold is active, a recovery whose non-empty queue holds only folded rows leaves its generation announced without a re-arm wake, and the fold's bounded digest or the watcher's own routine acknowledgement handles those rows instead ([`bin/fm-wake-fold-lib.sh`](../bin/fm-wake-fold-lib.sh), [`bin/fm-wake-classify-lib.sh`](../bin/fm-wake-classify-lib.sh)); an empty queue, any unfolded row, and a crashed predecessor's lock recovery re-arm as before.
 A Codex foreground checkpoint skips the announced-episode reopen transition, so an already-announced generation stays announced while the checkpoint continues its bounded supervision.
 Its ordinary arm check still announces a never-announced generation, including one made pending by a durable queue append during the checkpoint.
 

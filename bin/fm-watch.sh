@@ -96,10 +96,15 @@
 #   check: <script>: <out> authenticated check output, actionable unless the
 #                          wake fold queues a repeat of recent output without
 #                          waking (bin/fm-wake-fold-lib.sh)
+#   check: wake digest: <n> batched non-urgent wake row(s) queued, oldest <s>s
+#                          non-urgent rows (bin/fm-wake-classify-lib.sh) queued
+#                          without waking have waited FM_WAKE_BATCH_SECS; at most
+#                          one such digest per window
 #   check: wake digest: <n> folded routine wake row(s) queued, oldest <s>s
-#                          rows the wake fold queued without waking have
-#                          waited FM_WAKE_FOLD_DIGEST_SECS with no real wake
-#                          to carry them
+#                          only with config/wake-classify off: rows the wake fold
+#                          queued without waking have waited FM_WAKE_FOLD_DIGEST_SECS
+#                          with no real wake to carry them (with classification on
+#                          the watcher acknowledges those itself and raises nothing)
 #   check: process-event result captured: <keys>
 #                          a durably captured process-to-event result is queued
 #                          and has not been surfaced yet; reported once per
@@ -249,6 +254,10 @@ WATCH_HOME_EXISTED=0
 # owns the fold classes, record, digest, and config/wake-fold switch.
 # shellcheck source=bin/fm-wake-fold-lib.sh
 . "$SCRIPT_DIR/fm-wake-fold-lib.sh"
+# Which wakes may wait for a batched digest, and the wake-turn measurement log:
+# bin/fm-wake-classify-lib.sh owns the classes, batch record, and config/wake-classify.
+# shellcheck source=bin/fm-wake-classify-lib.sh
+. "$SCRIPT_DIR/fm-wake-classify-lib.sh"
 # Persistent-secondmate endpoint liveness: the shared probe/relaunch library is
 # the same one bin/fm-bootstrap.sh's session-start sweep drives, so ordinary
 # supervision recovers a positively dead or missing mate through the identical
@@ -438,6 +447,26 @@ away_record_present() { fm_afk_contract_away_present "$STATE"; }
 # record has made the daemon the triage owner (bin/fm-wake-fold-lib.sh).
 wake_fold_active() {
   ! afk_present && fm_wake_fold_enabled
+}
+
+# 0 when every named signal file is the .status log of a persistent secondmate
+# lane carrying only unmarked working:/paused: lines, so a wake with no captain-relevant event in it is progress the batched
+# digest may carry (bin/fm-wake-classify-lib.sh). A .turn-ended marker is never
+# progress: a bare turn-end may be a silent finish or a wedge, so it keeps waking.
+signal_files_all_secondmate() {  # <file> ...
+  local f id
+  [ "$#" -gt 0 ] || return 1
+  for f in "$@"; do
+    id=$(basename "$f")
+    case "$id" in
+      *.status) id=${id%.status} ;;
+      *) return 1 ;;
+    esac
+    [ "$(fm_meta_get "$STATE/$id.meta" kind 2>/dev/null)" = secondmate ] || return 1
+    # Only unmarked working:/paused: lines are progress; a note:, a corr= reply,
+    # or an unknown verb is parent-directed content that keeps waking.
+    _fm_secondmate_status_new_lines_routine "$f" "$STATE" || return 1
+  done
 }
 
 # Queue every signal on this home's own outbound parent channel as one folded
@@ -921,13 +950,25 @@ recorded_windows() {
 secondmate_oldest_queue_row() {  # <queue-path>
   local queue=$1
   [ -f "$queue" ] && [ ! -L "$queue" ] || return 0
-  awk -F '\t' '
+  # A row the mate batched on purpose (bin/fm-wake-classify-lib.sh) is not
+  # undrained work until its batch window plus one stall interval has passed.
+  awk -F '\t' -v batch="${queue%/*}/.wake-batch" -v now="$(date +%s)" \
+    -v grace="$(( ${FM_WAKE_BATCH_SECS:-900} + ${FM_SECONDMATE_WAKE_STALL_SECS:-180} ))" '
+    BEGIN {
+      while ((getline line < batch) > 0) {
+        split(line, bf, "\t")
+        if (bf[1] ~ /^[0-9]+$/) batched[bf[1]] = 1
+      }
+    }
     function declared_external_pause(kind, payload) {
       return kind == "stale" \
         && payload ~ /^stale: .*\(paused [0-9]+s, awaiting external - declared (pause,|paused\))/
     }
+    function young_batched(seq, epoch) {
+      return (seq in batched) && now - epoch < grace
+    }
     NF >= 5 && $1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+$/ \
-      && !declared_external_pause($3, $5) {
+      && !declared_external_pause($3, $5) && !young_batched($2, $1) {
       if (!found || $2 < seq) {
         found = 1
         seq = $2
@@ -2948,13 +2989,27 @@ resurface_after_downtime() {
   wake "check: rearm-resurface"
 }
 
-# Deliver folded rows that no real wake has carried within the digest bound.
-# The away daemon owns triage under an away or quiet record, and every queued
-# row reaches it through the ordinary re-arm there, so no digest is raised.
+# Deliver what no real wake has carried within its bound. Classification on:
+# aged routine folded rows are acknowledged here with no model turn, and only
+# batched non-urgent rows raise a digest wake (at most one per batch window).
+# Classification off: the fold digest wakes for routine rows exactly as before,
+# and an already-recorded batch is still delivered. The away daemon owns triage
+# under an away or quiet record, and every queued row reaches it through the
+# ordinary re-arm there, so no digest is raised.
 wake_fold_digest_tick() {
   local reason
   afk_present && return 0
-  reason=$(fm_wake_fold_digest_due) || return 0
+  if fm_wake_classify_enabled && fm_wake_fold_enabled; then
+    fm_wake_routine_ack_tick "$SCRIPT_DIR/fm-wake-drain.sh"
+    if [ "$FM_WAKE_ROUTINE_ACK_HELD" = 1 ]; then
+      reason=$(fm_wake_fold_digest_due) || reason=
+    fi
+  else
+    reason=$(fm_wake_fold_digest_due) || reason=
+  fi
+  if [ -z "${reason:-}" ]; then
+    reason=$(fm_wake_batch_digest_due) || return 0
+  fi
   wake "$reason"
 }
 
@@ -3210,6 +3265,13 @@ EOF
           fi
           fm_wake_fold_check_remember "$c" "$out" \
             || triage_log "check output could not be remembered for folding: $c"
+          if fm_wake_classify_enabled && fm_wake_check_batchable "$c" \
+            && [ "$(fm_wake_classify check "$c" "$out" batch-check)" = nonurgent ]; then
+            fm_wake_batch_append check "$c" "$reason" || exit 1
+            touch "$STATE/.last-check"
+            triage_log "batched non-urgent check output: $c"
+            continue
+          fi
         fi
         fm_wake_append check "$c" "$reason" || exit 1
         touch "$STATE/.last-check"
@@ -3299,11 +3361,25 @@ EOF
       :
     elif afk_present || [ "$signal_actionable" -eq 0 ] \
       || { ! signal_crew_provably_working $files && ! signal_turnend_panes_churned $files; }; then
+      # A secondmate lane whose new span holds no captain-relevant event is
+      # non-urgent progress: queue it durably and let the batched digest carry
+      # it. Everything else keeps waking at once.
+      signal_batched=0
+      # shellcheck disable=SC2086  # $files is a space-separated status-path list
+      if [ "$signal_actionable" -ne 0 ] && ! afk_present && wake_fold_active \
+        && fm_wake_classify_enabled && signal_files_all_secondmate $files \
+        && [ "$(fm_wake_classify signal "$files" "$reason" secondmate-progress)" = nonurgent ]; then
+        signal_batched=1
+      fi
       while IFS=$(printf '\t') read -r sf sig f; do
         [ -n "$sf" ] || continue
         file_reason="$reason"
         case " $FM_SIGNAL_NEEDS_DECISION_FILES " in *" $f "*) file_reason="needs-decision:$files" ;; esac
-        fm_wake_append signal "$(basename "$f")" "$file_reason" || exit 1
+        if [ "$signal_batched" -eq 1 ]; then
+          fm_wake_batch_append signal "$(basename "$f")" "$file_reason" || exit 1
+        else
+          fm_wake_append signal "$(basename "$f")" "$file_reason" || exit 1
+        fi
       done <<EOF
 $pending
 EOF
@@ -3331,7 +3407,11 @@ EOF
       done <<EOF
 $FM_SIGNAL_SURFACE_ENDPOINTS
 EOF
-      wake "$reason"
+      if [ "$signal_batched" -eq 1 ]; then
+        triage_log "batched non-urgent secondmate progress: $reason"
+      else
+        wake "$reason"
+      fi
     else
       while IFS=$(printf '\t') read -r sf sig f; do
         [ -n "$sf" ] || continue

@@ -689,7 +689,7 @@ With the local, gitignored `config/wake-fold` absent or containing `on`, the wat
 - A watcher re-arm whose whole queue is those folded rows.
 
 Folded rows ride along on the next real wake's drain.
-Once the oldest has waited `FM_WAKE_FOLD_DIGEST_SECS` (default `900`), the watcher raises one `check: wake digest` wake for them.
+Once the oldest has waited `FM_WAKE_FOLD_DIGEST_SECS` (default `900`), the watcher acknowledges them itself with no model turn (see [Pre-wake classification](#pre-wake-classification-configwake-classify)).
 `bin/fm-wake-drain.sh --ack-if-routine` acknowledges a presentation that holds only folded rows and nothing new in one call, printing a `ROUTINE:` line instead of `WAKE_ACK_REQUIRED`.
 Decisions, failures, done, blocked, needs-decision, captain notes, merge results, process-event results, stale panes, heartbeats, and every worker status line never fold, and an away or quiet record turns the fold off.
 
@@ -700,6 +700,24 @@ Any content other than `on` disables it, so a mistyped switch errs toward waking
 The next watcher cycle and drain then behave as they did before the fold existed, and rows folded earlier still arrive through the digest.
 The switch is home-local and is not inherited by secondmate homes, which fold by default once their code includes the fold.
 [`bin/fm-wake-fold-lib.sh`](../bin/fm-wake-fold-lib.sh) owns the fold classes, record, digest, and switch.
+
+## Pre-wake classification (config/wake-classify)
+
+The watcher sorts each wake before it decides whether the model runs, and a wake that carries nothing urgent no longer costs a turn.
+With the local, gitignored `config/wake-classify` absent or containing `on` (and the wake fold on, with no away or quiet record):
+
+- **Routine** rows, the folded class `--ack-if-routine` already acknowledges, are acknowledged by the watcher itself once they have waited `FM_WAKE_FOLD_DIGEST_SECS`, through `bin/fm-wake-drain.sh --ack-routine-folded`, which skips any row an actor has already been presented, and holds (leaving the fold digest to wake the model) while unread status lines, a captain outcome, a changed open-decision set or captain-call divergence, a handling episode in flight, or an unreadable recovery marker are pending.
+- **Non-urgent** rows are queued durably without waking: the new output of a reporter check the home opted in that names no urgency marker, and a secondmate's unmarked `working:` or `paused:` line with no captain-relevant event (a `note:`, a `corr=` reply, a bare turn-end, or any unknown verb still wakes at once).
+  The shipped `tool-updates` check is opted in; `config/wake-batch-checks` lists more check ids, one per line, with `#` comments.
+  A check is never batched merely for being a custom check, because mail, merge, and growth checks carry things the captain waits on.
+  The watcher raises one `check: wake digest` wake for them once the oldest has waited `FM_WAKE_BATCH_SECS` (default `900`), and never more than one inside that window.
+- **Urgent** rows wake exactly as before: every worker status line, secondmate events, stalls, heartbeats, merge and PR results, captain notes, process-event results, and an opted-in check's output naming failure, error, red, stall, blocked, captain, chief, or a decision (`FM_WAKE_URGENT_RE` replaces that pattern).
+
+`$STATE/.wake-turns.log` records every wake that starts a model turn, every routine row the watcher acknowledged, and every batched row, one tab-separated line each.
+`bin/fm-wake-drain.sh` prints a `WAKE TURN STATS (last 6h)` line on each non-empty presentation, so wake-started turns per six hours can be read from the session file.
+Write `off` to `config/wake-classify` to restore the previous behavior: routine rows wake through the fold digest and nothing is batched, while a batch already recorded is still delivered.
+The switch is home-local and is not inherited by secondmate homes.
+[`bin/fm-wake-classify-lib.sh`](../bin/fm-wake-classify-lib.sh) owns the classes, batch record, measurement log, and switch.
 
 ## Gate defaults (.no-mistakes.yaml)
 
