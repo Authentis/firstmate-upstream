@@ -221,7 +221,7 @@ if [ "$rc" != 0 ]; then fail_delivery "transport rc=$rc"; fi
 if [ -z "$(tr -d '[:space:]' < "$D/reply-$seq.txt")" ]; then fail_delivery "empty transport reply"; fi
 # chief 4906: a busy bosgame answers "fm-ring: doorbell refused ... the steer stays durably recorded at .../N.msg".
 # That steer IS delivered (recorded as N.msg; the doorbell only rings later): it counts as delivered and is never resent.
-rec=$(sed -nE 's/.*doorbell refused.*durably recorded at [^ ]*\/([0-9]+)\.msg.*/\1/p' "$D/reply-$seq.txt" | head -1)
+rec=$(sed -nE 's/.*doorbell refused.*steer stays durably recorded at [^ ]*\/([0-9]+)\.msg.*/\1/p' "$D/reply-$seq.txt" | head -1)
 if [ -n "$rec" ]; then
   printf '%s\n' "$rec" > "$D/delivered.rec"
 else

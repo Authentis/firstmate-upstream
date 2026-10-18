@@ -76,7 +76,7 @@ class LeafSender(tbb.Harness):
         self.assertFalse(os.path.exists(self.delivered_rec()))
 
     def test_negative_cases_are_not_delivered(self):
-        for body in ("Connection closed by remote host\nsee log: durably recorded at /tmp/x/99.msg", "sent but fm-ring: doorbell refused", "message not sent",
+        for body in ("fm-ring: doorbell refused; error: steer was not durably recorded at /tmp/0042.msg", "Connection closed by remote host\nsee log: durably recorded at /tmp/x/99.msg", "sent but fm-ring: doorbell refused", "message not sent",
                      "Connection closed by remote host", "replied error: rejected"):
             with self.subTest(body=body):
                 self.stub_reply(body)
@@ -136,7 +136,7 @@ class PickupSender(unittest.TestCase):
         self.assertRegex(r.stdout, ANCHORED)
 
     def test_negative_cases_are_not_delivered(self):
-        for body in ("Connection closed by remote host\nsee log: durably recorded at /tmp/x/99.msg", "message not sent", "Connection closed by remote host",
+        for body in ("fm-ring: doorbell refused; error: steer was not durably recorded at /tmp/0042.msg", "Connection closed by remote host\nsee log: durably recorded at /tmp/x/99.msg", "message not sent", "Connection closed by remote host",
                      "sent but fm-ring: doorbell refused", "replied error: rejected"):
             with self.subTest(body=body):
                 self.reply(body)

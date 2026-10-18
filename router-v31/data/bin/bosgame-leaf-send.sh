@@ -167,7 +167,7 @@ fi
 # verifier may observe this delivery, but it must never replace or block it.
 # chief 4906: a busy bosgame answers "fm-ring: doorbell refused ... the steer stays durably recorded at .../N.msg". That steer IS delivered
 # (recorded as N.msg; the doorbell only rings later), so it counts as delivered and is never resent (marker $D/delivered.rec).
-rec=$(printf '%s\n' "$send_out" | sed -nE 's/.*doorbell refused.*durably recorded at [^ ]*\/([0-9]+)\.msg.*/\1/p' | head -1)
+rec=$(printf '%s\n' "$send_out" | sed -nE 's/.*doorbell refused.*steer stays durably recorded at [^ ]*\/([0-9]+)\.msg.*/\1/p' | head -1)
 if [ -n "$rec" ]; then
   printf '%s\n' "$rec" > "$D/delivered.rec"
   echo "bosgame-leaf-send: bosgame recorded the steer durably as $rec.msg (doorbell busy); counting it delivered"
