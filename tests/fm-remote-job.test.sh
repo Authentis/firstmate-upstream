@@ -2043,4 +2043,28 @@ pass "a queued record is picked up after the worker entered its idle-scan skip"
 pass "a job cancelled after the idle-scan skip is still finalized"
 quiet_stop "$IDLECPU_WORKER"
 
+# Race regression: a record published while a scan is enumerating must never be
+# skipped by an idle mark armed from that scan. 300 done records make each scan
+# long, and staging at steadily shifting offsets sweeps publication across the
+# scan phase; a lost wakeup leaves the job unclaimed and the wait times out.
+IDLECPU_STATE3="$TMP_ROOT/idlecpu3-state"
+mkdir -p "$IDLECPU_STATE3/jobs"
+chmod 700 "$IDLECPU_STATE3" "$IDLECPU_STATE3/jobs"
+for IDLECPU_I in $(seq 1 300); do
+  mkdir -m 700 "$IDLECPU_STATE3/jobs/job-idlecpu$IDLECPU_I"
+  printf 'done\n' > "$IDLECPU_STATE3/jobs/job-idlecpu$IDLECPU_I/state"
+done
+HOME="$IDLECPU_HOME" FM_ROOT_OVERRIDE="$REMOTE_ROOT" FM_REMOTE_JOB_STATE_ROOT="$IDLECPU_STATE3" \
+  FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux \
+  "$REMOTE_ROOT/bin/fm-remote-job-worker.sh" --serve > "$TMP_ROOT/idlecpu3-worker.out" 2> "$TMP_ROOT/idlecpu3-worker.err" &
+IDLECPU_WORKER=$!
+quiet_wait_ready "$IDLECPU_STATE3" idle-race
+for IDLECPU_I in $(seq 1 12); do
+  sleep "0.$(( (IDLECPU_I * 37) % 100 + 10 ))"
+  rm -f "$IDLECPU_TOUCHED"
+  quiet_stage_completes "$IDLECPU_STATE3" "$IDLECPU_HOME" "$IDLECPU_TOUCHED" idle-race
+done
+quiet_stop "$IDLECPU_WORKER"
+pass "jobs staged at shifting offsets against long idle scans are never starved"
+
 echo "ALL TESTS PASSED"
