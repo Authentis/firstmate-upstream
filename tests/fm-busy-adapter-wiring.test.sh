@@ -438,7 +438,12 @@ seed_secondmate_home() { # <home> <id> [home Stop guard]
 
 spawn_secondmate_harness() { # <case-dir> <id> <harness> [extra fake tools...]
   local case_dir=$1 id=$2 harness=$3 primary sm fakebin
+  local -a model_args=()
   shift 3
+  # A Pi secondmate must name its model, whether the launch is canonical or raw.
+  case "$harness" in
+    pi|pi-signed|"pi "*|"pi-signed "*) model_args=(--model openai/gpt-6.1-sol) ;;
+  esac
   primary="$case_dir/primary"
   sm="$case_dir/sm"
   mkdir -p "$case_dir"
@@ -451,7 +456,7 @@ spawn_secondmate_harness() { # <case-dir> <id> <harness> [extra fake tools...]
   fi
   : > "$case_dir/launch.log"
   FM_BACKEND=tmux FM_FAKE_LAUNCH_LOG="$case_dir/launch.log" \
-    fm_test_run_spawn "$primary" "$sm" "$fakebin" "$id" "$sm" "$harness" --secondmate
+    fm_test_run_spawn "$primary" "$sm" "$fakebin" "$id" "$sm" "$harness" --secondmate ${model_args[@]+"${model_args[@]}"}
 }
 
 secondmate_stall_watch() { # <primary> <id> <out> [seconds]
@@ -481,7 +486,7 @@ case "\${1:-}" in
     esac
     ;;
   capture-pane) printf 'working\n' ;;
-  display-message) printf '0\n' ;;
+  display-message) printf '/dev/fm-fake-no-such-tty\n' ;;
   *) exit 0 ;;
 esac
 SH

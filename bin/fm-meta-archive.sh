@@ -140,7 +140,7 @@ eligible() {
     response=$(fm_run_timed 20 gh-axi api "repos/$FM_PR_PATH/pulls/$FM_PR_NUMBER" --full --jq '{url: .html_url, state: .state, merged: .merged, closed_at: .closed_at}') || response=
     parsed=$(printf '%s' "$response" | python3 "$HELPER" github-response "$FM_PR_URL" 2>/dev/null) || parsed=
     if [ -n "$parsed" ]; then
-      REASON=terminal-github-pr
+      REASON='terminal-github-pr'
       EVIDENCE=$parsed
     fi
   fi

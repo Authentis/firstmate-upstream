@@ -120,6 +120,17 @@ case "${1:-}" in
     ;;
   has-session|new-session|new-window|kill-window|set-window-option) exit 0 ;;
   send-keys)
+    # A Pi secondmate spawn waits for its first model call. When a suite names
+    # the fake, the launch's Enter runs the generated first-call hook against
+    # it, as a real Pi session would, so the spawn's readiness wait is met.
+    if [ "${!#}" = Enter ] && [ -n "${FM_TEST_PI_FIRST_CALL_FAKE:-}" ]; then
+      for ext in "${FM_STATE_OVERRIDE:-/nonexistent}"/*.pi-first-call.ts; do
+        [ -f "$ext" ] || continue
+        id=${ext##*/}; id=${id%.pi-first-call.ts}
+        grep -q '^kind=secondmate$' "$FM_STATE_OVERRIDE/$id.meta" 2>/dev/null || continue
+        node "$FM_TEST_PI_FIRST_CALL_FAKE" "$ext" || exit
+      done
+    fi
     if [ -n "${FM_FAKE_LAUNCH_LOG:-}" ]; then
       prev=
       for a in "$@"; do
@@ -333,6 +344,7 @@ fm_test_run_spawn() {
     FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
     FM_PROJECTS_OVERRIDE="$home/projects" FM_CONFIG_OVERRIDE="$home/config" \
     FM_SPAWN_NO_GUARD=1 FM_FAKE_PANE_PATH="$pane" TMUX="${TMUX:-fake,1,0}" \
+    FM_TEST_PI_FIRST_CALL_FAKE="$ROOT/tests/assets/pi-first-call-fake.mjs" \
     PATH="$fakebin:$PATH" \
     "$ROOT/bin/fm-spawn.sh" "$@" 2>&1
 }
