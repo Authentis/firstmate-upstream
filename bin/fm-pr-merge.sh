@@ -509,15 +509,24 @@ META="$STATE/$ID.meta"
 . "$SCRIPT_DIR/fm-lease-lib.sh"
 fm_lease_forbid_branch "PR merge (fm-pr-merge)" --away-relocated
 
-if [ ! -f "$META" ] || [ -L "$META" ]; then
+# A retired lane or hand-made branch has no task metadata at all; only a wholly
+# absent record takes that path (bin/fm-pr-check.sh resolves the forge head for
+# it), every other unusable record still refuses. Every gate below is unchanged.
+META_ABSENT=0
+if [ ! -e "$META" ] && [ ! -L "$META" ]; then
+  META_ABSENT=1
+elif [ ! -f "$META" ] || [ -L "$META" ]; then
   echo "error: task metadata is unavailable" >&2
   exit 1
 fi
-if ! fm_backlog_meta_spawn_gen_optional "$META" "$STATE"; then
-  echo "error: PR merge refused: $FM_BACKLOG_TRANSITION_ERROR" >&2
-  exit 1
+MERGE_EXPECTED_SPAWN_GEN=
+if [ "$META_ABSENT" != 1 ]; then
+  if ! fm_backlog_meta_spawn_gen_optional "$META" "$STATE"; then
+    echo "error: PR merge refused: $FM_BACKLOG_TRANSITION_ERROR" >&2
+    exit 1
+  fi
+  MERGE_EXPECTED_SPAWN_GEN=$FM_BACKLOG_META_SPAWN_GEN
 fi
-MERGE_EXPECTED_SPAWN_GEN=$FM_BACKLOG_META_SPAWN_GEN
 
 MERGE_CONTROL_LOCK=
 MERGE_META_LOCK=
@@ -529,13 +538,20 @@ merge_control_cleanup() {
 trap merge_control_cleanup EXIT
 MERGE_CONTROL_LOCK="$STATE/.control-$ID.lock"
 fm_lock_acquire_wait "$MERGE_CONTROL_LOCK"
-if ! fm_backlog_meta_spawn_gen_optional "$META" "$STATE"; then
-  echo "error: task $ID changed while waiting to merge; refusing: $FM_BACKLOG_TRANSITION_ERROR" >&2
-  exit 1
-fi
-if [ "$FM_BACKLOG_META_SPAWN_GEN" != "$MERGE_EXPECTED_SPAWN_GEN" ]; then
-  echo "error: task $ID changed incarnation while waiting to merge; refusing" >&2
-  exit 1
+if [ "$META_ABSENT" = 1 ]; then
+  if [ -e "$META" ] || [ -L "$META" ]; then
+    echo "error: task $ID changed while waiting to merge; refusing" >&2
+    exit 1
+  fi
+else
+  if ! fm_backlog_meta_spawn_gen_optional "$META" "$STATE"; then
+    echo "error: task $ID changed while waiting to merge; refusing: $FM_BACKLOG_TRANSITION_ERROR" >&2
+    exit 1
+  fi
+  if [ "$FM_BACKLOG_META_SPAWN_GEN" != "$MERGE_EXPECTED_SPAWN_GEN" ]; then
+    echo "error: task $ID changed incarnation while waiting to merge; refusing" >&2
+    exit 1
+  fi
 fi
 
 # Reading the merge request state needs both tools. Report them together and
@@ -588,7 +604,7 @@ fi
 # The recorded head is read before bin/fm-pr-check.sh rewrites the metadata,
 # because that script re-records pr= and drops a pr_head= it cannot resolve.
 RECORDED_HEAD=
-if [ "$PROVIDER" = gitlab ] || [ "$PROVIDER" = forgejo ]; then
+if [ "$META_ABSENT" != 1 ] && { [ "$PROVIDER" = gitlab ] || [ "$PROVIDER" = forgejo ]; }; then
   RECORDED_HEAD=$(grep '^pr_head=' "$META" | tail -1 | cut -d= -f2- || true)
 fi
 
@@ -596,10 +612,70 @@ fi
 # parsing. Sets FM_MERGE_RECEIPT_REFUSAL to the refusal text, empty when the
 # merge may proceed.
 FM_MERGE_RECEIPT_REFUSAL=
+# True only for the retired-lane path, re-read live: a task record that
+# appeared after the first absence check ends the merge instead of letting it
+# keep the retired-lane exemptions for a real lane.
+meta_absent_now() {
+  [ "$META_ABSENT" = 1 ] || return 1
+  if [ -e "$META" ] || [ -L "$META" ]; then
+    echo "error: task $ID gained a task record during the merge; refusing" >&2
+    exit 1
+  fi
+}
+
+# 0 when the pull request changes no code: every path is a *.md file with none
+# under src/, core/, tests/, config/ or scripts/, or the only path is
+# .beads/issues.jsonl. The list is read in one call with its head and total
+# count, and counts only when that head is <live_head> and the list is complete
+# (gh returns at most 100 files); anything unreadable, empty, or partial is not
+# no-code.
+pr_changes_no_code() {  # <live_head>
+  local live_head=$1 out head total path n=0 beads=0
+  [ "$PROVIDER" = github ] || return 1
+  out=$(gh pr view "$URL" --json files,changedFiles,headRefOid \
+    --jq '.headRefOid, .changedFiles, (.files[].path)' 2>/dev/null) || return 1
+  { IFS= read -r head && IFS= read -r total; } <<EOL || return 1
+$out
+EOL
+  [ -z "$live_head" ] || [ "$head" = "$live_head" ] || return 1
+  while IFS= read -r path; do
+    [ -n "$path" ] || continue
+    n=$((n + 1))
+    case "$path" in
+      src/*|core/*|tests/*|config/*|scripts/*) return 1 ;;
+      *.md) ;;
+      .beads/issues.jsonl) beads=1 ;;
+      *) return 1 ;;
+    esac
+  done <<EOL
+$(printf '%s\n' "$out" | sed 1,2d)
+EOL
+  [ "$n" -gt 0 ] && [ "$total" = "$n" ] || return 1
+  [ "$beads" = 0 ] || [ "$n" -eq 1 ]
+}
+
+# Only a no-code pull request may proceed without a task record; any other PR
+# keeps the task-metadata requirement. An empty <live_head> classifies the head
+# the forge reports now, and the receipt gate below reclassifies at the
+# verified head.
+if [ "$META_ABSENT" = 1 ] && ! pr_changes_no_code ""; then
+  echo "error: task metadata is unavailable" >&2
+  exit 1
+fi
+
 merge_receipt_gate() {
   local live_head=$1 cfg line scope dir extra data='' path_lc receipt waiver
   local rec_head='' verdict='' token hex waiver_seen=''
   FM_MERGE_RECEIPT_REFUSAL=
+  # With no task record the PR must be no-code at the verified head, whatever
+  # the receipt configuration says; such a PR then carries no review floor.
+  if meta_absent_now; then
+    if pr_changes_no_code "$live_head"; then
+      return 0
+    fi
+    FM_MERGE_RECEIPT_REFUSAL="  - task metadata is unavailable and the pull request is not a no-code change at head $live_head"
+    return 0
+  fi
   cfg="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}/merge-receipt-required"
   { [ -e "$cfg" ] || [ -L "$cfg" ]; } || return 0
   if [ ! -f "$cfg" ] || [ ! -r "$cfg" ]; then
@@ -1496,6 +1572,7 @@ record_pr_metadata() {
   if ! FM_PR_CHECK_MERGE=1 "$SCRIPT_DIR/fm-pr-check.sh" "$ID" "$URL"; then
     return 1
   fi
+  meta_absent_now && return 0
   grep -qxF "pr=$URL" "$META" || {
     echo "error: PR metadata recording failed" >&2
     return 1
@@ -1562,6 +1639,9 @@ require_current_away_authority() {
     fi
   fi
   fm_lease_forbid_branch "PR merge (fm-pr-merge)" --away-relocated
+  # Last absence read before the forge is handed the merge: a record that
+  # appeared since the receipt gate ended the retired-lane path.
+  meta_absent_now || :
   resolve_merge_authority || return 1
   if [ "$FM_PR_AWAY_POSTURE" = true ] && [ "${#ALLOW_RED[@]}" -gt 0 ]; then
     echo "error: --allow-red is attended-only; while the away-posture record exists the green check is absolute" >&2
@@ -1575,6 +1655,7 @@ require_current_away_authority() {
 
 persist_accepted_merge_authority() {
   local status=0
+  meta_absent_now && return 0
   MERGE_META_LOCK=$(fm_meta_lock_path "$META") || return 1
   fm_lock_acquire_wait "$MERGE_META_LOCK" || return 1
   fm_merge_authority_persist "$STATE" "$ID" "$META" \
@@ -1614,6 +1695,7 @@ refuse_github_queue_while_away() {
 
 require_recorded_pr_identity() {
   local existing
+  meta_absent_now && return 0
   existing=$(grep '^pr=' "$META" | tail -1 | cut -d= -f2- || true)
   [ -n "$existing" ] || return 0
   [ "$existing" = "$URL" ] && return 0
