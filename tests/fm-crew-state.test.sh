@@ -1657,16 +1657,17 @@ test_live_holder_past_the_readers_timeout_is_never_overtaken() {
   pid=$(hold_lock "$lockfile" 20)
   wait_for_lock_held "$lockfile"
   : > "$d/nm.log"
-  out=$(cache_read "$d" CACHE_T=1)
+  out=$(cache_read "$d" CACHE_T=1) || rc=$?
   [ ! -s "$d/nm.log" ] || fail "a reader spawned around a live holder"
-  [ -n "$out" ] || fail "reader did not serve the stale entry"
+  [ "$rc" -ne 0 ] && [ -z "$out" ] || fail "an expired entry was replayed past the TTL"
+  rc=0
   rm -f "$d"/cache/*.out
   out=$(cache_read "$d" CACHE_T=1) || rc=$?
   [ "$rc" -ne 0 ] && [ -z "$out" ] || fail "no entry and a live holder did not fail cleanly"
   [ ! -s "$d/nm.log" ] || fail "a reader spawned around a live holder with no stale entry"
   kill "$pid"; wait "$pid" 2>/dev/null
   rm -f "$lockfile.unused"
-  pass "a live holder past the reader's timeout is never overtaken"
+  pass "a live holder past the reader's timeout is never overtaken, nor an expired entry replayed"
 }
 
 # Sol's same-key-different-timeouts: the lock identity is the key alone, so a
