@@ -70,7 +70,11 @@ fm_nm_run_bounded() {  # <dir> <timeout_secs> <args...>
 # holder may have just published one), otherwise it returns failure, so an
 # expired entry is never replayed; a refresh never runs without the lock. Lock files are never removed
 # (removing one a process holds or is opening would split its identity).
-# Entries older than five TTLs are pruned on publish. Only exit-0 non-empty
+# A worktree's entries form one generation that expires as a whole TTL
+# seconds after it starts, and publishing a key the generation lacks starts a
+# new one, so the reads crew-state cross-checks against each other never stay
+# answers from different moments past one invocation. Entries older than five
+# TTLs are pruned on publish. Only exit-0 non-empty
 # output is cached, so an error or timeout is never replayed. Prints the output
 # and returns the call's status.
 case ${BASH_SOURCE[0]} in
@@ -135,12 +139,35 @@ fm_nm_run_slotted() {  # <cache_dir> <dir> <timeout_secs> <args...>
   done
 }
 
+# 0 if <file> was published within generation <gen> and <gen> is younger than
+# <ttl> seconds.
+fm_nm_cache_fresh() {  # <file> <gen> <ttl>
+  local gen_at
+  [ -s "$1" ] || return 1
+  gen_at=$(fm_nm_cache_mtime "$2")
+  [ $(($(date +%s) - gen_at)) -lt "$3" ] && [ "$(fm_nm_cache_mtime "$1")" -ge "$gen_at" ]
+}
+
+fm_nm_cache_key() {  # <words...>
+  local key
+  # A collision-resistant digest keeps two lanes from ever sharing an entry;
+  # cksum is only the fallback where neither SHA tool exists.
+  if command -v shasum >/dev/null 2>&1; then
+    key=$(printf '%s\0' "$@" | shasum -a 256)
+    printf '%s' "${key:0:40}"
+  elif command -v sha256sum >/dev/null 2>&1; then
+    key=$(printf '%s\0' "$@" | sha256sum)
+    printf '%s' "${key:0:40}"
+  else
+    printf '%s\0' "$@" | cksum | tr ' ' '-'
+  fi
+}
+
 # Child of the locked wrapper: re-check freshness, refresh, publish.
-fm_nm_cache_refresh() {  # <cache_dir> <file> <ttl> <dir> <timeout_secs> <args...>
-  local cache_dir=$1 file=$2 ttl=$3 dir=$4 timeout_secs=$5 now out rc=0
-  shift 5
-  now=$(date +%s)
-  if [ -s "$file" ] && [ $((now - $(fm_nm_cache_mtime "$file"))) -lt "$ttl" ]; then
+fm_nm_cache_refresh() {  # <cache_dir> <file> <gen> <ttl> <dir> <timeout_secs> <args...>
+  local cache_dir=$1 file=$2 gen=$3 ttl=$4 dir=$5 timeout_secs=$6 out rc=0
+  shift 6
+  if fm_nm_cache_fresh "$file" "$gen" "$ttl"; then
     cat "$file"
     return 0
   fi
@@ -152,6 +179,9 @@ fm_nm_cache_refresh() {  # <cache_dir> <file> <ttl> <dir> <timeout_secs> <args..
     fm_nm_run_slotted "$cache_dir" "$dir" "$timeout_secs" "$@"
   ) || rc=$?
   if [ "$rc" = 0 ] && [ -n "$out" ]; then
+    if [ ! -s "$file" ] || [ $(($(date +%s) - $(fm_nm_cache_mtime "$gen"))) -ge "$ttl" ]; then
+      touch "$gen" 2>/dev/null
+    fi
     printf '%s\n' "$out" >"$file.$$" 2>/dev/null && mv -f "$file.$$" "$file" 2>/dev/null
     find "$cache_dir" -name '*.out' -mmin +$((ttl * 5 / 60 + 1)) -exec rm -f {} + 2>/dev/null
   fi
@@ -163,7 +193,7 @@ fm_nm_cache_refresh() {  # <cache_dir> <file> <ttl> <dir> <timeout_secs> <args..
 }
 
 fm_nm_cached_checked() {  # <cache_dir> <dir> <timeout_secs> <args...>
-  local cache_dir=$1 dir=$2 timeout_secs=$3 ttl key file now out rc=0
+  local cache_dir=$1 dir=$2 timeout_secs=$3 ttl key file gen out rc=0
   shift 3
   ttl=${FM_NM_CACHE_TTL:-120}
   case "$ttl" in ''|*[!0-9]*) ttl=120 ;; esac
@@ -172,34 +202,23 @@ fm_nm_cached_checked() {  # <cache_dir> <dir> <timeout_secs> <args...>
     fm_nm_run_uncached "$dir" "$timeout_secs" "$@"
     return
   fi
-  # A collision-resistant digest keeps two lanes from ever sharing an entry;
-  # cksum is only the fallback where neither SHA tool exists.
-  if command -v shasum >/dev/null 2>&1; then
-    key=$(printf '%s\0' "$dir" "$@" | shasum -a 256)
-    key=${key:0:40}
-  elif command -v sha256sum >/dev/null 2>&1; then
-    key=$(printf '%s\0' "$dir" "$@" | sha256sum)
-    key=${key:0:40}
-  else
-    key=$(printf '%s\0' "$dir" "$@" | cksum | tr ' ' '-')
-  fi
+  key=$(fm_nm_cache_key "$dir" "$@")
   file="$cache_dir/$key.out"
-  now=$(date +%s)
-  if [ -s "$file" ] && [ $((now - $(fm_nm_cache_mtime "$file"))) -lt "$ttl" ]; then
+  gen="$cache_dir/$(fm_nm_cache_key "$dir").gen"
+  if fm_nm_cache_fresh "$file" "$gen" "$ttl"; then
     cat "$file"
     return 0
   fi
   # shellcheck disable=SC2016  # The inner script expands after bash -c receives positional args.
   out=$(fm_nm_cache_locked "$cache_dir/$key.lock" $((timeout_secs + 3)) \
     bash -c '. "$1"; shift; fm_nm_cache_refresh "$@"' _ "$FM_NM_RUN_LIB_PATH" \
-    "$cache_dir" "$file" "$ttl" "$dir" "$timeout_secs" "$@" 2>/dev/null) || rc=$?
+    "$cache_dir" "$file" "$gen" "$ttl" "$dir" "$timeout_secs" "$@" 2>/dev/null) || rc=$?
   case "$rc" in
     197|198)
       # Not granted: never refresh around the lock. Serve an entry only while it
       # is still within the TTL (the holder may have just published one); an
       # expired entry is never replayed, so staleness stays bounded by the TTL.
-      now=$(date +%s)
-      if [ -s "$file" ] && [ $((now - $(fm_nm_cache_mtime "$file"))) -lt "$ttl" ]; then
+      if fm_nm_cache_fresh "$file" "$gen" "$ttl"; then
         cat "$file"
         return 0
       fi

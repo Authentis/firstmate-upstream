@@ -1032,7 +1032,7 @@ fm_pr_github_read_provider() {  # <owner> <repo> <number>
     return 1
   fi
   [ -n "${FM_PR_READ_ERR_FILE:-}" ] \
-    && grep -qiE 'rate limit|abuse detection|HTTP 403|HTTP 429' "$FM_PR_READ_ERR_FILE" 2>/dev/null \
+    && grep -qiE 'rate limit|abuse detection|HTTP 429' "$FM_PR_READ_ERR_FILE" 2>/dev/null \
     && return 2
   return 1
 }
@@ -1117,7 +1117,14 @@ fm_pr_github_read_record() {  # <owner> <repo> <number>
   # shellcheck disable=SC2016  # The inner script expands after bash -c receives positional args.
   rec=$(fm_pr_flocked "$dir/lock" 4 bash -c '. "$1"; shift; fm_pr_read_locked "$@"' \
     _ "${BASH_SOURCE[0]}" "$dir/$key.rec" "$dir/backoff" "$now" "$@" 2>/dev/null) || rc=$?
-  [ "$rc" = 0 ] || return 1
+  if [ "$rc" != 0 ]; then
+    st='' mg=''
+    [ ! -f "$dir/$key.rec" ] || { read -r at && read -r st && read -r mg; } < "$dir/$key.rec" || true
+    [ -n "$st" ] && [ -n "$mg" ] || return 1
+    FM_PR_RECORD_STATE=$st
+    FM_PR_RECORD_MERGED=$mg
+    return 0
+  fi
   FM_PR_RECORD_STATE=$(printf '%s\n' "$rec" | sed -n 's/^state=//p')
   FM_PR_RECORD_MERGED=$(printf '%s\n' "$rec" | sed -n 's/^merged=//p')
 }

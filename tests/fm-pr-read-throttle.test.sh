@@ -13,7 +13,8 @@ TMP_ROOT=$(fm_test_tmproot fm-pr-read-throttle)
 READ="$ROOT/bin/fm-pr-read.sh"
 
 # Fake gh logs every graphql call. FM_FAKE_MODE: ok (default), limit (secondary
-# limit 403), fail (HTTP 500), slow (sleeps past any caller bound after logging).
+# limit 403), forbidden (SAML 403), fail (HTTP 500), slow (sleeps FM_FAKE_SLOW,
+# default 3, past any caller bound after logging).
 # Fake gh-axi logs too so a second request would be visible.
 new_case() {  # <name>
   local d="$TMP_ROOT/$1"
@@ -23,8 +24,9 @@ new_case() {  # <name>
 printf 'gh\n' >> "$FM_FAKE_LOG"
 case "${FM_FAKE_MODE:-ok}" in
   limit) echo 'gh: You have exceeded a secondary rate limit. (HTTP 403)' >&2; exit 1 ;;
+  forbidden) echo 'gh: Resource protected by organization SAML enforcement. (HTTP 403)' >&2; exit 1 ;;
   fail) echo 'gh: Server Error (HTTP 500)' >&2; exit 1 ;;
-  slow) sleep 3; exit 1 ;;
+  slow) sleep "${FM_FAKE_SLOW:-3}"; exit 1 ;;
 esac
 sleep 0.3
 printf 'state=OPEN\nmerged=false\n'
@@ -104,6 +106,34 @@ test_limit_serves_last_good_record() {
   pass "limit serves last good record"
 }
 
+test_non_rate_limit_403_spends_only_its_own_window() {
+  local d out; d=$(new_case forbidden)
+  export FM_FAKE_MODE=forbidden
+  run_read "$d" 3500 16 >/dev/null 2>&1 && fail "a forbidden read with nothing cached must fail"
+  export FM_FAKE_MODE=ok
+  out=$(run_read "$d" 3501 17)
+  assert_contains "$out" "state=OPEN" "another PR reads right after a non-rate-limit 403"
+  assert_equals 2 "$(count "$d" gh)" "the 403 started no global backoff"
+  run_read "$d" 3501 16 >/dev/null 2>&1 && fail "the forbidden PR is inside its own window"
+  assert_equals 2 "$(count "$d" gh)" "the forbidden PR spent its own window"
+  pass "a non-rate-limit 403 spends only its own PR's window"
+}
+
+test_lock_timeout_serves_last_good_record() {
+  local d out; d=$(new_case locktimeout)
+  export FM_FAKE_MODE=ok
+  run_read "$d" 8000 21 >/dev/null
+  FM_FAKE_MODE=slow FM_FAKE_SLOW=8 run_read "$d" 8400 22 >/dev/null 2>&1 &
+  for _ in $(seq 1 50); do [ "$(count "$d" gh)" = 2 ] && break; sleep 0.1; done
+  assert_equals 2 "$(count "$d" gh)" "the slow read holds the lock with its request in flight"
+  out=$(run_read "$d" 8400 21) || true
+  pkill -f "$d/fakebin" 2>/dev/null
+  wait 2>/dev/null
+  assert_contains "$out" "state=OPEN" "a reader not granted the lock serves the last good record"
+  assert_equals 2 "$(count "$d" gh)" "the reader not granted the lock sent no request"
+  pass "lock timeout serves last good record"
+}
+
 test_killed_read_still_spends_the_window() {
   local d rc=0; d=$(new_case killed)
   export FM_FAKE_MODE=slow
@@ -159,6 +189,8 @@ test_repeat_calls_in_window_issue_one_read
 test_concurrent_callers_are_serialized_into_one_read
 test_secondary_limit_backs_off_globally_and_keeps_the_pr_window
 test_limit_serves_last_good_record
+test_non_rate_limit_403_spends_only_its_own_window
+test_lock_timeout_serves_last_good_record
 test_killed_read_still_spends_the_window
 test_dead_lock_holder_never_blocks_the_next_reader
 test_one_request_per_attempt

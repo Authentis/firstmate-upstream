@@ -1820,6 +1820,38 @@ test_cache_prunes_old_entries_on_publish() {
   pass "publish prunes entries older than a few TTLs"
 }
 
+cache_call() {  # <case-dir> <args...>
+  local d=$1
+  shift
+  # shellcheck disable=SC2016  # The inner script expands after bash -c receives positional args.
+  env FM_FAKE_NM_LOG="$d/nm.log" PATH="$d/fakebin:$PATH" \
+    bash -c '. "$1"; shift; fm_nm_cached_checked "$@"' _ "$ROOT/bin/fm-nm-run-lib.sh" "$d/cache" "$d/wt" 4 "$@"
+}
+
+# A read the cache has never answered goes live, so the sibling reads cached
+# earlier would otherwise keep answering from before it for their whole TTL.
+test_new_key_refreshes_sibling_reads_of_the_same_worktree() {
+  reset_fakes
+  local d old new
+  d=$(cache_case cache-generation)
+  FM_FAKE_AXI_STATUS="$(run_running fm/feat-load)"
+  export FM_FAKE_AXI_STATUS FM_FAKE_AXI_STATUS_RUN
+  old=$(cache_call "$d" axi status)
+  cache_call "$d" axi > /dev/null
+  [ "$(cache_call "$d" axi status)" = "$old" ] || fail "a fresh entry was not served"
+  # Entry ages have one-second resolution; the run changes a second later.
+  sleep 1
+  FM_FAKE_AXI_STATUS="$(run_passed fm/feat-load)"
+  FM_FAKE_AXI_STATUS_RUN=$FM_FAKE_AXI_STATUS
+  new=$(cache_call "$d" axi status --run 01RUN)
+  [ "$new" != "$old" ] || fail "the never-read key was served from cache"
+  [ "$(cache_call "$d" axi status)" = "$new" ] || fail "axi status kept its answer from before the live read"
+  [ "$(cache_call "$d" axi)" = "$new" ] || fail "axi kept its answer from before the live read"
+  [ "$(cache_call "$d" axi status)" = "$new" ] || fail "the refreshed entry was not served again"
+  [ "$(grep -c '|axi status$' "$d/nm.log")" -eq 2 ] || fail "axi status spawn count: $(tr '\n' ';' < "$d/nm.log")"
+  pass "a never-read key refreshes the sibling reads of the same worktree"
+}
+
 test_lowload_kill_switch_restores_old_behavior() {
   reset_fakes
   local d
@@ -5976,6 +6008,7 @@ test_concurrent_crew_state_runs_share_one_status_spawn
 test_cache_mtime_survives_gnu_stat_semantics
 test_library_sources_without_external_tools
 test_cache_prunes_old_entries_on_publish
+test_new_key_refreshes_sibling_reads_of_the_same_worktree
 test_status_reads_across_lanes_are_concurrency_limited
 test_lowload_kill_switch_restores_old_behavior
 test_terminal_passed_no_forge_switch_skips_read_but_keeps_receipt
