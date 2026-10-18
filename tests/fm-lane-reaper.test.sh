@@ -11,6 +11,7 @@ TMP_ROOT=$(fm_test_tmproot fm-lane-reaper)
 NOW=2000000000
 
 # Fresh home with a fake control (records calls), fake crew-state, fake cpu.
+# shellcheck disable=SC2016
 new_world() {
   W="$TMP_ROOT/$1"
   mkdir -p "$W/state" "$W/bin"
@@ -44,6 +45,8 @@ make_lane() {
   set_mtime "$wt/f" "$((NOW - 7200))"
   printf 'kind=ship\nworktree=%s\nbranch=fm/%s\n' "$wt" "$id" > "$W/state/$id.meta"
   printf 'done [at=%s]: ready\n' "$((NOW - 7300))" > "$W/state/$id.status"
+  mkdir -p "$W/state/.lane-reaper-seen"
+  printf '%s\n' "$((NOW - 3600))" > "$W/state/.lane-reaper-seen/$id.idle"
 }
 
 run_reaper() {
@@ -104,6 +107,41 @@ test_each_condition_gates_alone() {
   expect_spared "unpushed commit" pushed
 }
 
+test_paused_lane_is_candidate() {
+  new_world paused; make_lane a
+  printf 'paused [at=%s]: waiting\n' "$((NOW - 7300))" > "$W/state/a.status"
+  echo "state: paused · source: status-log" > "$W/state-a"
+  out=$(run_reaper)
+  assert_contains "$out" "dry-run candidate a: would-end" "paused candidate"
+  pass "a paused lane is a candidate"
+}
+
+test_cpu_needs_history_and_probe_failure_spares() {
+  new_world hist; make_lane a
+  rm -f "$W/state/.lane-reaper-seen/a.idle"
+  expect_spared "first CPU observation (no history)" quiet
+  printf '#!/usr/bin/env bash\nexit 1\n' > "$W/bin/cpu"
+  new_world probe; make_lane a
+  printf '#!/usr/bin/env bash\nexit 1\n' > "$W/bin/cpu"
+  expect_spared "failed CPU probe" quiet
+}
+
+test_note_embedded_timestamp_and_head_branch() {
+  new_world note; make_lane a
+  printf 'done [at=%s]: retry [at=1]\n' "$((NOW - 100))" > "$W/state/a.status"
+  expect_spared "a note-embedded stale tag cannot age the status" idle-status
+  new_world wrongbranch; make_lane a
+  git -C "$W/wt-a" checkout -q --detach
+  expect_spared "worktree off the lane branch" clean
+}
+
+test_live_does_not_end_twice() {
+  new_world twice; make_lane a
+  run_reaper --live >/dev/null; run_reaper --live >/dev/null
+  assert_equals "a exit" "$(cat "$CALLS")" "one exit across two live scans"
+  pass "a live lane is not ended again until its status changes"
+}
+
 test_secondmate_and_remote_skipped() {
   new_world skip; make_lane a
   printf 'kind=secondmate\nworktree=%s\n' "$W/wt-a" > "$W/state/a.meta"
@@ -116,4 +154,8 @@ test_secondmate_and_remote_skipped() {
 test_all_conditions_met_dry_run_ends_nothing
 test_live_ends_via_control_and_keeps_branch
 test_each_condition_gates_alone
+test_paused_lane_is_candidate
+test_cpu_needs_history_and_probe_failure_spares
+test_note_embedded_timestamp_and_head_branch
+test_live_does_not_end_twice
 test_secondmate_and_remote_skipped

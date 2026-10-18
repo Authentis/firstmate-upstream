@@ -3071,7 +3071,9 @@ while :; do
   # Ends only idle done/paused agents, through fm-control (bin/fm-lane-reaper.sh).
   reaper_flag=
   [ ! -f "$FM_HOME/config/lane-reaper-live" ] || reaper_flag=--live
-  FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
+  env -u FM_REAPER_LIVE -u FM_REAPER_NOW -u FM_REAPER_FORCE -u FM_REAPER_IDLE_SECS \
+    -u FM_REAPER_QUIET_SECS -u FM_REAPER_CONTROL -u FM_REAPER_CREW_STATE -u FM_REAPER_CPU_CMD \
+    FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
     "$SCRIPT_DIR/fm-lane-reaper.sh" scan $reaper_flag >/dev/null 2>&1 || true
 
   # A ship whose worker opened a PR but never recorded it has no merge poll;

@@ -1735,6 +1735,12 @@ A fail-closed poll that already queued a wake, and a timeout, always print so th
 `FM_MAIL_CHECK_BUDGET` (default 15, valid 5..25) bounds one standing poll and is cut down to fit `FM_CHECK_TIMEOUT`.
 `bin/fm-mail-check.sh disarm` removes the standing check.
 
+## Lane reaper (config/lane-reaper-live)
+
+The watcher poll runs [`bin/fm-lane-reaper.sh`](../bin/fm-lane-reaper.sh) on its own cadence; the script header owns the five joint conditions and the log at `state/lane-reaper.log`.
+It is dry-run by default and ends nothing.
+Creating the file `config/lane-reaper-live` is the explicit flip to live, after a day of dry-run logs; removing it returns to dry-run.
+
 ## Relay (.env)
 
 Relay lets a firstmate instance answer public mentions and act on normal reversible mention requests through firstmate's normal lifecycle.
