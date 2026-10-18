@@ -31,7 +31,9 @@ new_home() {  # <name> -> sets H, with stub queue/cancel commands that log to $H
   chmod +x "$H/queue.sh" "$H/cancel.sh"
   printf '%s\n' '#!/usr/bin/env bash' 'cat "$H/curhead" 2>/dev/null' > "$H/nohead.sh"   # forge lookup: the pass's own head, as written by run_floor
   chmod +x "$H/nohead.sh"
-  export H FLOOR_QUEUE_CMD="$H/queue.sh" FLOOR_CANCEL_CMD="$H/cancel.sh" FLOOR_HEAD_CMD="$H/nohead.sh"
+  printf '%s\n' '#!/usr/bin/env bash' 'echo "${AUTHOR-kimi}"' > "$H/author.sh"; chmod +x "$H/author.sh"
+  printf 'muse grok\n' > "$H/data/floor-families"
+  export H FLOOR_AUTHOR_CMD="$H/author.sh" FLOOR_QUEUE_CMD="$H/queue.sh" FLOOR_CANCEL_CMD="$H/cancel.sh" FLOOR_HEAD_CMD="$H/nohead.sh"
   : > "$H/calls"
 }
 lone_pass() {  # <pr> <head> <secs>
@@ -299,3 +301,29 @@ only_busy
 DRY=1 run_floor 7 $HEAD1
 if [ "$(calls)" = 0 ]; then pass "a dry run suppresses the fallback"
 else fail "fallback dry: $(cat "$H/calls")"; fi
+
+cascade_home() {  # <name> <author>: default cascade families, author fixed
+  new_home "$1"; rm -f "$H/data/floor-families"; lone_pass 7 $HEAD1 12; export AUTHOR=$2
+}
+cascade_home cascade-kimi-author kimi
+run_floor 7 $HEAD1
+if grep -q "^queue muse-bosgame 7 " "$H/calls"; then pass "cascade: a non-Muse, non-Claude author gets the bosgame Muse review first"
+else fail "cascade muse: $(cat "$H/calls")"; fi
+cascade_home cascade-muse-author muse
+run_floor 7 $HEAD1
+if [ "$(calls)" = 1 ] && grep -q "^queue sol-high 7 " "$H/calls"; then pass "cascade: a Muse-authored head skips Muse and Sonnet and lands on Sol-high"
+else fail "cascade muse author: $(cat "$H/calls")"; fi
+cascade_home cascade-claude-author claude
+run_floor 7 $HEAD1
+if grep -q "^queue muse-bosgame 7 " "$H/calls" && ! grep -q sonnet "$H/calls"; then pass "cascade: a Claude-authored head still gets Muse, never Sonnet"
+else fail "cascade claude: $(cat "$H/calls")"; fi
+cascade_home cascade-muse-busy kimi
+printf '%s\n' '#!/usr/bin/env bash' 'echo "queue $*" >> "$H/calls"' '[ "$1" != muse-bosgame ]' > "$H/queue.sh"
+run_floor 7 $HEAD1
+if grep -q "^queue sonnet-gate 7 " "$H/calls"; then pass "cascade: Sonnet is next when the Muse route is unavailable for a non-Claude author"
+else fail "cascade sonnet: $(cat "$H/calls")"; fi
+cascade_home cascade-unknown-author ""
+run_floor 7 $HEAD1
+if [ "$(calls)" = 1 ] && grep -q "^queue sol-high 7 " "$H/calls"; then pass "cascade: an unknown author goes straight to Sol-high"
+else fail "cascade unknown: $(cat "$H/calls")"; fi
+unset AUTHOR

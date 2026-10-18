@@ -24,10 +24,22 @@ floor_ok() {
 # non-GPT family that is free. At most 2 automatic queues per exact head (state/.floor-n-<pr>-<head>-<family>, one stamp per try, so a
 # family is never retried for the same head); the open queue is state/.floor-q-<pr> = "<head> <family>". floor_sweep cancels a queue whose
 # head moved (the old head's review is never repeated; the new head earns its own 2 only if it again hits the floor). Families, preference
-# order, one per line or space separated: data/floor-families (default "muse grok"; never a GPT family and never the primary reviewer's family, which is Kimi). Kill switch: data/floor-autoqueue.off.
+# order, one per line or space separated: data/floor-families (default cascade "muse-bosgame sonnet-gate", then the Sol-high fallback; never a GPT family and never the primary reviewer's family, which is Kimi). Kill switch: data/floor-autoqueue.off.
 # When no non-GPT family is free, one Sol-high review (--min-secs 30) is the fallback, counted in the same 2 per head.
 # Queue/cancel commands are data/bin/xreview.sh --family/--cancel; FLOOR_QUEUE_CMD / FLOOR_CANCEL_CMD override them (tests stub them).
-floor_families() { local f; f=$(cat "$H/data/floor-families" 2>/dev/null); printf '%s\n' ${f:-muse grok} | grep -viE '^(gpt|openai|codex|sol|kimi)' ; }
+floor_families() { local f; f=$(cat "$H/data/floor-families" 2>/dev/null); printf '%s\n' ${f:-muse-bosgame sonnet-gate} | grep -viE '^(gpt|openai|codex|sol|kimi)' ; }
+# author family of a PR head (claude, muse, or anything else); FLOOR_AUTHOR_CMD overrides data/bin/xreview.sh --author (tests stub it).
+# A route never reviews its own author's family: muse* skips muse authors, sonnet*/claude* skip claude and muse authors (unknown author: no
+# author-bound route is used, the cascade goes straight to the Sol-high fallback).
+floor_author() { ${FLOOR_AUTHOR_CMD:-bash $H/data/bin/xreview.sh --author} "$1" 2>/dev/null | tr 'A-Z' 'a-z'; }
+floor_family_ok_for_author() {
+  case "$1" in
+    muse*) case "$2" in muse*) return 1;; esac;;
+    sonnet*|claude*) case "$2" in muse*|claude*) return 1;; esac;;
+  esac
+  case "$1" in muse*|sonnet*|claude*) [ -n "$2" ] || return 1;; esac
+  return 0
+}
 floor_family_busy() { local q; for q in "$H"/state/.floor-q-*; do [ -e "$q" ] && [ "$(awk '{print $2}' "$q")" = "$1" ] && return 0; done; return 1; }
 FLOOR_CANCELLED=""
 FLOOR_LOCK_HELD=0
@@ -65,7 +77,7 @@ floor_autoqueue() {
   floor_lock_drop; return "$rc"
 }
 floor_autoqueue_locked() {
-  local pr=$1 head=$2 q="$H/state/.floor-q-$1" n=0 fam t cur
+  local pr=$1 head=$2 q="$H/state/.floor-q-$1" n=0 fam t cur author
   [ -e "$H/data/floor-autoqueue.off" ] || [ "${DRY:-0}" = 1 ] && return 0
   case "$FLOOR_CANCELLED " in *" $pr "*) return 0;; esac   # cancelled earlier this pass: the new head waits for a later pass
   # The head this pass captured may have moved while it waited for the lock, so the forge's current head is read first and used for the
@@ -76,7 +88,9 @@ floor_autoqueue_locked() {
   [ -e "$q" ] && { echo "bosgame-autoland: PR $pr floor: second-family review already queued ($(cut -d' ' -f2 "$q"))" >&2; return 0; }
   for t in "$H/state/.floor-n-$pr-$head"-*; do [ -e "$t" ] && n=$((n + 1)); done
   [ "$n" -lt 2 ] || { echo "bosgame-autoland: PR $pr floor: 2 automatic second-family queues already used for head ${head:0:8}" >&2; return 0; }
+  author=$(floor_author "$pr")
   while read -r fam; do
+    floor_family_ok_for_author "$fam" "$author" || continue
     [ -n "$fam" ] && [ ! -e "$H/state/.floor-n-$pr-$head-$fam" ] && ! floor_family_busy "$fam" || continue
     # the record is written before the launch so a review that finishes early is still newer than it; a failed launch rolls it back
     printf '%s %s\n' "$head" "$fam" > "$q"; : > "$H/state/.floor-n-$pr-$head-$fam"
