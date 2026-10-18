@@ -118,6 +118,9 @@ fm_nm_cache_refresh() {  # <cache_dir> <file> <ttl> <dir> <timeout_secs> <args..
     find "$cache_dir" -name '*.out' -mmin +$((ttl * 5 / 60 + 1)) -exec rm -f {} + 2>/dev/null
   fi
   [ -z "$out" ] || printf '%s\n' "$out"
+  # 197 and 198 are the lock wrapper's own "not granted" codes; a CLI exit with
+  # one of them must not be mistaken for that.
+  case "$rc" in 197|198) rc=1 ;; esac
   return "$rc"
 }
 
@@ -144,8 +147,11 @@ fm_nm_cached_checked() {  # <cache_dir> <dir> <timeout_secs> <args...>
     "$cache_dir" "$file" "$ttl" "$dir" "$timeout_secs" "$@" 2>/dev/null) || rc=$?
   case "$rc" in
     197|198)
-      # Not granted: serve the previous entry, never refresh around the lock.
-      if [ -s "$file" ]; then
+      # Not granted: never refresh around the lock. Serve an entry only while it
+      # is still within the TTL (the holder may have just published one); an
+      # expired entry is never replayed, so staleness stays bounded by the TTL.
+      now=$(date +%s)
+      if [ -s "$file" ] && [ $((now - $(fm_nm_cache_mtime "$file"))) -lt "$ttl" ]; then
         cat "$file"
         return 0
       fi
