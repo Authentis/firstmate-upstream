@@ -208,6 +208,13 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("session_start", () => {
     stopped = false;
+    // A new, resumed, or forked session starts from a clean slate: the previous
+    // session's failures, open notice, and debounce say nothing about this one.
+    disabled = typeof pi.sendMessage !== "function";
+    consecutiveFailures = 0;
+    awaiting = null;
+    lastPeekAt = 0;
+    pullQueued = false;
     markLoaded();
     stopIdleTick();
     // Timers belong to the session: created here, cleared in session_shutdown.
