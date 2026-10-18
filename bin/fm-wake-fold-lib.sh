@@ -19,7 +19,10 @@
 #                   Those lines are the home's reports TO its parent, which the
 #                   parent's watcher classifies and wakes on; the author never
 #                   needs a turn for its own words. Any other file in the same
-#                   batch is classified exactly as before.
+#                   batch is classified exactly as before. The signal scan now
+#                   excludes that channel (status_scan_parent_channel_exclude),
+#                   so the watcher never reaches this class for a remote mate;
+#                   it stays a valid class for rows queued directly.
 #   - check-repeat  a registered custom check (never a PR poll, the Relay poll,
 #                   or the contributions check) whose output is byte-identical
 #                   to one of the last FM_WAKE_FOLD_CHECK_MEMORY (8) outputs it

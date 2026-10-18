@@ -402,7 +402,18 @@ case "${1:-}" in
     printf '%%1\n'
     exit 0
     ;;
-  set-window-option|send-keys) exit 0 ;;
+  send-keys)
+    # A relaunched Pi secondmate waits for its first model call; the launch's
+    # Enter runs the generated first-call hook against the fake, as Pi would.
+    if [ "${!#}" = Enter ] && [ -n "${FM_TEST_PI_FIRST_CALL_FAKE:-}" ]; then
+      for ext in "${FM_STATE_OVERRIDE:-${FM_HOME:-/nonexistent}/state}"/*.pi-first-call.ts; do
+        [ -f "$ext" ] || continue
+        node "$FM_TEST_PI_FIRST_CALL_FAKE" "$ext" || exit
+      done
+    fi
+    exit 0
+    ;;
+  set-window-option) exit 0 ;;
 esac
 exit 0
 SH
@@ -477,7 +488,17 @@ case "${1:-} ${2:-}" in
   "pane close")
     [ "${3:-}" = p-old ] && : > "$killed"
     ;;
-  "pane run"|"pane send-text"|"pane send-keys"|"tab close")
+  "pane run")
+    # A relaunched Pi secondmate waits for its first model call; the launch
+    # command runs the generated first-call hook against the fake, as Pi would.
+    if [ -n "${FM_TEST_PI_FIRST_CALL_FAKE:-}" ]; then
+      for ext in "${FM_STATE_OVERRIDE:-${FM_HOME:-/nonexistent}/state}"/*.pi-first-call.ts; do
+        [ -f "$ext" ] || continue
+        node "$FM_TEST_PI_FIRST_CALL_FAKE" "$ext" || exit
+      done
+    fi
+    ;;
+  "pane send-text"|"pane send-keys"|"tab close")
     ;;
   *)
     exit 1
@@ -612,7 +633,7 @@ EOF
   printf 'Second mate charter.\n' > "$mate/data/charter.md"
   printf '%s\n' 'projects/' 'state/' 'data/' 'config/' '.no-mistakes/' > "$mate/.gitignore"
   git -C "$mate" init -q -b main
-  printf '%s\n' pi > "$home/config/secondmate-harness"
+  printf '%s\n' 'pi openai/gpt-6.1-sol' > "$home/config/secondmate-harness"
   printf '%s\n' manual > "$home/config/backlog-backend"
   touch "$home/state/.last-watcher-beat"
   {
@@ -625,6 +646,9 @@ EOF
   make_fake_toolchain "$fakebin"
   make_fake_ps_claude "$fakebin"
   fm_fake_exit0 "$fakebin" pi
+  # The Pi first-call hook is generated and run with node, so this world needs
+  # the real one rather than the toolchain's no-op stand-in.
+  ln -sf "$(command -v node)" "$fakebin/node"
   make_fake_tmux_secondmate_recovery "$fakebin"
   : > "$log"
   printf '%s|%s|%s|%s|%s|%s\n' "$root" "$home" "$fakebin" "$mate" "$log" "$spawned"
@@ -635,6 +659,7 @@ run_session_start_secondmate() {
   TMUX='' FM_BACKEND=tmux FM_FAKE_TMUX_MODE="$mode" FM_FAKE_TMUX_LOG="$log" \
     FM_FAKE_TMUX_SPAWNED="$spawned" FM_FAKE_SECOND_MATE_HOME="$mate" \
     FM_FAKE_SECOND_MATE_ID="$SESSION_START_SECOND_MATE_ID" \
+    FM_TEST_PI_FIRST_CALL_FAKE="$ROOT/tests/assets/pi-first-call-fake.mjs" \
     FM_FAKE_HARNESS_PID=$$ \
     run_session_start "$home" "$root" "$fakebin:$BASE_PATH"
 }
@@ -656,7 +681,7 @@ EOF
   printf '%s\n' 'projects/' 'state/' 'data/' 'config/' '.no-mistakes/' > "$mate/.gitignore"
   git -C "$mate" init -q -b main
   printf '%s\n' herdr > "$home/config/backend"
-  printf '%s\n' pi > "$home/config/secondmate-harness"
+  printf '%s\n' 'pi openai/gpt-6.1-sol' > "$home/config/secondmate-harness"
   printf '%s\n' manual > "$home/config/backlog-backend"
   touch "$home/state/.last-watcher-beat"
   {
@@ -674,6 +699,9 @@ EOF
   make_fake_toolchain "$fakebin"
   make_fake_ps_claude "$fakebin"
   fm_fake_exit0 "$fakebin" pi
+  # The Pi first-call hook is generated and run with node, so this world needs
+  # the real one rather than the toolchain's no-op stand-in.
+  ln -sf "$(command -v node)" "$fakebin/node"
   make_fake_herdr_secondmate_recovery "$fakebin"
   : > "$log"
   printf '%s|%s|%s|%s|%s|%s\n' "$root" "$home" "$fakebin" "$mate" "$log" "$state"
@@ -683,6 +711,7 @@ run_session_start_herdr_secondmate() {
   local root=$1 home=$2 fakebin=$3 mate=$4 log=$5 state=$6
   FM_BACKEND=herdr FM_FAKE_HERDR_LOG="$log" FM_FAKE_HERDR_STATE="$state" \
     FM_FAKE_SECOND_MATE_ID="$SESSION_START_HERDR_SECOND_MATE_ID" \
+    FM_TEST_PI_FIRST_CALL_FAKE="$ROOT/tests/assets/pi-first-call-fake.mjs" \
     FM_FAKE_HARNESS_PID=$$ \
     run_session_start "$home" "$root" "$fakebin:$BASE_PATH"
 }
@@ -1456,7 +1485,7 @@ EOF
   assert_contains "$out" "CONTEXT RE-EMIT TRUNCATED" "the capped re-emit carried no truncation banner"
   assert_contains "$out" "bin/fm-crew-state.sh" "the banner did not say how to read the omitted records"
   assert_contains "$out" "--- zz-sm ---" "a secondmate record was dropped by the size bound"
-  assert_contains "$out" "--- ship-1 ---" "the first records were not kept"
+  assert_contains "$out" "--- ship-1" "the first records were not kept"
   assert_not_contains "$out" "--- ship-30 ---" "the size bound did not omit later records"
 
   out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
