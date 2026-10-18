@@ -1,0 +1,79 @@
+##### POST-FIX (HEAD 23282243)
+== Scenario 1: 8 concurrent lanes x 3 cached status reads with real no-mistakes (default slot limit) ==
+lane 3 rc=0/0/1 elapsed=4s first-line=current_branch: main
+lane 4 rc=0/0/1 elapsed=4s first-line=current_branch: main
+lane 2 rc=0/0/1 elapsed=4s first-line=current_branch: main
+lane 1 rc=0/0/1 elapsed=5s first-line=current_branch: main
+lane 7 rc=0/0/1 elapsed=7s first-line=current_branch: main
+lane 8 rc=0/0/1 elapsed=8s first-line=current_branch: main
+lane 5 rc=0/0/1 elapsed=8s first-line=current_branch: main
+lane 6 rc=0/0/1 elapsed=9s first-line=current_branch: main
+CLI invocations:       24   max concurrent in CLI: 4
+calls missing NO_MISTAKES_NO_UPDATE_CHECK=1: 0
+-- warm cache --
+warm rc=0
+new CLI invocations on warm read: 1
+
+== Scenario 2: DoD custody gate reads live past a cached status (real gate worktree) ==
+current_branch: main
+runs_on_current_branch: 0
+seed (real read) rc=0
+forged an earlier-pass cache entry for the gate's key; crew-state-style cached read now returns:
+run:
+  id: 01FORGEDEARLIERPASS
+  status: completed
+cached crew-state-style read spawned CLI: 0
+custody gate rc=1 out=the no-mistakes run for this copy could not be read, so its fixes cannot be proven recovered
+custody gate spawned CLI (live read): 1
+
+== Scenario 3: GitHub PR read throttle with real gh ==
+state=OPEN
+merged=false
+call 1 rc=0 gh calls so far: 1
+state=OPEN
+merged=false
+call 2 rc=0 gh calls so far: 1
+-- age the record past TTL and hold the machine-wide lock (lock-timeout path) --
+state=OPEN
+merged=false
+lock-held call rc=0 waited=4s new gh calls: 0
+-- after lock released, aged record refreshes live --
+state=OPEN
+merged=false
+rc=0 new gh calls: 1
+backoff file present: no
+
+##### PRE-FIX (HEAD~1 ee66c9e1) — same driver, scenarios 1-2 only matter
+== Scenario 1: 8 concurrent lanes x 3 cached status reads with real no-mistakes (default slot limit) ==
+lane 3 rc=0/0/1 elapsed=4s first-line=current_branch: main
+lane 1 rc=0/0/1 elapsed=6s first-line=current_branch: main
+lane 2 rc=0/0/1 elapsed=13s first-line=current_branch: main
+lane 6 rc=0/0/1 elapsed=13s first-line=current_branch: main
+lane 8 rc=0/0/1 elapsed=14s first-line=current_branch: main
+lane 7 rc=0/0/1 elapsed=15s first-line=current_branch: main
+lane 5 rc=0/0/1 elapsed=16s first-line=current_branch: main
+lane 4 rc=0/0/1 elapsed=16s first-line=current_branch: main
+CLI invocations:       24   max concurrent in CLI: 2
+calls missing NO_MISTAKES_NO_UPDATE_CHECK=1: 0
+-- warm cache --
+warm rc=0
+new CLI invocations on warm read: 1
+
+== Scenario 2: DoD custody gate reads live past a cached status (real gate worktree) ==
+current_branch: main
+runs_on_current_branch: 0
+seed (real read) rc=0
+forged an earlier-pass cache entry for the gate's key; crew-state-style cached read now returns:
+run:
+  id: 01FORGEDEARLIERPASS
+  status: completed
+cached crew-state-style read spawned CLI: 0
+custody gate rc=1 out=this copy's HEAD does not carry the no-mistakes run's result (unknown head), so the pipeline's fixes are not in the published work
+custody gate spawned CLI (live read): 0
+
+== Scenario 3: GitHub PR read throttle with real gh ==
+read 1 rc=0 total CLI calls=1
+read 2 rc=0 total CLI calls=1
+read 3 rc=0 total CLI calls=1
+sibling axi rc=0 total CLI calls=2
+re-read status rc=0 total CLI calls=2
