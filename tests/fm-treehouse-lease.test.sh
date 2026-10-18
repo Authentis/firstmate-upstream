@@ -702,6 +702,12 @@ test_release_refuses_a_slot_a_process_still_holds() {
   assert_contains "$out" "failed" "a busy slot must report failed"
   [ "$(slot_head "$case_dir" 1)" = fm/task-p1 ] || fail "a busy slot must keep its branch checked out"
   assert_present "$case_dir/pool/1/.fm-slot-owner" "a busy slot must keep its claim"
+  # A durable lease the caller cannot name is somebody's: refused, nothing touched.
+  printf 'leased lease-other\n' > "$case_dir/pool/1/.fake-state"
+  out=$(pool_cmd "$case_dir" "$SLOT_RELEASE" "$case_dir/pool/1/repo/")
+  case "$out" in failed*) ;; *) false ;; esac || fail "a slot under a foreign lease must not be retired by path, got: $out"
+  [ "$(slot_head "$case_dir" 1)" = fm/task-p1 ] || fail "a foreign-leased slot must keep its branch checked out"
+  printf 'leased lease-p1\n' > "$case_dir/pool/1/.fake-state"
   mkdir "$case_dir/task-p1"
   out=$(cd "$case_dir" && pool_cmd "$case_dir" "$SLOT_RELEASE" task-p1)
   [ "$out" = released ] || fail "a recorded task id must win over a same-named directory, got: $out"

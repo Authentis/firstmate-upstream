@@ -86,10 +86,13 @@ sweep_recheck() {  # <project> <worktree> <task-id>
 # no process holding the slot. (The sweep needs no such check; it only considers
 # slots treehouse already reports available.)
 release_recheck() {  # <project> <worktree> <task-id>
-  local project=$1 worktree=$2 busy
-  busy=$( cd "$project" && treehouse status --json 2>/dev/null </dev/null \
-    | jq -r --arg p "$worktree" '[.[]? | select(.path == $p)] | if length == 1 then ((.[0].processes // []) | length) else "unknown" end' ) || return 1
-  [ "$busy" = 0 ]
+  local project=$1 worktree=$2 row
+  # Busy-process count, then the lease on the row: a durable lease with no
+  # process running is still somebody's, so it is released only by its own id.
+  row=$( cd "$project" && treehouse status --json 2>/dev/null </dev/null \
+    | jq -r --arg p "$worktree" '[.[]? | select(.path == $p)] | if length == 1 then [((.[0].processes // []) | length | tostring), (.[0].lease_id // "")] | @tsv else "unknown" end' ) || return 1
+  [ "${row%%$'\t'*}" = 0 ] || return 1
+  [ -z "${row#*$'\t'}" ] || [ "${row#*$'\t'}" = "$RELEASE_LEASE" ]
 }
 
 slot_project() {  # <worktree> -> the project clone that owns the slot's pool
@@ -105,10 +108,12 @@ release_one() {  # <task-id|path> [lease-id]
   local arg=$1 lease=${2:-} id worktree project rc
   # A recorded task id wins over a directory that merely shares its name.
   if [ ! -f "$STATE/$arg.meta" ] && [ -d "$arg" ]; then
-    worktree=$arg
+    worktree=$(CDPATH='' cd -- "$arg" && pwd -P) || { echo failed; return 1; }
     fm_treehouse_slot_owner_state "$worktree" ""
-    id=$FM_TREEHOUSE_SLOT_OWNER_ID
-    [ -n "$id" ] || { echo failed; echo "error: no readable claim at $worktree names a task; pass the task id" >&2; return 1; }
+    id=${FM_TREEHOUSE_SLOT_OWNER_ID:-}
+    [ "$FM_TREEHOUSE_SLOT_OWNER" != unsafe ] || { echo failed; echo "error: the claim at $worktree is unreadable" >&2; return 1; }
+    [ -n "$id" ] || id=release
+    [ -n "$lease" ] || lease=$(fm_meta_get "$STATE/$id.meta" lease_id)
   else
     case "$arg" in ''|*[!A-Za-z0-9._-]*|.|..) usage ;; esac
     id=$arg
@@ -119,6 +124,7 @@ release_one() {  # <task-id|path> [lease-id]
   project=$(slot_project "$worktree") || { echo failed; return 1; }
   fm_treehouse_pool_slot "$project" "$worktree" || { echo failed; echo "error: $worktree is not a Treehouse pool slot of $project" >&2; return 1; }
   rc=0
+  RELEASE_LEASE=$lease
   retire_locked "$project" "$worktree" "$id" "$lease" release_recheck || rc=$?
   case "$rc" in
     2|3) echo failed; echo "error: cannot take the Treehouse allocation lock for $project" >&2; return 1 ;;
