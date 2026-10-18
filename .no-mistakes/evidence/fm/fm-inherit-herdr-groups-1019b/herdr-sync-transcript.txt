@@ -1,0 +1,43 @@
+=== provision fm-lab-groups-30011-17806 ===
+{"client_protocol":22}
+=== primary -> secondmate config-push ===
+config-push: <LAB>/home -> live secondmate homes
+secondmate sm (<LAB>/sm):
+  crew-dispatch.json: unchanged
+  dispatch-never-send: unchanged
+  crew-harness: unchanged
+  backlog-backend: unchanged
+  backend: unchanged
+  herdr-presentation-spaces: unchanged
+  herdr-project-groups: pushed
+  startup-memory-budget: unchanged
+  trace-context: unchanged - session-scoped
+  launch-env-allowlist: unchanged
+  claude-permission-mode: unchanged
+  lavish-axi-host: unchanged
+  keep-ai-trailers: unchanged
+  supervision-host-off: unchanged
+  data/captain-shared.md: unchanged
+  config-reread: sent
+=== create a worker pane in the lab session ===
+{"type":"workspace_created","workspace":"w1","pane":"w1:p1"}
+workspace=w1 pane=w1:p1
+=== tokens before sync ===
+{"pane_id":"w1:p1","tokens":{}}
+=== plan (secondmate home) ===
+t1	web	running	001.web.3.t1	001.web
+=== sync (secondmate home) ===
+sync exit=0
+=== tokens after sync (read back from Herdr) ===
+{"pane_id":"w1:p1","tokens":{"fm_group":"web","fm_sort":"001.web.3.t1","fm_state":"running","fm_task":"t1"}}
+=== second sync is a no-op ===
+sync exit=0
+{"pane_id":"w1:p1","tokens":{"fm_group":"web","fm_sort":"001.web.3.t1","fm_state":"running","fm_task":"t1"}}
+=== primary turns groups off, pushes; secondmate sync must do nothing ===
+  herdr-project-groups: pushed
+plan exit=0 (no lines = off)
+=== clear (secondmate home) ===
+clear exit=0
+=== tokens after clear ===
+{"pane_id":"w1:p1","tokens":{}}
+=== teardown fm-lab-groups-30011-17806 ===

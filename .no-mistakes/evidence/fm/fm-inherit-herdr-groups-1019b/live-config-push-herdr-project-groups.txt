@@ -1,0 +1,45 @@
+$ cat $PRIMARY/config/herdr-project-groups
+Web task:web repo:storefront
+Other *
+$ ls $SECONDMATE/config (before)
+--- push 1 (primary has rules) ---
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  watcher supervision needs Stop-owned automatic recovery; inspect the hook registration and startup status before ending the turn.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+config-push: $PRIMARY -> live secondmate homes
+secondmate sm1 ($SECONDMATE):
+  crew-dispatch.json: unchanged
+  dispatch-never-send: unchanged
+  crew-harness: unchanged
+  backlog-backend: unchanged
+  backend: unchanged
+  herdr-presentation-spaces: unchanged
+  herdr-project-groups: pushed
+  startup-memory-budget: unchanged
+  trace-context: unchanged - session-scoped
+  launch-env-allowlist: unchanged
+  claude-permission-mode: unchanged
+  lavish-axi-host: unchanged
+  keep-ai-trailers: unchanged
+  supervision-host-off: unchanged
+  data/captain-shared.md: unchanged
+CONFIG_REREAD: secondmate sm1: send failed: error: refusing fleet lifecycle from inside a no-mistakes gate worktree (~/.no-mistakes/repos/7e4b90506ed5.git)
+[exit=1]
+$ cat $SECONDMATE/config/herdr-project-groups
+Web task:web repo:storefront
+Other *
+--- push 2 (unchanged) ---
+  herdr-project-groups: unchanged
+[exit=1]
+--- primary changes to "off" ---
+  herdr-project-groups: pushed
+[exit=1]
+secondmate now: off
+--- primary removes file (absence mirror) ---
+  herdr-project-groups: pushed - mirrored primary absence
+[exit=1]
+ls: $SECONDMATE/config/herdr-project-groups: No such file or directory

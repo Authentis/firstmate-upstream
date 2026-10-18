@@ -1,0 +1,39 @@
+=== S1: primary sets rule lines; config-push ===
+config-push: <LAB>/home -> live secondmate homes
+secondmate sm (<LAB>/sm):
+  herdr-project-groups: pushed
+  config-reread: sent
+exit=0
+secondmate config/herdr-project-groups PRESENT:
+  | # groups
+  | infra repo:beta
+  | web repo:alpha
+=== S1b: reader in secondmate home uses inherited rules ===
+  order-key> 002.web
+  order-key exit=0
+  order-key> 001.infra
+  order-key exit=0
+=== S2: re-push with no change ===
+  herdr-project-groups: unchanged
+exit=0
+=== S3: primary changes to off; push ===
+  herdr-project-groups: pushed
+  config-reread: sent
+exit=0
+secondmate config/herdr-project-groups PRESENT:
+  | off
+  order-key exit=0
+=== S4: primary removes file; push mirrors absence ===
+  herdr-project-groups: pushed - mirrored primary absence
+  config-reread: sent
+exit=0
+secondmate config/herdr-project-groups ABSENT
+  order-key exit=0
+=== S5: adversarial - secondmate diverged locally; primary authoritative ===
+  herdr-project-groups: pushed
+  config-reread: sent
+exit=0
+secondmate config/herdr-project-groups PRESENT:
+  | on
+  order-key> 000.alpha
+  order-key exit=0

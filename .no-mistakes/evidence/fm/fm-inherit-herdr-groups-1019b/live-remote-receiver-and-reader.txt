@@ -1,0 +1,78 @@
+=== receiver from OLD code (fork/main 1079f44c vs this branch) ===
+$ fm-remote-inherit.sh put config/herdr-project-groups 37 <sha> 1
+error: path is not inherited material: config/herdr-project-groups
+[exit=1]
+home config/herdr-project-groups: 
+$ fm-remote-inherit.sh absent config/herdr-project-groups 0 <empty-sha> 2
+error: path is not inherited material: config/herdr-project-groups
+[exit=1]
+after absent: ABSENT
+--- adversarial: non-allowlisted path still refused ---
+error: path is not inherited material: config/herdr-project-groups-evil
+[exit=1]
+--- adversarial: wrong sha refused ---
+error: path is not inherited material: config/herdr-project-groups
+[exit=1]
+home config/herdr-project-groups: 
+
+=== receiver from NEW code (fork/main 1079f44c vs this branch) ===
+$ fm-remote-inherit.sh put config/herdr-project-groups 37 <sha> 1
+pushed: config/herdr-project-groups
+[exit=0]
+home config/herdr-project-groups: Web task:web repo:storefront|Other *|
+$ fm-remote-inherit.sh absent config/herdr-project-groups 0 <empty-sha> 2
+removed: config/herdr-project-groups
+[exit=0]
+after absent: ABSENT
+--- adversarial: non-allowlisted path still refused ---
+error: path is not inherited material: config/herdr-project-groups-evil
+[exit=1]
+--- adversarial: wrong sha refused ---
+error: inherited material digest does not match its commitment
+[exit=1]
+home config/herdr-project-groups: 
+
+=== reader: fm-herdr-groups.sh in a secondmate-like home that received the file ===
+--- file absent (off) ---
+$ order-key web-login /src/storefront
+[exit=0]
+--- rules file: 
+Web task:web repo:storefront
+Backend task:api repo:api-server
+bad/name task:x
+Ops bogus:sel
+Other *
+$ order-key web-login /src/anything
+warning: herdr project groups: $TMP/config/herdr-project-groups: ignoring rule with invalid group name "bad/name" (letters, digits, . _ + - only)
+warning: herdr project groups: $TMP/config/herdr-project-groups: group "Ops": ignoring unknown selector "bogus:sel" (task:<prefix>, repo:<name>, or *)
+001.Web
+[exit=0]
+$ order-key shop-1 /src/storefront
+warning: herdr project groups: $TMP/config/herdr-project-groups: ignoring rule with invalid group name "bad/name" (letters, digits, . _ + - only)
+warning: herdr project groups: $TMP/config/herdr-project-groups: group "Ops": ignoring unknown selector "bogus:sel" (task:<prefix>, repo:<name>, or *)
+001.Web
+[exit=0]
+$ order-key api-7 /src/storefront
+warning: herdr project groups: $TMP/config/herdr-project-groups: ignoring rule with invalid group name "bad/name" (letters, digits, . _ + - only)
+warning: herdr project groups: $TMP/config/herdr-project-groups: group "Ops": ignoring unknown selector "bogus:sel" (task:<prefix>, repo:<name>, or *)
+002.Backend
+[exit=0]
+$ order-key zzz /src/api-server
+warning: herdr project groups: $TMP/config/herdr-project-groups: ignoring rule with invalid group name "bad/name" (letters, digits, . _ + - only)
+warning: herdr project groups: $TMP/config/herdr-project-groups: group "Ops": ignoring unknown selector "bogus:sel" (task:<prefix>, repo:<name>, or *)
+002.Backend
+[exit=0]
+$ order-key misc /src/other
+warning: herdr project groups: $TMP/config/herdr-project-groups: ignoring rule with invalid group name "bad/name" (letters, digits, . _ + - only)
+warning: herdr project groups: $TMP/config/herdr-project-groups: group "Ops": ignoring unknown selector "bogus:sel" (task:<prefix>, repo:<name>, or *)
+004.Other
+[exit=0]
+--- "on" (one group per project dir) ---
+$ order-key t1 /src/alpha
+000.alpha
+[exit=0]
+--- "off" ---
+$ order-key t1 /src/alpha
+[exit=0]
+$ sync (off: no Herdr call)
+[exit=0]

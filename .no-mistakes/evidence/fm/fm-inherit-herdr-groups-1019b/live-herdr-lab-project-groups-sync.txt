@@ -1,0 +1,16 @@
+lab session: fm-lab-<name> (non-default)
+lab pane: present=yes
+$ fm-herdr-groups.sh plan
+web-login	Web	running	001.Web.3.web-login	001.Web
+[exit=0]
+$ fm-herdr-groups.sh sync
+[exit=0]
+$ herdr pane list (firstmate metadata on the task pane)
+{"fm_group":"Web","fm_sort":"001.Web.3.web-login","fm_state":"running","fm_task":"web-login"}
+
+$ fm-herdr-groups.sh clear
+[exit=0]
+$ herdr pane list after clear
+{"agent_status":"unknown","cwd":"/private/tmp","focused":true,"foreground_cwd":"/private/tmp","pane_id":"w1:p1","revision":2,"scroll":{"max_offset_from_bottom":0,"offset_from_bottom":0,"viewport_rows":40},"tab_id":"w1:t1","terminal_id":"term_65e245a75a8121","workspace_id":"w1"}
+
+teardown: ok

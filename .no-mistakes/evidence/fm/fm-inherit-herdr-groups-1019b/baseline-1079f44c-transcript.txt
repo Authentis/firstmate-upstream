@@ -1,0 +1,10 @@
+##### BASELINE parent commit 1079f44c (before the change) #####
+=== S1: primary sets rule lines; config-push ===
+config-push: <LAB>/home -> live secondmate homes
+secondmate sm (<LAB>/sm):
+exit=0
+secondmate config/herdr-project-groups ABSENT
+=== S1b: reader in secondmate home uses inherited rules ===
+  order-key> ./drive-inherit.sh: line 42: /tmp/fm-base-01M58/bin/fm-herdr-groups.sh: No such file or directory
+  order-key exit=127
+  order-key> ./drive-inherit.sh: line 42: /tmp/fm-base-01M58/bin/fm-herdr-groups.sh: No such file or directory
