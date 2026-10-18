@@ -105,6 +105,33 @@ fm_nm_cache_locked() {  # <lockfile> <wait_secs> <command...>
   ' "$@"
 }
 
+# Run one refresh under a machine-wide concurrency limit: at most
+# FM_NM_STATUS_SLOTS (default 2) no-mistakes status reads run at once, however
+# many lanes a heartbeat fans out over, because each key lock only serializes
+# one lane. A caller not granted a slot within FM_NM_STATUS_WAIT seconds
+# (default 30) fails, which reads as unknown and is retried next heartbeat.
+# Each slot is a kernel flock like the key lock, so a dead holder frees it.
+fm_nm_run_slotted() {  # <cache_dir> <dir> <timeout_secs> <args...>
+  local cache_dir=$1 slots=${FM_NM_STATUS_SLOTS:-2} wait=${FM_NM_STATUS_WAIT:-30} n deadline rc
+  shift
+  case "$slots" in ''|*[!0-9]*|0) slots=2 ;; esac
+  case "$wait" in ''|*[!0-9]*) wait=30 ;; esac
+  deadline=$(( $(date +%s) + wait ))
+  while :; do
+    n=0
+    while [ "$n" -lt "$slots" ]; do
+      n=$((n + 1))
+      rc=0
+      # shellcheck disable=SC2016  # The inner script expands after bash -c receives positional args.
+      fm_nm_cache_locked "$cache_dir/.slot$n.lock" 0 \
+        bash -c '. "$1"; shift; fm_nm_run_uncached "$@"' _ "$FM_NM_RUN_LIB_PATH" "$@" || rc=$?
+      [ "$rc" = 198 ] || return "$rc"
+    done
+    [ "$(date +%s)" -lt "$deadline" ] || return 1
+    sleep 0.2
+  done
+}
+
 # Child of the locked wrapper: re-check freshness, refresh, publish.
 fm_nm_cache_refresh() {  # <cache_dir> <file> <ttl> <dir> <timeout_secs> <args...>
   local cache_dir=$1 file=$2 ttl=$3 dir=$4 timeout_secs=$5 now out rc=0
@@ -119,7 +146,7 @@ fm_nm_cache_refresh() {  # <cache_dir> <file> <ttl> <dir> <timeout_secs> <args..
   # shell holding the lock through publish.
   out=$(
     [ -z "${FM_NM_LOCK_FD:-}" ] || eval "exec ${FM_NM_LOCK_FD}>&-"
-    fm_nm_run_uncached "$dir" "$timeout_secs" "$@"
+    fm_nm_run_slotted "$cache_dir" "$dir" "$timeout_secs" "$@"
   ) || rc=$?
   if [ "$rc" = 0 ] && [ -n "$out" ]; then
     printf '%s\n' "$out" >"$file.$$" 2>/dev/null && mv -f "$file.$$" "$file" 2>/dev/null
