@@ -1542,11 +1542,72 @@ test_status_reads_across_lanes_are_concurrency_limited() {
   wait
   max=$(sort -n "$d/conc/seen" | tail -1)
   [ -n "$max" ] || fail "no concurrent no-mistakes status read was observed"
-  [ "$max" -le 2 ] || fail "status reads ran $max at once, over the default limit of 2"
+  [ "$max" -le 4 ] || fail "status reads ran $max at once, over the default limit of 4"
   [ "$(grep -c '|axi' "$d/nm.log")" -ge 6 ] || fail "every lane should have read its own status"
   grep -q "source: run-step" "$d/out.6" || fail "a queued lane never got its status read: $(cat "$d/out.6")"
   ! grep -qv '^1|' "$d/nm.log" || fail "a no-mistakes call ran without NO_MISTAKES_NO_UPDATE_CHECK=1"
-  pass "status reads across lanes are limited to two at once with the update check skipped"
+  pass "status reads across lanes are limited to four at once with the update check skipped"
+}
+
+# A cold heartbeat: the fleet snapshot reads 8 lanes at once
+# (FM_SNAPSHOT_LOCAL_READ_CONCURRENCY=8), each making 3 sequential cached reads,
+# and kills any lane still running at FM_SNAPSHOT_CREW_STATE_TIMEOUT=10s, ten
+# times a ~1s read. Scaled to 2s reads and a 20s bound, the default slot limit
+# must drain all 24 within it; two slots need over 24s and the back lanes die.
+test_cold_heartbeat_of_eight_lanes_fits_the_snapshot_bound() {
+  reset_fakes
+  local d i
+  d=$(new_case lowload-8x3)
+  make_fakebin "$d" >/dev/null
+  : > "$d/nm.log"
+  FM_FAKE_AXI_STATUS="$(run_running fm/feat-load)"
+  FM_FAKE_AXI_STATUS_RUN="$FM_FAKE_AXI_STATUS"
+  export FM_FAKE_AXI_STATUS FM_FAKE_AXI_STATUS_RUN
+  for i in 1 2 3 4 5 6 7 8; do
+    mkdir -p "$d/wt$i"
+    (
+      # shellcheck source=/dev/null
+      . "$ROOT/bin/fm-nm-run-lib.sh"
+      unset FM_NM_STATUS_SLOTS FM_NM_STATUS_WAIT
+      # shellcheck disable=SC2016  # The inner script expands after bash -c receives positional args.
+      fm_nm_bounded "$d" 20 env FM_NM_LIB="$ROOT/bin/fm-nm-run-lib.sh" FM_FAKE_NM_LOG="$d/nm.log" FM_FAKE_NM_SLEEP=2 \
+        PATH="$d/fakebin:$PATH" bash -c '
+          . "$FM_NM_LIB"
+          fm_nm_cached_checked "$1" "$2" 10 axi status >/dev/null || exit 1
+          fm_nm_cached_checked "$1" "$2" 10 axi >/dev/null || exit 1
+          fm_nm_cached_checked "$1" "$2" 10 axi status --run 01RUN >/dev/null || exit 1
+          : > "$3"
+        ' _ "$d/cache" "$d/wt$i" "$d/done.$i"
+    ) &
+  done
+  wait
+  [ "$(wc -l < "$d/nm.log")" -eq 24 ] || fail "expected 24 status reads, saw $(wc -l < "$d/nm.log")"
+  for i in 1 2 3 4 5 6 7 8; do
+    [ -e "$d/done.$i" ] || fail "lane $i did not finish its 3 reads within the scaled 20s snapshot bound"
+  done
+  pass "a cold heartbeat of 8 lanes x 3 reads fits the snapshot bound"
+}
+
+# The DoD custody gate decides whether a ship done: is safe, so it must read
+# the run live even when the caller exported a status cache that still holds an
+# earlier pass.
+test_dod_custody_gate_bypasses_the_status_cache() {
+  reset_fakes
+  local d out rc=0
+  d=$(cache_case dod-custody-live)
+  FM_FAKE_AXI_STATUS="$(run_passed_no_pr fm/feat-load)"
+  export FM_FAKE_AXI_STATUS
+  # shellcheck disable=SC2016  # The inner script expands after bash -c receives positional args.
+  out=$(env FM_DOD_LIB="$ROOT/bin/fm-dod-lib.sh" FM_FAKE_NM_LOG="$d/nm.log" FM_NM_CACHE_DIR="$d/cache" \
+    PATH="$d/fakebin:$PATH" bash -c '
+      . "$FM_DOD_LIB"
+      fm_nm_run_checked "$1" 15 axi status >/dev/null || exit 9
+      FM_FAKE_AXI_STATUS_ERROR=1 fm_dod_nm_custody_returned "$1"
+    ' _ "$d/wt") || rc=$?
+  [ "$rc" = 1 ] || fail "custody gate accepted a cached pass after the live read failed (rc=$rc): $out"
+  assert_contains "$out" "could not be read" "custody gate did not refuse on the unreadable live status"
+  [ "$(wc -l < "$d/nm.log")" -eq 2 ] || fail "custody gate did not re-read the status live: $(cat "$d/nm.log")"
+  pass "DoD custody gate reads the run live past a cached pass"
 }
 
 test_status_cache_expires_after_ttl() {
@@ -6020,6 +6081,8 @@ test_library_sources_without_external_tools
 test_cache_prunes_old_entries_on_publish
 test_new_key_refreshes_sibling_reads_of_the_same_worktree
 test_status_reads_across_lanes_are_concurrency_limited
+test_cold_heartbeat_of_eight_lanes_fits_the_snapshot_bound
+test_dod_custody_gate_bypasses_the_status_cache
 test_lowload_kill_switch_restores_old_behavior
 test_terminal_passed_no_forge_switch_skips_read_but_keeps_receipt
 test_terminal_passed_with_open_pr_does_not_claim_merged

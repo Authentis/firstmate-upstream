@@ -110,7 +110,7 @@ fm_nm_cache_locked() {  # <lockfile> <wait_secs> <command...>
 }
 
 # Run one refresh under a machine-wide concurrency limit: at most
-# FM_NM_STATUS_SLOTS (default 2) no-mistakes status reads run at once, however
+# FM_NM_STATUS_SLOTS (default 4) no-mistakes status reads run at once, however
 # many lanes a heartbeat fans out over, because each key lock only serializes
 # one lane. A caller not granted a slot within FM_NM_STATUS_WAIT seconds
 # (default 30) fails, which reads as unknown and is retried next heartbeat.
@@ -118,9 +118,9 @@ fm_nm_cache_locked() {  # <lockfile> <wait_secs> <command...>
 # the CLI runs with the slot descriptor closed so a child it leaves behind
 # cannot pin the slot.
 fm_nm_run_slotted() {  # <cache_dir> <dir> <timeout_secs> <args...>
-  local cache_dir=$1 slots=${FM_NM_STATUS_SLOTS:-2} wait=${FM_NM_STATUS_WAIT:-30} n deadline rc
+  local cache_dir=$1 slots=${FM_NM_STATUS_SLOTS:-4} wait=${FM_NM_STATUS_WAIT:-30} n deadline rc
   shift
-  case "$slots" in ''|*[!0-9]*|0) slots=2 ;; esac
+  case "$slots" in ''|*[!0-9]*|0) slots=4 ;; esac
   case "$wait" in ''|*[!0-9]*) wait=30 ;; esac
   deadline=$(( $(date +%s) + wait ))
   while :; do
@@ -135,7 +135,7 @@ fm_nm_run_slotted() {  # <cache_dir> <dir> <timeout_secs> <args...>
       [ "$rc" = 198 ] || return "$rc"
     done
     [ "$(date +%s)" -lt "$deadline" ] || return 1
-    sleep 0.2
+    sleep "0.$((RANDOM % 3 + 1))"
   done
 }
 
@@ -233,8 +233,8 @@ fm_nm_run_uncached() {  # <dir> <timeout_secs> <args...>
   fm_nm_run_bounded "$@" 2>/dev/null
 }
 
-# When the caller names FM_NM_CACHE_DIR (fm-crew-state.sh does; teardown never
-# does, so its abort decisions always read live), the run-inventory reads
+# When the caller names FM_NM_CACHE_DIR (fm-crew-state.sh does; teardown and
+# the DoD custody gate never do, so their decisions always read live), the run-inventory reads
 # (`axi`, `axi status [--run id]`, `runs`) go through the shared cache. Liveness
 # probes (`daemon status`) and log reads stay live.
 fm_nm_run_checked() {  # <dir> <timeout_secs> <args...>

@@ -3165,10 +3165,10 @@ SH
   wait "$snapshot_pid" || fail "concurrent local snapshot failed"
   parallel=$(<"$parallel_file")
   # Concurrent observation overlaps reads, and the shared status-read limit
-  # (FM_NM_STATUS_SLOTS, default 2) caps the overlap across lanes.
+  # (FM_NM_STATUS_SLOTS, default 4) caps the overlap across lanes.
   max=$(sort -n "$home/parallel-active.log" | tail -1)
-  [ "$max" = 2 ] \
-    || fail "concurrent local reads did not overlap up to the status-read limit (max in flight ${max:-none}, expected 2)"
+  [ "$max" = 4 ] \
+    || fail "concurrent local reads did not overlap up to the status-read limit (max in flight ${max:-none}, expected 4)"
   [ "$parallel" = "$serial" ] \
     || fail "concurrent local observation changed the fm-bearings.v1 projection"
   printf '%s' "$parallel" | jq -e '
