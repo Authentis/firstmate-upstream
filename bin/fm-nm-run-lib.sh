@@ -72,7 +72,7 @@ fm_nm_run_bounded() {  # <dir> <timeout_secs> <args...>
 # Entries older than five TTLs are pruned on publish. Only exit-0 non-empty
 # output is cached, so an error or timeout is never replayed. Prints the output
 # and returns the call's status.
-FM_NM_RUN_LIB_PATH=${BASH_SOURCE[0]}
+FM_NM_RUN_LIB_PATH=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")
 
 fm_nm_cache_mtime() {  # <path>
   stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null || echo 0
@@ -92,6 +92,7 @@ fm_nm_cache_locked() {  # <lockfile> <wait_secs> <command...>
       exit 198 if time >= $end;
       select(undef, undef, undef, 0.1);
     }
+    $ENV{FM_NM_LOCK_FD} = fileno($fh);
     exec @ARGV or exit 197;
   ' "$@"
 }
@@ -105,7 +106,13 @@ fm_nm_cache_refresh() {  # <cache_dir> <file> <ttl> <dir> <timeout_secs> <args..
     cat "$file"
     return 0
   fi
-  out=$(fm_nm_run_uncached "$dir" "$timeout_secs" "$@") || rc=$?
+  # The CLI must not inherit the lock descriptor: a process it leaves behind
+  # would otherwise pin the key's lock. Closing it in the subshell leaves this
+  # shell holding the lock through publish.
+  out=$(
+    [ -z "${FM_NM_LOCK_FD:-}" ] || eval "exec ${FM_NM_LOCK_FD}>&-"
+    fm_nm_run_uncached "$dir" "$timeout_secs" "$@"
+  ) || rc=$?
   if [ "$rc" = 0 ] && [ -n "$out" ]; then
     printf '%s\n' "$out" >"$file.$$" 2>/dev/null && mv -f "$file.$$" "$file" 2>/dev/null
     find "$cache_dir" -name '*.out' -mmin +$((ttl * 5 / 60 + 1)) -exec rm -f {} + 2>/dev/null
@@ -131,6 +138,7 @@ fm_nm_cached_checked() {  # <cache_dir> <dir> <timeout_secs> <args...>
     cat "$file"
     return 0
   fi
+  # shellcheck disable=SC2016  # The inner script expands after bash -c receives positional args.
   out=$(fm_nm_cache_locked "$cache_dir/$key.lock" $((timeout_secs + 3)) \
     bash -c '. "$1"; shift; fm_nm_cache_refresh "$@"' _ "$FM_NM_RUN_LIB_PATH" \
     "$cache_dir" "$file" "$ttl" "$dir" "$timeout_secs" "$@" 2>/dev/null) || rc=$?

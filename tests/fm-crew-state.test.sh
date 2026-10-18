@@ -87,6 +87,7 @@ make_fakebin() {  # <dir> -> echoes fakebin path
 set -u
 printf '%s|%s\n' "${NO_MISTAKES_NO_UPDATE_CHECK:-}" "$*" >> "${FM_FAKE_NM_LOG:-/dev/null}"
 [ -z "${FM_FAKE_NM_SLEEP:-}" ] || sleep "$FM_FAKE_NM_SLEEP"
+[ -z "${FM_FAKE_NM_LEAVE:-}" ] || { sleep 20 > /dev/null 2>&1 < /dev/null & }
 case "${1:-}" in
   axi)
     shift
@@ -1568,6 +1569,7 @@ cache_read() {  # <case-dir> [VAR=val ...]
   (
     # shellcheck source=/dev/null
     . "$ROOT/bin/fm-nm-run-lib.sh"
+    # shellcheck disable=SC2016  # The inner script expands after bash -c receives positional args.
     env FM_NM_LIB="$ROOT/bin/fm-nm-run-lib.sh" FM_FAKE_NM_LOG="$d/nm.log" "$@" PATH="$d/fakebin:$PATH" \
       bash -c '. "$FM_NM_LIB"; fm_nm_cached_checked "$1" "$2" "${CACHE_T:-4}" axi status' _ "$d/cache" "$d/wt"
   )
@@ -1594,7 +1596,11 @@ test_parallel_cold_reads_spawn_once() {
 # The cache lock is a kernel flock owned by the refreshing process. hold_lock
 # starts a background process that holds a key's lock for <secs>.
 cache_lockfile_of() {  # <case-dir> -> lock file of the primed key
-  ls "$1"/cache/*.out | sed 's/\.out$/.lock/'
+  local f
+  for f in "$1"/cache/*.out; do
+    printf '%s' "${f%.out}.lock"
+    return 0
+  done
 }
 
 hold_lock() {  # <lockfile> <secs>; prints the holder pid
@@ -1680,6 +1686,43 @@ test_different_timeouts_share_one_lock() {
   done
   [ -s "$d/out.long" ] || fail "readers got no output"
   pass "readers with different timeouts share one lock"
+}
+
+# A process the CLI leaves running must not inherit and pin the key's lock.
+test_leftover_cli_child_does_not_pin_the_lock() {
+  reset_fakes
+  local d start
+  d=$(cache_case cache-leftover)
+  FM_FAKE_AXI_STATUS="$(run_running fm/feat-load)"
+  export FM_FAKE_AXI_STATUS
+  cache_read "$d" FM_FAKE_NM_LEAVE=1 > /dev/null
+  touch -t 202001010000 "$d"/cache/*.out
+  : > "$d/nm.log"
+  start=$SECONDS
+  cache_read "$d" FM_FAKE_NM_LEAVE=1 > /dev/null
+  [ $((SECONDS - start)) -lt 3 ] || fail "a leftover CLI child held the lock for the next read"
+  [ "$(wc -l < "$d/nm.log")" -eq 1 ] || fail "the expired read did not refresh ($(wc -l < "$d/nm.log") spawns)"
+  pkill -f 'sleep 20' 2>/dev/null || true
+  pass "a process left by the CLI cannot pin the cache lock"
+}
+
+# End to end through the executable: concurrent crew-state reads of one lane
+# share one run lookup.
+test_concurrent_crew_state_runs_share_one_status_spawn() {
+  reset_fakes
+  local d i
+  d=$(lowload_case lowload-concurrent)
+  FM_FAKE_AXI_STATUS="$(run_running fm/feat-load)"
+  export FM_FAKE_AXI_STATUS
+  for i in 1 2 3 4; do
+    lowload_run "$d" FM_FAKE_NM_SLEEP=1 > "$d/out.$i" &
+  done
+  wait
+  [ "$(grep -c '|axi status$' "$d/nm.log")" -eq 1 ] || fail "concurrent crew-state runs spawned axi status $(grep -c '|axi status$' "$d/nm.log") times"
+  for i in 2 3 4; do
+    cmp -s "$d/out.1" "$d/out.$i" || fail "concurrent run $i reported a different state"
+  done
+  pass "concurrent crew-state runs share one axi status spawn"
 }
 
 test_cache_prunes_old_entries_on_publish() {
@@ -5846,6 +5889,8 @@ test_parallel_cold_reads_spawn_once
 test_dead_holder_releases_the_lock_immediately
 test_live_holder_past_the_readers_timeout_is_never_overtaken
 test_different_timeouts_share_one_lock
+test_leftover_cli_child_does_not_pin_the_lock
+test_concurrent_crew_state_runs_share_one_status_spawn
 test_cache_prunes_old_entries_on_publish
 test_lowload_kill_switch_restores_old_behavior
 test_terminal_passed_no_forge_switch_skips_read_but_keeps_receipt
