@@ -24,25 +24,27 @@ floor_ok() {
 # non-GPT family that is free. At most 2 automatic queues per exact head (state/.floor-n-<pr>-<head>-<family>, one stamp per try, so a
 # family is never retried for the same head); the open queue is state/.floor-q-<pr> = "<head> <family>". floor_sweep cancels a queue whose
 # head moved (the old head's review is never repeated; the new head earns its own 2 only if it again hits the floor). Families, preference
-# order, one per line or space separated: data/floor-families (default "kimi muse grok"; never a GPT family). Kill switch: data/floor-autoqueue.off.
+# order, one per line or space separated: data/floor-families (default "muse grok"; never a GPT family and never the primary reviewer's family, which is Kimi). Kill switch: data/floor-autoqueue.off.
 # Queue/cancel commands are data/bin/xreview.sh --family/--cancel; FLOOR_QUEUE_CMD / FLOOR_CANCEL_CMD override them (tests stub them).
-floor_families() { local f; f=$(cat "$H/data/floor-families" 2>/dev/null); printf '%s\n' ${f:-kimi muse grok} | grep -viE '^(gpt|openai|codex|sol)' ; }
+floor_families() { local f; f=$(cat "$H/data/floor-families" 2>/dev/null); printf '%s\n' ${f:-muse grok} | grep -viE '^(gpt|openai|codex|sol)' ; }
 floor_family_busy() { local q; for q in "$H"/state/.floor-q-*; do [ -e "$q" ] && [ "$(awk '{print $2}' "$q")" = "$1" ] && return 0; done; return 1; }
+FLOOR_CANCELLED=""
 floor_sweep() {
   local pr=$1 head=${2:-} q="$H/state/.floor-q-$1" qh qf
   [ -e "$q" ] || return 0
   read -r qh qf < "$q"
-  if [ -e "$H/data/xreview/$pr-fam2.md" ] && grep -q "head=$qh" "$H/data/xreview/$pr-fam2.md" 2>/dev/null && grep -q '^VERDICT:' "$H/data/xreview/$pr-fam2.md"; then rm -f "$q"; return 0; fi
+  if [ "$H/data/xreview/$pr-fam2.md" -nt "$q" ] && grep -q "head=$qh" "$H/data/xreview/$pr-fam2.md" 2>/dev/null && grep -q '^VERDICT:' "$H/data/xreview/$pr-fam2.md"; then rm -f "$q"; return 0; fi
   [ -n "$head" ] || head=$(gh pr view "$pr" --repo Authentis/decision-os --json headRefOid -q .headRefOid 2>/dev/null) || return 0
   [ -n "$head" ] && [ "$head" != "$qh" ] || return 0
   # a failed cancel keeps the record so the next pass retries it; a moved head is never re-queued here
   ${FLOOR_CANCEL_CMD:-bash $H/data/bin/xreview.sh --cancel} "$pr" "$qf" "$qh" >/dev/null 2>&1 || { echo "bosgame-autoland: PR $pr floor review of ${qh:0:8} ($qf) cancel failed; will retry" >&2; return 0; }
-  rm -f "$q"; echo "bosgame-autoland: PR $pr head moved ${qh:0:8} -> ${head:0:8}; cancelled queued $qf floor review" >&2
+  rm -f "$q"; FLOOR_CANCELLED="$FLOOR_CANCELLED $pr"; echo "bosgame-autoland: PR $pr head moved ${qh:0:8} -> ${head:0:8}; cancelled queued $qf floor review" >&2
   return 1
 }
 floor_autoqueue() {
   local pr=$1 head=$2 q="$H/state/.floor-q-$1" n=0 fam t
   [ -e "$H/data/floor-autoqueue.off" ] || [ "${DRY:-0}" = 1 ] && return 0
+  case "$FLOOR_CANCELLED " in *" $pr "*) return 0;; esac   # cancelled earlier this pass: the new head waits for a later pass
   floor_sweep "$pr" "$head" || return 0   # a cancel ends this call; the new head is judged on a later pass
   [ -e "$q" ] && { echo "bosgame-autoland: PR $pr floor: second-family review already queued ($(cut -d' ' -f2 "$q"))" >&2; return 0; }
   for t in "$H/state/.floor-n-$pr-$head"-*; do [ -e "$t" ] && n=$((n + 1)); done
@@ -215,8 +217,9 @@ for p in json.load(sys.stdin):
 for n, b, _ in sorted(out, key=lambda x: (not x[1].startswith("fm/dos-planning"), not x[2])):
     print(n, b)
 ' | { exec 3<&0 </dev/null   # chief 14:34: the loop reads the PR list on fd 3; body commands (netcup-land, xreview, gh) get /dev/null so they cannot eat the list
+# before eligibility filtering, so a draft or freshly pushed PR still gets its old-head review cancelled
+if [ "$DRY" = 0 ]; then for _q in "$H"/state/.floor-q-*; do [ -e "$_q" ] && floor_sweep "${_q##*.floor-q-}"; done; fi
 while read -r pr branch <&3; do
-  [ "$DRY" = 1 ] || floor_sweep "$pr"
   bos_prefix=0
   [[ $branch =~ ^fm/dos-bosgame-|^fm/dos-repoint-split-bosgame-|^fm/dos-planning[^/]*-bosgame- ]] && bos_prefix=1
   if [ "$bos_prefix" = 1 ]; then
