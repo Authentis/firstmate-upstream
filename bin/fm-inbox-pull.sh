@@ -296,6 +296,15 @@ floor_of() {  # <dir>
   printf '%s\n' "$FLOORS" | awk -F"$TAB" -v d="$1" '$1 == d { print $2; found = 1 } END { if (!found) print 0 }' | head -n 1
 }
 
+handled_has() {  # <inbox-dir> <seq>: a handled record carries this normalised sequence
+  local f
+  for f in "$1"/handled/*.msg; do
+    [ -e "$f" ] || continue
+    [ "$(fm_task_inbox_seq_of "${f##*/}" 2>/dev/null)" = "$2" ] && return 0
+  done
+  return 1
+}
+
 unseen_records() {  # <dirs> -> "dir<TAB>seq<TAB>path", oldest first per inbox
   local d f n fl
   while IFS= read -r d; do
@@ -305,7 +314,7 @@ unseen_records() {  # <dirs> -> "dir<TAB>seq<TAB>path", oldest first per inbox
       [ -f "$f" ] || continue
       n=$(fm_task_inbox_seq_of "${f##*/}") || continue
       [ "$n" -gt "$fl" ] || continue
-      [ ! -e "$d/handled/${f##*/}" ] || continue
+      handled_has "$d" "$n" && continue
       if [ -n "$SEEN" ] && printf '%s\n' "$SEEN" | grep -Fxq "$d$TAB$n"; then continue; fi
       printf '%s\t%s\t%s\n' "$d" "$n" "$f"
     done
@@ -357,7 +366,7 @@ cmd_peek() {
   cursor_load "$dirs" || { HB_ERROR="cursor migration failed"; log_line "$HB_ERROR"; hb_write; return 0; }
   HB_LAST_CHECK=$NOW
   HB_ERROR=''
-  rows=$(unseen_records "$dirs" | sort -t "$TAB" -k1,1 -k2,2n)
+  rows=$(unseen_records "$dirs" | sort -t "$TAB" -k1,1 -k2,2n | awk -F"$TAB" '!s[$1 FS $2]++')
   if [ -z "$rows" ]; then
     rm -f "$PULL/pending" 2>/dev/null
     hb_write

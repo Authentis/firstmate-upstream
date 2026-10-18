@@ -348,6 +348,14 @@ test_handled_twin_and_read_only_status() {
   printf 'schema=fm-inbox-pull-cursor.v0\n' > "$S/inbox-pull/cursor"
   FM_HOME="$H" FM_STATE_OVERRIDE="$S" FM_CONFIG_OVERRIDE="$H/config" bash "$PULL" status >/dev/null
   assert_equals "schema=fm-inbox-pull-cursor.v0" "$(sed -n 1p "$S/inbox-pull/cursor")" "status never rewrites the cursor"
+  mk_msg "$box" 2
+  cp "$box/002.msg" "$box/2.msg"
+  cp "$box/002.msg" "$box/handled/2.msg"
+  mk_msg "$box" 3
+  cp "$box/003.msg" "$box/3.msg"
+  pull 1100 peek
+  assert_not_contains "$out" "002.msg" "a handled twin with a differently padded name suppresses the record"
+  assert_equals 1 "$(printf '%s\n' "$out" | grep -c '/00\?3.msg\|/3.msg')" "two names for one sequence collapse to one line"
   pass "handled/ twins are never named and status is read-only"
 }
 
