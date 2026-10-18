@@ -67,10 +67,11 @@ floor_autoqueue_locked() {
   local pr=$1 head=$2 q="$H/state/.floor-q-$1" n=0 fam t cur
   [ -e "$H/data/floor-autoqueue.off" ] || [ "${DRY:-0}" = 1 ] && return 0
   case "$FLOOR_CANCELLED " in *" $pr "*) return 0;; esac   # cancelled earlier this pass: the new head waits for a later pass
-  floor_sweep "$pr" "$head" || return 0   # a cancel ends this call; the new head is judged on a later pass
-  # the head this pass captured may have moved (and been cancelled by another pass) while waiting for the lock: never queue a superseded head
-  # an empty or failed lookup is not proof the head is unchanged, so nothing is queued until the next pass can confirm it
-  cur=$(floor_current_head "$pr"); [ "$cur" = "$head" ] || { echo "bosgame-autoland: PR $pr floor: head not confirmed as ${head:0:8} (forge says '${cur:0:8}'); not queued" >&2; return 0; }
+  # The head this pass captured may have moved while it waited for the lock, so the forge's current head is read first and used for the
+  # sweep: a stale pass can never cancel a review of the newer head, and an empty or failed lookup is no proof of anything (nothing happens).
+  cur=$(floor_current_head "$pr"); [ -n "$cur" ] || { echo "bosgame-autoland: PR $pr floor: current head unreadable; not queued" >&2; return 0; }
+  floor_sweep "$pr" "$cur" || return 0   # a cancel ends this call; the new head is judged on a later pass
+  [ "$cur" = "$head" ] || { echo "bosgame-autoland: PR $pr floor: head moved to ${cur:0:8} since ${head:0:8}; not queued" >&2; return 0; }
   [ -e "$q" ] && { echo "bosgame-autoland: PR $pr floor: second-family review already queued ($(cut -d' ' -f2 "$q"))" >&2; return 0; }
   for t in "$H/state/.floor-n-$pr-$head"-*; do [ -e "$t" ] && n=$((n + 1)); done
   [ "$n" -lt 2 ] || { echo "bosgame-autoland: PR $pr floor: 2 automatic second-family queues already used for head ${head:0:8}" >&2; return 0; }

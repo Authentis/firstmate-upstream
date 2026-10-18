@@ -196,6 +196,16 @@ FLOOR_HEAD_CMD="$H/head.sh" run_floor 7 $HEAD1
 if [ "$(calls)" = 0 ] && [ ! -e "$H/state/.floor-q-7" ]; then pass "a head that moved while the pass waited for the lock is not queued"
 else fail "superseded: $(cat "$H/calls")"; fi
 
+new_home stale-pass-cannot-cancel-the-newer-review
+lone_pass 7 $HEAD2 12
+run_floor 7 $HEAD2
+lone_pass 7 $HEAD1 12
+printf '%s\n' '#!/usr/bin/env bash' "echo $HEAD2" > "$H/nohead.sh"   # the forge still says HEAD2 for the pass that captured HEAD1
+BOSGAME_AUTOLAND_SOURCE_ONLY=1 bash -c '. "$1"; floor_ok 7 "$2"' _ "$LANDER" $HEAD1 2>/dev/null
+if ! grep -q '^cancel' "$H/calls" && [ "$(cut -d' ' -f1 "$H/state/.floor-q-7")" = "$HEAD2" ] && [ "$(calls)" = 1 ]; then
+  pass "a pass holding a superseded head neither cancels nor replaces the newer head's review"
+else fail "stale pass: $(cat "$H/calls")"; fi
+
 new_home failed-head-lookup-queues-nothing
 lone_pass 7 $HEAD1 12
 printf '%s\n' '#!/usr/bin/env bash' 'exit 1' > "$H/nohead.sh"
