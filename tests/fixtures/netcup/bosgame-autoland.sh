@@ -51,8 +51,10 @@ floor_autoqueue() {
   [ "$n" -lt 2 ] || { echo "bosgame-autoland: PR $pr floor: 2 automatic second-family queues already used for head ${head:0:8}" >&2; return 0; }
   while read -r fam; do
     [ -n "$fam" ] && [ ! -e "$H/state/.floor-n-$pr-$head-$fam" ] && ! floor_family_busy "$fam" || continue
-    ${FLOOR_QUEUE_CMD:-bash $H/data/bin/xreview.sh --family} "$fam" "$pr" "$head" "$H/data/xreview/$pr-fam2.md" >/dev/null 2>&1 || continue
-    : > "$H/state/.floor-n-$pr-$head-$fam"; printf '%s %s\n' "$head" "$fam" > "$q"
+    # the record is written before the launch so a review that finishes early is still newer than it; a failed launch rolls it back
+    printf '%s %s\n' "$head" "$fam" > "$q"; : > "$H/state/.floor-n-$pr-$head-$fam"
+    ${FLOOR_QUEUE_CMD:-bash $H/data/bin/xreview.sh --family} "$fam" "$pr" "$head" "$H/data/xreview/$pr-fam2.md" >/dev/null 2>&1 \
+      || { rm -f "$q" "$H/state/.floor-n-$pr-$head-$fam"; continue; }
     echo "bosgame-autoland: PR $pr floor: queued $fam second-family review for head ${head:0:8} ($((n + 1)) of 2)" >&2; return 0
   done < <(floor_families)
   echo "bosgame-autoland: PR $pr floor: no free non-GPT family to queue" >&2

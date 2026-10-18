@@ -140,6 +140,14 @@ if grep -q "^cancel 7 muse $HEAD1" "$H/calls" && [ ! -e "$H/state/.floor-q-7" ];
   pass "an older second-family record does not count as completion of a newer queue"
 else fail "stale record: $(cat "$H/calls")"; fi
 
+new_home completion-before-queue-returns
+lone_pass 7 $HEAD1 12
+printf '%s\n' '#!/usr/bin/env bash' 'echo "queue $*" >> "$H/calls"' 'sleep 1' 'printf "at=2 head=%s\nVERDICT: FAIL\n" "$3" > "$4"' > "$H/queue.sh"
+run_floor 7 $HEAD1
+BOSGAME_AUTOLAND_SOURCE_ONLY=1 bash -c '. "$1"; floor_sweep 7 "$2"' _ "$LANDER" $HEAD1
+if [ ! -e "$H/state/.floor-q-7" ]; then pass "a review that finishes before the queue command returns still clears its record"
+else fail "early completion: record left behind"; fi
+
 new_home cancel-ends-the-pass
 lone_pass 7 $HEAD1 12
 run_floor 7 $HEAD1
