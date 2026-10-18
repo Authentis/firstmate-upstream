@@ -1761,7 +1761,7 @@ fm_treehouse_slot_landed_gate() {  # <worktree>
   unpushed=$(git -C "$worktree" log --oneline HEAD --not --exclude='no-mistakes/*' --remotes -- 2>/dev/null) || return 1
   [ -n "$unpushed" ] || return 0
   ref=
-  for candidate in refs/remotes/origin/main refs/remotes/origin/master refs/heads/main refs/heads/master; do
+  for candidate in refs/remotes/origin/HEAD refs/remotes/origin/main refs/remotes/origin/master refs/heads/main refs/heads/master; do
     if git -C "$worktree" rev-parse --quiet --verify "$candidate^{commit}" >/dev/null 2>&1; then
       ref=$candidate
       break
@@ -1785,8 +1785,9 @@ fm_treehouse_slot_return() {  # <worktree> [lease-id]
   slot=$(CDPATH='' cd -- "$worktree" 2>/dev/null && pwd -P) || return 1
   [ -z "$lease" ] || args=(--if-lease-id "$lease")
   ( cd "$(dirname "$slot")" && treehouse return ${args[@]+"${args[@]}"} "$slot" </dev/null >/dev/null 2>&1 ) || return 1
-  # A return that left the checkout on a branch did not make the slot leasable.
-  ! git -C "$slot" symbolic-ref --quiet HEAD >/dev/null 2>&1
+  # A return that left the checkout on a branch, or removed it, did not make the
+  # slot leasable.
+  [ -d "$slot" ] && ! git -C "$slot" symbolic-ref --quiet HEAD >/dev/null 2>&1
 }
 
 # THE retire owner for a pool slot: make a finished slot leasable again without

@@ -52,12 +52,22 @@ if [ -n "${FM_FAKE_POOL_DIR:-}" ]; then
       if [ -n "${FM_FAKE_FLIP_AFTER_FIRST_STATUS:-}" ] && [ -e "$FM_FAKE_POOL_DIR/.flip-armed" ]; then
         echo "leased lease-flipped" > "$FM_FAKE_POOL_DIR/$FM_FAKE_FLIP_AFTER_FIRST_STATUS/.fake-state"
       fi
-      [ -z "${FM_FAKE_FLIP_AFTER_FIRST_STATUS:-}" ] || : > "$FM_FAKE_POOL_DIR/.flip-armed"
+      # FM_FAKE_FLIP_META=<path> likewise creates that task record after the
+      # first call, leaving the slot available: a reused task id re-claimed.
+      if [ -n "${FM_FAKE_FLIP_META:-}" ] && [ -e "$FM_FAKE_POOL_DIR/.flip-armed" ]; then
+        : > "$FM_FAKE_FLIP_META"
+      fi
+      if [ -n "${FM_FAKE_FLIP_AFTER_FIRST_STATUS:-}${FM_FAKE_FLIP_META:-}" ]; then
+        : > "$FM_FAKE_POOL_DIR/.flip-armed"
+      fi
+      # Each slot lists the processes holding it (FM_FAKE_BUSY_SLOT=<slot>).
       while IFS= read -r d; do
         read -r st lid < "$d/.fake-state"
         br=$(git -C "$d/repo" symbolic-ref --quiet --short HEAD 2>/dev/null || true)
-        printf '%s{"name":"%s","path":"%s","status":"%s","branch":"%s","lease_id":"%s"}' \
-          "$sep" "$(basename "$d")" "$d/repo" "$st" "$br" "${lid:-}"
+        procs=
+        [ "${FM_FAKE_BUSY_SLOT:-}" != "$(basename "$d")" ] || procs='{"pid":4242,"name":"agent"}'
+        printf '%s{"name":"%s","path":"%s","status":"%s","branch":"%s","lease_id":"%s","processes":[%s]}' \
+          "$sep" "$(basename "$d")" "$d/repo" "$st" "$br" "${lid:-}" "$procs"
         sep=,
       done < <(fake_slot_dirs)
       printf ']\n'
@@ -604,7 +614,7 @@ test_retire_refuses_dirty_unlanded_and_reassigned_slots() {
   out=$(pool_cmd "$case_dir" "$SLOT_RELEASE" task-p1)
   [ "$out" = kept:reassigned ] || fail "expected kept:reassigned, got: $out"
   assert_grep "task=someone-else" "$case_dir/pool/1/.fm-slot-owner" "a reassigned slot's claim must be left alone"
-  assert_absent "$case_dir/treehouse.log" "no refusal may reach treehouse"
+  assert_no_grep "^return" "$case_dir/treehouse.log" "no refusal may reach treehouse return"
   pass "retire keeps dirty, unlanded and reassigned slots exactly as found"
 }
 
@@ -619,6 +629,7 @@ test_sweep_returns_a_hard_killed_leftover_to_the_pool() {
   [ -z "$out" ] || fail "a released slot is silent, got: $out"
   git -C "$case_dir/project" rev-parse --verify -q refs/heads/fm/task-gone >/dev/null \
     || fail "the leftover's branch must be kept"
+  assert_absent "$case_dir/pool/2/.fm-slot-owner" "the sweep must drop the stale claim"
   assert_slot_leasable "$case_dir" 2 "sweep then lease"
   assert_grep "$case_dir/pool/2/repo fm/task-gone released" "$case_dir/home/state/slot-sweep.log" \
     "the sweep must log every slot it acted on"
@@ -672,7 +683,29 @@ test_sweep_rechecks_the_slot_under_the_lock() {
   [ "$(slot_head "$case_dir" 2)" = fm/task-raced ] || fail "a slot leased during the sweep must keep its branch checked out"
   assert_present "$case_dir/pool/2/.fm-slot-owner" "a slot leased during the sweep must keep its claim"
   assert_no_grep "^return" "$case_dir/treehouse.log" "the sweep must not return a slot that was leased under it"
-  pass "the sweep rechecks the slot under the lock and stands down when it was leased meanwhile"
+  # The same task id re-claimed by a live record, slot still reading available.
+  case_dir=$(make_pool_case sweep-recheck-claim)
+  strand_slot "$case_dir" 2 fm/task-raced task-raced
+  out=$(FM_FAKE_FLIP_META="$case_dir/home/state/task-raced.meta" pool_cmd "$case_dir" "$SLOT_RELEASE" --sweep "$case_dir/project")
+  [ -z "$out" ] || fail "a re-claimed slot must be skipped silently, got: $out"
+  assert_present "$case_dir/home/state/task-raced.meta" "control: the flip should have recorded the reused task id"
+  [ "$(slot_head "$case_dir" 2)" = fm/task-raced ] || fail "a slot re-claimed during the sweep must keep its branch checked out"
+  pass "the sweep rechecks the slot under the lock and stands down when it was leased or re-claimed meanwhile"
+}
+
+test_release_refuses_a_slot_a_process_still_holds() {
+  local case_dir out status
+  case_dir=$(make_pool_case release-busy)
+  out=$(FM_FAKE_BUSY_SLOT=1 pool_cmd "$case_dir" "$SLOT_RELEASE" task-p1)
+  status=$?
+  expect_code 1 "$status" "a slot a process still holds must not be retired"
+  assert_contains "$out" "failed" "a busy slot must report failed"
+  [ "$(slot_head "$case_dir" 1)" = fm/task-p1 ] || fail "a busy slot must keep its branch checked out"
+  assert_present "$case_dir/pool/1/.fm-slot-owner" "a busy slot must keep its claim"
+  mkdir "$case_dir/task-p1"
+  out=$(cd "$case_dir" && pool_cmd "$case_dir" "$SLOT_RELEASE" task-p1)
+  [ "$out" = released ] || fail "a recorded task id must win over a same-named directory, got: $out"
+  pass "an explicit release refuses a slot a process still holds, and a task id beats a same-named directory"
 }
 
 test_teardown_goes_through_the_retire_owner_and_frees_the_slot() {
@@ -695,6 +728,7 @@ test_retire_refuses_dirty_unlanded_and_reassigned_slots
 test_sweep_returns_a_hard_killed_leftover_to_the_pool
 test_sweep_leaves_dirty_unlanded_claimed_and_disabled_slots
 test_sweep_rechecks_the_slot_under_the_lock
+test_release_refuses_a_slot_a_process_still_holds
 test_teardown_goes_through_the_retire_owner_and_frees_the_slot
 test_spawn_without_lease_support_keeps_the_interactive_path
 test_aborted_spawn_returns_its_unrecorded_lease

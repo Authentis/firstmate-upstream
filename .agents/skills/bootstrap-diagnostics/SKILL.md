@@ -69,7 +69,8 @@ When any diagnostic needs captain attention, report the plain consequence and re
 - `SECONDMATE_LIVENESS: secondmate <id>: skipped: <reason>|respawn failed after <cause>: <reason>` - the session-start liveness sweep could not guarantee that the registered secondmate is running a real agent process.
   Investigate the reason because that secondmate is not guaranteed live.
 - `SLOT_SWEEP: <slot>: kept:dirty|kept:unlanded|kept:reassigned|failed (<branch>)` - a stranded pool slot (available, still on a branch, no live claim) was deliberately left because it holds uncommitted or unlanded work, or a retire step failed, and nothing was reset.
-  Let the owner land or discard the work on the named branch, then re-run `bin/fm-slot-release.sh <slot-path>`.
+  A `kept:reassigned` slot now belongs to another task, so take no action on it.
+  For `kept:dirty`, `kept:unlanded`, and `failed`, let the owner land or discard the work on the named branch, then re-run `bin/fm-slot-release.sh <slot-path>`.
   [`bin/fm-slot-release.sh`](../../../bin/fm-slot-release.sh) owns the sweep and its `config/slot-sweep-disable` kill switch.
 - `SECONDMATE_HANDOFF: secondmate <id>: pending delivery: <n> item(s)` - queued work has already left the main dispatchable backlog and remains safe in the named remote route's backlog-format outbox because backlog receipt or local outbox cleanup has not completed; [`bin/fm-backlog-handoff.sh`](../../../bin/fm-backlog-handoff.sh) owns the release contract.
   Preserve that outbox and rerun `bin/fm-backlog-handoff.sh --resume-pending` after the route, receipt, or cleanup problem is resolved; never re-add or dispatch the items from the main backlog.

@@ -81,6 +81,17 @@ sweep_recheck() {  # <project> <worktree> <task-id>
   [ "$FM_TREEHOUSE_SLOT_CLAIM" = free ]
 }
 
+# An explicit release names a slot whose agent the caller says is gone, but a
+# mistyped id or path could name a live one: under the lock, treehouse must show
+# no process holding the slot. (The sweep needs no such check; it only considers
+# slots treehouse already reports available.)
+release_recheck() {  # <project> <worktree> <task-id>
+  local project=$1 worktree=$2 busy
+  busy=$( cd "$project" && treehouse status --json 2>/dev/null </dev/null \
+    | jq -r --arg p "$worktree" '[.[]? | select(.path == $p)] | if length == 1 then ((.[0].processes // []) | length) else "unknown" end' ) || return 1
+  [ "$busy" = 0 ]
+}
+
 slot_project() {  # <worktree> -> the project clone that owns the slot's pool
   local common
   common=$(git -C "$1" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || return 1
@@ -92,7 +103,8 @@ slot_project() {  # <worktree> -> the project clone that owns the slot's pool
 
 release_one() {  # <task-id|path> [lease-id]
   local arg=$1 lease=${2:-} id worktree project rc
-  if [ -d "$arg" ]; then
+  # A recorded task id wins over a directory that merely shares its name.
+  if [ ! -f "$STATE/$arg.meta" ] && [ -d "$arg" ]; then
     worktree=$arg
     fm_treehouse_slot_owner_state "$worktree" ""
     id=$FM_TREEHOUSE_SLOT_OWNER_ID
@@ -107,9 +119,10 @@ release_one() {  # <task-id|path> [lease-id]
   project=$(slot_project "$worktree") || { echo failed; return 1; }
   fm_treehouse_pool_slot "$project" "$worktree" || { echo failed; echo "error: $worktree is not a Treehouse pool slot of $project" >&2; return 1; }
   rc=0
-  retire_locked "$project" "$worktree" "$id" "$lease" || rc=$?
+  retire_locked "$project" "$worktree" "$id" "$lease" release_recheck || rc=$?
   case "$rc" in
     2|3) echo failed; echo "error: cannot take the Treehouse allocation lock for $project" >&2; return 1 ;;
+    4) echo failed; echo "error: treehouse shows a process still holding $worktree (or cannot report it); end the agent first" >&2; return 1 ;;
   esac
   echo "$FM_TREEHOUSE_SLOT_RETIRE_RESULT"
   return "$rc"
