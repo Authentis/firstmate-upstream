@@ -51,7 +51,7 @@ epoch_ms() { node -e 'process.stdout.write(String(Date.now()))'; }
 # tracked bin/ and .pi/, and the REAL spawn's staged launch command.
 #   sets: C (case dir) H (primary home) SM (mate home) ID LAUNCH
 build_world() {  # <name> <mate-owner-mode: 664|missing>
-  local name=$1 owner_mode=$2 fakebin launchlog out status
+  local name=$1 owner_mode=$2 fakebin launchlog out status first_call_pid
   SCENARIO_N=$((SCENARIO_N + 1))
   C="$TMP_ROOT/$SCENARIO_N-$name"
   H="$C/home"
@@ -85,8 +85,25 @@ build_world() {  # <name> <mate-owner-mode: 664|missing>
   fakebin=$(fm_test_make_spawn_fakebin "$C/fake")
   launchlog="$C/launch.log"
   : > "$launchlog"
+  # The spawn waits for the mate's first model call, and the fake tmux never runs
+  # a model, so a helper stands in for that call by driving the generated
+  # first-call hook against the fake Pi event API once the hook exists.
+  (
+    i=0
+    while [ "$i" -lt 600 ]; do
+      if [ -f "$H/state/$ID.pi-first-call.ts" ] && grep -q '^kind=secondmate$' "$H/state/$ID.meta" 2>/dev/null; then
+        node "$ROOT/tests/assets/pi-first-call-fake.mjs" "$H/state/$ID.pi-first-call.ts"
+        exit 0
+      fi
+      sleep 0.2
+      i=$((i + 1))
+    done
+  ) &
+  first_call_pid=$!
   out=$(FM_FAKE_LAUNCH_LOG="$launchlog" fm_test_run_spawn "$H" "$SM" "$fakebin" "$ID" "$SM" --secondmate)
   status=$?
+  kill "$first_call_pid" 2>/dev/null || true
+  wait "$first_call_pid" 2>/dev/null || true
   [ "$status" -eq 0 ] || fail "spawn of the pi secondmate failed ($status): $out"
   LAUNCH=$(cat "$launchlog")
   case "$LAUNCH" in
