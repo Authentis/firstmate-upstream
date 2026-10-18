@@ -1593,117 +1593,109 @@ test_parallel_cold_reads_spawn_once() {
   pass "parallel cold reads spawn the CLI once"
 }
 
-# Slot-lease interleavings run against the lib with a fixed clock: lease length
-# is timeout 4 + 5 = 9 s, and a lock directory's mtime is set to the fake time
-# it was granted.
-lease_try() {  # <fake-now> <prefix> <slot>
-  (. "$ROOT/bin/fm-nm-run-lib.sh"; FM_NM_CACHE_NOW=$1 fm_nm_cache_try "$2" "$3" 4)
-}
-
-lease_stamp() {  # <epoch> <dir>
-  perl -e '$t = shift; utime $t, $t, @ARGV' "$1" "$2"
-}
-
-cache_prefix_of() {  # <case-dir> -> lock prefix of the primed key
+# The cache lock is a kernel flock owned by the refreshing process. hold_lock
+# starts a background process that holds a key's lock for <secs>.
+cache_lockfile_of() {  # <case-dir> -> lock file of the primed key
   ls "$1"/cache/*.out | sed 's/\.out$/.lock/'
 }
 
-test_orphaned_lock_is_recovered_by_the_next_slot_with_one_spawn() {
-  reset_fakes
-  local d prefix slot
-  d=$(cache_case cache-orphan)
-  FM_FAKE_AXI_STATUS="$(run_running fm/feat-load)"
-  export FM_FAKE_AXI_STATUS
-  cache_read "$d" > /dev/null
-  prefix=$(cache_prefix_of "$d")
-  rm -f "$d"/cache/*.out
-  slot=$(( $(date +%s) / 9 ))
-  mkdir "$prefix.$slot"   # a dead writer's lock for the current slot
-  : > "$d/nm.log"
-  cache_read "$d" > /dev/null
-  [ "$(wc -l < "$d/nm.log")" -eq 1 ] || fail "orphaned lock recovery spawned $(wc -l < "$d/nm.log") times"
-  [ -s "$(ls "$d"/cache/*.out)" ] || fail "refresh after orphan recovery did not publish"
-  pass "an orphaned lock is outlived by the next slot and the refresh publishes once"
+hold_lock() {  # <lockfile> <secs>; prints the holder pid
+  (
+    . "$ROOT/bin/fm-nm-run-lib.sh"
+    fm_nm_cache_locked "$1" 5 sleep "$2" > /dev/null 2>&1 &
+    printf '%s' "$!"
+  )
 }
 
-# A reader that cannot be granted within budget never spawns around the lock:
-# it serves the stale entry, or fails when there is none.
-test_cache_serves_stale_on_wait_timeout_and_prunes_old_entries() {
+wait_for_lock_held() {  # <lockfile>
+  local i
+  for i in $(seq 1 50); do
+    (. "$ROOT/bin/fm-nm-run-lib.sh"; ! fm_nm_cache_locked "$1" 0 true) && return 0
+    sleep 0.1
+  done
+  fail "background holder never took the lock"
+}
+
+# A holder that is dead releases at once: no waiting out any age, one spawn.
+test_dead_holder_releases_the_lock_immediately() {
   reset_fakes
-  local d prefix out rc=0
-  d=$(cache_case cache-stale)
+  local d lockfile pid start
+  d=$(cache_case cache-dead-holder)
   FM_FAKE_AXI_STATUS="$(run_running fm/feat-load)"
   export FM_FAKE_AXI_STATUS
   cache_read "$d" > /dev/null
-  prefix=$(cache_prefix_of "$d")
-  touch -t 202001010000 "$d"/cache/*.out
-  # A clock pinned inside slot 150 (6 s leases) with that slot's lock held: no grant is
-  # possible, however long the reader waits.
-  mkdir "$prefix.150"
-  : > "$d/nm.log"
-  out=$(cache_read "$d" CACHE_T=1 FM_NM_CACHE_NOW=900)
-  [ ! -s "$d/nm.log" ] || fail "wait timeout spawned the CLI instead of serving the stale entry"
-  [ -n "$out" ] || fail "wait timeout served nothing"
+  lockfile=$(cache_lockfile_of "$d")
   rm -f "$d"/cache/*.out
-  out=$(cache_read "$d" CACHE_T=1 FM_NM_CACHE_NOW=900) || rc=$?
-  [ "$rc" -ne 0 ] && [ -z "$out" ] || fail "no entry and a held lock did not fail cleanly"
-  [ ! -s "$d/nm.log" ] || fail "reader spawned around a held lock"
-  rmdir "$prefix.150"
+  pid=$(hold_lock "$lockfile" 30)
+  wait_for_lock_held "$lockfile"
+  kill "$pid"; wait "$pid" 2>/dev/null
+  : > "$d/nm.log"
+  start=$SECONDS
+  cache_read "$d" > /dev/null
+  [ $((SECONDS - start)) -lt 3 ] || fail "dead holder's lock was not released at once"
+  [ "$(wc -l < "$d/nm.log")" -eq 1 ] || fail "dead-holder recovery spawned $(wc -l < "$d/nm.log") times"
+  pass "a dead holder's lock is released by the kernel and the refresh publishes once"
+}
+
+# Sol's pause-after-grant: the holder is alive but slow, far past the reader's
+# timeout. The reader never takes the lock by age: it serves stale, spawns nothing.
+test_live_holder_past_the_readers_timeout_is_never_overtaken() {
+  reset_fakes
+  local d lockfile pid out rc=0
+  d=$(cache_case cache-live-holder)
+  FM_FAKE_AXI_STATUS="$(run_running fm/feat-load)"
+  export FM_FAKE_AXI_STATUS
+  cache_read "$d" > /dev/null
+  lockfile=$(cache_lockfile_of "$d")
+  touch -t 202001010000 "$d"/cache/*.out
+  pid=$(hold_lock "$lockfile" 20)
+  wait_for_lock_held "$lockfile"
+  : > "$d/nm.log"
+  out=$(cache_read "$d" CACHE_T=1)
+  [ ! -s "$d/nm.log" ] || fail "a reader spawned around a live holder"
+  [ -n "$out" ] || fail "reader did not serve the stale entry"
+  rm -f "$d"/cache/*.out
+  out=$(cache_read "$d" CACHE_T=1) || rc=$?
+  [ "$rc" -ne 0 ] && [ -z "$out" ] || fail "no entry and a live holder did not fail cleanly"
+  [ ! -s "$d/nm.log" ] || fail "a reader spawned around a live holder with no stale entry"
+  kill "$pid"; wait "$pid" 2>/dev/null
+  rm -f "$lockfile.unused"
+  pass "a live holder past the reader's timeout is never overtaken"
+}
+
+# Sol's same-key-different-timeouts: the lock identity is the key alone, so a
+# short-timeout reader and a long-timeout reader still exclude each other.
+test_different_timeouts_share_one_lock() {
+  reset_fakes
+  local d i
+  d=$(cache_case cache-timeouts)
+  FM_FAKE_AXI_STATUS="$(run_running fm/feat-load)"
+  export FM_FAKE_AXI_STATUS
+  cache_read "$d" FM_FAKE_NM_SLEEP=1 CACHE_T=4 > "$d/out.long" &
+  sleep 0.3
+  cache_read "$d" FM_FAKE_NM_SLEEP=1 CACHE_T=1 > "$d/out.short" &
+  cache_read "$d" FM_FAKE_NM_SLEEP=1 CACHE_T=9 > "$d/out.longer" &
+  wait
+  [ "$(wc -l < "$d/nm.log")" -eq 1 ] || fail "readers with different timeouts spawned $(wc -l < "$d/nm.log") times"
+  for i in short longer; do
+    cmp -s "$d/out.long" "$d/out.$i" || fail "reader $i saw different output"
+  done
+  [ -s "$d/out.long" ] || fail "readers got no output"
+  pass "readers with different timeouts share one lock"
+}
+
+test_cache_prunes_old_entries_on_publish() {
+  reset_fakes
+  local d
+  d=$(cache_case cache-prune)
+  FM_FAKE_AXI_STATUS="$(run_running fm/feat-load)"
+  export FM_FAKE_AXI_STATUS
+  mkdir -p "$d/cache"
   printf 'old\n' > "$d/cache/zzz.out"
   touch -t 202001010000 "$d/cache/zzz.out"
   cache_read "$d" > /dev/null
   [ ! -e "$d/cache/zzz.out" ] || fail "publish did not prune an entry older than a few TTLs"
-  pass "wait timeout serves stale or fails without spawning, and publish prunes old entries"
-}
-
-# Sol's expiry-vs-wait case: the ownership interval starts at the grant. B is
-# granted at 908 (slot 100 of 9 s); a contender at 909 is in slot 101 but B's
-# bounded call may run until 912, so it must not be granted; at 914 it may.
-test_grant_interval_is_protected_across_the_slot_boundary() {
-  reset_fakes
-  local d prefix
-  d=$(cache_case cache-boundary)
-  prefix="$d/cache/k.lock"
-  mkdir -p "$d/cache"
-  lease_try 908 "$prefix" 100 > /dev/null || fail "B was not granted its slot"
-  lease_stamp 908 "$prefix.100"
-  lease_try 909 "$prefix" 101 > /dev/null && fail "a contender was granted over B's running refresh"
-  [ ! -e "$prefix.101" ] || fail "refused contender left a lock behind"
-  lease_try 913 "$prefix" 101 > /dev/null && fail "a contender was granted while B could still be running"
-  lease_try 914 "$prefix" 101 > /dev/null || fail "a contender was refused after B's bound had passed"
-  pass "a grant's interval is protected across the slot boundary"
-}
-
-# Sol's name-reuse case: a taker that computed a slot, stalled, and resumed
-# after the clock moved on cannot take that old slot's name.
-test_a_past_slot_name_is_never_recreated() {
-  reset_fakes
-  local d prefix
-  d=$(cache_case cache-reuse)
-  prefix="$d/cache/k.lock"
-  mkdir -p "$d/cache"
-  lease_try 920 "$prefix" 101 > /dev/null && fail "a stalled taker was granted a past slot"
-  [ ! -e "$prefix.101" ] || fail "a stalled taker left a lock behind"
-  lease_try 920 "$prefix" 102 > /dev/null || fail "the current slot was not grantable"
-  pass "a past slot's name is never recreated"
-}
-
-# Delayed release: A stalls, its slot passes, others take later slots; A's late
-# release names only its own directory and cannot disturb them.
-test_delayed_release_does_not_disturb_a_later_owner() {
-  reset_fakes
-  local d prefix
-  d=$(cache_case cache-delayed-release)
-  prefix="$d/cache/k.lock"
-  mkdir -p "$d/cache"
-  lease_try 908 "$prefix" 100 > /dev/null || fail "A was not granted"
-  lease_stamp 908 "$prefix.100"
-  lease_try 950 "$prefix" 105 > /dev/null || fail "C was not granted a later slot"   # sweeps A's aged slot
-  [ ! -e "$prefix.100" ] || fail "an aged past-slot lock was not swept"
-  rmdir "$prefix.100" 2>/dev/null   # A resumes and releases its own directory
-  [ -d "$prefix.105" ] || fail "A's late release disturbed C's lock"
-  lease_try 951 "$prefix" 105 > /dev/null && fail "C's slot was granted twice"
-  pass "a delayed release cannot disturb a later owner"
+  pass "publish prunes entries older than a few TTLs"
 }
 
 test_lowload_kill_switch_restores_old_behavior() {
@@ -5899,11 +5891,10 @@ test_status_cache_hit_skips_second_spawn_and_update_check
 test_status_cache_expires_after_ttl
 test_landed_lane_skips_every_no_mistakes_spawn
 test_parallel_cold_reads_spawn_once
-test_orphaned_lock_is_recovered_by_the_next_slot_with_one_spawn
-test_cache_serves_stale_on_wait_timeout_and_prunes_old_entries
-test_grant_interval_is_protected_across_the_slot_boundary
-test_a_past_slot_name_is_never_recreated
-test_delayed_release_does_not_disturb_a_later_owner
+test_dead_holder_releases_the_lock_immediately
+test_live_holder_past_the_readers_timeout_is_never_overtaken
+test_different_timeouts_share_one_lock
+test_cache_prunes_old_entries_on_publish
 test_lowload_kill_switch_restores_old_behavior
 test_terminal_passed_no_forge_switch_skips_read_but_keeps_receipt
 test_terminal_passed_with_open_pr_does_not_claim_merged
