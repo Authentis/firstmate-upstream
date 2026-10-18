@@ -2032,6 +2032,8 @@ pass "a queued record is picked up after the worker entered its idle-scan skip"
     < /dev/null > /dev/null || exit 1
   fm_remote_job_cancel "$IDLECPU_HOME" "$FM_REMOTE_JOB_ID" || exit 1
   for _ in $(seq 1 100); do
+    # The worker finalizes and reaps a cancelled job, so a vanished record is success.
+    [ -d "$IDLECPU_STATE2/jobs/$FM_REMOTE_JOB_ID" ] || exit 0
     [ "$(fm_remote_job_read_state "$IDLECPU_STATE2/jobs/$FM_REMOTE_JOB_ID" 2>/dev/null || true)" = 'done' ] && exit 0
     sleep 0.1
   done
