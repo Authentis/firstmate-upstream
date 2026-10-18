@@ -41,6 +41,6 @@ While any order is pending, each poll makes sure exactly one wake is queued, so 
 A poll that cannot read the ledger keeps the last good pending view, and writers and polls serialize on the home's ledger lock so ids never duplicate.
 The script header owns the commands and file formats.
 
-## Canary
+## Replay receipt
 
-Roll each tool out to the bosgame secondmate home first and then netcup, and change no live home until the canary passes.
+The only rollout check is the replay: with the doorbell off, an order replayed into each secondmate home must be acknowledged within 60 seconds, and `fm-status-probe.sh read` must report unknown on stale data.

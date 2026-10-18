@@ -29,7 +29,7 @@
 #
 # Reporting rule: a status or report claim about a PR, a lane, or a gate wait
 # must quote the matching status.json field (section, key, value); a claim with
-# no matching field is not counted. docs/status-probe.md owns the rule.
+# no matching field is not counted. docs/fleet-truth.md owns the rule.
 #
 # A source is ok only when every query it was asked answered: one unreadable PR,
 # an unprovable merge commit, or a running no-mistakes run whose status could
@@ -80,7 +80,6 @@ OUT=
 TO_STDOUT=0
 MAX_AGE=${FM_PROBE_MAX_AGE_SECONDS:-900}
 EXTRA_PRS=()
-ARGS=()
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --home) [ "$#" -ge 2 ] || die "--home needs a directory"; HOME_DIR=$2; shift 2 ;;
@@ -88,7 +87,7 @@ while [ "$#" -gt 0 ]; do
     --pr) [ "$#" -ge 2 ] || die "--pr needs a url"; EXTRA_PRS+=("$2"); shift 2 ;;
     --stdout) TO_STDOUT=1; shift ;;
     --max-age) [ "$#" -ge 2 ] || die "--max-age needs seconds"; MAX_AGE=$2; shift 2 ;;
-    *) ARGS+=("$1"); shift ;;
+    *) die "unknown argument: $1" ;;
   esac
 done
 case "$FRESH" in ''|*[!0-9]*) die "FM_PROBE_FRESH_SECONDS must be whole seconds" ;; esac

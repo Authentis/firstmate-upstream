@@ -466,6 +466,21 @@ test_a_run_table_that_cannot_be_decoded_marks_the_source_not_ok() {
   pass "an unterminated quote, a short row, or a wrong row count marks the no-mistakes source not ok"
 }
 
+test_an_unknown_argument_is_refused_without_probing() {
+  local rc=0 now
+  make_case unknown-arg
+  now=$(date +%s)
+  write_status "$((now - 2000))"
+  cp "$HOME_DIR/state/status.json" "$FAKE/before.json"
+  FAKE=$FAKE PATH="$FAKEBIN:$PATH" "$PROBE" --home "$HOME_DIR" read >/dev/null 2>&1 || rc=$?
+  expect_code 2 "$rc" "a subcommand after an option"
+  rc=0
+  FAKE=$FAKE PATH="$FAKEBIN:$PATH" "$PROBE" read --home "$HOME_DIR" --max_age 60 >/dev/null 2>&1 || rc=$?
+  expect_code 2 "$rc" "a mistyped flag"
+  cmp -s "$FAKE/before.json" "$HOME_DIR/state/status.json" || fail "an unknown argument still rewrote status.json"
+  pass "an unknown or misordered argument is refused and status.json is left alone"
+}
+
 test_a_hash_in_the_default_branch_name_is_sent_to_the_forge_encoded
 test_a_relative_log_path_resolves_against_the_selected_home
 test_no_mistakes_runs_inside_the_selected_home
@@ -485,3 +500,4 @@ test_lane_freshness_uses_pid_and_mtime
 test_gate_waits_are_parsed_from_the_run_status
 test_failed_sources_are_reported_not_hidden
 test_status_json_is_published_atomically
+test_an_unknown_argument_is_refused_without_probing
