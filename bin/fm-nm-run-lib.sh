@@ -58,19 +58,57 @@ fm_nm_run_bounded() {  # <dir> <timeout_secs> <args...>
 # CLI for each read. TTL FM_NM_CACHE_TTL seconds (default 120, 0 disables).
 # Every refresh holds the key's mkdir lock, re-checks freshness once it has it
 # (a racing writer may have just published), runs the call, and publishes
-# atomically. A contender waits up to the call's timeout for that result, then
-# serves the previous (stale) entry rather than spawning; only with no entry at
-# all does it run once uncached, without writing. A lock older than any bounded
-# call belongs to a dead writer and is recovered by atomic rename, so only one
-# contender wins the recovery. Entries older than five TTLs are pruned on
-# publish. Only exit-0 non-empty output is cached, so an error or timeout is
-# never replayed. Prints the output and returns the call's status.
+# atomically. A refresh never runs without the lock: a contender waits long
+# enough (the call's timeout plus the orphan threshold) for a live writer to
+# finish or an orphaned lock to become recoverable, then serves the previous
+# (stale) entry, or returns failure when there is none. Each lock carries an
+# owner token. Only the holder of the single recovery mutex may remove a lock,
+# and only the exact lock whose token it observed and found older than any
+# bounded call (fm_nm_cache_reclaim); a replacement lock fails the token check,
+# and one swept up by a rename race is put back. Entries older than five TTLs
+# are pruned on publish. Only exit-0 non-empty output is cached, so an error or
+# timeout is never replayed. Prints the output and returns the call's status.
 fm_nm_cache_mtime() {  # <path>
   stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null || echo 0
 }
 
+# Remove <lock> only if it still carries <expected_token> and is older than
+# <timeout_secs>+5 seconds. Returns 0 when it removed that lock.
+fm_nm_cache_reclaim() {  # <lock> <expected_token> <timeout_secs>
+  local lock=$1 expected=$2 timeout_secs=$3 rec dead rc=1
+  rec="$lock.rec"
+  if ! mkdir "$rec" 2>/dev/null; then
+    # The recovery mutex is held for microseconds; one older than a minute is abandoned.
+    [ $(($(date +%s) - $(fm_nm_cache_mtime "$rec"))) -gt 60 ] && rmdir "$rec" 2>/dev/null
+    return 1
+  fi
+  if [ "$(cat "$lock/owner" 2>/dev/null)" = "$expected" ] \
+    && [ $(($(date +%s) - $(fm_nm_cache_mtime "$lock"))) -gt $((timeout_secs + 5)) ]; then
+    dead="$lock.dead.$$.$RANDOM"
+    if mv "$lock" "$dead" 2>/dev/null; then
+      if [ "$(cat "$dead/owner" 2>/dev/null)" = "$expected" ]; then
+        rm -f "$dead/owner" 2>/dev/null
+        rmdir "$dead" 2>/dev/null
+        rc=0
+      elif [ ! -e "$lock" ]; then
+        mv "$dead" "$lock" 2>/dev/null   # swept up a replacement: put it back
+      fi
+    fi
+  fi
+  rmdir "$rec" 2>/dev/null
+  return "$rc"
+}
+
+# Drop <lock> only while it still carries our <token>.
+fm_nm_cache_release() {  # <lock> <token>
+  [ "$(cat "$1/owner" 2>/dev/null)" = "$2" ] || return 0
+  rm -f "$1/owner" 2>/dev/null
+  rmdir "$1" 2>/dev/null
+  return 0
+}
+
 fm_nm_cached_checked() {  # <cache_dir> <dir> <timeout_secs> <args...>
-  local cache_dir=$1 dir=$2 timeout_secs=$3 ttl key file lock now out rc waited=0 dead
+  local cache_dir=$1 dir=$2 timeout_secs=$3 ttl key file lock now out rc waited=0 token
   shift 3
   ttl=${FM_NM_CACHE_TTL:-120}
   case "$ttl" in ''|*[!0-9]*) ttl=120 ;; esac
@@ -89,9 +127,11 @@ fm_nm_cached_checked() {  # <cache_dir> <dir> <timeout_secs> <args...>
       return 0
     fi
     if mkdir "$lock" 2>/dev/null; then
+      token="$$.$RANDOM.$now"
+      printf '%s' "$token" >"$lock/owner" 2>/dev/null
       now=$(date +%s)
       if [ -s "$file" ] && [ $((now - $(fm_nm_cache_mtime "$file"))) -lt "$ttl" ]; then
-        rmdir "$lock" 2>/dev/null
+        fm_nm_cache_release "$lock" "$token"
         cat "$file"
         return 0
       fi
@@ -101,26 +141,21 @@ fm_nm_cached_checked() {  # <cache_dir> <dir> <timeout_secs> <args...>
         printf '%s\n' "$out" >"$file.$$" 2>/dev/null && mv -f "$file.$$" "$file" 2>/dev/null
         find "$cache_dir" -name '*.out' -mmin +$((ttl * 5 / 60 + 1)) -exec rm -f {} + 2>/dev/null
       fi
-      rmdir "$lock" 2>/dev/null
+      fm_nm_cache_release "$lock" "$token"
       [ -z "$out" ] || printf '%s\n' "$out"
       return "$rc"
     fi
-    # A lock outliving any bounded call belongs to a dead writer. Rename it
-    # away (atomic: one contender wins) instead of removing it in place.
+    # A lock older than any bounded call belongs to a dead writer; reclaim only
+    # the exact lock (token) observed here.
     if [ $((now - $(fm_nm_cache_mtime "$lock"))) -gt $((timeout_secs + 5)) ]; then
-      dead="$lock.dead.$$"
-      if mv "$lock" "$dead" 2>/dev/null; then
-        rmdir "$dead" 2>/dev/null
-      fi
-      continue
+      fm_nm_cache_reclaim "$lock" "$(cat "$lock/owner" 2>/dev/null)" "$timeout_secs" || true
     fi
-    if [ "$waited" -ge "$timeout_secs" ]; then
+    if [ "$waited" -ge $((timeout_secs + 8)) ]; then
       if [ -s "$file" ]; then
         cat "$file"
         return 0
       fi
-      fm_nm_run_uncached "$dir" "$timeout_secs" "$@"
-      return
+      return 1
     fi
     sleep 1
     waited=$((waited + 1))

@@ -1569,7 +1569,7 @@ cache_read() {  # <case-dir> [VAR=val ...]
     # shellcheck source=/dev/null
     . "$ROOT/bin/fm-nm-run-lib.sh"
     env FM_NM_LIB="$ROOT/bin/fm-nm-run-lib.sh" FM_FAKE_NM_LOG="$d/nm.log" "$@" PATH="$d/fakebin:$PATH" \
-      bash -c '. "$FM_NM_LIB"; fm_nm_cached_checked "$1" "$2" 4 axi status' _ "$d/cache" "$d/wt"
+      bash -c '. "$FM_NM_LIB"; fm_nm_cached_checked "$1" "$2" "${CACHE_T:-4}" axi status' _ "$d/cache" "$d/wt"
   )
 }
 
@@ -1619,11 +1619,14 @@ test_cache_serves_stale_on_wait_timeout_and_prunes_old_entries() {
   cache_read "$d" > /dev/null
   lock=$(ls "$d"/cache/*.out | sed 's/\.out$/.lock/')
   touch -t 202001010000 "$d"/cache/*.out
-  mkdir "$lock"   # a live writer holds the lock for longer than this reader waits
+  # A lock that cannot be recovered within the reader's budget (the recovery
+  # mutex is held elsewhere) leaves the reader serving the stale entry.
+  mkdir "$lock" "$lock.rec"
+  touch -t 202001010000 "$lock"
   : > "$d/nm.log"
-  out=$(cache_read "$d")
+  out=$(cache_read "$d" CACHE_T=1)
   calls=$(wc -l < "$d/nm.log")
-  rmdir "$lock"
+  rmdir "$lock" "$lock.rec"
   [ "$calls" -eq 0 ] || fail "wait timeout spawned the CLI instead of serving the stale entry"
   [ -n "$out" ] || fail "wait timeout served nothing"
   printf 'old\n' > "$d/cache/zzz.out"
@@ -1631,6 +1634,52 @@ test_cache_serves_stale_on_wait_timeout_and_prunes_old_entries() {
   cache_read "$d" > /dev/null
   [ ! -e "$d/cache/zzz.out" ] || fail "publish did not prune an entry older than a few TTLs"
   pass "wait timeout serves the stale entry and publish prunes old entries"
+}
+
+# A delayed recoverer that observed an old orphan must never remove the live
+# replacement lock that took its place, nor a lock that is not yet stale.
+test_reclaim_never_removes_a_replacement_lock() {
+  reset_fakes
+  local d lock
+  d=$(cache_case cache-reclaim)
+  lock="$d/cache/k.lock"
+  mkdir -p "$lock"
+  printf 'new-owner' > "$lock/owner"
+  (. "$ROOT/bin/fm-nm-run-lib.sh"; fm_nm_cache_reclaim "$lock" old-owner 4) \
+    && fail "reclaim removed a replacement lock with a different token"
+  [ -d "$lock" ] && [ "$(cat "$lock/owner")" = new-owner ] || fail "replacement lock was disturbed"
+  (. "$ROOT/bin/fm-nm-run-lib.sh"; fm_nm_cache_reclaim "$lock" new-owner 4) \
+    && fail "reclaim removed a live (young) lock"
+  [ -d "$lock" ] || fail "young lock was removed"
+  touch -t 202001010000 "$lock"
+  (. "$ROOT/bin/fm-nm-run-lib.sh"; fm_nm_cache_reclaim "$lock" new-owner 4) \
+    || fail "reclaim did not remove the matching stale lock"
+  [ ! -e "$lock" ] || fail "stale lock survived reclaim"
+  [ ! -e "$lock.rec" ] || fail "recovery mutex was left behind"
+  pass "reclaim only removes the exact stale lock it observed"
+}
+
+# With no cached entry and a live writer still holding the lock, a reader never
+# spawns around the lock: it waits out its budget and reports failure.
+test_young_lock_with_no_entry_fails_without_spawning() {
+  reset_fakes
+  local d rc=0 lock out
+  d=$(cache_case cache-young)
+  FM_FAKE_AXI_STATUS="$(run_running fm/feat-load)"
+  export FM_FAKE_AXI_STATUS
+  cache_read "$d" > /dev/null   # learn the key, then drop the entry
+  lock=$(ls "$d"/cache/*.out | sed 's/\.out$/.lock/')
+  rm -f "$d"/cache/*.out
+  mkdir "$lock"
+  printf 'live-writer' > "$lock/owner"
+  mkdir "$lock.rec"   # recovery is unavailable, so the lock cannot be taken
+  : > "$d/nm.log"
+  out=$(cache_read "$d" CACHE_T=1) || rc=$?
+  [ "$rc" -ne 0 ] || fail "a young lock with no entry did not report failure"
+  [ -z "$out" ] || fail "failure path printed output: $out"
+  [ ! -s "$d/nm.log" ] || fail "reader spawned around a live writer's lock"
+  [ -d "$lock" ] || fail "reader removed a live writer's lock"
+  pass "a young lock with no entry fails without spawning or touching the lock"
 }
 
 test_lowload_kill_switch_restores_old_behavior() {
@@ -5782,6 +5831,8 @@ test_landed_lane_skips_every_no_mistakes_spawn
 test_parallel_cold_reads_spawn_once
 test_cache_recovers_orphaned_lock_with_one_spawn
 test_cache_serves_stale_on_wait_timeout_and_prunes_old_entries
+test_reclaim_never_removes_a_replacement_lock
+test_young_lock_with_no_entry_fails_without_spawning
 test_lowload_kill_switch_restores_old_behavior
 test_terminal_passed_no_forge_switch_skips_read_but_keeps_receipt
 test_terminal_passed_with_open_pr_does_not_claim_merged
