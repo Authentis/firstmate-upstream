@@ -1751,6 +1751,7 @@ SH
 test_library_sources_without_external_tools() {
   reset_fakes
   local got
+  # shellcheck disable=SC2016  # The inner script expands inside the child shell.
   got=$(cd "$ROOT/bin" && PATH=/nonexistent "$BASH" -c '. ./fm-nm-run-lib.sh; printf "%s" "$FM_NM_RUN_LIB_PATH"' 2>&1)
   [ "$got" = "$ROOT/bin/fm-nm-run-lib.sh" ] || fail "library path under an empty PATH was [$got]"
   pass "the library resolves its own path without external tools"
