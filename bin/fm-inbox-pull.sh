@@ -10,18 +10,20 @@
 # coordinator inside a long turn never hears a steer. The extension calls
 # `peek` after every tool result and delivers the notice into the running turn.
 #
-# Usage: fm-inbox-pull.sh peek | commit | beat [--error <text>] | status
+# Usage: fm-inbox-pull.sh peek | commit [--txn <id>] | beat [--error <text>] | status
 #   peek    Print one notice block for the records not yet noticed, or nothing.
 #           The notice is the doorbell sentence followed by one
 #           `inbox-pull-notice:<absolute record path>` line per record (at most
-#           20; a `+N more` line when capped). Writes a pending marker and moves
+#           20; a `+N more` line when capped) and an `inbox-pull-txn:<id>` line. Writes a pending marker and moves
 #           no cursor; an uncommitted pending set is an open transaction that
 #           every later peek replays unchanged until a commit consumes it.
 #           Throttled: a call less than FM_INBOX_PULL_MIN_INTERVAL
 #           seconds (default 30) after the previous scan prints nothing and
 #           scans nothing, but still refreshes the heartbeat.
-#   commit  Promote the pending marker to the cursor. The host calls it only
-#           once the notice is inside a model request; without that call the
+#   commit [--txn <id>]  Promote the pending marker to the cursor. The host calls it only
+#           once the notice is inside a model request, naming the notice's
+#           transaction with --txn so a late commit cannot consume a newer
+#           set; without that call the
 #           same records are noticed again by the next unthrottled peek.
 #   beat    Refresh the heartbeat only (the extension's idle tick). With
 #           --error, record the one-line error text in the heartbeat and log.
@@ -74,9 +76,11 @@ case "$CMD" in
   *) echo "usage: fm-inbox-pull.sh peek | commit | beat [--error <text>] | status" >&2; exit 2 ;;
 esac
 shift
-BEAT_ERROR=''
+BEAT_ERROR='' COMMIT_TXN=''
 if [ "$CMD" = beat ] && [ "${1-}" = --error ]; then
   BEAT_ERROR=${2-}
+elif [ "$CMD" = commit ] && [ "${1-}" = --txn ] && [ "$#" -eq 2 ]; then
+  COMMIT_TXN=${2-}
 elif [ "$#" -gt 0 ]; then
   echo "usage: fm-inbox-pull.sh peek | commit | beat [--error <text>] | status" >&2
   exit 2
@@ -296,25 +300,27 @@ floor_of() {  # <dir>
   printf '%s\n' "$FLOORS" | awk -F"$TAB" -v d="$1" '$1 == d { print $2; found = 1 } END { if (!found) print 0 }' | head -n 1
 }
 
-handled_has() {  # <inbox-dir> <seq>: a handled record carries this normalised sequence
-  local f
+handled_seqs() {  # <inbox-dir> -> " 1 2 3 " (normalised handled sequences)
+  local f n out=' '
   for f in "$1"/handled/*.msg; do
     [ -e "$f" ] || continue
-    [ "$(fm_task_inbox_seq_of "${f##*/}" 2>/dev/null)" = "$2" ] && return 0
+    n=$(fm_task_inbox_seq_of "${f##*/}" 2>/dev/null) || continue
+    out="$out$n "
   done
-  return 1
+  printf '%s' "$out"
 }
 
 unseen_records() {  # <dirs> -> "dir<TAB>seq<TAB>path", oldest first per inbox
-  local d f n fl
+  local d f n fl hs
   while IFS= read -r d; do
     [ -n "$d" ] || continue
     fl=$(floor_of "$d")
+    hs=$(handled_seqs "$d")
     for f in "$d"/*.msg; do
       [ -f "$f" ] || continue
       n=$(fm_task_inbox_seq_of "${f##*/}") || continue
       [ "$n" -gt "$fl" ] || continue
-      handled_has "$d" "$n" && continue
+      case "$hs" in *" $n "*) continue ;; esac
       if [ -n "$SEEN" ] && printf '%s\n' "$SEEN" | grep -Fxq "$d$TAB$n"; then continue; fi
       printf '%s\t%s\t%s\n' "$d" "$n" "$f"
     done
@@ -334,7 +340,7 @@ record_exists() {  # <inbox-dir> <seq>
 
 # --- commands ----------------------------------------------------------------
 cmd_peek() {
-  local dirs rows total shown first notice held
+  local dirs rows total shown first notice held txn
 
   hb_load
   HB_KILLED=0
@@ -368,7 +374,7 @@ cmd_peek() {
   HB_ERROR=''
   rows=$(unseen_records "$dirs" | sort -t "$TAB" -k1,1 -k2,2n | awk -F"$TAB" '!s[$1 FS $2]++')
   if [ -z "$rows" ]; then
-    rm -f "$PULL/pending" 2>/dev/null
+    rm -f "$PULL/pending" "$PULL/pending-txn" 2>/dev/null
     hb_write
     return 0
   fi
@@ -380,13 +386,17 @@ cmd_peek() {
   if [ -s "$PULL/pending" ]; then
     held=$(printf '%s\n' "$rows" | awk -F"$TAB" 'NR == FNR { p[$1 FS $2] = 1; next } ($1 FS $2) in p' "$PULL/pending" -)
   fi
+  txn=''
   if [ -n "$held" ]; then
     rows=$held
+    total=$(printf '%s\n' "$rows" | wc -l | tr -d ' ')
+    txn=$(cat "$PULL/pending-txn" 2>/dev/null)
   else
     rows=$(printf '%s\n' "$rows" | head -n "$LIMIT")
   fi
+  [ -n "$txn" ] || txn="$NOW.$$"
   shown=$(printf '%s\n' "$rows" | wc -l | tr -d ' ')
-  if ! printf '%s\n' "$rows" | cut -f1,2 | write_atomic "$PULL/pending"; then
+  if ! printf '%s\n' "$rows" | cut -f1,2 | write_atomic "$PULL/pending" || ! printf '%s\n' "$txn" | write_atomic "$PULL/pending-txn"; then
     HB_ERROR="cannot write pending marker"
     log_line "$HB_ERROR"
     hb_write
@@ -397,6 +407,7 @@ cmd_peek() {
   hb_write
   printf '%s\n' "${notice#: }"
   printf '%s\n' "$rows" | cut -f3 | sed 's/^/inbox-pull-notice:/'
+  printf 'inbox-pull-txn:%s\n' "$txn"
   [ "$total" -le "$shown" ] || printf '+%s more waiting\n' "$((total - shown))"
 }
 
@@ -406,6 +417,13 @@ cmd_commit() {
   HB_KILLED=0
   is_killed && HB_KILLED=1
   if [ ! -s "$PULL/pending" ]; then
+    hb_write
+    return 0
+  fi
+  # a commit names the transaction its notice carried; one for a set that has
+  # since been replaced must not consume the newer set
+  if [ -n "$COMMIT_TXN" ] && [ "$(cat "$PULL/pending-txn" 2>/dev/null)" != "$COMMIT_TXN" ]; then
+    log_line "commit for transaction $COMMIT_TXN ignored: the open set is a different transaction"
     hb_write
     return 0
   fi
@@ -430,7 +448,7 @@ cmd_commit() {
     hb_write
     return 0
   fi
-  rm -f "$PULL/pending" 2>/dev/null
+  rm -f "$PULL/pending" "$PULL/pending-txn" 2>/dev/null
   { awk -v cut=$((NOW - 3600)) '$1 + 0 > cut' "$PULL/notices" 2>/dev/null; printf '%s\n' "$NOW"; } | write_atomic "$PULL/notices" || log_line "cannot write notice history"
   if [ -n "${last:-}" ]; then
     HB_LAST_SEQ=${last#*"$TAB"}

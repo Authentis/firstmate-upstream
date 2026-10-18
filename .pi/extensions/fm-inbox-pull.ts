@@ -88,6 +88,16 @@ async function withTimeout<T>(work: Promise<T> | T, ms: number, label: string): 
   }
 }
 
+// The plain text of a custom message, matched as text rather than as its JSON
+// serialisation so quotes or backslashes in a path cannot hide the token.
+function contentText(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content.map((part) => (part && typeof part === "object" && "text" in part ? String((part as { text: unknown }).text) : "")).join("\n");
+  }
+  return "";
+}
+
 async function runOwner(args: readonly string[]): Promise<{ ok: boolean; stdout: string; detail: string }> {
   const result = await runCommandAsync("bash", [owner, ...args], { env: ownerEnv(), cwd: root, timeoutMs: OWNER_TIMEOUT_MS });
   if (result.status !== 0) {
@@ -104,7 +114,10 @@ export default function (pi: ExtensionAPI) {
   let stopped = false;
   // A notice pi accepted but has not yet put into a model request: the cursor is
   // committed only once a `context` event shows it inside the request.
-  let awaiting: { token: string; since: number } | null = null;
+  let awaiting: { token: string; txn: string; since: number } | null = null;
+  // A tool result that arrived while a beat or another pull held the owner: it
+  // runs once they finish, so the turn's last tool result is never left unchecked.
+  let pullQueued = false;
   let idleTimer: ReturnType<typeof setInterval> | undefined;
 
   const recordFailure = (detail: string): void => {
@@ -118,8 +131,12 @@ export default function (pi: ExtensionAPI) {
   };
 
   const pull = async (): Promise<void> => {
-    if (disabled || stopped || inFlight) return;
+    if (disabled || stopped) return;
     if (process.env.FM_INBOX_PULL === "0") return;
+    if (inFlight) {
+      pullQueued = true;
+      return;
+    }
     const at = Date.now();
     // A notice still waiting to enter a request must not be steered twice; give
     // up on it after two minutes so the owner replays it.
@@ -130,7 +147,6 @@ export default function (pi: ExtensionAPI) {
     // A wall clock that moved backwards must not silence the pull until it catches up.
     if (at < lastPeekAt) lastPeekAt = 0;
     if (at - lastPeekAt < minIntervalMs()) return;
-    lastPeekAt = at;
     inFlight = true;
     try {
       const peek = await runOwner(["peek"]);
@@ -138,6 +154,8 @@ export default function (pi: ExtensionAPI) {
         recordFailure(peek.detail);
         return;
       }
+      // Only a scan the owner actually ran spends the throttle window.
+      lastPeekAt = at;
       const notice = peek.stdout.trim();
       if (!notice) {
         consecutiveFailures = 0;
@@ -158,11 +176,13 @@ export default function (pi: ExtensionAPI) {
       }
       // pi 1.3.0 holds a steered custom message until its current turn ends, and a
       // process that dies first loses it, so commit waits for the `context` event.
-      const token = notice.split("\n").find((line) => line.startsWith("inbox-pull-notice:"));
-      if (token) {
-        awaiting = { token, since: Date.now() };
+      const lines = notice.split("\n");
+      const token = lines.find((line) => line.startsWith("inbox-pull-notice:"));
+      const txn = (lines.find((line) => line.startsWith("inbox-pull-txn:")) ?? "").slice("inbox-pull-txn:".length);
+      if (token && txn) {
+        awaiting = { token, txn, since: Date.now() };
       } else {
-        recordFailure("owner printed a notice without a record line");
+        recordFailure("owner printed a notice without a record line or transaction");
         return;
       }
       consecutiveFailures = 0;
@@ -170,6 +190,10 @@ export default function (pi: ExtensionAPI) {
       recordFailure(`pull failed: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
       inFlight = false;
+      if (pullQueued) {
+        pullQueued = false;
+        void pull();
+      }
     }
   };
 
@@ -199,6 +223,10 @@ export default function (pi: ExtensionAPI) {
         if (!result.ok) recordFailure(result.detail);
       }).catch(() => {}).finally(() => {
         inFlight = false;
+        if (pullQueued) {
+          pullQueued = false;
+          void pull();
+        }
       });
     };
     beat();
@@ -218,11 +246,11 @@ export default function (pi: ExtensionAPI) {
     const seen = (event.messages as Array<{ role?: string; customType?: string; content?: unknown }>).some(
       (message) => message.role === "custom"
         && message.customType === "fm-inbox"
-        && JSON.stringify(message.content ?? "").includes(wanted.token),
+        && contentText(message.content).includes(wanted.token),
     );
     if (!seen) return undefined;
     awaiting = null;
-    const commit = await runOwner(["commit"]);
+    const commit = await runOwner(["commit", "--txn", wanted.txn]);
     if (commit.ok) consecutiveFailures = 0;
     else recordFailure(commit.detail);
     return undefined;

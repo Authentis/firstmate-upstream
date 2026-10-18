@@ -336,6 +336,24 @@ test_pending_is_an_open_transaction() {
   pass "an uncommitted pending set is replayed, never overwritten"
 }
 
+test_commit_is_bound_to_its_transaction() {
+  new_home
+  local box="$S/parent-route/chief.inbox" txn
+  mk_msg "$box" 1
+  pull 1000 peek
+  txn=$(printf '%s\n' "$out" | sed -n 's/^inbox-pull-txn://p')
+  [ -n "$txn" ] || fail "the notice carries a transaction id"
+  pull 1100 peek
+  assert_equals "$txn" "$(printf '%s\n' "$out" | sed -n 's/^inbox-pull-txn://p')" "a replay keeps the transaction id"
+  assert_not_contains "$out" "more waiting" "a replay does not advertise records it does not name"
+  pull 1101 commit --txn "stale-$txn"
+  assert_absent "$S/inbox-pull/cursor" "a commit for another transaction consumes nothing"
+  assert_present "$S/inbox-pull/pending" "the open set survives a mismatched commit"
+  pull 1102 commit --txn "$txn"
+  assert_present "$S/inbox-pull/cursor" "the matching commit promotes the set"
+  pass "a commit is bound to the transaction its notice carried"
+}
+
 test_handled_twin_and_read_only_status() {
   new_home
   local box="$S/parent-route/chief.inbox"
@@ -407,6 +425,7 @@ test_stale_lock_is_recovered
 test_silent_contract_and_error_channel
 test_mode_664_runs_through_its_interpreter
 test_pending_is_an_open_transaction
+test_commit_is_bound_to_its_transaction
 test_handled_twin_and_read_only_status
 test_stale_lock_race_names_once
 test_status_reports_state
