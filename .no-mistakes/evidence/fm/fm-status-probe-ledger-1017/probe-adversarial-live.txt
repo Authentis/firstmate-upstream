@@ -1,0 +1,22 @@
+=== A. stale status.json: read with --max-age 2 after 4s
+{"verdict":"unknown","reason":"status.json is 32s old; the limit is 2s","prs":"unknown","lanes":"unknown","gate_waits":"unknown"}
+read exit=3
+
+=== B. no-mistakes missing: FM_PROBE_NM=no-such-tool
+run exit=0
+{"verdict":"fresh","sources":{"ok":false,"error":"no-such-nm not found"},"gate_waits":"unknown","pr_gates":[{"url":"https://github.com/Authentis/firstmate-upstream/pull/15","gate":"unknown"},{"url":"https://github.com/Authentis/firstmate-upstream/pull/17","gate":"unknown"}]}
+read exit=0
+
+=== C. windowed list hides a running run: real no-mistakes, axi status window with the 01M50EXB row removed
+run exit=0
+{"no_mistakes":{"ok":false,"error":"running run(s) outside the 9 runs /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-lab.wSQr9m/shim/nm-window-drop axi status lists: fm/fm-pi-composer-1430-1015"},"gate_waits":[]}
+{"verdict":"fresh","gate_waits":"unknown","pr_gates":[{"url":"https://github.com/Authentis/firstmate-upstream/pull/15","gate":"unknown"},{"url":"https://github.com/Authentis/firstmate-upstream/pull/17","gate":"unknown"}]}
+
+=== D. corrupt status.json reads unknown
+{"schema":"fm-status-probe.v1","verdict":"unknown","reason":"/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-lab.wSQr9m/state/status-bad.json is not a readable fm-status-probe.v1 file","generated":null,"age_s":null,"max_age_s":900,"prs":"unknown","lanes":"unknown","gate_waits":"unknown"}
+read exit=3
+
+=== E. unreadable PR marks gh not ok but other PRs still queried
+run exit=0
+{"gh":{"ok":false,"error":"could not read https://github.com/Authentis/firstmate-upstream/pull/999999"},"prs":[{"url":"https://github.com/Authentis/firstmate-upstream/pull/15","state":"OPEN","merged":false},{"url":"https://github.com/Authentis/firstmate-upstream/pull/17","state":"MERGED","merged":true},{"url":"https://github.com/Authentis/firstmate-upstream/pull/999999","state":null,"merged":null}]}
+{"verdict":"fresh","prs":"unknown"}

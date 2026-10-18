@@ -1,0 +1,56 @@
+=== 1. firstmate appends two orders (one via stdin)
+1
+2
+=== 2. secondmate polls once: pending view + one queued wake
+poll exit=0
+--- state/orders.pending:
+{"id":1,"ts":1792345737,"from":"firstmate","text":"rebase fm/foo onto main"}
+{"id":2,"ts":1792345737,"from":"firstmate","text":"ship PR 19 once CI is green"}
+lanes
+orders.jsonl
+orders.pending
+status-bad.json
+status-badpr.json
+status-nonm.json
+status-window.json
+status.json
+task-dead.meta
+--- wake queue entries for orders:pending:
+1792345738	1	check	orders:pending	check: 2 order(s) pending in state/orders.jsonl (ids 1,2) - list them with bin/fm-order-ledger.sh pending and ack each by id with bin/fm-order-ledger.sh ack <id>
+=== 3. poll again: wake is not stacked
+--- wake queue entries for orders:pending:
+1792345738	1	check	orders:pending	check: 2 order(s) pending in state/orders.jsonl (ids 1,2) - list them with bin/fm-order-ledger.sh pending and ack each by id with bin/fm-order-ledger.sh ack <id>
+=== 4. ack id 2 only; id 1 stays pending
+acked 2
+ack exit=0
+1 firstmate rebase fm/foo onto main
+{"id":1,"ts":1792345737,"from":"firstmate","text":"rebase fm/foo onto main"}
+=== 5. ack an id with no order line is refused
+fm-order-ledger: no order line with id 7
+ack exit=2
+=== 6. ack id 1 twice (second is a no-op); nothing pending
+acked 1
+already acked 1
+ack exit=0
+--- pending:
+pending exit=0
+--- orders.pending after poll:
+(end)
+=== 7. 20 concurrent appends get unique, consecutive ids
+{
+  "count": 22,
+  "unique": 22,
+  "min": 1,
+  "max": 22,
+  "consecutive": true
+}
+=== 8. orders.jsonl is a directory: pending fails loudly
+fm-order-ledger: /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-lab.wSQr9m/bad/state/orders.jsonl is not a regular file
+fm-order-ledger: cannot read the order ledger
+pending exit=2
+fm-order-ledger: /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-lab.wSQr9m/bad/state/orders.jsonl is not a regular file
+poll exit=1
+=== 9. malformed acks line: pending fails loudly
+fm-order-ledger: /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-lab.wSQr9m/bad2/state/orders.acks.jsonl is malformed: every line must be a JSON object with a numeric id
+fm-order-ledger: cannot read the order ledger
+pending exit=2

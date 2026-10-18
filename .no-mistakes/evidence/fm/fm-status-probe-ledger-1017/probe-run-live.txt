@@ -1,0 +1,95 @@
+$ FM_PROBE_NM=<shim: real no-mistakes in firstmate repo> bin/fm-status-probe.sh run --home $LAB --pr .../pull/19 --pr .../pull/15
+exit=0
+$ cat $LAB/state/status.json | jq .
+{
+  "schema": "fm-status-probe.v1",
+  "generated": 1792345681,
+  "host": "M4-25.local",
+  "fm_home": "/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-lab.wSQr9m",
+  "sources": {
+    "gh": {
+      "ok": true,
+      "error": null
+    },
+    "no_mistakes": {
+      "ok": true,
+      "error": null
+    }
+  },
+  "prs": [
+    {
+      "url": "https://github.com/Authentis/firstmate-upstream/pull/15",
+      "head_sha": "2e3023937034349e84c865d1ae8726a242e847c0",
+      "state": "OPEN",
+      "merged": false,
+      "merge_commit": null,
+      "gate": "running"
+    },
+    {
+      "url": "https://github.com/Authentis/firstmate-upstream/pull/17",
+      "head_sha": "d093c3ebd855208f3fb13ecaa517af1ca087f5a6",
+      "state": "MERGED",
+      "merged": true,
+      "merge_commit": "1079f44c9494220d1491a0ed3436fd606436d878",
+      "gate": "completed"
+    },
+    {
+      "url": "https://github.com/Authentis/firstmate-upstream/pull/19",
+      "head_sha": "fb4cd1d42cff1047b7dcbfe3d1dc202040b7cedf",
+      "state": "OPEN",
+      "merged": false,
+      "merge_commit": null,
+      "gate": null
+    }
+  ],
+  "lanes": [
+    {
+      "id": "lane-live",
+      "pid": 43604,
+      "pid_alive": true,
+      "log": "/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-lab.wSQr9m/logs/live.log",
+      "log_age_s": 6,
+      "fresh": true,
+      "state": "live"
+    },
+    {
+      "id": "lane-stalled",
+      "pid": 43604,
+      "pid_alive": true,
+      "log": "/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-lab.wSQr9m/logs/old.log",
+      "log_age_s": 164881,
+      "fresh": false,
+      "state": "stalled"
+    },
+    {
+      "id": "task-dead",
+      "pid": 999999,
+      "pid_alive": false,
+      "log": "/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-lab.wSQr9m/logs/live.log",
+      "log_age_s": 6,
+      "fresh": true,
+      "state": "dead"
+    }
+  ],
+  "gate_waits": [
+    {
+      "run_id": "01M50JQHX55Z57209MNSAJCE29",
+      "branch": "fm/fm-helper-errors-overlay-1015",
+      "step": "ci",
+      "gate_status": "awaiting_approval",
+      "age": "parked 2d18h",
+      "age_s": 237600
+    },
+    {
+      "run_id": "01M50EXB4VJKW7F8F2YB62QNNH",
+      "branch": "fm/fm-pi-composer-1430-1015",
+      "step": "ci",
+      "gate_status": "awaiting_approval",
+      "age": "parked 2d22h",
+      "age_s": 252000
+    }
+  ]
+}
+$ bin/fm-status-probe.sh read --home $LAB
+{"verdict":"fresh","reason":null,"age_s":5,"sources":{"gh":{"ok":true,"error":null},"no_mistakes":{"ok":true,"error":null}}}
+exit=
