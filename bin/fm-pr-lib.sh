@@ -956,7 +956,7 @@ fm_pr_github_read_record_with_gh() {  # <owner> <repo> <number>
     -f query='query($owner:String!,$repo:String!,$number:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$number){state merged}}}' \
     -F "owner=$owner" -F "repo=$repo" -F "number=$number" \
     --jq '.data.repository.pullRequest | "state=" + (.state // ""), "merged=" + (.merged | tostring)' \
-    2>/dev/null) || [ -z "$fields" ]; then
+    2>"${FM_PR_READ_ERR_FILE:-/dev/null}") || [ -z "$fields" ]; then
     return 1
   fi
   while IFS= read -r line; do
@@ -987,7 +987,7 @@ fm_pr_github_read_record_with_gh_axi() {  # <owner> <repo> <number>
   local owner=$1 repo=$2 number=$3 output state
   FM_PR_RECORD_STATE=
   FM_PR_RECORD_MERGED=
-  if ! output=$(gh-axi pr view "$number" --repo "$owner/$repo" 2>/dev/null); then
+  if ! output=$(gh-axi pr view "$number" --repo "$owner/$repo" 2>"${FM_PR_READ_ERR_FILE:-/dev/null}"); then
     return 1
   fi
   if ! state=$(printf '%s\n' "$output" | awk '
@@ -996,43 +996,108 @@ fm_pr_github_read_record_with_gh_axi() {  # <owner> <repo> <number>
   '); then
     return 1
   fi
+  # Consumed by bin/fm-crew-state.sh passed_pr_detail.
+  # shellcheck disable=SC2034
   case "$state" in
-    MERGED|merged)
-      # Consumed by bin/fm-crew-state.sh passed_pr_detail.
-      # shellcheck disable=SC2034
-      FM_PR_RECORD_STATE=MERGED
-      # Consumed by bin/fm-crew-state.sh passed_pr_detail.
-      # shellcheck disable=SC2034
-      FM_PR_RECORD_MERGED=true
-      ;;
-    OPEN|open)
-      # Consumed by bin/fm-crew-state.sh passed_pr_detail.
-      # shellcheck disable=SC2034
-      FM_PR_RECORD_STATE=OPEN
-      # Consumed by bin/fm-crew-state.sh passed_pr_detail.
-      # shellcheck disable=SC2034
-      FM_PR_RECORD_MERGED=false
-      ;;
-    CLOSED|closed)
-      # Consumed by bin/fm-crew-state.sh passed_pr_detail.
-      # shellcheck disable=SC2034
-      FM_PR_RECORD_STATE=CLOSED
-      # Consumed by bin/fm-crew-state.sh passed_pr_detail.
-      # shellcheck disable=SC2034
-      FM_PR_RECORD_MERGED=false
-      ;;
-    *)
-      return 1
-      ;;
+    MERGED|merged) FM_PR_RECORD_STATE=MERGED FM_PR_RECORD_MERGED=true ;;
+    OPEN|open) FM_PR_RECORD_STATE=OPEN FM_PR_RECORD_MERGED=false ;;
+    CLOSED|closed) FM_PR_RECORD_STATE=CLOSED FM_PR_RECORD_MERGED=false ;;
+    *) return 1 ;;
   esac
 }
 
-fm_pr_github_read_record() {  # <owner> <repo> <number>
+# GitHub reads share one throttle: at most one provider read per PR per
+# FM_PR_READ_TTL seconds (default 300), serialized by a machine-wide lock, with
+# exponential backoff after a rate-limit refusal. GitHub's secondary limit
+# counts concurrent and repeated requests, so every caller that wants a PR's
+# state goes through fm_pr_github_read_record and shares the cached answer.
+# Cache and backoff live in FM_PR_READ_CACHE_DIR (default under TMPDIR, per
+# user) so every home on the machine shares them; FM_PR_READ_NOW pins the clock
+# for tests. A limited or failed read serves the last good record when one
+# exists and otherwise fails, so a caller never reads a refusal as a state.
+# The one-shot landing guards (fm-pr-merge, fm-teardown) deliberately bypass it:
+# they need the live head and state before an irreversible action.
+
+fm_pr_read_limited() {
+  [ -n "${FM_PR_READ_ERR_FILE:-}" ] \
+    && grep -qiE 'rate limit|abuse detection|HTTP 403|HTTP 429' "$FM_PR_READ_ERR_FILE" 2>/dev/null
+}
+
+# 0 = fresh answer in FM_PR_RECORD_*, 2 = rate limited, 1 = any other failure.
+# A limited gh read never falls through to gh-axi, which would double the load.
+fm_pr_github_read_provider() {  # <owner> <repo> <number>
   if command -v gh >/dev/null 2>&1 && fm_pr_github_read_record_with_gh "$@"; then
     return 0
   fi
+  ! fm_pr_read_limited || return 2
   command -v gh-axi >/dev/null 2>&1 || return 1
-  fm_pr_github_read_record_with_gh_axi "$@"
+  fm_pr_github_read_record_with_gh_axi "$@" && return 0
+  ! fm_pr_read_limited || return 2
+  return 1
+}
+
+fm_pr_read_lock() {  # <dir>
+  local lock=$1/lock tries=0 owner
+  while ! mkdir "$lock" 2>/dev/null; do
+    tries=$((tries + 1))
+    if [ "$tries" -gt 40 ]; then
+      # Timed out: break the lock only when its owner is gone, never a live one.
+      owner=$(cat "$lock/pid" 2>/dev/null) || owner=
+      if [ -z "$owner" ] || ! kill -0 "$owner" 2>/dev/null; then
+        rm -rf "$lock"
+      fi
+      return 1
+    fi
+    sleep 0.1
+  done
+  printf '%s\n' "$$" > "$lock/pid"
+}
+
+# Runs under the lock. Cache file: epoch, state, merged. A failed read restamps
+# the previous record (or an empty one) so it is not retried inside the window;
+# a rate-limited read leaves the cache alone and arms the backoff instead.
+fm_pr_read_locked() {  # <cache> <backoff> <now> <owner> <repo> <number>
+  local cache=$1 backoff=$2 now=$3 at='' st='' mg='' until=0 delay=0 rc errf
+  shift 3
+  if [ -f "$cache" ]; then { read -r at && read -r st && read -r mg; } < "$cache" || true; fi
+  case "$at" in ''|*[!0-9]*) at=0 st='' mg='' ;; esac
+  if [ -f "$backoff" ]; then read -r until delay < "$backoff" || true; fi
+  case "$until$delay" in ''|*[!0-9]*) until=0 delay=0 ;; esac
+  if [ $((now - at)) -ge "${FM_PR_READ_TTL:-300}" ] && [ "$now" -ge "$until" ]; then
+    errf=$(mktemp "$cache.err.XXXXXX") || return 1
+    FM_PR_READ_ERR_FILE=$errf fm_pr_github_read_provider "$@" && rc=0 || rc=$?
+    rm -f "$errf"
+    if [ "$rc" = 0 ]; then
+      st=$FM_PR_RECORD_STATE mg=$FM_PR_RECORD_MERGED
+      rm -f "$backoff"
+    elif [ "$rc" = 2 ]; then
+      delay=$((delay > 0 ? delay * 2 : 60))
+      [ "$delay" -le 3600 ] || delay=3600
+      printf '%s %s\n' $((now + delay)) "$delay" > "$backoff"
+    fi
+    if [ "$rc" != 2 ]; then
+      printf '%s\n%s\n%s\n' "$now" "$st" "$mg" > "$cache.tmp.$$" \
+        && mv -f "$cache.tmp.$$" "$cache"
+    fi
+  fi
+  [ -n "$st" ] && [ -n "$mg" ] || return 1
+  FM_PR_RECORD_STATE=$st
+  FM_PR_RECORD_MERGED=$mg
+}
+
+fm_pr_github_read_record() {  # <owner> <repo> <number>
+  local dir key rc now
+  FM_PR_RECORD_STATE=
+  FM_PR_RECORD_MERGED=
+  key=$1_$2_$3
+  case "$key" in *[!A-Za-z0-9._-]*) return 1 ;; esac
+  dir=${FM_PR_READ_CACHE_DIR:-${TMPDIR:-/tmp}/fm-pr-read-$(id -u)}
+  ( umask 077 && mkdir -p "$dir" ) 2>/dev/null && [ -d "$dir" ] && [ ! -L "$dir" ] && [ -O "$dir" ] || return 1
+  now=${FM_PR_READ_NOW:-$(date +%s)}
+  fm_pr_read_lock "$dir" || return 1
+  fm_pr_read_locked "$dir/$key.rec" "$dir/backoff" "$now" "$@" && rc=0 || rc=$?
+  rm -rf "$dir/lock"
+  return "$rc"
 }
 
 fm_pr_gitlab_read_record() {  # <host> <path> <number>
