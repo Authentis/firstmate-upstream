@@ -3092,18 +3092,22 @@ SH
 }
 
 test_large_local_snapshot_overlaps_local_reads_without_projection_drift() {
-  local home fakebin worktree serial parallel parallel_file snapshot_pid i
-  local serial_started serial_elapsed parallel_started parallel_elapsed saved
+  local home fakebin worktree serial parallel parallel_file snapshot_pid i max
   home=$(make_home large-local-snapshot)
-  worktree="$home/projects/shared-worktree"
-  fm_git_init_commit "$worktree"
-  git -C "$worktree" checkout -qb fm/synthetic-large-local
   fakebin=$(make_fakebin "$home")
+  # Each read records how many reads are in flight at that moment, so the test
+  # asserts the overlap itself rather than a wall-clock saving. Lanes need their
+  # own worktrees: the status cache keys on the worktree, and one shared key
+  # would serialize every read by design.
   cat > "$fakebin/no-mistakes" <<'SH'
 #!/usr/bin/env bash
 if [ "$*" = "axi status" ] && [ "${FAKE_NM_DELAY:-0}" = 1 ]; then
   [ -z "${FAKE_NM_SIGNAL:-}" ] || : > "$FAKE_NM_SIGNAL"
+  mkdir -p "$FAKE_NM_ACTIVE"
+  : > "$FAKE_NM_ACTIVE/$$"
+  printf '%s\n' "$(find "$FAKE_NM_ACTIVE" -type f | wc -l | tr -d ' ')" >> "$FAKE_NM_ACTIVE.log"
   sleep 1
+  rm -f "$FAKE_NM_ACTIVE/$$"
 fi
 exit 0
 SH
@@ -3125,6 +3129,9 @@ SH
   } > "$home/data/backlog.md"
   i=1
   while [ "$i" -le 5 ]; do
+    worktree="$home/projects/lane-$i"
+    fm_git_init_commit "$worktree"
+    git -C "$worktree" checkout -qb "fm/synthetic-large-local-$i"
     fm_write_meta "$home/state/local-$i.meta" \
       "window=fixture:local-$i" "worktree=$worktree" "project=firstmate" \
       "harness=claude" "kind=ship" "mode=no-mistakes"
@@ -3134,20 +3141,14 @@ SH
 
   serial=$(FAKE_NM_DELAY=0 FM_SNAPSHOT_LOCAL_READ_CONCURRENCY=1 run "$home" "$fakebin" --json)
 
-  # Serialized reads pay every worker's delay end to end while concurrent reads
-  # overlap them. Time both runs and compare, because the two pay the same
-  # composition overhead: the difference isolates the overlap this change
-  # delivers, where an absolute wall-clock budget would instead measure how
-  # loaded the host happens to be and flake on a busy runner.
-  serial_started=$(date +%s)
-  FAKE_NM_DELAY=1 FM_SNAPSHOT_LOCAL_READ_CONCURRENCY=1 \
+  FAKE_NM_DELAY=1 FM_SNAPSHOT_LOCAL_READ_CONCURRENCY=1 FAKE_NM_ACTIVE="$home/serial-active" \
     run "$home" "$fakebin" --json >/dev/null \
     || fail "serialized local snapshot failed"
-  serial_elapsed=$(( $(date +%s) - serial_started ))
+  max=$(sort -n "$home/serial-active.log" | tail -1)
+  [ "$max" = 1 ] || fail "serialized local snapshot overlapped reads (max in flight ${max:-none})"
 
-  parallel_started=$(date +%s)
   parallel_file="$home/parallel-snapshot.json"
-  FAKE_NM_DELAY=1 FAKE_NM_SIGNAL="$home/nm-started" \
+  FAKE_NM_DELAY=1 FAKE_NM_SIGNAL="$home/nm-started" FAKE_NM_ACTIVE="$home/parallel-active" \
     FM_SNAPSHOT_LOCAL_READ_CONCURRENCY=8 \
     run "$home" "$fakebin" --json > "$parallel_file" &
   snapshot_pid=$!
@@ -3163,13 +3164,11 @@ SH
   fi
   wait "$snapshot_pid" || fail "concurrent local snapshot failed"
   parallel=$(<"$parallel_file")
-  parallel_elapsed=$(( $(date +%s) - parallel_started ))
-  # Five one-second reads serialize into five seconds and overlap into about
-  # one, so at least two of those four seconds must show up as real savings.
-  # Serializing the reads again collapses that difference to roughly zero.
-  saved=$(( serial_elapsed - parallel_elapsed ))
-  [ "$saved" -ge 2 ] \
-    || fail "concurrent local reads saved no measurable time (serial ${serial_elapsed}s vs concurrent ${parallel_elapsed}s)"
+  # Concurrent observation overlaps reads, and the shared status-read limit
+  # (FM_NM_STATUS_SLOTS, default 2) caps the overlap across lanes.
+  max=$(sort -n "$home/parallel-active.log" | tail -1)
+  [ "$max" = 2 ] \
+    || fail "concurrent local reads did not overlap up to the status-read limit (max in flight ${max:-none}, expected 2)"
   [ "$parallel" = "$serial" ] \
     || fail "concurrent local observation changed the fm-bearings.v1 projection"
   printf '%s' "$parallel" | jq -e '

@@ -1094,19 +1094,19 @@ fm_pr_read_locked() {  # <cache> <backoff> <now> <owner> <repo> <number>
 }
 
 fm_pr_github_read_record() {  # <owner> <repo> <number>
-  local dir key rec now rc=0 at='' st='' mg=''
+  local cache_dir key rec now rc=0 at='' st='' mg=''
   FM_PR_RECORD_STATE=
   FM_PR_RECORD_MERGED=
   key=$1_$2_$3
   case "$key" in *[!A-Za-z0-9._-]*) return 1 ;; esac
   command -v perl >/dev/null 2>&1 || return 1
-  dir=${FM_PR_READ_CACHE_DIR:-${TMPDIR:-/tmp}/fm-pr-read-$(id -u)}
-  ( umask 077 && mkdir -p "$dir" ) 2>/dev/null && [ -d "$dir" ] && [ ! -L "$dir" ] && [ -O "$dir" ] || return 1
+  cache_dir=${FM_PR_READ_CACHE_DIR:-${TMPDIR:-/tmp}/fm-pr-read-$(id -u)}
+  ( umask 077 && mkdir -p "$cache_dir" ) 2>/dev/null && [ -d "$cache_dir" ] && [ ! -L "$cache_dir" ] && [ -O "$cache_dir" ] || return 1
   now=${FM_PR_READ_NOW:-$(date +%s)}
   # Fast path: records are replaced atomically, so a fresh one is served
   # without queueing behind a request in flight.
-  if [ -f "$dir/$key.rec" ]; then
-    { read -r at && read -r st && read -r mg; } < "$dir/$key.rec" || true
+  if [ -f "$cache_dir/$key.rec" ]; then
+    { read -r at && read -r st && read -r mg; } < "$cache_dir/$key.rec" || true
     case "$at" in ''|*[!0-9]*) at=0 ;; esac
     if [ $((now - at)) -lt "${FM_PR_READ_TTL:-300}" ] && [ -n "$st" ] && [ -n "$mg" ]; then
       FM_PR_RECORD_STATE=$st
@@ -1115,11 +1115,11 @@ fm_pr_github_read_record() {  # <owner> <repo> <number>
     fi
   fi
   # shellcheck disable=SC2016  # The inner script expands after bash -c receives positional args.
-  rec=$(fm_pr_flocked "$dir/lock" 4 bash -c '. "$1"; shift; fm_pr_read_locked "$@"' \
-    _ "${BASH_SOURCE[0]}" "$dir/$key.rec" "$dir/backoff" "$now" "$@" 2>/dev/null) || rc=$?
+  rec=$(fm_pr_flocked "$cache_dir/lock" 4 bash -c '. "$1"; shift; fm_pr_read_locked "$@"' \
+    _ "${BASH_SOURCE[0]}" "$cache_dir/$key.rec" "$cache_dir/backoff" "$now" "$@" 2>/dev/null) || rc=$?
   if [ "$rc" != 0 ]; then
     st='' mg=''
-    [ ! -f "$dir/$key.rec" ] || { read -r at && read -r st && read -r mg; } < "$dir/$key.rec" || true
+    [ ! -f "$cache_dir/$key.rec" ] || { read -r at && read -r st && read -r mg; } < "$cache_dir/$key.rec" || true
     [ -n "$st" ] && [ -n "$mg" ] || return 1
     FM_PR_RECORD_STATE=$st
     FM_PR_RECORD_MERGED=$mg

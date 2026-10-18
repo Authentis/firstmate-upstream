@@ -1635,12 +1635,22 @@ cache_lockfile_of() {  # <case-dir> -> lock file of the primed key
   done
 }
 
+# The holder execs sleep under the lock wrapper and records its own pid, because
+# the backgrounded subshell's pid is not the process that owns the flock on every
+# platform, and killing the wrong one would leave the lock held.
 hold_lock() {  # <lockfile> <secs>; prints the holder pid
+  local pidfile=$1.holder i
+  rm -f "$pidfile"
   (
     . "$ROOT/bin/fm-nm-run-lib.sh"
-    fm_nm_cache_locked "$1" 5 sleep "$2" > /dev/null 2>&1 &
-    printf '%s' "$!"
+    # shellcheck disable=SC2016  # The inner script expands after bash -c receives positional args.
+    fm_nm_cache_locked "$1" 5 bash -c 'printf "%s" "$$" > "$1"; exec sleep "$2"' _ "$pidfile" "$2" > /dev/null 2>&1 &
   )
+  for i in $(seq 1 50); do
+    [ -s "$pidfile" ] && { cat "$pidfile"; return 0; }
+    sleep 0.1
+  done
+  fail "background holder never recorded its pid"
 }
 
 wait_for_lock_held() {  # <lockfile>
