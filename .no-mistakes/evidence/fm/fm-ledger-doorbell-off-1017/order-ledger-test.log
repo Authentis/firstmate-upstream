@@ -1,0 +1,21 @@
+ok - orders append as single JSON lines with ids that rise by one
+ok - waiters racing to reclaim a dead owner's lock never duplicate an order id
+ok - a signalled append exits without writing and without deleting another writer's lock
+ok - a poll signalled while it holds the ledger lock exits and releases it
+ok - delivery repeats until every order is acked, never stacks, and keeps no state besides the ledger
+ok - an order never queued is queued even when another producer advanced the wake sequence
+ok - pending fails rather than printing a partial list when the ledger cannot be read
+ok - a ledger or acks path that is not a regular file is refused instead of re-listing every order
+ok - a malformed ledger or acks file exits non-zero naming the file, never success with no orders
+ok - an append that cannot be published leaves the ledger as it was
+ok - ack refuses ids too large for bash arithmetic and never acks a different order
+ok - a real wake-queue write failure fails the poll and the order is announced on a later one
+ok - an append that cannot take the lock refuses and names the owner
+ok - racing polls queue exactly one wake
+ok - a poll that cannot read the ledger keeps the last good pending view
+ok - a replay with the doorbell off is acked on both secondmate homes in 7s
+ok - concurrent appends take distinct monotonic ids
+ok - an ack removes exactly the acked id from pending, in any order
+ok - acking an id with no order line is refused and changes nothing
+ok - a poll shows pending orders and queues one wake each without any doorbell
+ok - an order is never lost or silenced when one poll cannot announce it

@@ -1,0 +1,20 @@
+ok - a # in the default branch name is percent-encoded in the compare query instead of ending the path
+ok - a relative lane log path is resolved against the selected home, not the caller's directory
+ok - no-mistakes runs inside the selected home, wherever the probe was started
+ok - a run table without its id, branch, status, and pr columns, or without a table at all, marks the source not ok
+ok - a signalled probe exits with the signal status and removes its scratch directory
+ok - a branch name holding a comma, quotes, or a backslash decodes as one field and its run is reported
+ok - an unterminated quote, a short row, or a wrong row count marks the no-mistakes source not ok
+ok - merged is true only with a merge commit proven on the default branch; closed-unmerged reads unmerged
+ok - a merged PR whose merge commit cannot be read is unknown and marks the forge source incomplete
+ok - both forge API queries are sent to the PR's own host
+ok - one unreadable PR marks the forge source incomplete but every later PR is still queried
+ok - a running run whose status cannot be read marks the no-mistakes source not ok
+ok - read reports unknown, not the old values, for stale, future, missing, or corrupt status.json
+ok - a fresh file still reads unknown for a section whose source did not answer
+ok - a PR carries the status of the no-mistakes run that names its url
+ok - a lane is live only when its pid is alive and its log mtime is under 5 minutes
+ok - gate waits come from the status of each running run and skip runs not parked at a gate
+ok - an unavailable source is recorded as not ok instead of reading as an empty section
+ok - a run replaces state/status.json and leaves no temporary file
+ok - an unknown or misordered argument is refused and status.json is left alone

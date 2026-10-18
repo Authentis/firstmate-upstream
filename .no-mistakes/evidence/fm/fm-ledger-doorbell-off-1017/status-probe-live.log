@@ -1,0 +1,108 @@
+lab home: /tmp/fm-lab.zYOXtE
+
+== 1. read with no status.json
+{
+  "schema": "fm-status-probe.v1",
+  "verdict": "unknown",
+  "reason": "no status.json at /tmp/fm-lab.zYOXtE/state/status.json",
+  "generated": null,
+  "age_s": null,
+  "max_age_s": 900,
+  "prs": "unknown",
+  "lanes": "unknown",
+  "gate_waits": "unknown"
+}
+exit=3
+
+== 2. run (real gh, read-only; PR #17 merged, PR #19 open)
+exit=0
+status.json
+persisted:
+{
+  "schema": "fm-status-probe.v1",
+  "generated": 1792347960,
+  "host": "M4-25.local",
+  "fm_home": "/tmp/fm-lab.zYOXtE",
+  "sources": {
+    "gh": {
+      "ok": true,
+      "error": null
+    },
+    "no_mistakes": {
+      "ok": false,
+      "error": "error: not in a git repository"
+    }
+  },
+  "prs": [
+    {
+      "url": "https://github.com/Authentis/firstmate-upstream/pull/17",
+      "head_sha": "d093c3ebd855208f3fb13ecaa517af1ca087f5a6",
+      "state": "MERGED",
+      "merged": true,
+      "merge_commit": "1079f44c9494220d1491a0ed3436fd606436d878",
+      "gate": null
+    },
+    {
+      "url": "https://github.com/Authentis/firstmate-upstream/pull/19",
+      "head_sha": "968c7380f4cefbdc3aeb0615a1fd18b5b1a7455a",
+      "state": "OPEN",
+      "merged": false,
+      "merge_commit": null,
+      "gate": null
+    }
+  ],
+  "lanes": [
+    {
+      "id": "dead",
+      "pid": 999999,
+      "pid_alive": false,
+      "log": "/tmp/fm-lab.zYOXtE/state/nope.log",
+      "log_age_s": null,
+      "fresh": false,
+      "state": "dead"
+    },
+    {
+      "id": "live",
+      "pid": 66827,
+      "pid_alive": true,
+      "log": "/tmp/fm-lab.zYOXtE/state/lane-live.log",
+      "log_age_s": 0,
+      "fresh": true,
+      "state": "live"
+    }
+  ],
+  "gate_waits": []
+}
+
+== 3. fresh read
+{"verdict":"fresh","age_s":2,"max_age_s":900,"reason":null,"sources":{"gh":{"ok":true,"error":null},"no_mistakes":{"ok":false,"error":"error: not in a git repository"}},"prs":[{"url":"https://github.com/Authentis/firstmate-upstream/pull/17","state":"MERGED","merged":true,"gate":"unknown"},{"url":"https://github.com/Authentis/firstmate-upstream/pull/19","state":"OPEN","merged":false,"gate":"unknown"}],"lanes":[{"id":"dead","state":"dead"},{"id":"live","state":"live"}],"gate_waits":"unknown"}
+exit=0
+
+== 4. stale read: real elapsed time beyond --max-age 2
+{"verdict":"unknown","age_s":7,"max_age_s":2,"reason":"status.json is 7s old; the limit is 2s","prs":"unknown","lanes":"unknown","gate_waits":"unknown"}
+exit=3
+
+== 5. stale read at the default limit: status.json generated 1000s ago
+{"verdict":"unknown","age_s":1007,"max_age_s":900,"reason":"status.json is 1007s old; the limit is 900s","prs":"unknown","lanes":"unknown","gate_waits":"unknown"}
+exit=3
+
+== 6. corrupt status.json
+{
+  "schema": "fm-status-probe.v1",
+  "verdict": "unknown",
+  "reason": "/tmp/fm-lab.zYOXtE/state/status.json is not a readable fm-status-probe.v1 file",
+  "generated": null,
+  "age_s": null,
+  "max_age_s": 900,
+  "prs": "unknown",
+  "lanes": "unknown",
+  "gate_waits": "unknown"
+}
+exit=3
+
+== 7. misordered '--home H read' is refused and status.json untouched
+fm-status-probe: unknown argument: read
+exit=2
+fm-status-probe: unknown argument: --max_age
+exit=2
+status.json unchanged

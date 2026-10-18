@@ -1,0 +1,21 @@
+home sm-bosgame = /tmp/fm-lab.V5bZFc
+home sm-netcup = /tmp/fm-lab.0PuCyw
+1792347904 [firstmate] appended id 1 to /tmp/fm-lab.V5bZFc
+1792347904 [firstmate] appended id 1 to /tmp/fm-lab.0PuCyw
+1792347918 [sm-bosgame] wake presented: check: 1 order(s) pending in state/orders.jsonl (ids 1) - list them with bin/fm-order-ledger.sh pending and ack each by id with bin/fm-order-ledger.sh ack <id>
+1792347918 [sm-netcup] wake presented: check: 1 order(s) pending in state/orders.jsonl (ids 1) - list them with bin/fm-order-ledger.sh pending and ack each by id with bin/fm-order-ledger.sh ack <id>
+1792347918 [sm-netcup] ADVERSARIAL: consumed wake without acking the order
+1792347918 [sm-bosgame] pending: 1 firstmate replay: report fleet status
+1792347919 [sm-bosgame] acked 1
+1792347923 [sm-netcup] wake presented: check: 1 order(s) pending in state/orders.jsonl (ids 1) - list them with bin/fm-order-ledger.sh pending and ack each by id with bin/fm-order-ledger.sh ack <id>
+1792347923 [sm-netcup] pending: 1 firstmate replay: report fleet status
+1792347923 [sm-bosgame] wake presented: check: 1 order(s) pending in state/orders.jsonl (ids 1) - list them with bin/fm-order-ledger.sh pending and ack each by id with bin/fm-order-ledger.sh ack <id>
+1792347923 [sm-netcup] acked 1
+RESULT sm-bosgame: order ts=1792347904 ack ts=1792347919 latency=15s pending_after=[]
+  orders.jsonl: {"id":1,"ts":1792347904,"from":"firstmate","text":"replay: report fleet status"}
+  orders.acks.jsonl: {"id":1,"ts":1792347919}
+RESULT sm-netcup: order ts=1792347904 ack ts=1792347923 latency=19s pending_after=[]
+  orders.jsonl: {"id":1,"ts":1792347904,"from":"firstmate","text":"replay: report fleet status"}
+  orders.acks.jsonl: {"id":1,"ts":1792347923}
+doorbell/tmux/herdr calls: 0
+REPLAY rc=0

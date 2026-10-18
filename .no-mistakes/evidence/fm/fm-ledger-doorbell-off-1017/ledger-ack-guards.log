@@ -1,0 +1,23 @@
+append 'one' -> id 1
+append 'two' -> id 2
+append 'three' -> id 3
+$ ack 3   (out of order)
+acked 3
+exit=0
+$ pending
+1 firstmate order one
+2 firstmate order two
+$ ack 3   (again)
+already acked 3
+exit=0
+$ ack 7   (no such order)
+fm-order-ledger: no order line with id 7
+exit=2
+$ ack 18446744073709551617   (would wrap to 1)
+fm-order-ledger: line id out of range: 18446744073709551617
+exit=2
+$ pending
+1 firstmate order one
+2 firstmate order two
+acks file:
+{"id":3,"ts":1792347978}
