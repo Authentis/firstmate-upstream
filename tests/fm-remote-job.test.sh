@@ -1964,30 +1964,39 @@ pass "a claim still being published is left alone until it is provably abandoned
 # Retained finished records must not make an idle worker burn CPU: each pass
 # used to canonicalise every done record. A wrapper shell runs the worker so its
 # own `times` report covers every reaped descendant over the whole window.
-IDLECPU_STATE="$TMP_ROOT/idlecpu-state"
 IDLECPU_HOME="$TMP_ROOT/idlecpu-account"
 IDLECPU_TIMES="$TMP_ROOT/idlecpu-times"
 IDLECPU_TOUCHED="$TMP_ROOT/idlecpu-touched"
-mkdir -p "$IDLECPU_HOME" "$IDLECPU_STATE/jobs"
-chmod 700 "$IDLECPU_STATE" "$IDLECPU_STATE/jobs"
-for IDLECPU_I in $(seq 1 300); do
-  mkdir -m 700 "$IDLECPU_STATE/jobs/job-idlecpu$IDLECPU_I"
-  printf 'done\n' > "$IDLECPU_STATE/jobs/job-idlecpu$IDLECPU_I/state"
-done
+mkdir -p "$IDLECPU_HOME"
 export IDLECPU_TIMES
-HOME="$IDLECPU_HOME" FM_ROOT_OVERRIDE="$REMOTE_ROOT" FM_REMOTE_JOB_STATE_ROOT="$IDLECPU_STATE" \
-  FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux \
-  bash -c '"$@" & w=$!; trap "kill -TERM $w" TERM; wait $w; wait $w; times > "$IDLECPU_TIMES"' \
-  _ "$REMOTE_ROOT/bin/fm-remote-job-worker.sh" --serve > "$TMP_ROOT/idlecpu-worker.out" 2> "$TMP_ROOT/idlecpu-worker.err" &
-IDLECPU_WRAPPER=$!
-quiet_wait_ready "$IDLECPU_STATE" idle-cpu
-sleep 20
-kill -TERM "$IDLECPU_WRAPPER"
-for _ in $(seq 1 200); do kill -0 "$IDLECPU_WRAPPER" 2>/dev/null || break; sleep 0.05; done
-wait "$IDLECPU_WRAPPER" 2>/dev/null || true
-[ -s "$IDLECPU_TIMES" ] || fail "the idle-cpu wrapper reported no CPU times"
-# `times` prints "shell user sys" then "children user sys" as XmY.YYYs; sum all four.
-IDLECPU_PCT=$(tr 'ms' '  ' < "$IDLECPU_TIMES" | awk '{ for (i = 1; i <= NF; i += 2) t += $i * 60 + $(i + 1) } END { printf "%d", t / 20 * 100 }')
+# Startup cost is fixed, so the steady rate is the difference of two windows.
+idlecpu_run() { # <window-seconds> -> CPU centiseconds on stdout
+  local state="$TMP_ROOT/idlecpu-state-$1" i wrapper
+  mkdir -p "$state/jobs"
+  chmod 700 "$state" "$state/jobs"
+  for i in $(seq 1 300); do
+    mkdir -m 700 "$state/jobs/job-idlecpu$i"
+    printf 'done\n' > "$state/jobs/job-idlecpu$i/state"
+  done
+  : > "$IDLECPU_TIMES"
+  HOME="$IDLECPU_HOME" FM_ROOT_OVERRIDE="$REMOTE_ROOT" FM_REMOTE_JOB_STATE_ROOT="$state" \
+    FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux \
+    bash -c '"$@" & w=$!; trap "kill -TERM $w" TERM; wait $w; wait $w; times > "$IDLECPU_TIMES"' \
+    _ "$REMOTE_ROOT/bin/fm-remote-job-worker.sh" --serve > "$TMP_ROOT/idlecpu-worker.out" 2> "$TMP_ROOT/idlecpu-worker.err" &
+  wrapper=$!
+  quiet_wait_ready "$state" idle-cpu
+  sleep "$1"
+  kill -TERM "$wrapper"
+  for i in $(seq 1 200); do kill -0 "$wrapper" 2>/dev/null || break; sleep 0.05; done
+  wait "$wrapper" 2>/dev/null || true
+  [ -s "$IDLECPU_TIMES" ] || fail "the idle-cpu wrapper reported no CPU times"
+  # `times` prints "shell user sys" then "children user sys" as XmY.YYYs; sum all four.
+  tr 'ms' '  ' < "$IDLECPU_TIMES" | awk '{ for (i = 1; i <= NF; i += 2) t += $i * 60 + $(i + 1) } END { printf "%d", t * 100 }'
+}
+IDLECPU_SHORT=$(idlecpu_run 4)
+IDLECPU_LONG=$(idlecpu_run 24)
+# 20 extra idle seconds: centiseconds / 20 = percent of one core.
+IDLECPU_PCT=$(( (IDLECPU_LONG - IDLECPU_SHORT) / 20 ))
 [ "$IDLECPU_PCT" -lt 3 ] \
   || fail "an idle worker with 300 retained done records used ${IDLECPU_PCT}% of a core"
 pass "an idle worker with retained done records stays under 3% CPU (${IDLECPU_PCT}%)"
