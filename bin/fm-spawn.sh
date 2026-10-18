@@ -3901,31 +3901,19 @@ spawn_worktree_has_origin_config() { # <worktree>
 # apply to it. Runs under the Treehouse project lock, so no other spawn can
 # claim the slot between this read and the claim.
 spawn_pool_slot_custody_refusal() { # <worktree> <task-id>
-  local worktree=$1 id=$2 owner owner_home owner_state branch
-  fm_treehouse_slot_owner_state "$worktree" "$id"
+  local worktree=$1 id=$2 owner owner_home branch
+  fm_treehouse_slot_claim_custody "$worktree" "$id"
   owner=$FM_TREEHOUSE_SLOT_OWNER_ID
   owner_home=$FM_TREEHOUSE_SLOT_OWNER_HOME
-  case "$FM_TREEHOUSE_SLOT_OWNER" in
-    mine|absent) ;;
-    other)
-      if [ "$owner_home" = "$FM_HOME" ]; then
-        owner_state=$STATE
-      elif [ -n "$owner_home" ] && [ -d "$owner_home/state" ]; then
-        owner_state="$owner_home/state"
-      else
-        owner_state=
-      fi
-      case "$owner" in
-        ''|*[!A-Za-z0-9._-]*|.|..) owner_state= ;;
-      esac
-      if [ -z "$owner_state" ]; then
-        echo "error: Treehouse pool slot $worktree is claimed by task $owner${owner_home:+ (home $owner_home)}, whose record cannot be located; refusing to take over a copy that may still hold its work" >&2
-        return 0
-      fi
-      if [ -e "$owner_state/$owner.meta" ] || [ -L "$owner_state/$owner.meta" ]; then
-        echo "error: Treehouse pool slot $worktree still belongs to recorded task $owner${owner_home:+ (home $owner_home)}; refusing to take over or refresh its copy" >&2
-        return 0
-      fi
+  case "$FM_TREEHOUSE_SLOT_CLAIM" in
+    free) ;;
+    unlocatable)
+      echo "error: Treehouse pool slot $worktree is claimed by task $owner${owner_home:+ (home $owner_home)}, whose record cannot be located; refusing to take over a copy that may still hold its work" >&2
+      return 0
+      ;;
+    live)
+      echo "error: Treehouse pool slot $worktree still belongs to recorded task $owner${owner_home:+ (home $owner_home)}; refusing to take over or refresh its copy" >&2
+      return 0
       ;;
     *)
       echo "error: Treehouse pool slot $worktree has an unreadable owner claim; refusing to take over a copy whose owner cannot be read" >&2

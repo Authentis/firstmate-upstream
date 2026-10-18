@@ -1234,6 +1234,14 @@ A malformed or unreadable file refuses every fresh ship or scout spawn until it 
 Firstmate cannot see which part of a worker's life uses the resource, so the number bounds whole workers from launch to handoff, and the tightest resource every worker needs should decide it.
 [`bin/fm-project-capacity-lib.sh`](../bin/fm-project-capacity-lib.sh) owns the file format, what holds a place, and why concurrent spawns cannot both take the last one.
 
+## Stranded-slot sweep (config/slot-sweep-disable)
+
+A worker pane killed before any cleanup ran leaves its Treehouse slot reading `available` while the checkout still holds the lane branch and a claim, and a spawn refuses to take such a slot over.
+`bin/fm-slot-release.sh --sweep` repairs those slots at session start and on the watcher heartbeat, acting only on a slot that is available, still on a branch, without a live claim, clean, and pushed or already landed.
+Every slot it acts on is appended to `state/slot-sweep.log`, and a slot it keeps or fails is reported as a `SLOT_SWEEP:` bootstrap line.
+The empty file `config/slot-sweep-disable` switches the sweep off; it never affects an explicit `bin/fm-slot-release.sh <task-id|path>` retire.
+[`bin/fm-slot-release.sh`](../bin/fm-slot-release.sh) owns the sweep and the retire command, and `fm_treehouse_slot_retire` in [`bin/fm-wake-lib.sh`](../bin/fm-wake-lib.sh) owns the retire steps and result words.
+
 ## Crew dispatch profiles (config/crew-dispatch.json)
 
 `config/crew-dispatch.json` is an optional local, gitignored file containing natural-language rules that firstmate reads before dispatching a crewmate or scout.

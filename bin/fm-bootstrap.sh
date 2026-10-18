@@ -16,6 +16,7 @@
 #                 <stamp>>; <n> failed attempt(s) ... last: <recorded failure>",
 #                 "BACKLOG_RECONCILE: <id>: <what this home could not reconcile>",
 #                 "BACKLOG_RECONCILE: code-root <file> is not this home's <file>; ...",
+#                 "SLOT_SWEEP: <slot>: kept:dirty|kept:unlanded|kept:reassigned|failed (<branch>)",
 #                 "TANGLE: <remediation>",
 #                 "SECONDMATE_SYNC: secondmate <id>: skipped: <reason>",
 #                 "NUDGE_SECONDMATES: secondmate <id>: send failed: <reason>",
@@ -341,6 +342,18 @@ fleet_sync_relay_all_output() {
     [ -n "$line" ] || continue
     echo "FLEET_SYNC: $line"
   done < "$tmp"
+}
+
+# Return stranded Treehouse pool slots (available yet still on a branch, clean,
+# landed, no live claim) to leasable; bin/fm-slot-release.sh owns the sweep, its
+# log, and its kill switch. Only a kept or failed slot prints a line.
+slot_sweep() {
+  [ -x "$FM_ROOT/bin/fm-slot-release.sh" ] || return 0
+  if ! command -v fm_run_timed >/dev/null 2>&1; then
+    # shellcheck source=bin/fm-timeout-lib.sh disable=SC1091
+    . "$SCRIPT_DIR/fm-timeout-lib.sh" || return 0
+  fi
+  fm_run_timed "${FM_SLOT_SWEEP_BOOTSTRAP_TIMEOUT:-20}" "$FM_ROOT/bin/fm-slot-release.sh" --sweep 2>/dev/null </dev/null || true
 }
 
 fleet_sync() {
@@ -1631,6 +1644,9 @@ if [ "${FM_BOOTSTRAP_DETECT_ONLY:-0}" != 1 ]; then
   # depend on them, so it starts in the background and overlaps their wall clock.
   fleet_sync_pid=
   fleet_sync_out=
+  if local_phase; then
+    slot_sweep
+  fi
   if network_phase && network_sweep_authorized 'project clone refresh'; then
     fleet_sync_out=$(mktemp "${TMPDIR:-/tmp}/fm-bootstrap-fleet.XXXXXX") || fleet_sync_out=
     if [ -n "$fleet_sync_out" ]; then

@@ -3970,17 +3970,24 @@ elif [ -d "$WT" ] && [ "$KIND" != secondmate ]; then
   fi
   wt_pool_slot=0
   fm_treehouse_pool_slot "$PROJ" "$WT" && wt_pool_slot=1
-  teardown_treehouse_return "$WT" "$PROJ" "worktree" "$post_lock_cleanup_check" || {
+  # The pool return and the release of this task's claim go through the one
+  # retire owner (fm_treehouse_slot_retire, bin/fm-wake-lib.sh): the return runs
+  # first, and the claim is dropped only after a return that succeeded, so a
+  # returned slot stays unclaimed until its next holder claims it and the claim
+  # stays in place whenever the return did not actually happen. The landed-work
+  # gate already ran above (and runs again under the return lock through
+  # post_lock_cleanup_check), so the owner's own gate step is a no-op here.
+  teardown_slot_retire_gate() { return 0; }
+  teardown_slot_retire_return() {
+    teardown_treehouse_return "$WT" "$PROJ" "worktree" "$post_lock_cleanup_check"
+  }
+  FM_SLOT_RETIRE_GATE=teardown_slot_retire_gate FM_SLOT_RETIRE_RETURN=teardown_slot_retire_return \
+    fm_treehouse_slot_retire "$WT" "$ID" || {
     echo "error: treehouse return failed for worktree $WT; teardown aborted" >&2
     exit 1
   }
   [ "$wt_pool_slot" = 0 ] || teardown_note_dirty_return "$WT"
   TEARDOWN_RETURN_LEASE_ID=
-  # The slot is back in the pool, so this task's claim on it is spent. Dropping
-  # it here - and only after a return that succeeded - keeps a returned slot
-  # unclaimed until its next holder claims it, and leaves the claim in place
-  # whenever the return did not actually happen.
-  fm_treehouse_slot_owner_release "$WT" "$ID"
 fi
 
 HERDR_PRESENTATION_JOURNAL="$STATE/$ID.herdr-presentation"

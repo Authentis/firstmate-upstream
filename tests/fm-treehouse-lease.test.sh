@@ -34,6 +34,71 @@ make_fake_treehouse() {
   cat > "$1/treehouse" <<'SH'
 #!/usr/bin/env bash
 [ -z "${FM_FAKE_TH_LOG:-}" ] || printf '%s\n' "$*" >> "$FM_FAKE_TH_LOG"
+# Stateful pool: with FM_FAKE_POOL_DIR set, every slot <pool>/<n>/repo is a real
+# linked worktree and <pool>/<n>/.fake-state holds "available" or "leased <id>".
+# status reads the worktrees' real HEADs, return detaches HEAD (keeping every
+# branch ref) and marks the slot available, get --lease hands out the first
+# available slot detached - the same contract the real treehouse keeps, so a
+# retire-then-lease sequence is observed rather than assumed.
+if [ -n "${FM_FAKE_POOL_DIR:-}" ]; then
+  fake_slot_dirs() { for d in "$FM_FAKE_POOL_DIR"/*/; do [ -f "${d}.fake-state" ] && printf '%s\n' "${d%/}"; done; }
+  case "${1:-}" in
+    status)
+      sep=
+      printf '['
+      while IFS= read -r d; do
+        read -r st lid < "$d/.fake-state"
+        br=$(git -C "$d/repo" symbolic-ref --quiet --short HEAD 2>/dev/null || true)
+        printf '%s{"name":"%s","path":"%s","status":"%s","branch":"%s","lease_id":"%s"}' \
+          "$sep" "$(basename "$d")" "$d/repo" "$st" "$br" "${lid:-}"
+        sep=,
+      done < <(fake_slot_dirs)
+      printf ']\n'
+      exit 0 ;;
+    get)
+      case " $* " in
+        *" --help "*)
+          printf 'Usage:\n  treehouse get [flags]\n      --json   Print lease allocation as JSON\n      --lease   Durably lease a worktree\n      --lease-holder string   label\n'
+          exit 0 ;;
+      esac
+      while IFS= read -r d; do
+        read -r st _ < "$d/.fake-state"
+        [ "$st" = available ] || continue
+        git -C "$d/repo" checkout -q --detach
+        echo "leased lease-$(basename "$d")-$$" > "$d/.fake-state"
+        printf '{"path":"%s","lease_id":"lease-%s-%s","lease_holder":"fm","base_branch":"main"}\n' \
+          "$d/repo" "$(basename "$d")" "$$"
+        exit 0
+      done < <(fake_slot_dirs)
+      echo "no available slot" >&2
+      exit 1 ;;
+    return)
+      shift
+      want=; force=0; target=
+      while [ "$#" -gt 0 ]; do
+        case "$1" in
+          --if-lease-id) want=$2; shift ;;
+          --force) force=1 ;;
+          *) target=$1 ;;
+        esac
+        shift
+      done
+      d=$(dirname "$target")
+      [ -f "$d/.fake-state" ] || { echo "not a pool slot: $target" >&2; exit 1; }
+      read -r st lid < "$d/.fake-state"
+      if [ -n "$want" ] && [ "$want" != "${lid:-}" ]; then
+        echo "failed to return worktree: lease precondition failed: lease identity does not match worktree" >&2
+        exit 1
+      fi
+      if [ "$force" = 0 ] && [ -n "$(git -C "$target" status --porcelain)" ]; then
+        echo "worktree has uncommitted changes; refusing to discard without confirmation" >&2
+        exit 1
+      fi
+      git -C "$target" checkout -q --detach
+      echo available > "$d/.fake-state"
+      exit 0 ;;
+  esac
+fi
 case "${1:-}" in
   get)
     case " $* " in
@@ -424,7 +489,191 @@ test_teardown_refuses_a_malformed_lease_id() {
   pass "a malformed lease id is refused before any treehouse call or destructive step"
 }
 
+# --- retire and stranded-slot sweep (stateful pool) -------------------------
+
+SLOT_RELEASE="$ROOT/bin/fm-slot-release.sh"
+
+# make_pool_case <name> -> prints the case dir. One project with an origin, a
+# home, and a two-slot stateful pool (slot 1 leased to task-p1 on branch
+# fm/task-p1 with its work pushed, slot 2 available and detached).
+make_pool_case() {
+  local name=$1 case_dir pool n
+  case_dir="$TMP_ROOT/$name"
+  pool="$case_dir/pool"
+  mkdir -p "$case_dir/home/state" "$case_dir/home/config" "$case_dir/home/data" "$case_dir/fakebin" "$pool"
+  make_fake_treehouse "$case_dir/fakebin"
+  git init -q --bare "$case_dir/origin.git"
+  git -C "$case_dir/origin.git" symbolic-ref HEAD refs/heads/main
+  git clone -q "$case_dir/origin.git" "$case_dir/project" 2>/dev/null
+  git -C "$case_dir/project" -c user.email=t@t -c user.name=t commit -q --allow-empty -m baseline
+  git -C "$case_dir/project" push -q origin HEAD:main
+  git -C "$case_dir/project" remote set-head origin main 2>/dev/null || true
+  touch "$pool/treehouse-state.json"
+  for n in 1 2; do
+    mkdir -p "$pool/$n"
+    git -C "$case_dir/project" worktree add -q --detach "$pool/$n/repo" main
+  done
+  printf 'leased lease-p1\n' > "$pool/1/.fake-state"
+  printf 'available\n' > "$pool/2/.fake-state"
+  git -C "$pool/1/repo" checkout -q -b fm/task-p1
+  git -C "$pool/1/repo" -c user.email=t@t -c user.name=t commit -q --allow-empty -m "lane work"
+  git -C "$pool/1/repo" push -q origin fm/task-p1
+  printf 'task=task-p1\nhome=%s\n' "$case_dir/home" > "$pool/1/.fm-slot-owner"
+  fm_write_meta "$case_dir/home/state/task-p1.meta" \
+    "worktree=$pool/1/repo" "project=$case_dir/project" "lease_id=lease-p1" "kind=ship"
+  printf '%s\n' "$case_dir"
+}
+
+# strand_slot <case> <slot> <branch> [claim-task]: the hard-killed state - the
+# slot reads available while its checkout still holds a branch and a claim.
+strand_slot() {
+  local case_dir=$1 slot=$2 branch=$3 claim=${4:-}
+  git -C "$case_dir/pool/$slot/repo" checkout -q -b "$branch" main
+  git -C "$case_dir/pool/$slot/repo" -c user.email=t@t -c user.name=t commit -q --allow-empty -m "leftover work"
+  git -C "$case_dir/pool/$slot/repo" push -q origin "$branch"
+  printf 'available\n' > "$case_dir/pool/$slot/.fake-state"
+  [ -z "$claim" ] || printf 'task=%s\nhome=%s\n' "$claim" "$case_dir/home" > "$case_dir/pool/$slot/.fm-slot-owner"
+}
+
+pool_cmd() { # <case> <command...>
+  local case_dir=$1
+  shift
+  FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$ROOT" FM_FAKE_POOL_DIR="$case_dir/pool" \
+    FM_FAKE_TH_LOG="$case_dir/treehouse.log" PATH="$case_dir/fakebin:$PATH" "$@" 2>&1
+}
+
+slot_head() { git -C "$1/pool/$2/repo" symbolic-ref --quiet --short HEAD 2>/dev/null || echo detached; }
+
+# A slot is leasable again when treehouse hands it out and firstmate's own
+# custody check (the one a spawn applies) finds nothing holding it.
+assert_slot_leasable() { # <case> <slot> <why>
+  local case_dir=$1 slot=$2 why=$3 got
+  [ "$(slot_head "$case_dir" "$slot")" = detached ] || fail "$why: slot $slot still holds a branch"
+  (
+    . "$ROOT/bin/fm-wake-lib.sh"
+    FM_HOME="$case_dir/home"
+    fm_treehouse_slot_claim_custody "$case_dir/pool/$slot/repo" next-task
+    [ "$FM_TREEHOUSE_SLOT_CLAIM" = free ]
+  ) || fail "$why: slot $slot is still claimed"
+  got=$(pool_cmd "$case_dir" treehouse get --lease --json) || fail "$why: treehouse could not lease the slot"$'\n'"$got"
+  assert_contains "$got" "$case_dir/pool/$slot/repo" "$why: the lease did not hand out slot $slot"
+}
+
+test_retire_keeps_the_branch_and_the_slot_leases_again() {
+  local case_dir out status
+  case_dir=$(make_pool_case retire-then-lease)
+  git -C "$case_dir/pool/2/repo" checkout -q -b fm/other main
+  printf 'leased lease-other\n' > "$case_dir/pool/2/.fake-state"
+  out=$(pool_cmd "$case_dir" "$SLOT_RELEASE" task-p1)
+  status=$?
+  expect_code 0 "$status" "retiring a landed, clean slot should succeed"$'\n'"$out"
+  [ "$out" = released ] || fail "retire should print exactly 'released', got: $out"
+  git -C "$case_dir/project" rev-parse --verify -q refs/heads/fm/task-p1 >/dev/null \
+    || fail "the lane branch must survive a retire"
+  assert_absent "$case_dir/pool/1/.fm-slot-owner" "a released slot keeps no claim"
+  assert_slot_leasable "$case_dir" 1 "retire then lease"
+  assert_grep "return --if-lease-id lease-p1" "$case_dir/treehouse.log" \
+    "retire did not return the slot bound to the recorded lease"
+  pass "retire detaches the slot, keeps the branch, drops the claim, and the slot leases again"
+}
+
+test_retire_refuses_dirty_unlanded_and_reassigned_slots() {
+  local case_dir out status
+  case_dir=$(make_pool_case retire-refusals)
+  printf 'wip\n' > "$case_dir/pool/1/repo/untracked.txt"
+  out=$(pool_cmd "$case_dir" "$SLOT_RELEASE" task-p1)
+  status=$?
+  expect_code 1 "$status" "a dirty slot must not be retired"
+  [ "$out" = kept:dirty ] || fail "expected kept:dirty, got: $out"
+  assert_present "$case_dir/pool/1/repo/untracked.txt" "retire must not discard uncommitted files"
+  rm "$case_dir/pool/1/repo/untracked.txt"
+  printf 'new content\n' > "$case_dir/pool/1/repo/feature.txt"
+  git -C "$case_dir/pool/1/repo" add feature.txt
+  git -C "$case_dir/pool/1/repo" -c user.email=t@t -c user.name=t commit -q -m "unpushed work"
+  out=$(pool_cmd "$case_dir" "$SLOT_RELEASE" task-p1)
+  [ "$out" = kept:unlanded ] || fail "expected kept:unlanded, got: $out"
+  [ "$(slot_head "$case_dir" 1)" = fm/task-p1 ] || fail "an unlanded slot must keep its branch checked out"
+  printf 'task=someone-else\nhome=%s\n' "$case_dir/home" > "$case_dir/pool/1/.fm-slot-owner"
+  out=$(pool_cmd "$case_dir" "$SLOT_RELEASE" task-p1)
+  [ "$out" = kept:reassigned ] || fail "expected kept:reassigned, got: $out"
+  assert_grep "task=someone-else" "$case_dir/pool/1/.fm-slot-owner" "a reassigned slot's claim must be left alone"
+  assert_absent "$case_dir/treehouse.log" "no refusal may reach treehouse"
+  pass "retire keeps dirty, unlanded and reassigned slots exactly as found"
+}
+
+test_sweep_returns_a_hard_killed_leftover_to_the_pool() {
+  local case_dir out status
+  case_dir=$(make_pool_case sweep-leftover)
+  strand_slot "$case_dir" 2 fm/task-gone task-gone
+  [ "$(slot_head "$case_dir" 2)" = fm/task-gone ] || fail "control: the leftover should hold its branch"
+  out=$(pool_cmd "$case_dir" "$SLOT_RELEASE" --sweep "$case_dir/project")
+  status=$?
+  expect_code 0 "$status" "sweep should succeed"$'\n'"$out"
+  [ -z "$out" ] || fail "a released slot is silent, got: $out"
+  git -C "$case_dir/project" rev-parse --verify -q refs/heads/fm/task-gone >/dev/null \
+    || fail "the leftover's branch must be kept"
+  assert_slot_leasable "$case_dir" 2 "sweep then lease"
+  assert_grep "$case_dir/pool/2/repo fm/task-gone released" "$case_dir/home/state/slot-sweep.log" \
+    "the sweep must log every slot it acted on"
+  [ "$(slot_head "$case_dir" 1)" = fm/task-p1 ] || fail "the sweep must not touch the leased slot"
+  pass "the sweep returns a hard-killed leftover to leasable and logs it"
+}
+
+test_sweep_leaves_dirty_unlanded_claimed_and_disabled_slots() {
+  local case_dir out
+  case_dir=$(make_pool_case sweep-limits)
+  strand_slot "$case_dir" 2 fm/task-dirty task-dirty
+  printf 'wip\n' > "$case_dir/pool/2/repo/scratch.txt"
+  out=$(pool_cmd "$case_dir" "$SLOT_RELEASE" --sweep "$case_dir/project")
+  assert_contains "$out" "SLOT_SWEEP: $case_dir/pool/2/repo: kept:dirty (fm/task-dirty)" "a dirty leftover must be reported"
+  assert_present "$case_dir/pool/2/repo/scratch.txt" "a dirty leftover's files must be untouched"
+  [ "$(slot_head "$case_dir" 2)" = fm/task-dirty ] || fail "a dirty leftover must keep its branch checked out"
+  assert_present "$case_dir/pool/2/.fm-slot-owner" "a dirty leftover keeps its claim"
+  rm "$case_dir/pool/2/repo/scratch.txt"
+  printf 'new content\n' > "$case_dir/pool/2/repo/feature.txt"
+  git -C "$case_dir/pool/2/repo" add feature.txt
+  git -C "$case_dir/pool/2/repo" -c user.email=t@t -c user.name=t commit -q -m "unpushed"
+  out=$(pool_cmd "$case_dir" "$SLOT_RELEASE" --sweep "$case_dir/project")
+  assert_contains "$out" "kept:unlanded (fm/task-dirty)" "an unlanded leftover must be reported"
+  [ "$(slot_head "$case_dir" 2)" = fm/task-dirty ] || fail "an unlanded leftover must keep its branch checked out"
+  git -C "$case_dir/pool/2/repo" reset -q --hard origin/fm/task-dirty
+  # A claim whose task record still exists is a live claim: never acted on.
+  fm_write_meta "$case_dir/home/state/task-dirty.meta" "worktree=$case_dir/pool/2/repo" "kind=ship"
+  out=$(pool_cmd "$case_dir" "$SLOT_RELEASE" --sweep "$case_dir/project")
+  [ -z "$out" ] || fail "a live claim must be skipped silently, got: $out"
+  [ "$(slot_head "$case_dir" 2)" = fm/task-dirty ] || fail "a slot with a live claim must keep its branch checked out"
+  rm "$case_dir/home/state/task-dirty.meta"
+  # The kill switch disables the sweep even for a slot it would act on.
+  : > "$case_dir/home/config/slot-sweep-disable"
+  out=$(pool_cmd "$case_dir" "$SLOT_RELEASE" --sweep "$case_dir/project")
+  [ -z "$out" ] || fail "a disabled sweep must print nothing, got: $out"
+  [ "$(slot_head "$case_dir" 2)" = fm/task-dirty ] || fail "a disabled sweep must not act"
+  rm "$case_dir/home/config/slot-sweep-disable"
+  out=$(pool_cmd "$case_dir" "$SLOT_RELEASE" --sweep "$case_dir/project")
+  [ "$(slot_head "$case_dir" 2)" = detached ] || fail "control: the same slot should be released once the limits clear"
+  pass "the sweep leaves dirty, unlanded, live-claimed and kill-switched slots alone"
+}
+
+test_teardown_goes_through_the_retire_owner_and_frees_the_slot() {
+  local case_dir out status
+  case_dir=$(make_teardown_case td-retire-owner)
+  write_teardown_meta "$case_dir" "lease_id=lease0123abcd"
+  printf 'task=task-x1\nhome=%s\n' "$case_dir" > "$case_dir/.fm-slot-owner"
+  out=$(FM_FAKE_SLOT_LEASE=lease0123abcd run_teardown "$case_dir")
+  status=$?
+  expect_code 0 "$status" "teardown should retire through the owner"$'\n'"$out"
+  assert_grep "return --if-lease-id lease0123abcd $case_dir/wt" "$case_dir/treehouse.log" \
+    "teardown must return through the retire owner, lease-bound"
+  assert_absent "$case_dir/.fm-slot-owner" "teardown must drop the claim only after the return"
+  pass "teardown retires through the one owner and drops its claim after the return"
+}
+
 test_spawn_takes_a_lease_and_records_its_id
+test_retire_keeps_the_branch_and_the_slot_leases_again
+test_retire_refuses_dirty_unlanded_and_reassigned_slots
+test_sweep_returns_a_hard_killed_leftover_to_the_pool
+test_sweep_leaves_dirty_unlanded_claimed_and_disabled_slots
+test_teardown_goes_through_the_retire_owner_and_frees_the_slot
 test_spawn_without_lease_support_keeps_the_interactive_path
 test_aborted_spawn_returns_its_unrecorded_lease
 test_teardown_returns_exactly_the_recorded_lease_without_force

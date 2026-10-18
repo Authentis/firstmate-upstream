@@ -3598,6 +3598,12 @@ EOF
   hb=$(( HEARTBEAT * (1 << streak) ))
   [ "$hb" -gt "$HEARTBEAT_MAX" ] && hb=$HEARTBEAT_MAX
   if [ "$(age_of "$STATE/.last-heartbeat")" -ge "$hb" ]; then
+    # Return any stranded pool slot to leasable (bin/fm-slot-release.sh owns the
+    # sweep, its log, and its kill switch). Detached and idempotent, so a slow
+    # sweep never delays the heartbeat and a lost one reruns at the next.
+    if [ -x "$SCRIPT_DIR/fm-slot-release.sh" ]; then
+      "$SCRIPT_DIR/fm-slot-release.sh" --sweep >/dev/null 2>&1 </dev/null &
+    fi
     # Triage: in always-on mode a heartbeat is benign unless the cheap fleet-scan
     # turns up a captain-relevant status the per-wake path missed. Absorb the
     # no-change case (advance the schedule and back off exactly as wake() would,

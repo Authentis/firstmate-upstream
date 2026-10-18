@@ -1707,6 +1707,126 @@ fm_treehouse_slot_owner_release() {  # <worktree> <task-id>
   rm -f "$marker" 2>/dev/null || true
 }
 
+# Who, if anyone, still holds a pool slot's claim, judged against task records.
+# Sets FM_TREEHOUSE_SLOT_CLAIM to one of:
+#   free        - no claim, the caller's own claim, or a claim whose task record is gone
+#   live        - the claim names another task whose record survives
+#   unlocatable - the claim names another task whose record cannot be located
+#   unreadable  - a claim file exists but cannot be read as a claim
+# FM_TREEHOUSE_SLOT_OWNER_ID and FM_TREEHOUSE_SLOT_OWNER_HOME carry the claimant.
+# An empty id asks "does anyone hold it", which is what a sweep wants.
+# bin/fm-spawn.sh refuses to take over a slot in any state but free.
+fm_treehouse_slot_claim_custody() {  # <worktree> <task-id>
+  local worktree=$1 id=${2:-} owner owner_home owner_state
+  fm_treehouse_slot_owner_state "$worktree" "$id"
+  owner=$FM_TREEHOUSE_SLOT_OWNER_ID
+  owner_home=$FM_TREEHOUSE_SLOT_OWNER_HOME
+  # shellcheck disable=SC2034 # Output global, read by the sourcing caller.
+  FM_TREEHOUSE_SLOT_CLAIM=free
+  case "$FM_TREEHOUSE_SLOT_OWNER" in
+    mine|absent) return 0 ;;
+    other) ;;
+    *) FM_TREEHOUSE_SLOT_CLAIM=unreadable; return 0 ;;
+  esac
+  if [ "$owner_home" = "$FM_HOME" ]; then
+    owner_state=${STATE:-$FM_HOME/state}
+  elif [ -n "$owner_home" ] && [ -d "$owner_home/state" ]; then
+    owner_state="$owner_home/state"
+  else
+    owner_state=
+  fi
+  case "$owner" in
+    ''|*[!A-Za-z0-9._-]*|.|..) owner_state= ;;
+  esac
+  if [ -z "$owner_state" ]; then
+    FM_TREEHOUSE_SLOT_CLAIM=unlocatable
+  elif [ -e "$owner_state/$owner.meta" ] || [ -L "$owner_state/$owner.meta" ]; then
+    FM_TREEHOUSE_SLOT_CLAIM=live
+  fi
+  return 0
+}
+
+# Landed-work proof for a pool slot, from local evidence only (no forge call, so
+# a sweep stays cheap and offline). Returns 0 when the checkout is clean and
+# everything it holds is on a real remote or already in the default branch,
+# 10 when it has uncommitted changes, 11 when it holds work that is neither
+# pushed nor landed, and 1 when git cannot answer. Hook-file leftovers that
+# bin/fm-teardown.sh also exempts do not count as dirt. Teardown's own gate
+# (validate_worktree_teardown_safety) is a superset that also asks the forge.
+fm_treehouse_slot_landed_gate() {  # <worktree>
+  local worktree=$1 dirty unpushed ref candidate default_tree merged_tree
+  dirty=$(git -C "$worktree" status --porcelain 2>/dev/null) || return 1
+  dirty=$(printf '%s\n' "$dirty" | grep -vE '^\?\? (\.claude/|\.fm-(grok|kimi)-turnend$)' || true)
+  [ -z "$dirty" ] || return 10
+  unpushed=$(git -C "$worktree" log --oneline HEAD --not --exclude='no-mistakes/*' --remotes -- 2>/dev/null) || return 1
+  [ -n "$unpushed" ] || return 0
+  ref=
+  for candidate in refs/remotes/origin/main refs/remotes/origin/master refs/heads/main refs/heads/master; do
+    if git -C "$worktree" rev-parse --quiet --verify "$candidate^{commit}" >/dev/null 2>&1; then
+      ref=$candidate
+      break
+    fi
+  done
+  [ -n "$ref" ] || return 11
+  git -C "$worktree" merge-base --is-ancestor HEAD "$ref" 2>/dev/null && return 0
+  default_tree=$(git -C "$worktree" rev-parse --quiet --verify "$ref^{tree}" 2>/dev/null) || return 11
+  merged_tree=$(git -C "$worktree" merge-tree --write-tree "$ref" HEAD 2>/dev/null | head -1) || return 11
+  [ "$merged_tree" = "$default_tree" ] && return 0
+  return 11
+}
+
+# The plain pool return: `treehouse return` detaches HEAD and keeps every branch
+# ref, and also works on an `available` slot a hard-killed pane left on a branch.
+# Never forced, so a slot treehouse still finds dirty or foreign is refused.
+fm_treehouse_slot_return() {  # <worktree> [lease-id]
+  local worktree=$1 lease=${2:-} slot
+  local -a args=()
+  slot=$(CDPATH='' cd -- "$worktree" 2>/dev/null && pwd -P) || return 1
+  [ -z "$lease" ] || args=(--if-lease-id "$lease")
+  ( cd "$(dirname "$slot")" && treehouse return ${args[@]+"${args[@]}"} "$slot" </dev/null >/dev/null 2>&1 )
+}
+
+# THE retire owner for a pool slot: make a finished slot leasable again without
+# ever losing work or a branch. The order is fixed - landed-work gate, then the
+# pool return (HEAD detaches, the branch ref is kept), then release of the
+# task's own claim - so a refusal at any step leaves the slot as found.
+# Sets FM_TREEHOUSE_SLOT_RETIRE_RESULT (printing nothing itself) to one of:
+#   released | kept:dirty | kept:unlanded | kept:reassigned | failed
+# and returns 0 only for released. kept:* is a deliberate refusal that leaves
+# the slot to its owner; failed is anything else (unreadable claim or work
+# state, return refused, HEAD still on a branch).
+# FM_SLOT_RETIRE_GATE and FM_SLOT_RETIRE_RETURN name replacement hooks with the
+# gate's and return's argument shape; bin/fm-teardown.sh uses them so its
+# stricter forge-aware gate and lock-retrying return stay the one path.
+fm_treehouse_slot_retire() {  # <worktree> <task-id> [lease-id]
+  local worktree=$1 id=$2 lease=${3:-} gate ret rc=0
+  gate=${FM_SLOT_RETIRE_GATE:-fm_treehouse_slot_landed_gate}
+  ret=${FM_SLOT_RETIRE_RETURN:-fm_treehouse_slot_return}
+  FM_TREEHOUSE_SLOT_RETIRE_RESULT=failed
+  if [ -z "$id" ] || [ ! -d "$worktree" ]; then
+    return 1
+  fi
+  fm_treehouse_slot_owner_state "$worktree" "$id"
+  case "$FM_TREEHOUSE_SLOT_OWNER" in
+    mine|absent) ;;
+    other) FM_TREEHOUSE_SLOT_RETIRE_RESULT=kept:reassigned; return 1 ;;
+    *) return 1 ;;
+  esac
+  "$gate" "$worktree" || rc=$?
+  case "$rc" in
+    0) ;;
+    10) FM_TREEHOUSE_SLOT_RETIRE_RESULT=kept:dirty; return 1 ;;
+    11) FM_TREEHOUSE_SLOT_RETIRE_RESULT=kept:unlanded; return 1 ;;
+    *) return 1 ;;
+  esac
+  "$ret" "$worktree" "$lease" || return 1
+  if [ -d "$worktree" ] && git -C "$worktree" symbolic-ref --quiet HEAD >/dev/null 2>&1; then
+    return 1
+  fi
+  fm_treehouse_slot_owner_release "$worktree" "$id"
+  FM_TREEHOUSE_SLOT_RETIRE_RESULT=released
+}
+
 fm_failure_episode_reset() {
   local state=$1 mode=${2:-acquire} lock current pid acquired=0 path
   lock="$state/.turnend-claude-blocks.lock"
