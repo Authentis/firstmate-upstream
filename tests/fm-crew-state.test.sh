@@ -87,7 +87,7 @@ make_fakebin() {  # <dir> -> echoes fakebin path
 set -u
 printf '%s|%s\n' "${NO_MISTAKES_NO_UPDATE_CHECK:-}" "$*" >> "${FM_FAKE_NM_LOG:-/dev/null}"
 [ -z "${FM_FAKE_NM_SLEEP:-}" ] || sleep "$FM_FAKE_NM_SLEEP"
-[ -z "${FM_FAKE_NM_LEAVE:-}" ] || { sleep 20 > /dev/null 2>&1 < /dev/null & }
+[ -z "${FM_FAKE_NM_LEAVE:-}" ] || { sleep 20 > /dev/null 2>&1 < /dev/null & printf '%s\n' "$!" >> "$FM_FAKE_NM_LEAVE"; }
 case "${1:-}" in
   axi)
     shift
@@ -1698,14 +1698,14 @@ test_leftover_cli_child_does_not_pin_the_lock() {
   d=$(cache_case cache-leftover)
   FM_FAKE_AXI_STATUS="$(run_running fm/feat-load)"
   export FM_FAKE_AXI_STATUS
-  cache_read "$d" FM_FAKE_NM_LEAVE=1 > /dev/null
+  cache_read "$d" FM_FAKE_NM_LEAVE="$d/leftover.pids" > /dev/null
   touch -t 202001010000 "$d"/cache/*.out
   : > "$d/nm.log"
   start=$SECONDS
-  cache_read "$d" FM_FAKE_NM_LEAVE=1 > /dev/null
+  cache_read "$d" FM_FAKE_NM_LEAVE="$d/leftover.pids" > /dev/null
   [ $((SECONDS - start)) -lt 3 ] || fail "a leftover CLI child held the lock for the next read"
   [ "$(wc -l < "$d/nm.log")" -eq 1 ] || fail "the expired read did not refresh ($(wc -l < "$d/nm.log") spawns)"
-  pkill -f 'sleep 20' 2>/dev/null || true
+  xargs kill < "$d/leftover.pids" 2>/dev/null || true
   pass "a process left by the CLI cannot pin the cache lock"
 }
 
