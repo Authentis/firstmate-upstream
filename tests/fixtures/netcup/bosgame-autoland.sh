@@ -25,6 +25,7 @@ floor_ok() {
 # family is never retried for the same head); the open queue is state/.floor-q-<pr> = "<head> <family>". floor_sweep cancels a queue whose
 # head moved (the old head's review is never repeated; the new head earns its own 2 only if it again hits the floor). Families, preference
 # order, one per line or space separated: data/floor-families (default "muse grok"; never a GPT family and never the primary reviewer's family, which is Kimi). Kill switch: data/floor-autoqueue.off.
+# When no non-GPT family is free, one Sol-high review (--min-secs 30) is the fallback, counted in the same 2 per head.
 # Queue/cancel commands are data/bin/xreview.sh --family/--cancel; FLOOR_QUEUE_CMD / FLOOR_CANCEL_CMD override them (tests stub them).
 floor_families() { local f; f=$(cat "$H/data/floor-families" 2>/dev/null); printf '%s\n' ${f:-muse grok} | grep -viE '^(gpt|openai|codex|sol|kimi)' ; }
 floor_family_busy() { local q; for q in "$H"/state/.floor-q-*; do [ -e "$q" ] && [ "$(awk '{print $2}' "$q")" = "$1" ] && return 0; done; return 1; }
@@ -83,6 +84,16 @@ floor_autoqueue_locked() {
       || { rm -f "$q" "$H/state/.floor-n-$pr-$head-$fam"; continue; }
     echo "bosgame-autoland: PR $pr floor: queued $fam second-family review for head ${head:0:8} ($((n + 1)) of 2)" >&2; return 0
   done < <(floor_families)
+  # fallback: no non-GPT family is free, so the head's second review is one Sol-high exact-head review that must run >= FLOOR_MIN_SECS (30);
+  # it shares the 2-per-head budget (its own stamp) and the queue record, so the sweep cancels it on a head move like any other
+  fam=sol-high
+  if [ ! -e "$H/state/.floor-n-$pr-$head-$fam" ] && ! floor_family_busy "$fam"; then
+    printf '%s %s\n' "$head" "$fam" > "$q"; : > "$H/state/.floor-n-$pr-$head-$fam"
+    if ${FLOOR_QUEUE_CMD:-bash $H/data/bin/xreview.sh --family} "$fam" "$pr" "$head" "$H/data/xreview/$pr-fam2.md" --min-secs "${FLOOR_MIN_SECS:-30}" </dev/null >/dev/null 2>&1 8>&-; then
+      echo "bosgame-autoland: PR $pr floor: no free non-GPT family; queued $fam fallback review (>= ${FLOOR_MIN_SECS:-30} s) for head ${head:0:8} ($((n + 1)) of 2)" >&2; return 0
+    fi
+    rm -f "$q" "$H/state/.floor-n-$pr-$head-$fam"
+  fi
   echo "bosgame-autoland: PR $pr floor: no free non-GPT family to queue" >&2
 }
 [ "${BOSGAME_AUTOLAND_SOURCE_ONLY:-}" = 1 ] && return 0   # tests source the functions above

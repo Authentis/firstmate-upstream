@@ -231,3 +231,71 @@ BOSGAME_AUTOLAND_SOURCE_ONLY=1 bash -c '. "$1"; floor_sweep 7 "$2"; floor_ok 7 "
 if grep -q "^cancel 7 muse $HEAD1" "$H/calls" && [ "$(calls)" = 2 ]; then
   pass "a cancel earlier in the pass keeps the new head from queuing in the same pass"
 else fail "cancel ends pass: $(cat "$H/calls")"; fi
+
+# Sol-high fallback: when no non-GPT family is free
+only_busy() {  # only muse is configured and its queue fails; the stub accepts sol-high
+  printf 'muse\n' > "$H/data/floor-families"
+  printf '%s\n' '#!/usr/bin/env bash' 'echo "queue $*" >> "$H/calls"' '[ "$1" = sol-high ]' > "$H/queue.sh"
+}
+
+new_home fallback-fires-only-when-none-free
+lone_pass 7 $HEAD1 12
+run_floor 7 $HEAD1
+if [ "$(calls)" = 1 ] && grep -q "^queue muse 7 " "$H/calls" && ! grep -q sol-high "$H/calls"; then
+  pass "the Sol-high fallback is not used while a non-GPT family is free"
+else fail "fallback unused: $(cat "$H/calls")"; fi
+
+new_home fallback-runs-30s
+lone_pass 7 $HEAD1 12
+only_busy
+run_floor 7 $HEAD1
+if grep -q "^queue sol-high 7 $HEAD1 $H/data/xreview/7-fam2.md --min-secs 30\$" "$H/calls" && [ "$(cut -d' ' -f2 "$H/state/.floor-q-7")" = sol-high ]; then
+  pass "with no free non-GPT family one Sol-high exact-head review is queued with a 30 s minimum"
+else fail "fallback: $(cat "$H/calls")"; fi
+
+new_home fallback-counts-toward-cap
+lone_pass 7 $HEAD1 12
+only_busy
+run_floor 7 $HEAD1
+rm -f "$H/state/.floor-q-7"
+printf '%s\n' '#!/usr/bin/env bash' 'echo "queue $*" >> "$H/calls"' > "$H/queue.sh"
+run_floor 7 $HEAD1   # second try takes muse
+rm -f "$H/state/.floor-q-7"
+run_floor 7 $HEAD1   # third refused
+if [ "$(calls)" = 3 ] && [ "$(grep -c '^queue muse' "$H/calls")" = 2 ] && [ -e "$H/state/.floor-n-7-$HEAD1-sol-high" ]; then
+  pass "the fallback stamp counts toward the 2 per head and a third attempt is refused"
+else fail "fallback cap: $(cat "$H/calls")"; fi
+
+new_home fallback-not-repeated
+lone_pass 7 $HEAD1 12
+only_busy
+run_floor 7 $HEAD1
+rm -f "$H/state/.floor-q-7"
+run_floor 7 $HEAD1
+if [ "$(grep -c sol-high "$H/calls")" = 1 ]; then pass "the fallback is not retried for the same head"
+else fail "fallback repeat: $(cat "$H/calls")"; fi
+
+new_home fallback-head-move-cancels
+lone_pass 7 $HEAD1 12
+only_busy
+run_floor 7 $HEAD1
+lone_pass 7 $HEAD2 12
+run_floor 7 $HEAD2
+if grep -q "^cancel 7 sol-high $HEAD1" "$H/calls" && [ ! -e "$H/state/.floor-q-7" ]; then
+  pass "a head move cancels a queued fallback review"
+else fail "fallback cancel: $(cat "$H/calls")"; fi
+
+new_home fallback-kill-switch
+lone_pass 7 $HEAD1 12
+only_busy
+: > "$H/data/floor-autoqueue.off"
+run_floor 7 $HEAD1
+if [ "$(calls)" = 0 ]; then pass "the kill switch suppresses the fallback"
+else fail "fallback kill: $(cat "$H/calls")"; fi
+
+new_home fallback-dry
+lone_pass 7 $HEAD1 12
+only_busy
+DRY=1 run_floor 7 $HEAD1
+if [ "$(calls)" = 0 ]; then pass "a dry run suppresses the fallback"
+else fail "fallback dry: $(cat "$H/calls")"; fi
