@@ -110,7 +110,9 @@ fm_nm_cache_locked() {  # <lockfile> <wait_secs> <command...>
 # many lanes a heartbeat fans out over, because each key lock only serializes
 # one lane. A caller not granted a slot within FM_NM_STATUS_WAIT seconds
 # (default 30) fails, which reads as unknown and is retried next heartbeat.
-# Each slot is a kernel flock like the key lock, so a dead holder frees it.
+# Each slot is a kernel flock like the key lock, so a dead holder frees it, and
+# the CLI runs with the slot descriptor closed so a child it leaves behind
+# cannot pin the slot.
 fm_nm_run_slotted() {  # <cache_dir> <dir> <timeout_secs> <args...>
   local cache_dir=$1 slots=${FM_NM_STATUS_SLOTS:-2} wait=${FM_NM_STATUS_WAIT:-30} n deadline rc
   shift
@@ -124,7 +126,8 @@ fm_nm_run_slotted() {  # <cache_dir> <dir> <timeout_secs> <args...>
       rc=0
       # shellcheck disable=SC2016  # The inner script expands after bash -c receives positional args.
       fm_nm_cache_locked "$cache_dir/.slot$n.lock" 0 \
-        bash -c '. "$1"; shift; fm_nm_run_uncached "$@"' _ "$FM_NM_RUN_LIB_PATH" "$@" || rc=$?
+        bash -c '. "$1"; shift; ( eval "exec ${FM_NM_LOCK_FD}>&-"; fm_nm_run_uncached "$@" )' \
+        _ "$FM_NM_RUN_LIB_PATH" "$@" || rc=$?
       [ "$rc" = 198 ] || return "$rc"
     done
     [ "$(date +%s)" -lt "$deadline" ] || return 1
