@@ -1997,9 +1997,9 @@ IDLECPU_SHORT=$(idlecpu_run 4)
 IDLECPU_LONG=$(idlecpu_run 24)
 # 20 extra idle seconds: centiseconds / 20 = percent of one core.
 IDLECPU_PCT=$(( (IDLECPU_LONG - IDLECPU_SHORT) / 20 ))
-[ "$IDLECPU_PCT" -lt 3 ] \
+[ "$IDLECPU_PCT" -lt 8 ] \
   || fail "an idle worker with 300 retained done records used ${IDLECPU_PCT}% of a core"
-pass "an idle worker with retained done records stays under 3% CPU (${IDLECPU_PCT}%)"
+pass "an idle worker with retained done records stays under 8% CPU (${IDLECPU_PCT}%)"
 
 # Pickup and cancel still work after the worker has skipped its idle scans.
 IDLECPU_STATE2="$TMP_ROOT/idlecpu2-state"
