@@ -144,7 +144,10 @@
 #      call is not daemon death, so that claim is answered by steering the crew
 #      to reattach, not by escalating.
 #   4. No current run for this crew (pre-validation, uninitialized repository,
-#      proven historical head, or kind=scout): fall back to the recorded
+#      proven historical head, or kind=scout): a failed verdict that
+#      `fm-control.sh launch-check` recorded in state/<id>.launch-check for
+#      the current spawn_gen reports failed, ahead of the launch's busy seed;
+#      otherwise fall back to the recorded
 #      backend's pane busy state, then the resolved status declaration
 #      when its verb maps to a recognized run-state. Decision-only events such as
 #      `resolved` never become current state or detail.
@@ -1269,6 +1272,12 @@ fi
 # both classifier-backed backends (tmux and herdr) - and every death-class
 # verdict reports unknown rather than trusting a possibly-stale status log as
 # the current state.
+LAUNCH_CHECK_MARK="$STATE/$ID.launch-check"
+if [ -f "$LAUNCH_CHECK_MARK" ] && [ -n "$(meta_value spawn_gen)" ] \
+  && [ "$(grep '^spawn_first=' "$LAUNCH_CHECK_MARK" 2>/dev/null | tail -1 | cut -d= -f2-)" = "$(meta_value spawn_first)" ] \
+  && [ "$(grep '^verdict=' "$LAUNCH_CHECK_MARK" 2>/dev/null | tail -1 | cut -d= -f2-)" = "failed $(meta_value spawn_gen)" ]; then
+  emit failed status-log "launch check failed this launch (state/$ID.launch-check); not building"
+fi
 [ -n "$BACKEND_TARGET" ] || emit unknown none "no backend target recorded"
 if ! pane_readable "$BACKEND_TARGET"; then
   # A failed probe is not itself evidence the pane is gone: the herdr CLI can

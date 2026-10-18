@@ -29,6 +29,9 @@ if [ "${1:-}" = --help ]; then
   *) printf '%s\n' "Pi ${FM_FAKE_PI_VERSION:-0.84.0}" 'Options: --help --tui-mode <mode> --approve' ;;
   esac
 fi
+if [ "${1:-}" = --list-models ]; then
+  printf '%s\n' 'provider      model         context' 'openai-codex  gpt-5.6-sol   272K'
+fi
 exit 0
 SH
   chmod +x "$fakebin/$tool"
@@ -37,8 +40,18 @@ SH
 make_spawn_fakebin() {
   local dir=$1 fakebin
   fakebin=$(fm_test_make_spawn_fakebin "$dir")
+  # Mirrors timeout(1)'s argument shape (options, then the duration, then the
+  # command) without bounding anything.
   cat > "$fakebin/timeout" <<'SH'
 #!/usr/bin/env bash
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -k|-s|--kill-after|--signal) shift 2 ;;
+    --) shift; break ;;
+    -*) shift ;;
+    *) break ;;
+  esac
+done
 shift
 exec "$@"
 SH
@@ -50,7 +63,12 @@ if [ "${1:-}" = --list-models ]; then
 fi
 exit 0
 SH
-  chmod +x "$fakebin/timeout" "$fakebin/cursor-agent"
+  cat > "$fakebin/opencode" <<'SH'
+#!/usr/bin/env bash
+[ "${1:-}" != models ] || printf '%s\n' anthropic/claude-sonnet-4-5 openai/gpt-5.6-sol
+exit 0
+SH
+  chmod +x "$fakebin/timeout" "$fakebin/cursor-agent" "$fakebin/opencode"
   make_spawn_pi_probe "$fakebin" pi
   make_spawn_pi_probe "$fakebin" pi-signed
   printf '%s\n' "$fakebin"
