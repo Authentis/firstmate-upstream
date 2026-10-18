@@ -10,6 +10,8 @@ by hand; use the bundle tooling below.
 - `bosgame-leaf-send.sh`: live durable-record acceptance (netcup 11:23 port of live lines 119/165) kept; the ack line is now anchored `sent <id>`.
 - `cloud-pickup-send.sh`, `bosgame-plan-send.sh`: same durable-record acceptance (`delivered.rec`, no resend), anchored `sent <id>` ack; the plan sender also dedupes on `delivered.rec`.
 - No `reconcile-required.txt` is written anywhere; no sender reads another tool's output for a verdict beyond its own transport reply (one anchored `durably recorded at .../N.msg` match, documented in `router-remote-restore.md`).
+- `lane-refill-v2.sh`: the caller counts a bosgame send as delivered only on exit 0 AND the sender's anchored `sent`/`replied` line (a `router-off` exit 0 is no longer counted as a start).
+- Durable-record match narrowed to a line containing `doorbell refused ... durably recorded at .../N.msg`; the leaf sender re-checks `delivered.rec` under its lock like the other two.
 - `test_router_v31_durable_accept.py` (10 tests) and two planning-refill end-to-end cases in `test_router_v31_planning_shell.py`.
 
 ## Target files

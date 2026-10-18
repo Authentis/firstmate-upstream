@@ -54,9 +54,9 @@ PY
 wc -c "$D/message.txt" | awk '{print "message bytes:",$1}'
 if [ "$DRY" = 1 ]; then echo "cloud-pickup-send: dry-run, nothing sent ($id)"; exit 0; fi
 # chief 4906: a pickup whose steer bosgame already recorded durably is not resent.
-if [ -s "$D/delivered.rec" ]; then echo "sent $id (already durably recorded as $(cat "$D/delivered.rec").msg; not resent)"; exit 0; fi
+if [ -s "$D/delivered.rec" ]; then echo "sent $id (already durably recorded as $(cat "$D/delivered.rec" 2>/dev/null | tr -cd 0-9).msg; not resent)"; exit 0; fi
 exec 200>"$D/send.lock"; flock -w 120 200 || { echo "cloud-pickup-send: NOT delivered: lock busy" >&2; exit 1; }
-if [ -s "$D/delivered.rec" ]; then echo "sent $id (already durably recorded as $(cat "$D/delivered.rec").msg; not resent)"; exit 0; fi
+if [ -s "$D/delivered.rec" ]; then echo "sent $id (already durably recorded as $(cat "$D/delivered.rec" 2>/dev/null | tr -cd 0-9).msg; not resent)"; exit 0; fi
 seq=$(($(cat "$D/attempt-seq" 2>/dev/null || echo 0) + 1)); printf '%s\n' "$seq" > "$D/attempt-seq"
 printf '%s\t%s\t%s\t%s\n' "$seq" "$(date +%s)" "$BINDING" "$INCARNATION" > "$D/attempt-$seq.tsv"
 set +e
@@ -74,7 +74,7 @@ if [ ! -s "$D/reply-$seq.txt" ]; then
 fi
 # chief 4906: a busy bosgame answers "fm-ring: doorbell refused ... the steer stays durably recorded at .../N.msg".
 # That steer IS delivered (recorded as N.msg; the doorbell only rings later): it counts as delivered and is never resent.
-rec=$(sed -nE 's/.*durably recorded at [^ ]*\/([0-9]+)\.msg.*/\1/p' "$D/reply-$seq.txt" | tail -1)
+rec=$(sed -nE 's/.*doorbell refused.*durably recorded at [^ ]*\/([0-9]+)\.msg.*/\1/p' "$D/reply-$seq.txt" | head -1)
 if [ -n "$rec" ]; then
   printf '%s\n' "$rec" > "$D/delivered.rec"
   echo "cloud-pickup-send: bosgame recorded the steer durably as $rec.msg (doorbell busy); counting it delivered"

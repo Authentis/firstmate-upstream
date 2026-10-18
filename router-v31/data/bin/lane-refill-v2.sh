@@ -787,6 +787,9 @@ while read -r host suf title; do
       if [ "$bs_rc" != 0 ]; then
         bsnip=$(printf '%s' "$bsfull" | head -c 200); [ -n "$bsnip" ] || bsnip="no output"
         say "BOSGAME SEND FAILED $suf (rc=$bs_rc): $bsnip"
+      elif ! printf '%s\n' "$bsfull" | grep -qE '^(replied|sent)'; then
+        bsnip=$(printf '%s' "$bsfull" | head -c 200); [ -n "$bsnip" ] || bsnip="no output"
+        say "BOSGAME SEND FAILED $suf (rc=0 but no anchored sent/replied line): $bsnip"
       else
         bsnip=$(printf '%s' "$bsfull" | head -c 200); [ -n "$bsnip" ] || bsnip="no output"
         say "BOSGAME SEND DELIVERED $suf: $bsnip"

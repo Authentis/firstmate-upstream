@@ -53,6 +53,11 @@ class RemoteDeliveryContractTests(unittest.TestCase):
             self.assertNotIn("reconcile-required.txt", text)
             self.assertNotIn("acceptance disabled pending owner receipt grammar", text)
 
+    def test_caller_requires_the_senders_anchored_ack_not_just_exit_zero(self):
+        leaves = REFILL[REFILL.index("if [ \"$host\" = bosgame ]"):REFILL.index("# v6:")]
+        self.assertIn("grep -qE '^(replied|sent)'", leaves)
+        self.assertLess(leaves.index("grep -qE '^(replied|sent)'"), leaves.index("BOSGAME SEND DELIVERED"))
+
     def test_bosgame_admission_reaches_sender_without_receipt_gate(self):
         leaves = REFILL[REFILL.index("if [ \"$host\" = bosgame ]"):REFILL.index("# v6:")]
         self.assertIn("route_leaf bosgame", leaves)

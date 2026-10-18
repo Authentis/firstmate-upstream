@@ -120,7 +120,7 @@ PY
 wc -c "$D/message.txt" | awk '{print "message bytes:",$1}'
 if [ "$DRY" = 1 ]; then echo "bosgame-leaf-send: dry-run, nothing sent ($id)"; exit 0; fi
 # chief 4906 dedupe: a leaf whose steer bosgame already recorded durably is not resent.
-if [ -s "$D/delivered.rec" ]; then echo "sent $id (already durably recorded as $(cat "$D/delivered.rec").msg; not resent)"; exit 0; fi
+if [ -s "$D/delivered.rec" ]; then echo "sent $id (already durably recorded as $(cat "$D/delivered.rec" 2>/dev/null | tr -cd 0-9).msg; not resent)"; exit 0; fi
 # pass-6 (review): delivery failures are LOUD, never swallowed. The sender's exit status is
 # preserved (no pipe whose status 'head' would mask, no '|| true'), an empty reply or an
 # unrecognised transport error is a failure, and NO 'sent' row reaches data/bosgame-lanes.tsv
@@ -147,6 +147,7 @@ if [ "$cs_n" -le 0 ]; then
   exit 4
 fi
 exec 200>"$D/send.lock"; flock -w 120 200 || { echo "bosgame-leaf-send: NOT delivered ($id): send lock busy" >&2; exit 1; }
+if [ -s "$D/delivered.rec" ]; then echo "sent $id (already durably recorded as $(cat "$D/delivered.rec" 2>/dev/null | tr -cd 0-9).msg; not resent)"; exit 0; fi
 seq=$(($(cat "$D/attempt-seq" 2>/dev/null || echo 0) + 1)); printf '%s\n' "$seq" > "$D/attempt-seq"
 printf '%s\t%s\t%s\t%s\n' "$seq" "$(date +%s)" "$BINDING" "$INCARNATION" > "$D/attempt-$seq.tsv"
 send_rc=0
@@ -166,7 +167,7 @@ fi
 # verifier may observe this delivery, but it must never replace or block it.
 # chief 4906: a busy bosgame answers "fm-ring: doorbell refused ... the steer stays durably recorded at .../N.msg". That steer IS delivered
 # (recorded as N.msg; the doorbell only rings later), so it counts as delivered and is never resent (marker $D/delivered.rec).
-rec=$(printf '%s\n' "$send_out" | sed -nE 's/.*durably recorded at [^ ]*\/([0-9]+)\.msg.*/\1/p' | tail -1)
+rec=$(printf '%s\n' "$send_out" | sed -nE 's/.*doorbell refused.*durably recorded at [^ ]*\/([0-9]+)\.msg.*/\1/p' | head -1)
 if [ -n "$rec" ]; then
   printf '%s\n' "$rec" > "$D/delivered.rec"
   echo "bosgame-leaf-send: bosgame recorded the steer durably as $rec.msg (doorbell busy); counting it delivered"

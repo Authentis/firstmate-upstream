@@ -138,6 +138,17 @@ class PlanningShell(unittest.TestCase):
         self.assertFalse((Path(path) / 'argv').exists())
         self.assertIn('supply above trigger', p.stdout)
 
+    def test_exhausted_chain_alerts_all_three_and_reserves_nothing(self):
+        p, path = run_plan(ready=3, free=8, check_sol='WAIT', check_muse='WAIT', check_kimi='WAIT')
+        self.assertEqual(p.returncode, 0, p.stderr)
+        home = Path(path)
+        alert = (home / 'state/planning-blocked.alert').read_text()
+        self.assertIn('planning model chain exhausted', alert)
+        self.assertIn('host=bosgame', alert)
+        self.assertFalse((home / 'events').exists())
+        self.assertFalse((home / 'argv').exists())
+        self.assertFalse((home / 'state/planning-v31.json').exists() and json.loads((home / 'state/planning-v31.json').read_text())['passes'])
+
     def test_unavailable_sol_checks_muse_then_k3_before_reserving(self):
         p, path = run_plan(check_sol='WAIT', check_muse='WAIT')
         self.assertEqual(p.returncode, 0, p.stderr)
