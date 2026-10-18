@@ -118,6 +118,9 @@ export default function (pi: ExtensionAPI) {
   // A tool result that arrived while a beat or another pull held the owner: it
   // runs once they finish, so the turn's last tool result is never left unchecked.
   let pullQueued = false;
+  // Bumped on every session start and shutdown: a pull that began in an earlier
+  // session must not send a message or touch state in the one that replaced it.
+  let generation = 0;
   let idleTimer: ReturnType<typeof setInterval> | undefined;
 
   const recordFailure = (detail: string): void => {
@@ -149,8 +152,10 @@ export default function (pi: ExtensionAPI) {
     if (at - lastPeekAt < LOCAL_DEBOUNCE_MS) return;
     lastPeekAt = at;
     inFlight = true;
+    const mine = generation;
     try {
       const peek = await runOwner(["peek"]);
+      if (mine !== generation) return;
       if (!peek.ok) {
         recordFailure(peek.detail);
         return;
@@ -170,9 +175,11 @@ export default function (pi: ExtensionAPI) {
           "sendMessage",
         );
       } catch (error) {
+        if (mine !== generation) return;
         recordFailure(`sendMessage failed: ${error instanceof Error ? error.message : String(error)}`);
         return;
       }
+      if (mine !== generation) return;
       // pi 1.3.0 holds a steered custom message until its current turn ends, and a
       // process that dies first loses it, so commit waits for the `context` event.
       const lines = notice.split("\n");
@@ -186,6 +193,7 @@ export default function (pi: ExtensionAPI) {
       }
       consecutiveFailures = 0;
     } catch (error) {
+      if (mine !== generation) return;
       recordFailure(`pull failed: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
       inFlight = false;
@@ -207,6 +215,7 @@ export default function (pi: ExtensionAPI) {
   }
 
   pi.on("session_start", () => {
+    generation += 1;
     stopped = false;
     // A new, resumed, or forked session starts from a clean slate: the previous
     // session's failures, open notice, and debounce say nothing about this one.
@@ -264,6 +273,7 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("session_shutdown", () => {
+    generation += 1;
     stopped = true;
     stopIdleTick();
   });
