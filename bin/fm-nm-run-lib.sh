@@ -35,14 +35,94 @@ fm_nm_bounded() {  # <dir> <timeout_secs> <command> <args...>
   esac
 }
 
+# Read-only status calls must not each fork the CLI's self-update probe
+# (`--update-check`, 30-50% CPU apiece when a heartbeat fans out over the
+# fleet), so every call here sets NO_MISTAKES_NO_UPDATE_CHECK=1. FM_NM_LOWLOAD=0
+# is the kill switch for this and the fm-crew-state.sh cache / landed-lane skip.
+fm_nm_lowload_enabled() {
+  [ "${FM_NM_LOWLOAD:-1}" != 0 ]
+}
+
 fm_nm_run_bounded() {  # <dir> <timeout_secs> <args...>
   local dir=$1 timeout_secs=$2
   shift 2
-  fm_nm_bounded "$dir" "$timeout_secs" no-mistakes "$@"
+  if fm_nm_lowload_enabled; then
+    NO_MISTAKES_NO_UPDATE_CHECK=1 fm_nm_bounded "$dir" "$timeout_secs" no-mistakes "$@"
+  else
+    fm_nm_bounded "$dir" "$timeout_secs" no-mistakes "$@"
+  fi
 }
 
-fm_nm_run_checked() {  # <dir> <timeout_secs> <args...>
+# Shared, short-lived cache for a successful read-only no-mistakes call, keyed
+# by worktree and arguments, so a heartbeat over N lanes does not respawn the
+# CLI for each read. TTL FM_NM_CACHE_TTL seconds (default 120, 0 disables).
+# One writer: the holder of the mkdir lock runs the call and publishes
+# atomically; a contender waits briefly for that result and otherwise runs
+# uncached without writing. Only exit-0 non-empty output is cached, so an error
+# or timeout is never replayed. Prints the output and returns the call's status.
+fm_nm_cached_checked() {  # <cache_dir> <dir> <timeout_secs> <args...>
+  local cache_dir=$1 dir=$2 timeout_secs=$3 ttl key file lock now mtime out rc waited=0
+  shift 3
+  ttl=${FM_NM_CACHE_TTL:-120}
+  case "$ttl" in ''|*[!0-9]*) ttl=120 ;; esac
+  if ! fm_nm_lowload_enabled || [ "$ttl" = 0 ] || [ -z "$cache_dir" ] \
+    || ! mkdir -p "$cache_dir" 2>/dev/null; then
+    fm_nm_run_uncached "$dir" "$timeout_secs" "$@"
+    return
+  fi
+  key=$(printf '%s\0' "$dir" "$@" | cksum | tr ' ' '-')
+  file="$cache_dir/$key.out"
+  lock="$cache_dir/$key.lock"
+  while :; do
+    now=$(date +%s)
+    mtime=$(stat -f %m "$file" 2>/dev/null || stat -c %Y "$file" 2>/dev/null || echo 0)
+    if [ -s "$file" ] && [ $((now - mtime)) -lt "$ttl" ]; then
+      cat "$file"
+      return 0
+    fi
+    if mkdir "$lock" 2>/dev/null; then
+      rc=0
+      out=$(fm_nm_run_uncached "$dir" "$timeout_secs" "$@") || rc=$?
+      if [ "$rc" = 0 ] && [ -n "$out" ]; then
+        printf '%s\n' "$out" >"$file.$$" 2>/dev/null && mv -f "$file.$$" "$file" 2>/dev/null
+      fi
+      rmdir "$lock" 2>/dev/null
+      [ -z "$out" ] || printf '%s\n' "$out"
+      return "$rc"
+    fi
+    # A lock outliving any bounded call belongs to a dead writer.
+    mtime=$(stat -f %m "$lock" 2>/dev/null || stat -c %Y "$lock" 2>/dev/null || echo "$now")
+    if [ $((now - mtime)) -gt $((timeout_secs + 5)) ]; then
+      rmdir "$lock" 2>/dev/null
+      continue
+    fi
+    if [ "$waited" -ge "$timeout_secs" ]; then
+      fm_nm_run_uncached "$dir" "$timeout_secs" "$@"
+      return
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+}
+
+fm_nm_run_uncached() {  # <dir> <timeout_secs> <args...>
   fm_nm_run_bounded "$@" 2>/dev/null
+}
+
+# When the caller names FM_NM_CACHE_DIR (fm-crew-state.sh does; teardown never
+# does, so its abort decisions always read live), the run-inventory reads
+# (`axi`, `axi status [--run id]`, `runs`) go through the shared cache. Liveness
+# probes (`daemon status`) and log reads stay live.
+fm_nm_run_checked() {  # <dir> <timeout_secs> <args...>
+  if [ -n "${FM_NM_CACHE_DIR:-}" ]; then
+    case "${3:-} ${4:-}" in
+      "axi "|"axi status"|"runs "*)
+        fm_nm_cached_checked "$FM_NM_CACHE_DIR" "$@"
+        return
+        ;;
+    esac
+  fi
+  fm_nm_run_uncached "$@"
 }
 
 fm_nm_run() {  # <dir> <timeout_secs> <args...>

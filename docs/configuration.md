@@ -2519,6 +2519,8 @@ FM_WHEN_OUTPUT_TAIL_BYTES=8192          # bound on the command-output tail insid
 FM_CODEX_WATCH_CHECKPOINT=180   # seconds per foreground watcher checkpoint in Codex primary supervision
 FM_CODEX_WATCH_CHECKPOINT_AWAY=3600  # requested away checkpoint bound on a home that runs the supervision host; longer of this and attended bound, capped at 27000
 FM_CREW_STATE_NM_TIMEOUT=10   # seconds allowed per no-mistakes query inside fm-crew-state.sh, and per state-database run-inventory read behind a capped AXI overview
+FM_NM_LOWLOAD=1              # 0 is the kill switch for the heartbeat-load reductions: no-mistakes calls stop setting NO_MISTAKES_NO_UPDATE_CHECK=1, fm-crew-state.sh stops caching run-inventory reads and stops skipping landed lanes (owner: bin/fm-nm-run-lib.sh)
+FM_NM_CACHE_TTL=120          # seconds fm-crew-state.sh reuses a successful `axi`/`axi status`/`runs` read (one writer under a mkdir lock; cache in state/nm-cache; 0 disables)
 FM_TEARDOWN_NM_TIMEOUT=10    # seconds allowed per no-mistakes query or abort inside fm-teardown.sh
 FM_CREW_STATE_RUNS_LIMIT=200  # plain runs-ledger rows scanned for fallback attribution; does not change the CLI's AXI overview window (selection owner: bin/fm-nm-run-lib.sh)
 FM_TEARDOWN_NM_RUNS_LIMIT=200  # recent no-mistakes run rows scanned to prove an unresolved-head parked run belongs to teardown's task
