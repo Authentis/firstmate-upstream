@@ -91,6 +91,7 @@ Each effective `FM_HOME` contains private operational directories.
 - One-shot Bearings reconcile requests under `state/reconcile-notify/`.
 - Private secondmate config-reread generations with their retry and quarantine state.
 - Per-task steering-inbox records under `state/<id>.inbox/` (`bin/fm-task-inbox-lib.sh`).
+- The mid-turn inbox pull cursor, heartbeat, and log under `state/inbox-pull/` (`bin/fm-inbox-pull.sh`).
 - Parent-owned secondmate pending-reply records under `state/pending-replies/` (`bin/fm-pending-reply-lib.sh`).
 
 `config/` holds local gitignored operating choices, including explicit extension bindings under `config/extensions.d/`.
@@ -604,6 +605,14 @@ The file is a home-local choice and is not inherited by secondmate homes.
 
 See [`fleet-ledger.md`](fleet-ledger.md) for the opt-in setup, record contract, and limits.
 
+## Mid-turn inbox pull (config/inbox-pull-dirs)
+
+A Pi coordinator hears a steering record while a turn is running through `.pi/extensions/fm-inbox-pull.ts`, which runs `bin/fm-inbox-pull.sh`.
+[`bin/fm-inbox-pull.sh`](../bin/fm-inbox-pull.sh) owns the scan set, once-per-record cursor, 30 second throttle, kill switch, replay trip, and heartbeat, and its header is the only statement of them.
+The scan set is every `state/parent-route/*.inbox`, the colon-separated `FM_INBOX_PULL_DIR` that `fm-spawn.sh` exports for a local Pi secondmate, and each directory listed one per line in the optional local, gitignored `config/inbox-pull-dirs` (blank lines and `#` comments ignored, a relative entry is relative to `FM_HOME`).
+Setting `FM_INBOX_PULL=0` or creating `state/.inbox-pull-off` stops the pull; the replay trip creates that file itself.
+The `config/inbox-pull-dirs` file is a home-local choice and is not inherited by secondmate homes.
+
 ## Waiting worker spends no turns (config/wait-no-turns)
 
 The optional local, gitignored `config/wait-no-turns` presence flag opts this home into keeping a waiting worker from spending turns until it is answered.
@@ -896,7 +905,7 @@ Kimi continues to use the captain's normal Kimi home, including the existing con
 The Kimi installer requires an existing regular non-symlink `~/.kimi-code/config.toml`, `python3` with `tomllib`, and `jq`; it validates but never serializes the captain's TOML and refuses before writing when the config is missing, malformed, or surprising or when either tool requirement is unavailable.
 
 Its `remove` action excises only the marker-delimited Firstmate region and removes Firstmate's hook files.
-For Pi and pi-signed secondmate launches, `fm-spawn.sh` starts the selected executable with `-e` pointed at the secondmate home's own tracked `.pi/extensions/fm-primary-pi-watch.ts` and `.pi/extensions/fm-primary-turnend-guard.ts`, both already present from the secondmate home's git worktree, plus the parent home's `state/<id>.pi-ext.ts` busy extension.
+For Pi and pi-signed secondmate launches, `fm-spawn.sh` starts the selected executable with `-e` pointed at the secondmate home's own tracked `.pi/extensions/fm-primary-pi-watch.ts` and `.pi/extensions/fm-primary-turnend-guard.ts`, plus `.pi/extensions/fm-inbox-pull.ts` for the [mid-turn inbox pull](#mid-turn-inbox-pull-configinbox-pull-dirs) (with `FM_INBOX_PULL_DIR` naming the mate's steering inbox), all three already present from the secondmate home's git worktree, plus the parent home's `state/<id>.pi-ext.ts` busy extension.
 Pi-family secondmates can start unattended in Firstmate-seeded homes without accepting project trust manually; [`fm-spawn.sh --help`](../bin/fm-spawn.sh) owns the capability requirement, session-only approval scope, and older-version fallback, with [regression evidence](verification/runtime-backends.md#pi-seeded-secondmate-project-trust).
 
 For omp secondmate launches, `fm-spawn.sh` names only the parent home's `state/<id>.omp-ext.ts` busy extension with `-e`: omp auto-discovers the home's tracked `.omp/extensions/` with no trust gate, and naming a discovered file with `-e` as well loads it twice; every omp launch also carries the tracked `.omp/fm-worker-overlay.yml` posture overlay through `--config`, which [`fm-spawn.sh --help`](../bin/fm-spawn.sh) owns.

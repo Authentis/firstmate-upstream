@@ -95,6 +95,10 @@
 # acknowledged record drops its mark. The remote steer leg has no watcher
 # ladder and owes no retry.
 #
+# A Pi coordinator also pulls its inbox between tool calls (bin/fm-inbox-pull.sh,
+# which owns that contract and only reads these records); a doorbell for a
+# record it already noticed is a harmless duplicate.
+#
 # Inbox names containing bytes outside printable ASCII are unsupported. The
 # doorbell refuses them rather than sending terminal control bytes to a pane.
 #
