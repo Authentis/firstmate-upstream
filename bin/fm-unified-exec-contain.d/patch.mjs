@@ -69,7 +69,16 @@ for (const [file, edits] of Object.entries(EDITS)) {
   }
   let text = readFileSync(file, "utf8");
   for (const [from, to] of edits) {
-    if (count(text, to) >= 1) {
+    const done = count(text, to);
+    if (done > 1) {
+      console.error(`replacement present more than once in ${file}: ${JSON.stringify(to.slice(0, 80))}`);
+      process.exit(2);
+    }
+    if (done === 1) {
+      if (!to.includes(from) && count(text, from) !== 0) {
+        console.error(`old and patched text both present in ${file}: ${JSON.stringify(from.slice(0, 80))}`);
+        process.exit(2);
+      }
       applied++;
       continue;
     }
@@ -85,6 +94,10 @@ const total = Object.values(EDITS).reduce((n, e) => n + e.length, 0);
 const reapDest = join(pkg, "src", "reap.ts");
 const reapCurrent = existsSync(reapDest) ? readFileSync(reapDest, "utf8") : null;
 const reapWanted = readFileSync(reapSrc, "utf8");
+if (reapCurrent !== null && reapCurrent !== reapWanted && !reapCurrent.includes("fm-unified-exec-contain.sh")) {
+  console.error(`refusing to overwrite a src/reap.ts this installer did not write: ${reapDest}`);
+  process.exit(2);
+}
 if (mode === "check") {
   const ok = applied === total && reapCurrent === reapWanted;
   console.log(ok ? "patched" : applied === 0 && reapCurrent === null ? "unpatched" : "partial");

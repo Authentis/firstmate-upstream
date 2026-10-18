@@ -28,10 +28,12 @@ export function isWatchTimerCommand(command: string): boolean {
 	return /\bfm-watch(-arm)?\.sh\b/.test(command);
 }
 
-/** A live session the store must never evict: the watch timer or one with an armed on_exit wake. */
+/** A session the store must never evict: the live watch timer, or one with an armed on_exit wake (live or exited). */
 export function isPinnedSession(s: ReapableSession, armed: (id: number) => boolean): boolean {
+	// An exited session whose wake is still armed keeps its slot until the wake resolves.
+	if (armed(s.id)) return true;
 	if (s.hasExited) return false;
-	return armed(s.id) || isWatchTimerCommand(s.displayCommand);
+	return isWatchTimerCommand(s.displayCommand);
 }
 
 /**

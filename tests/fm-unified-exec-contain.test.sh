@@ -41,6 +41,19 @@ expect_code 2 "$?" "anchor drift refuses apply"
 assert_equals "$before" "$(cksum <"$DRIFT/src/index.ts")" "anchor drift writes nothing"
 assert_absent "$DRIFT/src/reap.ts" "anchor drift installs no module"
 
+FOREIGN=$(new_pkg foreign)
+echo "// someone else's module" >"$FOREIGN/src/reap.ts"
+"$SCRIPT" apply "$FOREIGN" >/dev/null 2>&1
+expect_code 2 "$?" "a foreign src/reap.ts is not overwritten"
+assert_equals "// someone else's module" "$(cat "$FOREIGN/src/reap.ts")" "foreign module untouched"
+
+DUP=$(new_pkg dup)
+"$SCRIPT" apply "$DUP" >/dev/null
+cp "$DUP/src/session-store.ts" "$TMP_ROOT/dup-copy.ts"
+cat "$TMP_ROOT/dup-copy.ts" >>"$DUP/src/session-store.ts"
+"$SCRIPT" check "$DUP" >/dev/null 2>&1
+expect_code 2 "$?" "a duplicated patched block is not reported as patched"
+
 cat >"$TMP_ROOT/behavior.mjs" <<JS
 import assert from "node:assert/strict";
 import { SessionStore } from "$PKG/src/session-store.ts";
@@ -132,6 +145,38 @@ const exited = (id, o = {}) => mk(id, { hasExited: true, exitCode: 0, ...o });
   assert.equal(res.pruned, undefined, "nothing evicted when only pinned sessions are eligible");
   assert.equal(store2.size, 3);
   assert.ok(!w2.terminated);
+}
+// An exited session whose wake is still armed keeps its slot under pressure.
+{
+  const armedIds = new Set([1]);
+  const pinned = (s) => isPinnedSession(s, (id) => armedIds.has(id));
+  const store = new SessionStore({ maxSessions: 3, lruProtectedCount: 1, isPinned: pinned });
+  store.insert(exited(1));
+  store.insert(exited(2));
+  store.insert(mk(3));
+  const { pruned } = store.insert(mk(4));
+  assert.equal(pruned?.id, 2, "exited unarmed record is evicted before the exited armed one");
+  assert.ok(store.get(1), "exited armed session keeps its slot");
+}
+
+// The timer reaps on its own and stop() cancels it.
+{
+  const sessions = new Map([[1, exited(1)], [2, exited(2)]]);
+  const reaper = createReaper({
+    list: () => [...sessions.values()],
+    armed: () => false,
+    remove: (id) => sessions.delete(id),
+    log: () => {},
+    env: { PI_UNIFIED_EXEC_REAP_KEEP: "1", PI_UNIFIED_EXEC_REAP_INTERVAL_MS: "1000" },
+  });
+  reaper.start();
+  await new Promise((r) => setTimeout(r, 1400));
+  assert.equal(sessions.size, 1, "timer reaped the older exited record");
+  reaper.stop();
+  sessions.set(3, exited(3));
+  sessions.set(4, exited(4));
+  await new Promise((r) => setTimeout(r, 1400));
+  assert.equal(sessions.size, 3, "stopped timer reaps nothing");
 }
 console.log("behavior ok");
 JS
