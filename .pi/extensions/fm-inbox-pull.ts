@@ -12,9 +12,11 @@ import { runCommandAsync } from "./lib/fm-async-exec.ts";
 // - After each tool result it runs `peek` and, when the owner printed a notice,
 //   steers it into the running turn, so a coordinator inside a long turn hears a
 //   steer at the next model request instead of at the next idle prompt.
-// - It commits the cursor only after pi accepted the message. The commit point
-//   is the resolved sendMessage call, not a message_end event: pi 1.3.0 emits no
-//   message_end for a steered custom message (verified, data/fm-rel-inboxpull-1018).
+// - It commits the cursor only once the notice is inside a model request. pi 1.3.0
+//   holds a steered custom message until its current turn ends and emits no
+//   extension message_end for it, so the `context` event that shows the message in
+//   the request is the commit point; a process that dies first leaves the owner's
+//   pending set to be replayed (verified, data/fm-rel-inboxpull-1018).
 // - A 15 s tick refreshes the heartbeat so a coordinator inside one long tool
 //   call or sitting idle still shows liveness. Idle-triggered steers (waking an
 //   idle coordinator) are out of scope.
@@ -100,6 +102,9 @@ export default function (pi: ExtensionAPI) {
   let consecutiveFailures = 0;
   let disabled = false;
   let stopped = false;
+  // A notice pi accepted but has not yet put into a model request: the cursor is
+  // committed only once a `context` event shows it inside the request.
+  let awaiting: { token: string; since: number } | null = null;
   let idleTimer: ReturnType<typeof setInterval> | undefined;
 
   const recordFailure = (detail: string): void => {
@@ -116,6 +121,14 @@ export default function (pi: ExtensionAPI) {
     if (disabled || stopped || inFlight) return;
     if (process.env.FM_INBOX_PULL === "0") return;
     const at = Date.now();
+    // A notice still waiting to enter a request must not be steered twice; give
+    // up on it after two minutes so the owner replays it.
+    if (awaiting) {
+      if (at - awaiting.since < 120_000) return;
+      awaiting = null;
+    }
+    // A wall clock that moved backwards must not silence the pull until it catches up.
+    if (at < lastPeekAt) lastPeekAt = 0;
     if (at - lastPeekAt < minIntervalMs()) return;
     lastPeekAt = at;
     inFlight = true;
@@ -143,9 +156,13 @@ export default function (pi: ExtensionAPI) {
         recordFailure(`sendMessage failed: ${error instanceof Error ? error.message : String(error)}`);
         return;
       }
-      const commit = await runOwner(["commit"]);
-      if (!commit.ok) {
-        recordFailure(commit.detail);
+      // pi 1.3.0 holds a steered custom message until its current turn ends, and a
+      // process that dies first loses it, so commit waits for the `context` event.
+      const token = notice.split("\n").find((line) => line.startsWith("inbox-pull-notice:"));
+      if (token) {
+        awaiting = { token, since: Date.now() };
+      } else {
+        recordFailure("owner printed a notice without a record line");
         return;
       }
       consecutiveFailures = 0;
@@ -173,11 +190,16 @@ export default function (pi: ExtensionAPI) {
     // Timers belong to the session: created here, cleared in session_shutdown.
     // The tick touches only the owner process, never a pi runtime object, so a
     // replaced session cannot make it throw.
+    // A beat holds the same in-flight flag as a pull, so a pull that arrives mid-beat
+    // is skipped without spending its throttle window instead of losing the lock.
     const beat = (): void => {
       if (disabled || stopped || inFlight) return;
+      inFlight = true;
       void runOwner(["beat"]).then((result) => {
         if (!result.ok) recordFailure(result.detail);
-      }).catch(() => {});
+      }).catch(() => {}).finally(() => {
+        inFlight = false;
+      });
     };
     beat();
     idleTimer = setInterval(beat, IDLE_TICK_MS);
@@ -188,6 +210,22 @@ export default function (pi: ExtensionAPI) {
   // request. pull() is throttled and bounded, and never throws.
   pi.on("tool_result", async () => {
     await pull();
+  });
+
+  pi.on("context", async (event) => {
+    const wanted = awaiting;
+    if (!wanted || stopped) return undefined;
+    const seen = (event.messages as Array<{ role?: string; customType?: string; content?: unknown }>).some(
+      (message) => message.role === "custom"
+        && message.customType === "fm-inbox"
+        && JSON.stringify(message.content ?? "").includes(wanted.token),
+    );
+    if (!seen) return undefined;
+    awaiting = null;
+    const commit = await runOwner(["commit"]);
+    if (commit.ok) consecutiveFailures = 0;
+    else recordFailure(commit.detail);
+    return undefined;
   });
 
   pi.on("session_shutdown", () => {

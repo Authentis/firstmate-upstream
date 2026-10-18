@@ -15,12 +15,14 @@
 #           The notice is the doorbell sentence followed by one
 #           `inbox-pull-notice:<absolute record path>` line per record (at most
 #           20; a `+N more` line when capped). Writes a pending marker and moves
-#           no cursor. Throttled: a call less than FM_INBOX_PULL_MIN_INTERVAL
+#           no cursor; an uncommitted pending set is an open transaction that
+#           every later peek replays unchanged until a commit consumes it.
+#           Throttled: a call less than FM_INBOX_PULL_MIN_INTERVAL
 #           seconds (default 30) after the previous scan prints nothing and
 #           scans nothing, but still refreshes the heartbeat.
 #   commit  Promote the pending marker to the cursor. The host calls it only
-#           after it accepted the notice into the transcript; without that call
-#           the same records are noticed again by the next unthrottled peek.
+#           once the notice is inside a model request; without that call the
+#           same records are noticed again by the next unthrottled peek.
 #   beat    Refresh the heartbeat only (the extension's idle tick). With
 #           --error, record the one-line error text in the heartbeat and log.
 #   status  Print the heartbeat, cursor and scan state as key=value lines.
@@ -150,6 +152,12 @@ lock_acquire() {
     fi
     pid=$(cat "$LOCK/pid" 2>/dev/null)
     if [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null; then
+      lock_reclaim "$pid"
+      continue
+    fi
+    # an invocation lasts seconds: a lock older than five minutes belongs to a dead
+    # owner whose pid was reused, however alive that pid looks
+    if [ -n "$pid" ] && [ -z "$(find "$LOCK" -maxdepth 0 -mmin -5 2>/dev/null)" ]; then
       lock_reclaim "$pid"
       continue
     fi
@@ -454,10 +462,10 @@ if [ "$CMD" = status ]; then
   exit 0
 fi
 mkdir -p "$PULL" 2>/dev/null || exit 0
-# A commit must not be lost to a concurrent beat or peek: wait briefly for the
-# lock. The other commands may simply yield.
+# A peek or commit must not be lost to a concurrent beat or peek: wait briefly
+# for the lock. A beat may simply yield.
 attempts=1
-[ "$CMD" != commit ] || attempts=15
+[ "$CMD" = beat ] || attempts=15
 while ! lock_acquire; do
   attempts=$((attempts - 1))
   [ "$attempts" -gt 0 ] || exit 0

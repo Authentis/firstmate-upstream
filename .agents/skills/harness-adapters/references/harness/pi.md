@@ -51,7 +51,7 @@ On native Windows, the extension runs its session-start, both PreToolUse, turn-e
 
 The primary watcher protocol also requires `.pi/extensions/fm-primary-pi-watch.ts`.
 The mid-turn inbox pull is the third tracked extension, `.pi/extensions/fm-inbox-pull.ts`: after each tool result it runs `../../../bin/fm-inbox-pull.sh peek` and steers a printed notice into the running turn with `pi.sendMessage(..., { deliverAs: "steer", triggerTurn: false })`, so the next model request carries it.
-That owner script's header owns the scan set, cursor, throttle, kill switch, and heartbeat; the extension writes nothing to the TUI and commits only after the send resolved, because Pi 1.3.0 emits no `message_end` for a steered custom message.
+That owner script's header owns the scan set, cursor, throttle, kill switch, and heartbeat; the extension writes nothing to the TUI and commits only when a `context` event shows the notice inside a model request, because Pi 1.3.0 holds a steered custom message until its turn ends and emits no extension `message_end` for it.
 The Pi engine auto-discovers all three tracked project-local extensions once the project is trusted.
 The model arms through the `fm_watch_arm_pi` tool, never through a foreground shell arm.
 Native-harness adapters can discover the same guarded FirstMate tools and operational message allowlist through the public Pi event-bus contract in `.pi/extensions/lib/fm-native-contract.ts`; no Pi built-in tools cross that contract.
