@@ -1246,12 +1246,25 @@ worker_lane_main() { # <job-id>
 worker_process_once() { # <account-home>
   local account_home=$1 job id state queue_deadline home seq candidates=''
   local reserved_index reserved_count home_reserved
-  local reserved_homes=()
+  local reserved_homes=() scan_busy=0
   worker_reap_finished_lanes
+  # After a pass that saw only explicitly finished records, skip the scan until
+  # the jobs directory changes (a new or removed record) or a lane exists.
+  if [ "${WORKER_IDLE_SCAN:-0}" = 1 ] && [ "${#WORKER_LANE_PIDS[@]}" -eq 0 ] &&
+    [ "$FM_REMOTE_JOB_STATE/.idle-scan-mark" -nt "$FM_REMOTE_JOB_JOBS" ]; then
+    return 0
+  fi
+  WORKER_IDLE_SCAN=0
   for job in "$FM_REMOTE_JOB_JOBS"/job-*; do
     [ -d "$job" ] && [ ! -L "$job" ] || continue
     id=${job##*/}
     fm_remote_job_safe_id "$id" || continue
+    # A finished record needs nothing this pass: read it with builtins before
+    # the canonicalising command substitutions below.
+    if fm_remote_job_read_state "$FM_REMOTE_JOB_JOBS/$id" state 2>/dev/null && [ "$state" = 'done' ]; then
+      continue
+    fi
+    scan_busy=1
     # A live lane owns this record whatever its state, and every state below
     # skips a lane-owned job, so do not re-read it on every pass.
     worker_lane_owns_job "$FM_REMOTE_JOB_JOBS/$id" && continue
@@ -1299,7 +1312,12 @@ worker_process_once() { # <account-home>
       *) continue ;;
     esac
   done
-  [ -n "$candidates" ] || return 0
+  if [ -z "$candidates" ]; then
+    if [ "$scan_busy" -eq 0 ]; then
+      : > "$FM_REMOTE_JOB_STATE/.idle-scan-mark" 2>/dev/null && WORKER_IDLE_SCAN=1
+    fi
+    return 0
+  fi
   while IFS=$'\t' read -r seq id home; do
     [ -n "$id" ] || continue
     worker_lane_busy "$home" && continue

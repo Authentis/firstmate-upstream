@@ -1961,4 +1961,74 @@ wait "$TAKEOVER_NEW_SERVE" 2>/dev/null || true
 worker_path_stop_all "$TAKEOVER_WORKER"
 pass "a claim still being published is left alone until it is provably abandoned"
 
+# Retained finished records must not make an idle worker burn CPU: each pass
+# used to canonicalise every done record. A wrapper shell runs the worker so its
+# own `times` report covers every reaped descendant over the whole window.
+IDLECPU_STATE="$TMP_ROOT/idlecpu-state"
+IDLECPU_HOME="$TMP_ROOT/idlecpu-account"
+IDLECPU_TIMES="$TMP_ROOT/idlecpu-times"
+IDLECPU_TOUCHED="$TMP_ROOT/idlecpu-touched"
+mkdir -p "$IDLECPU_HOME" "$IDLECPU_STATE/jobs"
+chmod 700 "$IDLECPU_STATE" "$IDLECPU_STATE/jobs"
+for IDLECPU_I in $(seq 1 300); do
+  mkdir -m 700 "$IDLECPU_STATE/jobs/job-idlecpu$IDLECPU_I"
+  printf 'done\n' > "$IDLECPU_STATE/jobs/job-idlecpu$IDLECPU_I/state"
+done
+export IDLECPU_TIMES
+HOME="$IDLECPU_HOME" FM_ROOT_OVERRIDE="$REMOTE_ROOT" FM_REMOTE_JOB_STATE_ROOT="$IDLECPU_STATE" \
+  FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux \
+  bash -c '"$@" & w=$!; trap "kill -TERM $w" TERM; wait $w; wait $w; times > "$IDLECPU_TIMES"' \
+  _ "$REMOTE_ROOT/bin/fm-remote-job-worker.sh" --serve > "$TMP_ROOT/idlecpu-worker.out" 2> "$TMP_ROOT/idlecpu-worker.err" &
+IDLECPU_WRAPPER=$!
+quiet_wait_ready "$IDLECPU_STATE" idle-cpu
+sleep 20
+kill -TERM "$IDLECPU_WRAPPER"
+for _ in $(seq 1 200); do kill -0 "$IDLECPU_WRAPPER" 2>/dev/null || break; sleep 0.05; done
+wait "$IDLECPU_WRAPPER" 2>/dev/null || true
+[ -s "$IDLECPU_TIMES" ] || fail "the idle-cpu wrapper reported no CPU times"
+# `times` prints "shell user sys" then "children user sys" as XmY.YYYs; sum all four.
+IDLECPU_PCT=$(tr 'ms' '  ' < "$IDLECPU_TIMES" | awk '{ for (i = 1; i <= NF; i += 2) t += $i * 60 + $(i + 1) } END { printf "%d", t / 20 * 100 }')
+[ "$IDLECPU_PCT" -lt 3 ] \
+  || fail "an idle worker with 300 retained done records used ${IDLECPU_PCT}% of a core"
+pass "an idle worker with retained done records stays under 3% CPU (${IDLECPU_PCT}%)"
+
+# Pickup and cancel still work after the worker has skipped its idle scans.
+IDLECPU_STATE2="$TMP_ROOT/idlecpu2-state"
+mkdir -p "$IDLECPU_STATE2/jobs"
+chmod 700 "$IDLECPU_STATE2" "$IDLECPU_STATE2/jobs"
+for IDLECPU_I in $(seq 1 5); do
+  mkdir -m 700 "$IDLECPU_STATE2/jobs/job-idlecpu$IDLECPU_I"
+  printf 'done\n' > "$IDLECPU_STATE2/jobs/job-idlecpu$IDLECPU_I/state"
+done
+HOME="$IDLECPU_HOME" FM_ROOT_OVERRIDE="$REMOTE_ROOT" FM_REMOTE_JOB_STATE_ROOT="$IDLECPU_STATE2" \
+  FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux \
+  "$REMOTE_ROOT/bin/fm-remote-job-worker.sh" --serve > "$TMP_ROOT/idlecpu2-worker.out" 2> "$TMP_ROOT/idlecpu2-worker.err" &
+IDLECPU_WORKER=$!
+quiet_wait_ready "$IDLECPU_STATE2" idle-pickup
+for _ in $(seq 1 100); do
+  [ -e "$IDLECPU_STATE2/.idle-scan-mark" ] && break
+  sleep 0.1
+done
+assert_present "$IDLECPU_STATE2/.idle-scan-mark" "the worker never entered its idle-scan skip"
+sleep 3
+quiet_stage_completes "$IDLECPU_STATE2" "$IDLECPU_HOME" "$IDLECPU_TOUCHED" idle-skipping
+pass "a queued record is picked up after the worker entered its idle-scan skip"
+
+# Cancel while idle: a cancelled staged job must still reach a finished state.
+(
+  FM_REMOTE_JOB_STATE_ROOT="$IDLECPU_STATE2"
+  FM_REMOTE_JOB_QUEUE_TIMEOUT=60
+  FM_REMOTE_JOB_TIMEOUT=30
+  fm_remote_job_stage "$IDLECPU_HOME" "$REMOTE_ROOT" "$REMOTE_HOME" fm-timeout-job.sh \
+    < /dev/null > /dev/null || exit 1
+  fm_remote_job_cancel "$IDLECPU_HOME" "$FM_REMOTE_JOB_ID" || exit 1
+  for _ in $(seq 1 100); do
+    [ "$(fm_remote_job_read_state "$IDLECPU_STATE2/jobs/$FM_REMOTE_JOB_ID" 2>/dev/null || true)" = 'done' ] && exit 0
+    sleep 0.1
+  done
+  exit 1
+) || fail "a job cancelled while the worker idled never finished"
+pass "a job cancelled after the idle-scan skip is still finalized"
+quiet_stop "$IDLECPU_WORKER"
+
 echo "ALL TESTS PASSED"
