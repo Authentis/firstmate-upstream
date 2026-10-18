@@ -1,0 +1,111 @@
+
+===== spawn-bad =====
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-lab.HPTt0f
+error: opencode model 'opencode/not-a-model-zz' is not listed by 'opencode models'; choose a listed <provider>/<model>
+rc=1
+
+===== spawn-bad-pi =====
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-lab.HPTt0f
+error: pi model 'meta-muse-spark-1.3-contributor' cannot launch: no listed model matches it exactly in 'pi --list-models' (the authenticated catalog); choose a listed <provider>/<id>
+rc=1
+
+===== spawn-good =====
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-lab.HPTt0f
+🌳 Setting up worktree...
+🌳 Leased worktree at /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-lab.HPTt0f/treehouse/.treehouse/demo-c7fa09/1/demo. Run 'treehouse return /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-lab.HPTt0f/treehouse/.treehouse/demo-c7fa09/1/demo' to release it.
+spawned lc-good harness=opencode kind=scout window=primary:fm-lc-good worktree=/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-lab.HPTt0f/treehouse/.treehouse/demo-c7fa09/1/demo
+rc=0
+
+===== lc-good-1 =====
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-lab.HPTt0f
+launch-check pending lc-good harness=opencode model=opencode/big-pickle evidence=agent alive 7s after launch; judged once the launch is 120s old
+rc=3
+
+===== lc-good-2 =====
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-lab.HPTt0f
+launch-check building lc-good harness=opencode model=opencode/big-pickle evidence=agent alive with a running opencode-plugin turn under this incarnation
+rc=0
+
+===== lc-good-cs =====
+state: working · source: pane · harness busy (opencode-plugin)
+rc=0
+
+===== spawn-dead =====
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-lab.HPTt0f
+🌳 Setting up worktree...
+🌳 Leased worktree at /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-lab.HPTt0f/treehouse/.treehouse/demo-c7fa09/2/demo. Run 'treehouse return /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-lab.HPTt0f/treehouse/.treehouse/demo-c7fa09/2/demo' to release it.
+spawned lc-dead harness=opencode kind=scout window=primary:fm-lc-dead worktree=/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-lab.HPTt0f/treehouse/.treehouse/demo-c7fa09/2/demo
+rc=0
+
+===== lc-dead-1 =====
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-lab.HPTt0f
+error: task lc-dead's endpoint primary:fm-lc-dead reads 'missing', but tmux absence cannot be proven from a task record: the record does not carry the endpoint's socket identity, and a server-wide window inventory only describes the tmux server this process addresses, so a window absent from it may still be alive on another; exit will not claim an agent stopped at an address it cannot trust, nor send lifecycle input to one
+error: relaunch of lc-dead failed while stopping the old agent and its state is 'missing', so it was not proven stopped; its original instructions were restored and the durable record was retained for recovery
+launch-check failed lc-dead reason=the agent process is not running (endpoint reads 'missing'), and the one relaunch onto opencode/big-pickle failed
+rc=4
+
+===== lc-dead-cs =====
+state: failed · source: status-log · launch check failed this launch (state/lc-dead.launch-check); not building
+rc=0
+
+===== lc-dead-2 =====
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-lab.HPTt0f
+launch-check failed lc-dead (recorded for this incarnation) harness=opencode model=opencode/big-pickle
+rc=4
+
+===== spawn-dead2 =====
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-lab.HPTt0f
+🌳 Setting up worktree...
+🌳 Leased worktree at /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-lab.HPTt0f/treehouse/.treehouse/demo-c7fa09/3/demo. Run 'treehouse return /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-lab.HPTt0f/treehouse/.treehouse/demo-c7fa09/3/demo' to release it.
+spawned lc-dead2 harness=opencode kind=scout window=primary:fm-lc-dead2 worktree=/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-lab.HPTt0f/treehouse/.treehouse/demo-c7fa09/3/demo
+rc=0
+
+===== lc-dead2-1 =====
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-lab.HPTt0f
+notice: launch-check skips fallback 'opencode/opencode/big-pickle': it is the route that just failed
+error: opencode model 'opencode/not-a-model-zz' is not listed by 'opencode models'; choose a listed <provider>/<model>
+notice: launch-check skips fallback 'opencode/opencode/not-a-model-zz': its harness catalog refuses the model
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-lab.HPTt0f
+relaunched lc-dead2 harness=grok from=opencode model=whatever effort=default backend=tmux endpoint=primary:fm-lc-dead2 worktree=/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-lab.HPTt0f/treehouse/.treehouse/demo-c7fa09/3/demo
+launch-check relaunched lc-dead2 from=opencode/opencode/big-pickle to=grok/whatever reason=the agent process is not running (endpoint reads 'dead'); check again after 120s
+rc=3
+
+===== lc-dead2-2 =====
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-lab.HPTt0f
+launch-check unproven lc-dead2 harness=grok model=whatever reason=harness 'grok' has no adapter turn source; not counted as building and nothing acted on
+rc=5
+
+===== lc-dead2-3 =====
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-lab.HPTt0f
+launch-check failed lc-dead2 harness=grok model=whatever reason=the agent process is not running (endpoint reads 'dead') after the one allowed relaunch (onto grok/whatever, ok s1792316717.48195.8518)
+rc=4
+
+===== lc-dead2-cs3 =====
+state: failed · source: status-log · launch check failed this launch (state/lc-dead2.launch-check); not building
+rc=0
+
+===== brief-scout =====
+scaffolded: /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-lab.HPTt0f/data/br-scout/brief.md (scout; replace {TASK} and {FIRSTMATE_SPEC})
+scaffolded: /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-lab.HPTt0f/data/br-ship/brief.md (ship, mode=local-only; replace {TASK} and {FIRSTMATE_SPEC})
+rc=0
+
+===== state/lc-good.launch-check =====
+spawn_first=1792316641
+verdict=building s1792316641.27427.20942
+===== state/lc-good.status =====
+
+===== state/lc-dead.launch-check =====
+spawn_first=1792316660
+relaunch=s1792316660.56480.22413 opencode/big-pickle
+relaunch_result=failed
+verdict=failed s1792316660.56480.22413
+===== state/lc-dead.status =====
+failed [at=1792316678]: launch check: the agent process is not running (endpoint reads 'missing'), and the one relaunch onto opencode/big-pickle failed (the relaunch journal state/lc-dead.control-relaunch has the detail); not building
+
+===== state/lc-dead2.launch-check =====
+spawn_first=1792316707
+relaunch=s1792316707.26171.912 grok/whatever
+relaunch_result=ok s1792316717.48195.8518
+verdict=failed s1792316717.48195.8518
+===== state/lc-dead2.status =====
+failed [at=1792316756]: launch check: the agent process is not running (endpoint reads 'dead') after the one allowed relaunch (onto grok/whatever, ok s1792316717.48195.8518); not building

@@ -1,0 +1,30 @@
+  ┃  /usr/bin/fm
+  ┃  agent
+  ┃  agent-mail
+  ┃  agentmail
+  ┃  …
+  ┃
+  ┃  Click to expand
+  ┃
+     + Thought: 2.0s
+  ┃
+  ┃  $ file /usr/bin/fm; fm --help 2>&1 | head -60
+  ┃
+  ┃  /usr/bin/fm: Mach-O universal binary with 3 architectures: [x86_64:Mach-O 64-bit executable x86_64] [arm64e] [arm64e.x1]
+  ┃  /usr/bin/fm (for architecture x86_64):  Mach-O 64-bit executable x86_64
+  ┃  /usr/bin/fm (for architecture arm64e):  Mach-O 64-bit executable arm64e
+  ┃  /usr/bin/fm (for architecture arm64e.x1):  Mach-O 64-bit executable arm64e.x1
+  ┃  YOU HAVE NOT AGREED TO THE APPLE FOUNDATION MODELS CLI LEGAL NOTICE & TERMS.
+  ┃  Agreeing to the Apple Foundation Models CLI Legal Notice & Terms applies to every user on the machine, so it must be run as a privileged user (e.g.
+  ┃  'sudo fm license').
+  ┃
+  ┃
+     + Thought: 493ms
+     ~ Writing command…
+     ▣  Build · Big Pickle
+  ┃                                                                                                                                                             /private/var/folders/jx/
+  ┃                                                                                                                                                             xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-
+  ┃                                                                                                                                                             lab.HPTt0f/treehouse/.treehouse/demo-
+  ┃  Build · Big Pickle Default / OpenCode                                                                                                                      c7fa09/1/demo
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+   ⬝⬝⬝■■■■■  esc interrupt                                                                                                      25.6K (13%)  ctrl+p commands    • OpenCode 1.18.35
