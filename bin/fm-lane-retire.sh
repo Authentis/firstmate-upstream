@@ -189,16 +189,16 @@ for meta in "$STATE"/*.meta; do
     kept=$((kept + 1))
     continue
   fi
-  # Guard: the last reads before the destructive call, so any change since
-  # inspection (record, head, edits, or PR state, e.g. a reopened PR) aborts.
+  # Guard: the last reads before the destructive call (PR state first, then the lane), so any change since
+  # inspection (record, head, edits, or a reopened PR) aborts. Residual: only teardown could close the final gap.
   [ "${FM_TEST_SEAM:-}" != 1 ] || [ -z "${FM_LANE_RETIRE_PRE_TEARDOWN_HOOK:-}" ] || "$FM_LANE_RETIRE_PRE_TEARDOWN_HOOK" "$id"
-  if ! lane_unchanged "$meta" "$pr" "$wt" "$head0"; then
-    log abort "$id" "lane changed after inspection (record, head, or edits); retry next pass"
+  if [ "$(pr_state "$pr")" != "$st" ]; then
+    log abort "$id" "PR state changed from $st after inspection; retry next pass"
     kept=$((kept + 1))
     continue
   fi
-  if [ "$(pr_state "$pr")" != "$st" ]; then
-    log abort "$id" "PR state changed from $st after inspection; retry next pass"
+  if ! lane_unchanged "$meta" "$pr" "$wt" "$head0"; then
+    log abort "$id" "lane changed after inspection (record, head, or edits); retry next pass"
     kept=$((kept + 1))
     continue
   fi
