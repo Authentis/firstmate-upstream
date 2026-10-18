@@ -94,6 +94,7 @@ LIMIT=${FM_INBOX_PULL_LIMIT:-20}
 case "$MIN_INTERVAL" in '' | *[!0-9]*) MIN_INTERVAL=30 ;; esac
 case "$TRIP_MAX" in '' | *[!0-9]*) TRIP_MAX=20 ;; esac
 case "$LIMIT" in '' | *[!0-9]*) LIMIT=20 ;; esac
+[ "$LIMIT" -ge 1 ] || LIMIT=20
 
 now() { printf '%s' "${FM_INBOX_PULL_NOW:-$(date +%s)}"; }
 NOW=$(now)
@@ -122,6 +123,23 @@ write_atomic() {  # <path> ; content on stdin
 # --- single-flight lock ------------------------------------------------------
 LOCK="$PULL/.lock"
 LOCKED=0
+# Reclaim a dead owner's lock. Only a holder of the reclaim guard may remove a
+# lock, and only after re-reading that it still carries the owner judged dead, so
+# a lock freshly taken by a live invocation is never destroyed. A lock that only
+# its owner or a guard holder removes cannot be replaced between that check and
+# the removal. A guard abandoned by a killed reclaimer goes stale after a minute.
+lock_reclaim() {  # <pid judged dead, or empty>
+  local guard="$LOCK.reclaim"
+  if [ -d "$guard" ] && [ -z "$(find "$guard" -maxdepth 0 -mmin -1 2>/dev/null)" ]; then
+    rmdir "$guard" 2>/dev/null
+  fi
+  mkdir "$guard" 2>/dev/null || return 0
+  if [ "$(cat "$LOCK/pid" 2>/dev/null)" = "$1" ]; then
+    rm -r "$LOCK" 2>/dev/null
+  fi
+  rmdir "$guard" 2>/dev/null
+  return 0
+}
 lock_acquire() {
   local pid
   for _ in 1 2; do
@@ -132,13 +150,13 @@ lock_acquire() {
     fi
     pid=$(cat "$LOCK/pid" 2>/dev/null)
     if [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null; then
-      rm -rf "$LOCK" 2>/dev/null
+      lock_reclaim "$pid"
       continue
     fi
     # a lock younger than the stale bound with a live or unknown owner: another
     # invocation is in flight, and the host must never wait on it.
     if [ -z "$pid" ] && [ -d "$LOCK" ] && [ -z "$(find "$LOCK" -maxdepth 0 -mmin -1 2>/dev/null)" ]; then
-      rm -rf "$LOCK" 2>/dev/null
+      lock_reclaim ""
       continue
     fi
     return 1
@@ -148,7 +166,8 @@ lock_acquire() {
 # shellcheck disable=SC2329 # invoked by the EXIT trap
 lock_release() {
   [ "$LOCKED" -eq 1 ] || return 0
-  rm -rf "$LOCK" 2>/dev/null
+  # only a lock still carrying this invocation's token is ours to remove
+  [ "$(cat "$LOCK/pid" 2>/dev/null)" != "$$" ] || rm -r "$LOCK" 2>/dev/null
   LOCKED=0
 }
 trap lock_release EXIT
@@ -203,8 +222,10 @@ scan_dirs() {
   {
     if [ -n "${FM_INBOX_PULL_DIR:-}" ]; then
       IFS=:
+      set -f
       # shellcheck disable=SC2086
       set -- $FM_INBOX_PULL_DIR
+      set +f
       IFS=$IFS_SAVE
       for entry in "$@"; do [ -z "$entry" ] || printf '%s\n' "$entry"; done
     fi
@@ -229,8 +250,8 @@ newest_handled() {  # <inbox-dir> -> highest handled sequence, or 0
   printf '%s' "$best"
 }
 
-FLOORS='' SEEN=''
-cursor_load() {  # -> FLOORS/SEEN; migrates an unknown schema in place
+FLOORS='' SEEN='' NOSAVE=0
+cursor_load() {  # -> FLOORS/SEEN; migrates an unknown schema in place (never under NOSAVE)
   local dirs=$1 first kind d s
   FLOORS='' SEEN=''
   [ -f "$PULL/cursor" ] || return 0
@@ -243,6 +264,7 @@ cursor_load() {  # -> FLOORS/SEEN; migrates an unknown schema in place
     done <<EOF
 $dirs
 EOF
+    [ "$NOSAVE" -eq 1 ] && return 0
     cursor_save || return 1
     log_line "migrated an unrecognised cursor schema to v1; nothing replayed"
     return 0
@@ -275,6 +297,7 @@ unseen_records() {  # <dirs> -> "dir<TAB>seq<TAB>path", oldest first per inbox
       [ -f "$f" ] || continue
       n=$(fm_task_inbox_seq_of "${f##*/}") || continue
       [ "$n" -gt "$fl" ] || continue
+      [ ! -e "$d/handled/${f##*/}" ] || continue
       if [ -n "$SEEN" ] && printf '%s\n' "$SEEN" | grep -Fxq "$d$TAB$n"; then continue; fi
       printf '%s\t%s\t%s\n' "$d" "$n" "$f"
     done
@@ -294,7 +317,7 @@ record_exists() {  # <inbox-dir> <seq>
 
 # --- commands ----------------------------------------------------------------
 cmd_peek() {
-  local dirs rows total shown first notice
+  local dirs rows total shown first notice held
 
   hb_load
   HB_KILLED=0
@@ -333,7 +356,18 @@ cmd_peek() {
     return 0
   fi
   total=$(printf '%s\n' "$rows" | wc -l | tr -d ' ')
-  rows=$(printf '%s\n' "$rows" | head -n "$LIMIT")
+  # An uncommitted pending set is an open transaction: replay exactly it (minus
+  # records that vanished) until a commit consumes it, so a second peek can never
+  # overwrite the set a first caller is about to commit.
+  held=''
+  if [ -s "$PULL/pending" ]; then
+    held=$(printf '%s\n' "$rows" | awk -F"$TAB" 'NR == FNR { p[$1 FS $2] = 1; next } ($1 FS $2) in p' "$PULL/pending" -)
+  fi
+  if [ -n "$held" ]; then
+    rows=$held
+  else
+    rows=$(printf '%s\n' "$rows" | head -n "$LIMIT")
+  fi
   shown=$(printf '%s\n' "$rows" | wc -l | tr -d ' ')
   if ! printf '%s\n' "$rows" | cut -f1,2 | write_atomic "$PULL/pending"; then
     HB_ERROR="cannot write pending marker"
@@ -401,6 +435,7 @@ cmd_beat() {
 
 cmd_status() {
   local dirs rows pending=0
+  NOSAVE=1
   hb_load
   dirs=$(scan_dirs)
   cursor_load "$dirs" >/dev/null 2>&1
@@ -419,9 +454,15 @@ if [ "$CMD" = status ]; then
   exit 0
 fi
 mkdir -p "$PULL" 2>/dev/null || exit 0
-if ! lock_acquire; then
-  exit 0
-fi
+# A commit must not be lost to a concurrent beat or peek: wait briefly for the
+# lock. The other commands may simply yield.
+attempts=1
+[ "$CMD" != commit ] || attempts=15
+while ! lock_acquire; do
+  attempts=$((attempts - 1))
+  [ "$attempts" -gt 0 ] || exit 0
+  sleep 0.2
+done
 case "$CMD" in
   peek) cmd_peek ;;
   commit) cmd_commit ;;

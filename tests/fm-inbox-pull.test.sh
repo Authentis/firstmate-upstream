@@ -90,6 +90,7 @@ test_two_phase_commit() {
   assert_present "$S/inbox-pull/cursor" "commit writes the cursor"
   assert_equals "$box" "$(hb last_notified_inbox)" "heartbeat names the inbox last notified"
   assert_equals 1 "$(hb last_notified_seq)" "heartbeat names the seq last notified"
+  assert_equals 1 "$(wc -l < "$S/inbox-pull/notices" | tr -d ' ')" "commit appends to the notice history the trip counts"
   pull 1200 peek
   assert_equals "" "$out" "a committed record is never named again"
   mk_msg "$box" 2
@@ -184,6 +185,26 @@ test_replay_trip() {
   pull $((t + 20000)) peek
   assert_equals "" "$out" "the pull stays off until an operator removes the file"
   pass "replay trip: more than 20 notices an hour writes the kill file"
+}
+
+test_trip_boundary_and_limit_clamp() {
+  new_home
+  local box="$S/parent-route/chief.inbox" i
+  mk_msg "$box" 1
+  mkdir -p "$S/inbox-pull"
+  for i in $(seq 1 20); do printf '%s\n' $((9000 + i)) >> "$S/inbox-pull/notices"; done
+  pull 9100 peek
+  assert_contains "$out" "001.msg" "exactly 20 notices an hour still notify"
+  assert_absent "$S/.inbox-pull-off" "exactly 20 notices an hour do not trip"
+  new_home
+  mk_msg "$S/parent-route/chief.inbox" 1
+  out=$(FM_INBOX_PULL_LIMIT=0 FM_HOME="$H" FM_STATE_OVERRIDE="$S" FM_CONFIG_OVERRIDE="$H/config" FM_INBOX_PULL_NOW=1000 bash "$PULL" peek)
+  assert_contains "$out" "001.msg" "a zero limit is clamped, not honoured"
+  new_home
+  mk_msg "$H/we*ird.inbox" 1
+  out=$(FM_INBOX_PULL_DIR="$H/we*ird.inbox" FM_HOME="$H" FM_STATE_OVERRIDE="$S" FM_CONFIG_OVERRIDE="$H/config" FM_INBOX_PULL_NOW=1000 bash "$PULL" peek)
+  assert_contains "$out" "we*ird.inbox/001.msg" "a glob character in an inbox path is not expanded"
+  pass "trip boundary is exactly 20; a zero limit is clamped; glob characters in paths survive"
 }
 
 test_unknown_cursor_schema_migrates_without_replay() {
@@ -299,6 +320,57 @@ test_mode_664_runs_through_its_interpreter() {
   pass "a mode-664 owner runs through its interpreter"
 }
 
+test_pending_is_an_open_transaction() {
+  new_home
+  local box="$S/parent-route/chief.inbox"
+  mk_msg "$box" 1
+  pull 1000 peek
+  mk_msg "$box" 2
+  pull 1100 peek
+  assert_contains "$out" "001.msg" "a second peek replays the open set"
+  assert_not_contains "$out" "002.msg" "a second peek cannot swap the open set for newer records"
+  pull 1101 commit
+  pull 1200 peek
+  assert_contains "$out" "002.msg" "the newer record is named once the first set is committed"
+  assert_not_contains "$out" "001.msg" "the committed record is not named again"
+  pass "an uncommitted pending set is replayed, never overwritten"
+}
+
+test_handled_twin_and_read_only_status() {
+  new_home
+  local box="$S/parent-route/chief.inbox"
+  mk_msg "$box" 1
+  mkdir -p "$box/handled"
+  cp "$box/001.msg" "$box/handled/001.msg"
+  pull 1000 peek
+  assert_equals "" "$out" "a root record whose twin sits in handled/ is never named"
+  mkdir -p "$S/inbox-pull"
+  printf 'schema=fm-inbox-pull-cursor.v0\n' > "$S/inbox-pull/cursor"
+  FM_HOME="$H" FM_STATE_OVERRIDE="$S" FM_CONFIG_OVERRIDE="$H/config" bash "$PULL" status >/dev/null
+  assert_equals "schema=fm-inbox-pull-cursor.v0" "$(sed -n 1p "$S/inbox-pull/cursor")" "status never rewrites the cursor"
+  pass "handled/ twins are never named and status is read-only"
+}
+
+test_stale_lock_race_names_once() {
+  new_home
+  mk_msg "$S/parent-route/chief.inbox" 1
+  mkdir -p "$S/inbox-pull/.lock"
+  printf '99999999' > "$S/inbox-pull/.lock/pid"
+  local i total=0
+  for i in 1 2 3 4 5 6 7 8; do
+    (
+      FM_HOME="$H" FM_STATE_OVERRIDE="$S" FM_CONFIG_OVERRIDE="$H/config" FM_INBOX_PULL_NOW=1000 \
+        bash "$PULL" peek > "$H/race.$i" 2>/dev/null
+    ) &
+  done
+  wait
+  for i in 1 2 3 4 5 6 7 8; do
+    total=$((total + $(grep -c '^inbox-pull-notice:' "$H/race.$i" || true)))
+  done
+  assert_equals 1 "$total" "eight peeks racing to reclaim a dead lock name the record exactly once"
+  pass "a dead lock is reclaimed by exactly one contender"
+}
+
 test_status_reports_state() {
   new_home
   mk_msg "$S/parent-route/chief.inbox" 1
@@ -318,6 +390,7 @@ test_throttle_before_scan_and_heartbeat
 test_heartbeat_fields
 test_kill_switch
 test_replay_trip
+test_trip_boundary_and_limit_clamp
 test_unknown_cursor_schema_migrates_without_replay
 test_scan_set
 test_notice_cap
@@ -325,4 +398,7 @@ test_concurrent_peeks_notice_once
 test_stale_lock_is_recovered
 test_silent_contract_and_error_channel
 test_mode_664_runs_through_its_interpreter
+test_pending_is_an_open_transaction
+test_handled_twin_and_read_only_status
+test_stale_lock_race_names_once
 test_status_reports_state

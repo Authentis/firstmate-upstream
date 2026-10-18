@@ -40,7 +40,7 @@ const OWNER_TIMEOUT_MS = 5_000;
 const MAX_CONSECUTIVE_FAILURES = 5;
 
 function minIntervalMs(): number {
-  const seconds = Number(process.env.FM_INBOX_PULL_MIN_INTERVAL ?? "30");
+  const seconds = Number(process.env.FM_INBOX_PULL_MIN_INTERVAL || "30");
   return (Number.isFinite(seconds) && seconds >= 0 ? seconds : 30) * 1000;
 }
 
@@ -71,16 +71,23 @@ function appendLog(text: string): void {
   }
 }
 
-async function runOwner(args: readonly string[]): Promise<{ ok: boolean; stdout: string; detail: string }> {
-  const run = runCommandAsync("bash", [owner, ...args], { env: ownerEnv(), cwd: root });
+// Bounds a host call that has no deadline of its own, so one stuck promise cannot
+// hold the awaited tool_result handler (and the turn behind it) for ever.
+async function withTimeout<T>(work: Promise<T> | T, ms: number, label: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<null>((done) => {
-    timer = setTimeout(() => done(null), OWNER_TIMEOUT_MS);
+  const expired = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms} ms`)), ms);
     timer.unref?.();
   });
-  const result = await Promise.race([run, timeout]);
-  if (timer) clearTimeout(timer);
-  if (result === null) return { ok: false, stdout: "", detail: `owner ${args[0]} timed out` };
+  try {
+    return await Promise.race([Promise.resolve(work), expired]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+async function runOwner(args: readonly string[]): Promise<{ ok: boolean; stdout: string; detail: string }> {
+  const result = await runCommandAsync("bash", [owner, ...args], { env: ownerEnv(), cwd: root, timeoutMs: OWNER_TIMEOUT_MS });
   if (result.status !== 0) {
     return { ok: false, stdout: "", detail: `owner ${args[0]} exited ${result.status}: ${result.stderr.trim()}` };
   }
@@ -124,9 +131,13 @@ export default function (pi: ExtensionAPI) {
         return;
       }
       try {
-        await pi.sendMessage(
-          { customType: "fm-inbox", content: notice, display: true },
-          { deliverAs: "steer", triggerTurn: false },
+        await withTimeout(
+          pi.sendMessage(
+            { customType: "fm-inbox", content: notice, display: true },
+            { deliverAs: "steer", triggerTurn: false },
+          ),
+          OWNER_TIMEOUT_MS,
+          "sendMessage",
         );
       } catch (error) {
         recordFailure(`sendMessage failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -163,7 +174,7 @@ export default function (pi: ExtensionAPI) {
     // The tick touches only the owner process, never a pi runtime object, so a
     // replaced session cannot make it throw.
     const beat = (): void => {
-      if (disabled || stopped) return;
+      if (disabled || stopped || inFlight) return;
       void runOwner(["beat"]).then((result) => {
         if (!result.ok) recordFailure(result.detail);
       }).catch(() => {});
