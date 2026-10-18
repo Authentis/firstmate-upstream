@@ -56,59 +56,73 @@ fm_nm_run_bounded() {  # <dir> <timeout_secs> <args...>
 # Shared, short-lived cache for a successful read-only no-mistakes call, keyed
 # by worktree and arguments, so a heartbeat over N lanes does not respawn the
 # CLI for each read. TTL FM_NM_CACHE_TTL seconds (default 120, 0 disables).
-# Every refresh holds the key's mkdir lock, re-checks freshness once it has it
-# (a racing writer may have just published), runs the call, and publishes
-# atomically. A refresh never runs without the lock: a contender waits long
-# enough (the call's timeout plus the orphan threshold) for a live writer to
-# finish or an orphaned lock to become recoverable, then serves the previous
-# (stale) entry, or returns failure when there is none. Each lock carries an
-# owner token. Only the holder of the single recovery mutex may remove a lock,
-# and only the exact lock whose token it observed and found older than any
-# bounded call (fm_nm_cache_reclaim); a replacement lock fails the token check,
-# and one swept up by a rename race is put back. Entries older than five TTLs
-# are pruned on publish. Only exit-0 non-empty output is cached, so an error or
-# timeout is never replayed. Prints the output and returns the call's status.
+# Every refresh holds the key's lock, re-checks freshness once it has it (a
+# racing writer may have just published), runs the call, and publishes
+# atomically.
+#
+# The lock is a ticket queue, so verification and removal are never split
+# across a path another party may own. A contender takes the next sequence
+# number with an exclusive mkdir of <key>.q/<seq> and holds the lock while its
+# ticket is the lowest unexpired one. A ticket name is unique and never reused
+# (the highest ticket is always kept as the sequence marker), so removing a
+# ticket by its exact name can only ever remove that ticket: an owner only ages
+# out its own name, and an expired ticket (older than any bounded call, so its
+# writer is dead) is removed by whoever notices, with nothing able to take its
+# place under that name. A contender waits the call's timeout plus the expiry
+# bound, then withdraws its ticket and serves the previous (stale) entry, or
+# returns failure when there is none. A refresh never runs without the lock.
+# Entries older than five TTLs are pruned on publish. Only exit-0 non-empty
+# output is cached, so an error or timeout is never replayed. Prints the output
+# and returns the call's status.
 fm_nm_cache_mtime() {  # <path>
   stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null || echo 0
 }
 
-# Remove <lock> only if it still carries <expected_token> and is older than
-# <timeout_secs>+5 seconds. Returns 0 when it removed that lock.
-fm_nm_cache_reclaim() {  # <lock> <expected_token> <timeout_secs>
-  local lock=$1 expected=$2 timeout_secs=$3 rec dead rc=1
-  rec="$lock.rec"
-  if ! mkdir "$rec" 2>/dev/null; then
-    # The recovery mutex is held for microseconds; one older than a minute is abandoned.
-    [ $(($(date +%s) - $(fm_nm_cache_mtime "$rec"))) -gt 60 ] && rmdir "$rec" 2>/dev/null
-    return 1
-  fi
-  if [ "$(cat "$lock/owner" 2>/dev/null)" = "$expected" ] \
-    && [ $(($(date +%s) - $(fm_nm_cache_mtime "$lock"))) -gt $((timeout_secs + 5)) ]; then
-    dead="$lock.dead.$$.$RANDOM"
-    if mv "$lock" "$dead" 2>/dev/null; then
-      if [ "$(cat "$dead/owner" 2>/dev/null)" = "$expected" ]; then
-        rm -f "$dead/owner" 2>/dev/null
-        rmdir "$dead" 2>/dev/null
-        rc=0
-      elif [ ! -e "$lock" ]; then
-        mv "$dead" "$lock" 2>/dev/null   # swept up a replacement: put it back
-      fi
+# Take the next ticket in <queue>; prints its name.
+fm_nm_cache_ticket() {  # <queue>
+  local queue=$1 last next name tries=0
+  mkdir -p "$queue" 2>/dev/null || return 1
+  while [ "$tries" -lt 50 ]; do
+    last=$(ls "$queue" 2>/dev/null | sort | tail -1)
+    next=$((10#${last:-0} + 1))
+    name=$(printf '%012d' "$next")
+    if mkdir "$queue/$name" 2>/dev/null; then
+      printf '%s' "$name"
+      return 0
     fi
-  fi
-  rmdir "$rec" 2>/dev/null
-  return "$rc"
+    tries=$((tries + 1))
+  done
+  return 1
 }
 
-# Drop <lock> only while it still carries our <token>.
-fm_nm_cache_release() {  # <lock> <token>
-  [ "$(cat "$1/owner" 2>/dev/null)" = "$2" ] || return 0
-  rm -f "$1/owner" 2>/dev/null
-  rmdir "$1" 2>/dev/null
+# 0 when <ticket> is the lowest unexpired ticket in <queue>. Expired tickets
+# below it are removed by exact name; the highest ticket is the sequence marker
+# and is never removed.
+fm_nm_cache_turn() {  # <queue> <ticket> <expiry_secs>
+  local queue=$1 ticket=$2 expiry=$3 now t highest
+  now=$(date +%s)
+  highest=$(ls "$queue" 2>/dev/null | sort | tail -1)
+  for t in $(ls "$queue" 2>/dev/null | sort); do
+    if [ $((now - $(fm_nm_cache_mtime "$queue/$t"))) -gt "$expiry" ] && [ "$t" != "$ticket" ]; then
+      [ "$t" = "$highest" ] || rmdir "$queue/$t" 2>/dev/null
+      continue
+    fi
+    [ "$t" = "$ticket" ]
+    return
+  done
+  return 1
+}
+
+# Release or withdraw our own ticket by aging it out. Names are never reused
+# (the highest ticket is always kept), so a delayed release can only ever touch
+# the ticket it owned; the aged ticket is removed by exact name later.
+fm_nm_cache_release() {  # <queue> <ticket>
+  [ -d "$1/$2" ] && touch -t 197001020000 "$1/$2" 2>/dev/null
   return 0
 }
 
 fm_nm_cached_checked() {  # <cache_dir> <dir> <timeout_secs> <args...>
-  local cache_dir=$1 dir=$2 timeout_secs=$3 ttl key file lock now out rc waited=0 token
+  local cache_dir=$1 dir=$2 timeout_secs=$3 ttl key file queue now out rc ticket waited=0 expiry
   shift 3
   ttl=${FM_NM_CACHE_TTL:-120}
   case "$ttl" in ''|*[!0-9]*) ttl=120 ;; esac
@@ -117,21 +131,21 @@ fm_nm_cached_checked() {  # <cache_dir> <dir> <timeout_secs> <args...>
     fm_nm_run_uncached "$dir" "$timeout_secs" "$@"
     return
   fi
+  expiry=$((timeout_secs + 5))
   key=$(printf '%s\0' "$dir" "$@" | cksum | tr ' ' '-')
   file="$cache_dir/$key.out"
-  lock="$cache_dir/$key.lock"
+  queue="$cache_dir/$key.q"
+  now=$(date +%s)
+  if [ -s "$file" ] && [ $((now - $(fm_nm_cache_mtime "$file"))) -lt "$ttl" ]; then
+    cat "$file"
+    return 0
+  fi
+  ticket=$(fm_nm_cache_ticket "$queue") || return 1
   while :; do
-    now=$(date +%s)
-    if [ -s "$file" ] && [ $((now - $(fm_nm_cache_mtime "$file"))) -lt "$ttl" ]; then
-      cat "$file"
-      return 0
-    fi
-    if mkdir "$lock" 2>/dev/null; then
-      token="$$.$RANDOM.$now"
-      printf '%s' "$token" >"$lock/owner" 2>/dev/null
+    if fm_nm_cache_turn "$queue" "$ticket" "$expiry"; then
       now=$(date +%s)
       if [ -s "$file" ] && [ $((now - $(fm_nm_cache_mtime "$file"))) -lt "$ttl" ]; then
-        fm_nm_cache_release "$lock" "$token"
+        fm_nm_cache_release "$queue" "$ticket"
         cat "$file"
         return 0
       fi
@@ -141,16 +155,18 @@ fm_nm_cached_checked() {  # <cache_dir> <dir> <timeout_secs> <args...>
         printf '%s\n' "$out" >"$file.$$" 2>/dev/null && mv -f "$file.$$" "$file" 2>/dev/null
         find "$cache_dir" -name '*.out' -mmin +$((ttl * 5 / 60 + 1)) -exec rm -f {} + 2>/dev/null
       fi
-      fm_nm_cache_release "$lock" "$token"
+      fm_nm_cache_release "$queue" "$ticket"
       [ -z "$out" ] || printf '%s\n' "$out"
       return "$rc"
     fi
-    # A lock older than any bounded call belongs to a dead writer; reclaim only
-    # the exact lock (token) observed here.
-    if [ $((now - $(fm_nm_cache_mtime "$lock"))) -gt $((timeout_secs + 5)) ]; then
-      fm_nm_cache_reclaim "$lock" "$(cat "$lock/owner" 2>/dev/null)" "$timeout_secs" || true
+    now=$(date +%s)
+    if [ -s "$file" ] && [ $((now - $(fm_nm_cache_mtime "$file"))) -lt "$ttl" ]; then
+      fm_nm_cache_release "$queue" "$ticket"
+      cat "$file"
+      return 0
     fi
-    if [ "$waited" -ge $((timeout_secs + 8)) ]; then
+    if [ "$waited" -ge $((expiry + 3)) ]; then
+      fm_nm_cache_release "$queue" "$ticket"
       if [ -s "$file" ]; then
         cat "$file"
         return 0

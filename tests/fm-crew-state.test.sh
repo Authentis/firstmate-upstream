@@ -1591,95 +1591,107 @@ test_parallel_cold_reads_spawn_once() {
   pass "parallel cold reads spawn the CLI once"
 }
 
-test_cache_recovers_orphaned_lock_with_one_spawn() {
+cache_queue() {  # <case-dir> -> queue dir of the cached key (after one priming read)
+  ls -d "$1"/cache/*.q | head -1
+}
+
+test_cache_recovers_orphaned_ticket_with_one_spawn() {
   reset_fakes
-  local d lock
+  local d queue
   d=$(cache_case cache-orphan)
   FM_FAKE_AXI_STATUS="$(run_running fm/feat-load)"
   export FM_FAKE_AXI_STATUS
   cache_read "$d" > /dev/null
-  lock=$(ls "$d"/cache/*.out | sed 's/\.out$/.lock/')
+  queue=$(cache_queue "$d")
   rm -f "$d"/cache/*.out
-  mkdir "$lock"
-  touch -t 202001010000 "$lock"
+  mkdir "$queue/000000000000"   # a dead writer's ticket, below every new one
+  touch -t 202001010000 "$queue/000000000000"
   : > "$d/nm.log"
   cache_read "$d" > /dev/null
-  [ "$(wc -l < "$d/nm.log")" -eq 1 ] || fail "orphaned lock recovery spawned $(wc -l < "$d/nm.log") times"
-  [ ! -d "$lock" ] || fail "recovered lock was left behind"
-  [ -s "$(ls "$d"/cache/*.out)" ] || fail "refresh after lock recovery did not publish"
-  pass "an orphaned lock is recovered with one publishing spawn"
+  [ "$(wc -l < "$d/nm.log")" -eq 1 ] || fail "orphaned ticket recovery spawned $(wc -l < "$d/nm.log") times"
+  [ ! -e "$queue/000000000000" ] || fail "expired orphan ticket was not removed"
+  [ -s "$(ls "$d"/cache/*.out)" ] || fail "refresh after orphan recovery did not publish"
+  pass "an orphaned ticket expires and the next refresh publishes once"
 }
 
+# A reader that cannot get its turn within budget never spawns around the lock:
+# it withdraws its ticket and serves the stale entry, or fails without one.
 test_cache_serves_stale_on_wait_timeout_and_prunes_old_entries() {
   reset_fakes
-  local d lock out calls
+  local d queue out calls rc=0
   d=$(cache_case cache-stale)
   FM_FAKE_AXI_STATUS="$(run_running fm/feat-load)"
   export FM_FAKE_AXI_STATUS
   cache_read "$d" > /dev/null
-  lock=$(ls "$d"/cache/*.out | sed 's/\.out$/.lock/')
+  queue=$(cache_queue "$d")
   touch -t 202001010000 "$d"/cache/*.out
-  # A lock that cannot be recovered within the reader's budget (the recovery
-  # mutex is held elsewhere) leaves the reader serving the stale entry.
-  mkdir "$lock" "$lock.rec"
-  touch -t 202001010000 "$lock"
+  mkdir "$queue/000000000000"
+  touch -t 209901010000 "$queue/000000000000"   # a writer that never expires within the test
   : > "$d/nm.log"
   out=$(cache_read "$d" CACHE_T=1)
   calls=$(wc -l < "$d/nm.log")
-  rmdir "$lock" "$lock.rec"
   [ "$calls" -eq 0 ] || fail "wait timeout spawned the CLI instead of serving the stale entry"
   [ -n "$out" ] || fail "wait timeout served nothing"
+  rm -f "$d"/cache/*.out
+  out=$(cache_read "$d" CACHE_T=1) || rc=$?
+  [ "$rc" -ne 0 ] && [ -z "$out" ] || fail "no entry and a held lock did not fail cleanly"
+  [ ! -s "$d/nm.log" ] || fail "reader spawned around a held lock"
+  rmdir "$queue/000000000000"
   printf 'old\n' > "$d/cache/zzz.out"
-  touch -t 202001010000 "$d/cache/zzz.out" "$d"/cache/*.out
+  touch -t 202001010000 "$d/cache/zzz.out"
   cache_read "$d" > /dev/null
   [ ! -e "$d/cache/zzz.out" ] || fail "publish did not prune an entry older than a few TTLs"
-  pass "wait timeout serves the stale entry and publish prunes old entries"
+  pass "wait timeout serves stale or fails without spawning, and publish prunes old entries"
 }
 
-# A delayed recoverer that observed an old orphan must never remove the live
-# replacement lock that took its place, nor a lock that is not yet stale.
-test_reclaim_never_removes_a_replacement_lock() {
+# Deterministic interleaving: a delayed expiry-remover that judged ticket N
+# expired can only ever remove N. A replacement acquirer gets a NEW name, so
+# nothing it owns is reachable by the remover.
+test_replacement_ticket_is_unreachable_by_a_delayed_remover() {
   reset_fakes
-  local d lock
-  d=$(cache_case cache-reclaim)
-  lock="$d/cache/k.lock"
-  mkdir -p "$lock"
-  printf 'new-owner' > "$lock/owner"
-  (. "$ROOT/bin/fm-nm-run-lib.sh"; fm_nm_cache_reclaim "$lock" old-owner 4) \
-    && fail "reclaim removed a replacement lock with a different token"
-  [ -d "$lock" ] && [ "$(cat "$lock/owner")" = new-owner ] || fail "replacement lock was disturbed"
-  (. "$ROOT/bin/fm-nm-run-lib.sh"; fm_nm_cache_reclaim "$lock" new-owner 4) \
-    && fail "reclaim removed a live (young) lock"
-  [ -d "$lock" ] || fail "young lock was removed"
-  touch -t 202001010000 "$lock"
-  (. "$ROOT/bin/fm-nm-run-lib.sh"; fm_nm_cache_reclaim "$lock" new-owner 4) \
-    || fail "reclaim did not remove the matching stale lock"
-  [ ! -e "$lock" ] || fail "stale lock survived reclaim"
-  [ ! -e "$lock.rec" ] || fail "recovery mutex was left behind"
-  pass "reclaim only removes the exact stale lock it observed"
+  local d queue first second
+  d=$(cache_case cache-replace)
+  queue="$d/cache/k.q"
+  mkdir -p "$queue"
+  (. "$ROOT/bin/fm-nm-run-lib.sh"; fm_nm_cache_ticket "$queue" > "$d/t1")
+  first=$(cat "$d/t1")
+  touch -t 202001010000 "$queue/$first"   # remover observes: ticket expired
+  # The owner finishes, then a second acquirer takes its turn before the delayed
+  # remover acts.
+  (. "$ROOT/bin/fm-nm-run-lib.sh"; fm_nm_cache_release "$queue" "$first")
+  (. "$ROOT/bin/fm-nm-run-lib.sh"; fm_nm_cache_ticket "$queue" > "$d/t2")
+  second=$(cat "$d/t2")
+  [ "$first" != "$second" ] || fail "a released ticket name was reissued"
+  rmdir "$queue/$first" 2>/dev/null   # the delayed remover finally acts, by exact name
+  [ -d "$queue/$second" ] || fail "delayed remover removed the replacement owner's ticket"
+  (. "$ROOT/bin/fm-nm-run-lib.sh"; fm_nm_cache_turn "$queue" "$second" 9) \
+    || fail "replacement owner lost its turn"
+  # Even with every ticket released and swept, names keep increasing.
+  (. "$ROOT/bin/fm-nm-run-lib.sh"; fm_nm_cache_release "$queue" "$second"; fm_nm_cache_ticket "$queue" > "$d/t3")
+  [ "$(cat "$d/t3")" != "$second" ] && [ "$(cat "$d/t3")" != "$first" ] || fail "ticket name reused after release"
+  pass "a delayed remover cannot reach a replacement owner's ticket"
 }
 
-# With no cached entry and a live writer still holding the lock, a reader never
-# spawns around the lock: it waits out its budget and reports failure.
-test_young_lock_with_no_entry_fails_without_spawning() {
+# Deterministic interleaving: A pauses before releasing, its ticket expires and
+# is swept, B acquires; A's late release must not disturb B.
+test_delayed_release_does_not_disturb_the_next_owner() {
   reset_fakes
-  local d rc=0 lock out
-  d=$(cache_case cache-young)
-  FM_FAKE_AXI_STATUS="$(run_running fm/feat-load)"
-  export FM_FAKE_AXI_STATUS
-  cache_read "$d" > /dev/null   # learn the key, then drop the entry
-  lock=$(ls "$d"/cache/*.out | sed 's/\.out$/.lock/')
-  rm -f "$d"/cache/*.out
-  mkdir "$lock"
-  printf 'live-writer' > "$lock/owner"
-  mkdir "$lock.rec"   # recovery is unavailable, so the lock cannot be taken
-  : > "$d/nm.log"
-  out=$(cache_read "$d" CACHE_T=1) || rc=$?
-  [ "$rc" -ne 0 ] || fail "a young lock with no entry did not report failure"
-  [ -z "$out" ] || fail "failure path printed output: $out"
-  [ ! -s "$d/nm.log" ] || fail "reader spawned around a live writer's lock"
-  [ -d "$lock" ] || fail "reader removed a live writer's lock"
-  pass "a young lock with no entry fails without spawning or touching the lock"
+  local d queue a b
+  d=$(cache_case cache-delayed-release)
+  queue="$d/cache/k.q"
+  mkdir -p "$queue"
+  (. "$ROOT/bin/fm-nm-run-lib.sh"; fm_nm_cache_ticket "$queue" > "$d/ta")
+  a=$(cat "$d/ta")
+  touch -t 202001010000 "$queue/$a"   # A stalls past the bound: expired
+  (. "$ROOT/bin/fm-nm-run-lib.sh"; fm_nm_cache_ticket "$queue" > "$d/tb")
+  b=$(cat "$d/tb")
+  (. "$ROOT/bin/fm-nm-run-lib.sh"; fm_nm_cache_turn "$queue" "$b" 9) || fail "B did not get its turn over an expired ticket"
+  [ ! -d "$queue/$a" ] || [ "$a" = "$(ls "$queue" | sort | tail -1)" ] || fail "expired ticket was not swept"
+  # A resumes and releases.
+  (. "$ROOT/bin/fm-nm-run-lib.sh"; fm_nm_cache_release "$queue" "$a")
+  [ -d "$queue/$b" ] || fail "A's delayed release removed B's ticket"
+  (. "$ROOT/bin/fm-nm-run-lib.sh"; fm_nm_cache_turn "$queue" "$b" 9) || fail "A's delayed release cost B its turn"
+  pass "a delayed release leaves the next owner's turn intact"
 }
 
 test_lowload_kill_switch_restores_old_behavior() {
@@ -5829,10 +5841,10 @@ test_status_cache_hit_skips_second_spawn_and_update_check
 test_status_cache_expires_after_ttl
 test_landed_lane_skips_every_no_mistakes_spawn
 test_parallel_cold_reads_spawn_once
-test_cache_recovers_orphaned_lock_with_one_spawn
+test_cache_recovers_orphaned_ticket_with_one_spawn
 test_cache_serves_stale_on_wait_timeout_and_prunes_old_entries
-test_reclaim_never_removes_a_replacement_lock
-test_young_lock_with_no_entry_fails_without_spawning
+test_replacement_ticket_is_unreachable_by_a_delayed_remover
+test_delayed_release_does_not_disturb_the_next_owner
 test_lowload_kill_switch_restores_old_behavior
 test_terminal_passed_no_forge_switch_skips_read_but_keeps_receipt
 test_terminal_passed_with_open_pr_does_not_claim_merged
