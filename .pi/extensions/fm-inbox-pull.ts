@@ -219,7 +219,8 @@ export default function (pi: ExtensionAPI) {
       if (disabled || stopped || inFlight) return;
       inFlight = true;
       void runOwner(["beat"]).then((result) => {
-        if (!result.ok) recordFailure(result.detail);
+        if (result.ok) consecutiveFailures = 0;
+        else recordFailure(result.detail);
       }).catch(() => {}).finally(() => {
         inFlight = false;
         if (pullQueued) {
