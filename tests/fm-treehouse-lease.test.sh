@@ -46,6 +46,13 @@ if [ -n "${FM_FAKE_POOL_DIR:-}" ]; then
     status)
       sep=
       printf '['
+      # FM_FAKE_FLIP_AFTER_FIRST_STATUS=<slot>: the first status call reads the
+      # pool as it is, then the slot is leased out from under the reader - the
+      # race between a sweep's unlocked read and its locked retire.
+      if [ -n "${FM_FAKE_FLIP_AFTER_FIRST_STATUS:-}" ] && [ -e "$FM_FAKE_POOL_DIR/.flip-armed" ]; then
+        echo "leased lease-flipped" > "$FM_FAKE_POOL_DIR/$FM_FAKE_FLIP_AFTER_FIRST_STATUS/.fake-state"
+      fi
+      [ -z "${FM_FAKE_FLIP_AFTER_FIRST_STATUS:-}" ] || : > "$FM_FAKE_POOL_DIR/.flip-armed"
       while IFS= read -r d; do
         read -r st lid < "$d/.fake-state"
         br=$(git -C "$d/repo" symbolic-ref --quiet --short HEAD 2>/dev/null || true)
@@ -654,6 +661,20 @@ test_sweep_leaves_dirty_unlanded_claimed_and_disabled_slots() {
   pass "the sweep leaves dirty, unlanded, live-claimed and kill-switched slots alone"
 }
 
+test_sweep_rechecks_the_slot_under_the_lock() {
+  local case_dir out
+  case_dir=$(make_pool_case sweep-recheck)
+  strand_slot "$case_dir" 2 fm/task-raced task-raced
+  # The slot is leased out (and re-claimed under the same task id) between the
+  # sweep's read and its locked retire: the sweep must stand down, not return it.
+  out=$(FM_FAKE_FLIP_AFTER_FIRST_STATUS=2 pool_cmd "$case_dir" "$SLOT_RELEASE" --sweep "$case_dir/project")
+  [ -z "$out" ] || fail "a raced slot must be skipped silently, got: $out"
+  [ "$(slot_head "$case_dir" 2)" = fm/task-raced ] || fail "a slot leased during the sweep must keep its branch checked out"
+  assert_present "$case_dir/pool/2/.fm-slot-owner" "a slot leased during the sweep must keep its claim"
+  assert_no_grep "^return" "$case_dir/treehouse.log" "the sweep must not return a slot that was leased under it"
+  pass "the sweep rechecks the slot under the lock and stands down when it was leased meanwhile"
+}
+
 test_teardown_goes_through_the_retire_owner_and_frees_the_slot() {
   local case_dir out status
   case_dir=$(make_teardown_case td-retire-owner)
@@ -673,6 +694,7 @@ test_retire_keeps_the_branch_and_the_slot_leases_again
 test_retire_refuses_dirty_unlanded_and_reassigned_slots
 test_sweep_returns_a_hard_killed_leftover_to_the_pool
 test_sweep_leaves_dirty_unlanded_claimed_and_disabled_slots
+test_sweep_rechecks_the_slot_under_the_lock
 test_teardown_goes_through_the_retire_owner_and_frees_the_slot
 test_spawn_without_lease_support_keeps_the_interactive_path
 test_aborted_spawn_returns_its_unrecorded_lease

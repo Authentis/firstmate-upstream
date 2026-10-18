@@ -50,14 +50,35 @@ usage() {
 
 # Run the retire owner for one slot under the project's allocation lock, so no
 # spawn can claim the slot between the gate and the claim release.
-retire_locked() {  # <project> <worktree> <task-id> [lease-id]
-  local project=$1 worktree=$2 id=$3 lease=${4:-} lock rc
+#   Returns the owner's status, 2 when the lock path cannot be resolved, 3 when
+#   the lock is busy, and 4 when the optional recheck (run under the lock) says
+#   the slot is no longer what the caller saw.
+retire_locked() {  # <project> <worktree> <task-id> [lease-id] [recheck-fn]
+  local project=$1 worktree=$2 id=$3 lease=${4:-} recheck=${5:-} lock rc
   lock=$(fm_treehouse_project_lock_path "$project") || return 2
   fm_lock_try_acquire "$lock" || return 3
   rc=0
-  fm_treehouse_slot_retire "$worktree" "$id" "$lease" || rc=$?
+  if [ -n "$recheck" ] && ! "$recheck" "$project" "$worktree" "$id"; then
+    rc=4
+  else
+    fm_treehouse_slot_retire "$worktree" "$id" "$lease" || rc=$?
+  fi
   fm_lock_release "$lock" || true
   return "$rc"
+}
+
+# The sweep decided on an unlocked read, so a spawn may have leased the slot and
+# claimed it - even under a reused task id - before the lock was taken. Trust
+# nothing carried over: under the lock the slot must still read available on the
+# same branch, and its claim must again be free, which a live task record for a
+# reused id is not.
+sweep_recheck() {  # <project> <worktree> <task-id>
+  local project=$1 worktree=$2 row
+  row=$( cd "$project" && treehouse status --json 2>/dev/null </dev/null \
+    | jq -r --arg p "$worktree" '.[]? | select(.path == $p) | [.status, (.branch // "")] | @tsv' ) || return 1
+  [ "$row" = "$(printf 'available\t%s' "$SWEEP_BRANCH")" ] || return 1
+  fm_treehouse_slot_claim_custody "$worktree" ""
+  [ "$FM_TREEHOUSE_SLOT_CLAIM" = free ]
 }
 
 slot_project() {  # <worktree> -> the project clone that owns the slot's pool
@@ -106,9 +127,11 @@ sweep_project() {  # <project-dir>
     [ "$FM_TREEHOUSE_SLOT_CLAIM" = free ] || continue
     row=${FM_TREEHOUSE_SLOT_OWNER_ID:-sweep}
     rc=0
-    retire_locked "$project" "$slot" "$row" "" || rc=$?
+    SWEEP_BRANCH=$branch
+    retire_locked "$project" "$slot" "$row" "" sweep_recheck || rc=$?
     case "$rc" in
       2|3) return 0 ;;
+      4) continue ;;
     esac
     result=$FM_TREEHOUSE_SLOT_RETIRE_RESULT
     mkdir -p "$STATE" 2>/dev/null || true

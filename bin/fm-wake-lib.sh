@@ -1777,13 +1777,16 @@ fm_treehouse_slot_landed_gate() {  # <worktree>
 
 # The plain pool return: `treehouse return` detaches HEAD and keeps every branch
 # ref, and also works on an `available` slot a hard-killed pane left on a branch.
-# Never forced, so a slot treehouse still finds dirty or foreign is refused.
+# Never forced, so a slot treehouse still finds dirty or foreign is refused, and
+# a return that leaves the checkout on a branch counts as failed.
 fm_treehouse_slot_return() {  # <worktree> [lease-id]
   local worktree=$1 lease=${2:-} slot
   local -a args=()
   slot=$(CDPATH='' cd -- "$worktree" 2>/dev/null && pwd -P) || return 1
   [ -z "$lease" ] || args=(--if-lease-id "$lease")
-  ( cd "$(dirname "$slot")" && treehouse return ${args[@]+"${args[@]}"} "$slot" </dev/null >/dev/null 2>&1 )
+  ( cd "$(dirname "$slot")" && treehouse return ${args[@]+"${args[@]}"} "$slot" </dev/null >/dev/null 2>&1 ) || return 1
+  # A return that left the checkout on a branch did not make the slot leasable.
+  ! git -C "$slot" symbolic-ref --quiet HEAD >/dev/null 2>&1
 }
 
 # THE retire owner for a pool slot: make a finished slot leasable again without
@@ -1820,9 +1823,6 @@ fm_treehouse_slot_retire() {  # <worktree> <task-id> [lease-id]
     *) return 1 ;;
   esac
   "$ret" "$worktree" "$lease" || return 1
-  if [ -d "$worktree" ] && git -C "$worktree" symbolic-ref --quiet HEAD >/dev/null 2>&1; then
-    return 1
-  fi
   fm_treehouse_slot_owner_release "$worktree" "$id"
   FM_TREEHOUSE_SLOT_RETIRE_RESULT=released
 }
