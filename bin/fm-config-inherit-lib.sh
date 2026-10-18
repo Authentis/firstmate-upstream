@@ -14,8 +14,8 @@
 # the same unconfigured default, so the generic absence mirror below converges
 # a secondmate without deciding the release-dependent floor; explicit "on" and
 # "off" preferences propagate as files. Primary config/herdr-project-groups
-# carries the same display-only Herdr project-groups preference and tag file
-# as a plain file, absent meaning unconfigured. Primary
+# carries the opt-in Herdr project-group rules, because the agents view they
+# sort is one per Herdr server and every home's tasks share it. Primary
 # config/trace-context is copied at the launch convergence point as part of the
 # default-off W3C trace-context setup, while live convergence leaves it unchanged.
 # Primary config/lavish-axi-host carries the one per-machine Lavish server address
