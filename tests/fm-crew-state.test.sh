@@ -86,6 +86,7 @@ make_fakebin() {  # <dir> -> echoes fakebin path
 #!/usr/bin/env bash
 set -u
 printf '%s|%s\n' "${NO_MISTAKES_NO_UPDATE_CHECK:-}" "$*" >> "${FM_FAKE_NM_LOG:-/dev/null}"
+[ -z "${FM_FAKE_NM_SLEEP:-}" ] || sleep "$FM_FAKE_NM_SLEEP"
 case "${1:-}" in
   axi)
     shift
@@ -1509,6 +1510,10 @@ test_status_cache_hit_skips_second_spawn_and_update_check() {
   # Run-inventory reads are cached; the daemon liveness probe and an empty
   # `runs` listing are deliberately re-read.
   [ "$first" = "$second" ] || fail "second read within the TTL respawned axi ($first -> $second): $(tr '\n' ';' < "$d/nm.log")"
+  # Total spawns: the first read makes every call once; the second adds only
+  # the two uncached ones, `daemon status` and the empty `runs` listing.
+  [ "$(grep -Evc '\|axi|\|daemon status$|\|runs ' "$d/nm.log")" -eq 0 ] || fail "unexpected no-mistakes call: $(tr '\n' ';' < "$d/nm.log")"
+  [ "$(grep -c '|daemon status$' "$d/nm.log")" -le 2 ] || fail "daemon probe ran more than once per read"
   ! grep -qv '^1|' "$d/nm.log" || fail "a no-mistakes call ran without NO_MISTAKES_NO_UPDATE_CHECK=1"
   pass "status cache hit skips the second spawn and every call skips the update check"
 }
@@ -1547,6 +1552,87 @@ test_landed_lane_skips_every_no_mistakes_spawn() {
   out=$(lowload_run "$d" FM_NM_LOWLOAD=0)
   [ -s "$d/nm.log" ] || fail "FM_NM_LOWLOAD=0 did not restore the run lookup for a landed lane"
   pass "landed lane skips every no-mistakes spawn"
+}
+
+# Lib-level cache cases drive fm_nm_cached_checked directly against the fake.
+cache_case() {  # <name> -> case dir with a fake no-mistakes and an empty cache
+  local d
+  d=$(new_case "$1")
+  make_repo_on_branch "$d/wt" fm/feat-load
+  make_fakebin "$d" >/dev/null
+  : > "$d/nm.log"
+  printf '%s\n' "$d"
+}
+
+cache_read() {  # <case-dir> [VAR=val ...]
+  local d=$1
+  shift
+  (
+    # shellcheck source=/dev/null
+    . "$ROOT/bin/fm-nm-run-lib.sh"
+    env FM_NM_LIB="$ROOT/bin/fm-nm-run-lib.sh" FM_FAKE_NM_LOG="$d/nm.log" "$@" PATH="$d/fakebin:$PATH" \
+      bash -c '. "$FM_NM_LIB"; fm_nm_cached_checked "$1" "$2" 4 axi status' _ "$d/cache" "$d/wt"
+  )
+}
+
+test_parallel_cold_reads_spawn_once() {
+  reset_fakes
+  local d i
+  d=$(cache_case cache-parallel)
+  FM_FAKE_AXI_STATUS="$(run_running fm/feat-load)"
+  export FM_FAKE_AXI_STATUS
+  for i in 1 2 3 4 5 6; do
+    cache_read "$d" FM_FAKE_NM_SLEEP=1 > "$d/out.$i" &
+  done
+  wait
+  [ "$(wc -l < "$d/nm.log")" -eq 1 ] || fail "parallel cold reads spawned $(wc -l < "$d/nm.log") times: $(cat "$d/nm.log")"
+  for i in 2 3 4 5 6; do
+    cmp -s "$d/out.1" "$d/out.$i" || fail "parallel reader $i saw different output"
+  done
+  [ -s "$d/out.1" ] || fail "parallel readers got no output"
+  pass "parallel cold reads spawn the CLI once"
+}
+
+test_cache_recovers_orphaned_lock_with_one_spawn() {
+  reset_fakes
+  local d lock
+  d=$(cache_case cache-orphan)
+  FM_FAKE_AXI_STATUS="$(run_running fm/feat-load)"
+  export FM_FAKE_AXI_STATUS
+  cache_read "$d" > /dev/null
+  lock=$(ls "$d"/cache/*.out | sed 's/\.out$/.lock/')
+  rm -f "$d"/cache/*.out
+  mkdir "$lock"
+  touch -t 202001010000 "$lock"
+  : > "$d/nm.log"
+  cache_read "$d" > /dev/null
+  [ "$(wc -l < "$d/nm.log")" -eq 1 ] || fail "orphaned lock recovery spawned $(wc -l < "$d/nm.log") times"
+  [ ! -d "$lock" ] || fail "recovered lock was left behind"
+  [ -s "$(ls "$d"/cache/*.out)" ] || fail "refresh after lock recovery did not publish"
+  pass "an orphaned lock is recovered with one publishing spawn"
+}
+
+test_cache_serves_stale_on_wait_timeout_and_prunes_old_entries() {
+  reset_fakes
+  local d lock out calls
+  d=$(cache_case cache-stale)
+  FM_FAKE_AXI_STATUS="$(run_running fm/feat-load)"
+  export FM_FAKE_AXI_STATUS
+  cache_read "$d" > /dev/null
+  lock=$(ls "$d"/cache/*.out | sed 's/\.out$/.lock/')
+  touch -t 202001010000 "$d"/cache/*.out
+  mkdir "$lock"   # a live writer holds the lock for longer than this reader waits
+  : > "$d/nm.log"
+  out=$(cache_read "$d")
+  calls=$(wc -l < "$d/nm.log")
+  rmdir "$lock"
+  [ "$calls" -eq 0 ] || fail "wait timeout spawned the CLI instead of serving the stale entry"
+  [ -n "$out" ] || fail "wait timeout served nothing"
+  printf 'old\n' > "$d/cache/zzz.out"
+  touch -t 202001010000 "$d/cache/zzz.out" "$d"/cache/*.out
+  cache_read "$d" > /dev/null
+  [ ! -e "$d/cache/zzz.out" ] || fail "publish did not prune an entry older than a few TTLs"
+  pass "wait timeout serves the stale entry and publish prunes old entries"
 }
 
 test_lowload_kill_switch_restores_old_behavior() {
@@ -5741,6 +5827,9 @@ test_terminal_passed_uses_matching_retirement_receipt_without_forge
 test_status_cache_hit_skips_second_spawn_and_update_check
 test_status_cache_expires_after_ttl
 test_landed_lane_skips_every_no_mistakes_spawn
+test_parallel_cold_reads_spawn_once
+test_cache_recovers_orphaned_lock_with_one_spawn
+test_cache_serves_stale_on_wait_timeout_and_prunes_old_entries
 test_lowload_kill_switch_restores_old_behavior
 test_terminal_passed_no_forge_switch_skips_read_but_keeps_receipt
 test_terminal_passed_with_open_pr_does_not_claim_merged
