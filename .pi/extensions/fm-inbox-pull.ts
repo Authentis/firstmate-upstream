@@ -196,10 +196,13 @@ export default function (pi: ExtensionAPI) {
       if (mine !== generation) return;
       recordFailure(`pull failed: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
-      inFlight = false;
-      if (pullQueued) {
-        pullQueued = false;
-        void pull();
+      // a stale pull must not clear the flag of the session that replaced it
+      if (mine === generation) {
+        inFlight = false;
+        if (pullQueued) {
+          pullQueued = false;
+          void pull();
+        }
       }
     }
   };
@@ -224,6 +227,7 @@ export default function (pi: ExtensionAPI) {
     awaiting = null;
     lastPeekAt = 0;
     pullQueued = false;
+    inFlight = false;
     markLoaded();
     stopIdleTick();
     // Timers belong to the session: created here, cleared in session_shutdown.
@@ -234,10 +238,13 @@ export default function (pi: ExtensionAPI) {
     const beat = (): void => {
       if (disabled || stopped || inFlight) return;
       inFlight = true;
+      const mine = generation;
       void runOwner(["beat"]).then((result) => {
+        if (mine !== generation) return;
         if (result.ok) consecutiveFailures = 0;
         else recordFailure(result.detail);
       }).catch(() => {}).finally(() => {
+        if (mine !== generation) return;
         inFlight = false;
         if (pullQueued) {
           pullQueued = false;
@@ -266,7 +273,9 @@ export default function (pi: ExtensionAPI) {
     );
     if (!seen) return undefined;
     awaiting = null;
+    const mine = generation;
     const commit = await runOwner(["commit", "--txn", wanted.txn]);
+    if (mine !== generation) return undefined;
     if (commit.ok) consecutiveFailures = 0;
     else recordFailure(commit.detail);
     return undefined;
