@@ -1,0 +1,20 @@
+lab homes: sm-bosgame=/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-lab.vMvf3E sm-netcup=/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-lab.eQuFBD
+[sm-bosgame] appended order id=1 at t=0
+[sm-netcup] appended order id=1 at t=0
+[sm-bosgame] t=16s wake row in queue: 1792308066	1	check	orders:pending	check: 1 order(s) pending in state/orders.jsonl (ids 1) - list them with bin/fm-order-ledger.sh pending and ack each by id with bin/fm-order-ledger.sh ack <id>
+[sm-netcup] t=16s wake row in queue: 1792308066	1	check	orders:pending	check: 1 order(s) pending in state/orders.jsonl (ids 1) - list them with bin/fm-order-ledger.sh pending and ack each by id with bin/fm-order-ledger.sh ack <id>
+[sm-bosgame] pending: 1 firstmate replay: report your head sha
+[sm-netcup] pending: 1 firstmate replay: report your head sha
+[sm-bosgame] acked 1
+[sm-bosgame] ACKED at t=16s (bound 60s)
+[sm-netcup] acked 1
+[sm-netcup] ACKED at t=16s (bound 60s)
+[sm-bosgame] pending after next poll: '' orders.pending bytes: 0
+[sm-netcup] pending after next poll: '' orders.pending bytes: 0
+[sm-bosgame] re-ack: already acked 1
+[sm-bosgame] acks file: {"id":1,"ts":1792308067}
+[sm-bosgame] poll stderr: ''
+[sm-netcup] re-ack: already acked 1
+[sm-netcup] acks file: {"id":1,"ts":1792308067}
+[sm-netcup] poll stderr: ''
+labs removed

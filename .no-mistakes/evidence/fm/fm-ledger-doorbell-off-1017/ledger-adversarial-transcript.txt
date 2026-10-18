@@ -1,0 +1,56 @@
+
+$ append three orders
+1
+2
+3
+
+$ poll --once twice -> exactly one wake row (never stacks)
+orders:pending wake rows: 1
+
+$ ack 2 only (out of order)
+acked 2
+rc=0
+
+$ pending (1 and 3 remain; acking 2 did not ack 1)
+1 firstmate order A
+3 firstmate order C
+
+$ ack 2 again -> idempotent
+already acked 2
+rc=0
+
+$ ack 99 (no such line) -> refused
+fm-order-ledger: no order line with id 99
+rc=2
+
+$ ack abc -> refused
+fm-order-ledger: not a line id: abc
+rc=2
+
+$ real wake drain consumes the queue (fm-wake-drain.sh --ack)
+1792308118	1	check	orders:pending	check: 3 order(s) pending in state/orders.jsonl (ids 1,2,3) - list them with bin/fm-order-ledger.sh pending and ack each by id with bin/fm-order-ledger.sh ack <id>
+drain ack command: bin/fm-wake-drain.sh --ack-through 1 --recovery-generation 6652.1792308118.A4aBaN
+orders:pending wake rows after drain ack: 0
+0
+
+$ poll again while 1,3 still pending -> wake re-queued (delivery repeats)
+orders:pending wake rows: 1
+
+$ ack 1 3; poll -> nothing pending, view empty
+acked 1
+acked 3
+pending='' view bytes=0
+
+$ corrupt acks file -> poll and pending fail loudly, view kept
+fm-order-ledger: /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-lab.eHmtfT/state/orders.acks.jsonl is malformed: every line must be a JSON object with a numeric id
+poll rc=1
+fm-order-ledger: /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-lab.eHmtfT/state/orders.acks.jsonl is malformed: every line must be a JSON object with a numeric id
+fm-order-ledger: cannot read the order ledger
+pending rc=2
+
+$ acks path is a directory -> fails loudly instead of reading as no acks
+fm-order-ledger: /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-lab.eHmtfT/state/orders.acks.jsonl is not a regular file
+fm-order-ledger: cannot read the order ledger
+pending rc=2
+
+lab removed

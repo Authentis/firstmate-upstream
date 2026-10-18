@@ -1,0 +1,41 @@
+
+$ read before any run -> unknown, exit 3
+{"verdict":"unknown","reason":"no status.json at /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-lab.ndMy01/state/status.json","prs":"unknown","lanes":"unknown"}
+rc=3
+
+$ run (real no-mistakes, lab is not a repo) then read
+run rc=0
+{"verdict":"fresh","sources":{"gh":{"ok":true,"error":null},"no_mistakes":{"ok":false,"error":"error: not in a git repository"}},"gate_waits":"unknown","lanes":[{"id":"lane-dead","state":"dead","pid_alive":false,"fresh":true},{"id":"lane-live","state":"live","pid_alive":true,"fresh":true},{"id":"lane-stalled","state":"stalled","pid_alive":true,"fresh":false}]}
+rc=0
+
+$ run with a healthy no-mistakes stand-in (FM_PROBE_NM) then read fresh
+run rc=0
+{"verdict":"fresh","age_s":1,"sources":{"gh":true,"no_mistakes":true},"gate_waits":[{"run_id":"r1","branch":"fm/a,b","step":"test","gate_status":"awaiting_agent","age":"2m30s","age_s":150}]}
+rc=0
+
+$ stale data: status.json generated 1000s ago -> unknown, exit 3
+{"verdict":"unknown","reason":"status.json is 1001s old; the limit is 900s","prs":"unknown","lanes":"unknown","gate_waits":"unknown"}
+rc=3
+
+$ stale at the boundary: --max-age 60 on 61s-old data -> unknown
+{"verdict":"unknown","reason":"status.json is 62s old; the limit is 60s"}
+rc=3
+
+$ future-dated data (clock skew > 60s) -> unknown
+{"verdict":"unknown"}
+rc=3
+
+$ garbage status.json -> unknown
+{"verdict":"unknown","reason":"/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-lab.ndMy01/state/status.json is not a readable fm-status-probe.v1 file"}
+rc=3
+
+$ misordered: --home H read -> refused, status.json untouched
+fm-status-probe: unknown argument: read
+rc=2
+
+$ typo flag: read --max_age 60 -> refused
+fm-status-probe: unknown argument: --max_age
+rc=2
+status.json unchanged after refused calls
+
+lab removed
