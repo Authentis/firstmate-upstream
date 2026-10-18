@@ -18,6 +18,7 @@ case "$3" in
   */pull/1) echo MERGED ;;
   */pull/2) echo CLOSED ;;
   */pull/3) echo OPEN ;;
+  */pull/4) cat "$FM_TEST_PR4_FILE" ;;
   *) exit 1 ;;
 esac
 SH
@@ -55,7 +56,7 @@ add_lane() {
 run_pass() {  # <home> [args]
   local home=$1
   shift
-  FM_HOME=$home FM_TEST_TEARDOWN_LOG="$home/teardown.log" FM_LANE_RETIRE_TEARDOWN="$TMP_ROOT/teardown" \
+  FM_HOME=$home FM_TEST_TEARDOWN_LOG="$home/teardown.log" FM_LANE_RETIRE_TEARDOWN="$TMP_ROOT/teardown" FM_TEST_PR4_FILE="$home/pr4" \
     PATH="$FAKEBIN:$PATH" "$SCRIPT" "$@"
 }
 
@@ -141,3 +142,36 @@ else
   assert_present "$H/state/lane-l.meta" "record removed without an audit record"
 fi
 pass "unwritable log refuses retirement"
+
+# PR reopened between inspection and teardown -> aborted, record kept
+cat > "$TMP_ROOT/hook-reopen" <<'SH'
+#!/usr/bin/env bash
+echo OPEN > "$FM_HOME/pr4"
+SH
+chmod +x "$TMP_ROOT/hook-reopen"
+H=$(new_home reopen)
+add_lane "$H" lane-r 4
+echo CLOSED > "$H/pr4"
+out=$(FM_LANE_RETIRE_PRE_TEARDOWN_HOOK="$TMP_ROOT/hook-reopen" run_pass "$H") || fail "reopen pass exited non-zero"
+assert_contains "$out" "abort lane-r" "reopened PR must abort"
+assert_contains "$out" "PR state changed" "reopened PR reason"
+assert_absent "$H/teardown.log" "reopened PR was torn down"
+assert_present "$H/state/lane-r.meta" "reopened PR record removed"
+pass "reopened PR aborts retirement"
+
+# head moves between inspection and teardown -> aborted, record kept
+cat > "$TMP_ROOT/hook-move" <<'SH'
+#!/usr/bin/env bash
+wt=$(sed -n 's/^worktree=//p' "$FM_HOME/state/$1.meta")
+echo late > "$wt/late"
+git -C "$wt" add late
+git -C "$wt" commit -qm late
+SH
+chmod +x "$TMP_ROOT/hook-move"
+H=$(new_home moved)
+add_lane "$H" lane-h 1
+out=$(FM_LANE_RETIRE_PRE_TEARDOWN_HOOK="$TMP_ROOT/hook-move" run_pass "$H") || fail "moved pass exited non-zero"
+assert_contains "$out" "abort lane-h" "moved head must abort"
+assert_absent "$H/teardown.log" "moved head was torn down"
+assert_present "$H/state/lane-h.meta" "moved head record removed"
+pass "moved head aborts retirement"

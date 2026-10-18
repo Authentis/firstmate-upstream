@@ -184,18 +184,21 @@ for meta in "$STATE"/*.meta; do
   fi
   args=("$id")
   [ "$st" != closed ] || args+=(--force)
+  if ! log intent "$id" "PR $st $pr"; then
+    echo "fm-lane-retire: cannot write $LOG; refusing to retire $id" >&2
+    kept=$((kept + 1))
+    continue
+  fi
+  # Guard: the last reads before the destructive call, so any change since
+  # inspection (record, head, edits, or PR state, e.g. a reopened PR) aborts.
+  [ "${FM_TEST_SEAM:-}" != 1 ] || [ -z "${FM_LANE_RETIRE_PRE_TEARDOWN_HOOK:-}" ] || "$FM_LANE_RETIRE_PRE_TEARDOWN_HOOK" "$id"
   if ! lane_unchanged "$meta" "$pr" "$wt" "$head0"; then
-    log refuse "$id" "PR $st but the lane changed after inspection; retry next pass"
+    log abort "$id" "lane changed after inspection (record, head, or edits); retry next pass"
     kept=$((kept + 1))
     continue
   fi
   if [ "$(pr_state "$pr")" != "$st" ]; then
-    log refuse "$id" "PR state changed after inspection; retry next pass"
-    kept=$((kept + 1))
-    continue
-  fi
-  if ! log intent "$id" "PR $st $pr"; then
-    echo "fm-lane-retire: cannot write $LOG; refusing to retire $id" >&2
+    log abort "$id" "PR state changed from $st after inspection; retry next pass"
     kept=$((kept + 1))
     continue
   fi
