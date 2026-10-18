@@ -22,6 +22,16 @@
 #     the standing SO-1 branch-retirement authority for finished lanes.
 # Every action, including each refusal, is appended to data/lane-retire.log.
 #
+# Residual (accepted): the last PR-state and lane rechecks run immediately before
+# teardown, but no check-then-act over the network is atomic, so a PR reopened or a
+# commit made in that instant can still be retired. The safety property is
+# recoverability: the verified bundle is always kept and every retirement is logged
+# (intent line first). Ignored files are neither refused nor bundled, so a CLOSED
+# lane's ignored build output is lost with its worktree.
+# Restore a retired lane's commits from its bundle, in the project clone:
+#   git fetch data/bundles/<id>.bundle HEAD:refs/heads/restore/<id>
+# The log line naming <id> and its PR URL says which lane and PR it was.
+#
 # Kill switch: `touch config/lane-retire.off` (or FM_LANE_RETIRE=off) makes the
 # pass exit 0 before reading anything. A second pass started while one runs exits 0.
 set -u
