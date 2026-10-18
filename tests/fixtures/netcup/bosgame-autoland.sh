@@ -33,7 +33,7 @@ floor_sweep() {
   local pr=$1 head=${2:-} q="$H/state/.floor-q-$1" qh qf
   [ -e "$q" ] || return 0
   read -r qh qf < "$q"
-  if [ "$H/data/xreview/$pr-fam2.md" -nt "$q" ] && grep -q "head=$qh" "$H/data/xreview/$pr-fam2.md" 2>/dev/null && grep -q '^VERDICT:' "$H/data/xreview/$pr-fam2.md"; then rm -f "$q"; return 0; fi
+  if [ -e "$H/data/xreview/$pr-fam2.md" ] && ! [ "$q" -nt "$H/data/xreview/$pr-fam2.md" ] && grep -q "head=$qh" "$H/data/xreview/$pr-fam2.md" 2>/dev/null && grep -q '^VERDICT:' "$H/data/xreview/$pr-fam2.md"; then rm -f "$q"; return 0; fi
   [ -n "$head" ] || head=$(gh pr view "$pr" --repo Authentis/decision-os --json headRefOid -q .headRefOid 2>/dev/null) || return 0
   [ -n "$head" ] && [ "$head" != "$qh" ] || return 0
   # a failed cancel keeps the record so the next pass retries it; a moved head is never re-queued here
@@ -41,7 +41,16 @@ floor_sweep() {
   rm -f "$q"; FLOOR_CANCELLED="$FLOOR_CANCELLED $pr"; echo "bosgame-autoland: PR $pr head moved ${qh:0:8} -> ${head:0:8}; cancelled queued $qf floor review" >&2
   return 1
 }
-floor_autoqueue() {
+floor_autoqueue() {   # serialised: check, reserve, launch and rollback run under one mkdir lock (flock is not portable)
+  local lock="$H/state/.floor-lock" i=0 rc
+  until mkdir "$lock" 2>/dev/null; do
+    i=$((i + 1)); [ "$i" -le 100 ] || { echo "bosgame-autoland: PR $1 floor: queue lock busy; trying again next pass" >&2; return 0; }
+    sleep 0.1
+  done
+  floor_autoqueue_locked "$@"; rc=$?
+  rmdir "$lock"; return "$rc"
+}
+floor_autoqueue_locked() {
   local pr=$1 head=$2 q="$H/state/.floor-q-$1" n=0 fam t
   [ -e "$H/data/floor-autoqueue.off" ] || [ "${DRY:-0}" = 1 ] && return 0
   case "$FLOOR_CANCELLED " in *" $pr "*) return 0;; esac   # cancelled earlier this pass: the new head waits for a later pass

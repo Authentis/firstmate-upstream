@@ -148,6 +148,15 @@ BOSGAME_AUTOLAND_SOURCE_ONLY=1 bash -c '. "$1"; floor_sweep 7 "$2"' _ "$LANDER" 
 if [ ! -e "$H/state/.floor-q-7" ]; then pass "a review that finishes before the queue command returns still clears its record"
 else fail "early completion: record left behind"; fi
 
+new_home concurrent-refusals-respect-the-cap
+lone_pass 7 $HEAD1 12
+printf '%s\n' '#!/usr/bin/env bash' 'echo "queue $*" >> "$H/calls"' 'sleep 0.3' > "$H/queue.sh"
+run_floor 7 $HEAD1 &
+run_floor 7 $HEAD1 &
+wait
+if [ "$(calls)" = 1 ] && [ ! -d "$H/state/.floor-lock" ]; then pass "two overlapping refusals of one PR launch a single review and release the lock"
+else fail "concurrent: $(cat "$H/calls")"; fi
+
 new_home cancel-ends-the-pass
 lone_pass 7 $HEAD1 12
 run_floor 7 $HEAD1
