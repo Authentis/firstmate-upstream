@@ -351,6 +351,11 @@ strip_quotes() { fm_nm_strip_quotes "$@"; }
 nm_run() {  # <args...>
   fm_nm_run "$WT" "$NM_TIMEOUT" "$@"
 }
+# The run-inventory reads (`axi`, `axi status [--run]`, `runs`) share the ~2 min
+# cache in bin/fm-nm-run-lib.sh once FM_NM_CACHE_DIR names it; FM_NM_LOWLOAD=0
+# bypasses it.
+FM_NM_CACHE_DIR=${FM_NM_CACHE_DIR:-$STATE/nm-cache}
+export FM_NM_CACHE_DIR
 
 # Scalar value of a TOON key in the captured run output ($RUN_OUT).
 RUN_OUT=""
@@ -964,6 +969,11 @@ SELECTED_RUN_ID=""
 # Scouts and secondmates never drive a no-mistakes validation of their own
 # worktree, so skip the lookup for them and read state from pane/log directly.
 if [ "$KIND" = ship ] && [ -n "$CREW_BRANCH" ] && command -v no-mistakes >/dev/null 2>&1; then
+  # A landed lane (valid merge-poll retirement receipt, a local read) has
+  # nothing left to validate: skip every no-mistakes spawn for it.
+  if fm_nm_lowload_enabled && fm_pr_poll_retirement_receipt_valid "$STATE" "$ID"; then
+    emit "done" run-step "run passed: PR merged (landed; run lookup skipped): $FM_PR_RETIRE_URL"
+  fi
   RUN_OUT=$(nm_run axi status)
   if [ "$(strip_quotes "$(printf '%s\n' "$RUN_OUT" | sed -n 's/^error: //p')")" = "repo not initialized (run 'no-mistakes init' first)" ]; then
     RUN_OUT=""

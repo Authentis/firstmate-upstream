@@ -85,6 +85,7 @@ make_fakebin() {  # <dir> -> echoes fakebin path
   cat > "$fb/no-mistakes" <<'SH'
 #!/usr/bin/env bash
 set -u
+printf '%s|%s\n' "${NO_MISTAKES_NO_UPDATE_CHECK:-}" "$*" >> "${FM_FAKE_NM_LOG:-/dev/null}"
 case "${1:-}" in
   axi)
     shift
@@ -1474,6 +1475,93 @@ test_terminal_passed_with_skips() {
   pass "terminal passed-with-skips run reads done with the skip kept visible"
 }
 
+# Heartbeat load: repeated reads share a ~2 min cache, skip the CLI's update
+# probe, and never spawn it for a landed lane; FM_NM_LOWLOAD=0 restores the
+# old behavior.
+lowload_case() {  # <name> -> case dir with one live ship lane on a running run
+  local d
+  d=$(new_case "$1")
+  make_repo_on_branch "$d/wt" fm/feat-load
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/feat-load.meta" "window=fm:fm-feat-load" "worktree=$d/wt" "kind=ship"
+  : > "$d/nm.log"
+  printf '%s\n' "$d"
+}
+
+lowload_run() {  # <case-dir> [VAR=val ...]
+  local d=$1
+  shift
+  env FM_FAKE_NM_LOG="$d/nm.log" "$@" PATH="$d/fakebin:$PATH" FM_STATE_OVERRIDE="$d/state" "$CREW_STATE" feat-load
+}
+
+test_status_cache_hit_skips_second_spawn_and_update_check() {
+  reset_fakes
+  local d out1 out2 first second
+  d=$(lowload_case lowload-hit)
+  FM_FAKE_AXI_STATUS="$(run_running fm/feat-load)"
+  out1=$(lowload_run "$d")
+  first=$(grep -c '|axi' "$d/nm.log")
+  out2=$(lowload_run "$d")
+  second=$(grep -c '|axi' "$d/nm.log")
+  assert_contains "$out1" "source: run-step" "first read uses the run-step"
+  [ "$out1" = "$out2" ] || fail "cached read changed the verdict: $out1 vs $out2"
+  [ "$first" -ge 1 ] || fail "first read never called axi status"
+  # Run-inventory reads are cached; the daemon liveness probe and an empty
+  # `runs` listing are deliberately re-read.
+  [ "$first" = "$second" ] || fail "second read within the TTL respawned axi ($first -> $second): $(tr '\n' ';' < "$d/nm.log")"
+  ! grep -qv '^1|' "$d/nm.log" || fail "a no-mistakes call ran without NO_MISTAKES_NO_UPDATE_CHECK=1"
+  pass "status cache hit skips the second spawn and every call skips the update check"
+}
+
+test_status_cache_expires_after_ttl() {
+  reset_fakes
+  local d first second
+  d=$(lowload_case lowload-ttl)
+  FM_FAKE_AXI_STATUS="$(run_running fm/feat-load)"
+  lowload_run "$d" >/dev/null
+  first=$(wc -l < "$d/nm.log")
+  touch -t 202001010000 "$d"/state/nm-cache/*.out
+  lowload_run "$d" >/dev/null
+  second=$(wc -l < "$d/nm.log")
+  [ "$second" -gt "$first" ] || fail "expired cache entry was served ($first -> $second)"
+  lowload_run "$d" FM_NM_CACHE_TTL=0 >/dev/null
+  [ "$(wc -l < "$d/nm.log")" -gt "$second" ] || fail "FM_NM_CACHE_TTL=0 still served the cache"
+  pass "status cache expires after the TTL and TTL=0 disables it"
+}
+
+test_landed_lane_skips_every_no_mistakes_spawn() {
+  reset_fakes
+  local d url out
+  d=$(new_case lowload-landed)
+  url=https://github.com/o/r/pull/1
+  make_repo_on_branch "$d/wt" fm/feat-load
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/feat-load.meta" "window=fm:fm-feat-load" "worktree=$d/wt" "kind=ship" "pr=$url"
+  seed_retired_pr_receipt "$d/state" feat-load "$url"
+  : > "$d/nm.log"
+  FM_FAKE_AXI_STATUS="$(run_passed_no_pr fm/feat-load)"
+  out=$(lowload_run "$d")
+  assert_contains "$out" "state: done" "landed lane reads done"
+  assert_contains "$out" "PR merged" "landed lane reports the merge"
+  [ ! -s "$d/nm.log" ] || fail "landed lane still spawned no-mistakes: $(cat "$d/nm.log")"
+  out=$(lowload_run "$d" FM_NM_LOWLOAD=0)
+  [ -s "$d/nm.log" ] || fail "FM_NM_LOWLOAD=0 did not restore the run lookup for a landed lane"
+  pass "landed lane skips every no-mistakes spawn"
+}
+
+test_lowload_kill_switch_restores_old_behavior() {
+  reset_fakes
+  local d
+  d=$(lowload_case lowload-off)
+  FM_FAKE_AXI_STATUS="$(run_running fm/feat-load)"
+  lowload_run "$d" FM_NM_LOWLOAD=0 >/dev/null
+  lowload_run "$d" FM_NM_LOWLOAD=0 >/dev/null
+  [ ! -d "$d/state/nm-cache" ] || fail "kill switch still wrote a cache"
+  grep -q '^|' "$d/nm.log" || fail "kill switch still set NO_MISTAKES_NO_UPDATE_CHECK"
+  [ "$(grep -c '^|axi status$' "$d/nm.log")" -ge 2 ] || fail "kill switch did not re-run axi status each read"
+  pass "FM_NM_LOWLOAD=0 restores uncached, update-checking calls"
+}
+
 test_terminal_passed_uses_matching_retirement_receipt_without_forge() {
   reset_fakes
   local d url read_log out
@@ -1941,6 +2029,8 @@ EOF
   FM_FAKE_AXI_STATUS="$(run_running fm/cancelled)"
   out=$(FM_HOME="$d" run_crew_state "$d" cancelled)
   assert_contains "$out" 'state: working' 'fixture begins with active validation'
+  # The fixture transitions inside the status cache's TTL, so drop the entry.
+  rm -rf "$d/state/nm-cache"
   # Deliberately transition the external instrument fixture to cancelled.
   # This executes Firstmate end to end; it does not cancel a real daemon run.
   FM_FAKE_AXI_STATUS="$(run_failed fm/cancelled)"
@@ -5648,6 +5738,10 @@ test_terminal_passed
 test_terminal_passed_with_override
 test_terminal_passed_with_skips
 test_terminal_passed_uses_matching_retirement_receipt_without_forge
+test_status_cache_hit_skips_second_spawn_and_update_check
+test_status_cache_expires_after_ttl
+test_landed_lane_skips_every_no_mistakes_spawn
+test_lowload_kill_switch_restores_old_behavior
 test_terminal_passed_no_forge_switch_skips_read_but_keeps_receipt
 test_terminal_passed_with_open_pr_does_not_claim_merged
 test_terminal_passed_run_pr_overrides_stale_metadata
