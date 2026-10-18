@@ -3067,6 +3067,13 @@ while :; do
     triage_log "inactive-outcome reconciliation unavailable"
   fi
 
+  # Lane reaper: self-throttled; dry-run unless config/lane-reaper-live exists.
+  # Ends only idle done/paused agents, through fm-control (bin/fm-lane-reaper.sh).
+  reaper_flag=
+  [ ! -f "$FM_HOME/config/lane-reaper-live" ] || reaper_flag=--live
+  FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
+    "$SCRIPT_DIR/fm-lane-reaper.sh" scan $reaper_flag >/dev/null 2>&1 || true
+
   # A ship whose worker opened a PR but never recorded it has no merge poll;
   # this bounded, self-gated scan finds the PR on the forge and records it
   # through bin/fm-pr-check.sh. Silent unless it recorded something.
