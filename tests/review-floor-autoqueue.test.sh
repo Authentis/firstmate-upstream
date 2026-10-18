@@ -74,6 +74,13 @@ run_floor 7 $HEAD1
 if [ "$(cat "$H/calls")" = "queue grok 7 $HEAD1 $H/data/xreview/7-fam2.md" ]; then pass "GPT-family entries are never queued"
 else fail "gpt skip: $(cat "$H/calls")"; fi
 
+new_home family-skips-primary-reviewer
+lone_pass 7 $HEAD1 12
+printf 'kimi muse\n' > "$H/data/floor-families"
+run_floor 7 $HEAD1
+if [ "$(cat "$H/calls")" = "queue muse 7 $HEAD1 $H/data/xreview/7-fam2.md" ]; then pass "the primary reviewer's family is never queued, even when configured"
+else fail "primary skip: $(cat "$H/calls")"; fi
+
 new_home queue-fails-falls-through
 lone_pass 7 $HEAD1 12
 printf '%s\n' '#!/usr/bin/env bash' 'echo "queue $*" >> "$H/calls"' '[ "$1" != muse ]' > "$H/queue.sh"

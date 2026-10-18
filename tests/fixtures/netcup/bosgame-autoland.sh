@@ -26,7 +26,7 @@ floor_ok() {
 # head moved (the old head's review is never repeated; the new head earns its own 2 only if it again hits the floor). Families, preference
 # order, one per line or space separated: data/floor-families (default "muse grok"; never a GPT family and never the primary reviewer's family, which is Kimi). Kill switch: data/floor-autoqueue.off.
 # Queue/cancel commands are data/bin/xreview.sh --family/--cancel; FLOOR_QUEUE_CMD / FLOOR_CANCEL_CMD override them (tests stub them).
-floor_families() { local f; f=$(cat "$H/data/floor-families" 2>/dev/null); printf '%s\n' ${f:-muse grok} | grep -viE '^(gpt|openai|codex|sol)' ; }
+floor_families() { local f; f=$(cat "$H/data/floor-families" 2>/dev/null); printf '%s\n' ${f:-muse grok} | grep -viE '^(gpt|openai|codex|sol|kimi)' ; }
 floor_family_busy() { local q; for q in "$H"/state/.floor-q-*; do [ -e "$q" ] && [ "$(awk '{print $2}' "$q")" = "$1" ] && return 0; done; return 1; }
 FLOOR_CANCELLED=""
 floor_sweep() {
