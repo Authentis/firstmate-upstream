@@ -135,8 +135,13 @@ launch_pi() {
     printf 'sleep 600\n'
   } > "$C/run.sh"
   "$TMUX" -L "$SOCKET" kill-server 2>/dev/null || true
-  "$TMUX" -L "$SOCKET" new-session -d -s pi -x 200 -y 50 -c "$SM" "bash $C/run.sh" \
-    || fail "could not start the tmux pane"
+  # a server that is still shutting down refuses a new session on its socket
+  local tries=0
+  until "$TMUX" -L "$SOCKET" new-session -d -s pi -x 200 -y 50 -c "$SM" "bash $C/run.sh" 2>/dev/null; do
+    tries=$((tries + 1))
+    [ "$tries" -lt 20 ] || fail "could not start the tmux pane"
+    sleep 0.5
+  done
 }
 
 pane_text() {
