@@ -138,6 +138,8 @@ test_absent_pin_keeps_the_launch_unchanged() {
     "an unpinned launch must leave the pane's environment credentials alone"
 
   new_case absent-pi pi
+  mkdir -p "$HOME_DIR/user-home/.pi/agent"
+  printf 'openai-codex  gpt-5.5  272K\n' > "$HOME_DIR/user-home/.pi/agent/listed"
   out=$(spawn_ship acct-absent-pi --model gpt-5.5); rc=$?
   expect_code 0 "$rc" "an unpinned Pi spawn with an unqualified model should succeed: $out"
   assert_not_contains "$(cat "$CASE/launch.log")" "--provider" "an unpinned Pi launch must not add a provider"
@@ -236,6 +238,7 @@ test_pi_pin_selects_the_root_and_the_declared_provider() {
   mkdir -p "$CASE/pi-work"
   printf 'openai-codex\n' > "$CASE/pi-work/signed-in"
   printf '%s\nopenai-codex anthropic\n' "$CASE/pi-work" > "$HOME_DIR/config/pi-account"
+  printf 'openai-codex  gpt-5.5  272K\n' > "$CASE/pi-work/listed"
   out=$(spawn_ship "$id" --model openai-codex/gpt-5.5); rc=$?
   expect_code 0 "$rc" "a Pi spawn pinned to a signed-in provider should succeed: $out"
   assert_contains "$out" "account=$CASE/pi-work account_provider=openai-codex" \
@@ -309,6 +312,8 @@ test_a_pin_governs_only_its_own_runner() {
   out=$(spawn_ship "$id-codex"); rc=$?
   expect_code 0 "$rc" "a codex spawn must ignore a Claude pin: $out"
   assert_not_contains "$out" "account=" "a codex spawn must not report a Claude pin"
+  mkdir -p "$HOME_DIR/user-home/.pi/agent"
+  printf 'openai-codex  gpt-5.5  272K\n' > "$HOME_DIR/user-home/.pi/agent/listed"
   out=$(spawn_ship "$id-pi" --harness pi --model gpt-5.5); rc=$?
   expect_code 0 "$rc" "a Pi spawn must ignore a Claude pin: $out"
   assert_absent "$CASE/claude-checks" "no Claude sign-in check may run for another runner"

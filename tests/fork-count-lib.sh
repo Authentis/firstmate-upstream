@@ -19,7 +19,6 @@ FC_TOOLS="sleep ps awk shasum sha256sum sed tr cat date stat mktemp mv wc head t
 fc_make_shims() { # <dir>
   local dir=$1 tool real
   mkdir -p "$dir"
-  FC_SHIM_DIR=$dir
   for tool in $FC_TOOLS; do
     real=$(PATH=/usr/bin:/bin:/usr/sbin:/sbin command -v "$tool") || continue
     cat > "$dir/$tool" <<SH

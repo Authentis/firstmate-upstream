@@ -29,6 +29,9 @@ if [ "${1:-}" = --help ]; then
   *) printf '%s\n' "Pi ${FM_FAKE_PI_VERSION:-0.84.0}" 'Options: --help --tui-mode <mode> --approve' ;;
   esac
 fi
+if [ "${1:-}" = --list-models ]; then
+  printf '%s\n' 'provider      model         context' 'openai-codex  gpt-5.6-sol   272K'
+fi
 exit 0
 SH
   chmod +x "$fakebin/$tool"
@@ -37,8 +40,18 @@ SH
 make_spawn_fakebin() {
   local dir=$1 fakebin
   fakebin=$(fm_test_make_spawn_fakebin "$dir")
+  # Mirrors timeout(1)'s argument shape (options, then the duration, then the
+  # command) without bounding anything.
   cat > "$fakebin/timeout" <<'SH'
 #!/usr/bin/env bash
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -k|-s|--kill-after|--signal) shift 2 ;;
+    --) shift; break ;;
+    -*) shift ;;
+    *) break ;;
+  esac
+done
 shift
 exec "$@"
 SH
@@ -50,7 +63,12 @@ if [ "${1:-}" = --list-models ]; then
 fi
 exit 0
 SH
-  chmod +x "$fakebin/timeout" "$fakebin/cursor-agent"
+  cat > "$fakebin/opencode" <<'SH'
+#!/usr/bin/env bash
+[ "${1:-}" != models ] || printf '%s\n' anthropic/claude-sonnet-4-5 openai/gpt-5.6-sol
+exit 0
+SH
+  chmod +x "$fakebin/timeout" "$fakebin/cursor-agent" "$fakebin/opencode"
   make_spawn_pi_probe "$fakebin" pi
   make_spawn_pi_probe "$fakebin" pi-signed
   printf '%s\n' "$fakebin"
@@ -1037,7 +1055,7 @@ test_pi_signed_persistent_secondmate_uses_pi_extensions_and_identity() {
   id=profile-pi-signed-secondmate-z8d
   rec=$(make_spawn_case profile-pi-signed-secondmate codex "$id")
   read_case_record "$rec"
-  printf '%s\n' pi-signed > "$HOME_DIR/config/secondmate-harness"
+  printf '%s\n' 'pi-signed openai/gpt-6.1-sol' > "$HOME_DIR/config/secondmate-harness"
   sm="$CASE_DIR/secondmate-home"
   make_seeded_secondmate_home "$sm" "$id"
   sm=$(cd "$sm" && pwd -P)
@@ -1049,13 +1067,13 @@ test_pi_signed_persistent_secondmate_uses_pi_extensions_and_identity() {
   expect_code 0 "$status" "pi-signed persistent secondmate spawn should succeed"
   assert_contains "$out" "spawned $id harness=pi-signed kind=secondmate" \
     "pi-signed secondmate spawn did not preserve its runtime identity"
-  assert_meta_profile "$HOME_DIR/state/$id.meta" pi-signed default default
+  assert_meta_profile "$HOME_DIR/state/$id.meta" pi-signed openai/gpt-6.1-sol default
   cmp -s "$ROOT/AGENTS.md" "$sm/AGENTS.md" || fail "secondmate launch rewrote the supervisor contract"
   cmp -s "$CASE_DIR/charter-before" "$sm/data/charter.md" || fail "secondmate launch rewrote the charter"
   assert_absent "$HOME_DIR/data/$id/launch-brief.md" "secondmate launch received a worker overlay"
   launch=$(cat "$LAUNCH_LOG")
   assert_contains "$launch" "< '$sm/data/charter.md'" "secondmate launch lost its original charter"
-  assert_contains "$launch" "FM_PI_HARNESS=pi-signed '$FAKEBIN_DIR/pi-signed' --tui-mode regular --approve -e '$sm/.pi/extensions/fm-primary-turnend-guard.ts' -e '$sm/.pi/extensions/fm-primary-pi-watch.ts'" \
+  assert_contains "$launch" "FM_PI_HARNESS=pi-signed '$FAKEBIN_DIR/pi-signed' --tui-mode regular --approve --model 'openai/gpt-6.1-sol' -e '$sm/.pi/extensions/fm-primary-turnend-guard.ts' -e '$sm/.pi/extensions/fm-primary-pi-watch.ts'" \
     "pi-signed secondmate did not force the regular TUI with Pi's primary extension launch shape and seeded-home --approve"
   if [ "${FM_TEST_EVIDENCE:-0}" = 1 ]; then
     printf '# evidence begin: persistent secondmate\n%s\n' "$out"
@@ -1072,7 +1090,7 @@ test_pi_seeded_secondmate_preapproves_project_trust() {
     id="profile-${harness}-seeded-approve-z8e"
     rec=$(make_spawn_case "profile-${harness}-seeded-approve" codex "$id")
     read_case_record "$rec"
-    printf '%s\n' "$harness" > "$HOME_DIR/config/secondmate-harness"
+    printf '%s openai/gpt-6.1-sol\n' "$harness" > "$HOME_DIR/config/secondmate-harness"
     sm="$CASE_DIR/secondmate-home"
     make_seeded_secondmate_home "$sm" "$id"
     sm=$(cd "$sm" && pwd -P)
@@ -1114,7 +1132,7 @@ test_pi_approve_probe_omits_unsupported_flag() {
     id="profile-${harness}-no-approve-z8g"
     rec=$(make_spawn_case "profile-${harness}-no-approve" codex "$id")
     read_case_record "$rec"
-    printf '%s\n' "$harness" > "$HOME_DIR/config/secondmate-harness"
+    printf '%s openai/gpt-6.1-sol\n' "$harness" > "$HOME_DIR/config/secondmate-harness"
     sm="$CASE_DIR/secondmate-home"
     make_seeded_secondmate_home "$sm" "$id"
     sm=$(cd "$sm" && pwd -P)
@@ -1427,7 +1445,7 @@ test_pi_exclude_tools_do_not_leak_across_homes_or_to_secondmates() {
   id_a=excl-sm-z9h
   rec_a=$(make_spawn_case excl-sm codex "$id_a")
   read_case_record "$rec_a"
-  printf '%s\n' pi > "$HOME_DIR/config/secondmate-harness"
+  printf '%s\n' 'pi openai/gpt-6.1-sol' > "$HOME_DIR/config/secondmate-harness"
   write_exclude_file "$HOME_DIR" 'mcp__srv__writeTool'
   sm="$CASE_DIR/secondmate-home"
   make_seeded_secondmate_home "$sm" "$id_a"
