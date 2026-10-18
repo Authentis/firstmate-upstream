@@ -332,7 +332,7 @@ test_kill_env() {
 
 test_missing_owner() {
   build_world missing-owner missing
-  start_provider 6 'sleep 2; echo step'
+  start_provider 6 'sleep 3; echo step'
   launch_pi 'export FM_INBOX_PULL_MIN_INTERVAL=0' ''
   wait_for_requests 1 60 || fail "pi never made its first model request: $(pi_diag)"
   drop 'steer that cannot be pulled because the owner is missing.'

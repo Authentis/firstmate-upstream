@@ -41,10 +41,10 @@ const IDLE_TICK_MS = 15_000;
 const OWNER_TIMEOUT_MS = 5_000;
 const MAX_CONSECUTIVE_FAILURES = 5;
 
-function minIntervalMs(): number {
-  const seconds = Number(process.env.FM_INBOX_PULL_MIN_INTERVAL || "30");
-  return (Number.isFinite(seconds) && seconds >= 0 ? seconds : 30) * 1000;
-}
+// The owner alone owns the 30 s throttle (it persists across restarts and knows
+// whether a scan really ran). This only debounces a burst of fast tool results so
+// each does not start its own bash process.
+const LOCAL_DEBOUNCE_MS = 2_000;
 
 function ownerEnv(): NodeJS.ProcessEnv {
   return {
@@ -146,7 +146,8 @@ export default function (pi: ExtensionAPI) {
     }
     // A wall clock that moved backwards must not silence the pull until it catches up.
     if (at < lastPeekAt) lastPeekAt = 0;
-    if (at - lastPeekAt < minIntervalMs()) return;
+    if (at - lastPeekAt < LOCAL_DEBOUNCE_MS) return;
+    lastPeekAt = at;
     inFlight = true;
     try {
       const peek = await runOwner(["peek"]);
@@ -154,8 +155,6 @@ export default function (pi: ExtensionAPI) {
         recordFailure(peek.detail);
         return;
       }
-      // Only a scan the owner actually ran spends the throttle window.
-      lastPeekAt = at;
       const notice = peek.stdout.trim();
       if (!notice) {
         consecutiveFailures = 0;
