@@ -73,10 +73,17 @@ fm_nm_run_bounded() {  # <dir> <timeout_secs> <args...>
 # Entries older than five TTLs are pruned on publish. Only exit-0 non-empty
 # output is cached, so an error or timeout is never replayed. Prints the output
 # and returns the call's status.
-FM_NM_RUN_LIB_PATH=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/${BASH_SOURCE[0]##*/}
+case ${BASH_SOURCE[0]} in
+  */*) _fm_nm_lib_dir=${BASH_SOURCE[0]%/*} ;;
+  *) _fm_nm_lib_dir=. ;;
+esac
+FM_NM_RUN_LIB_PATH=$(cd "$_fm_nm_lib_dir" && pwd)/${BASH_SOURCE[0]##*/}
+unset _fm_nm_lib_dir
 
 fm_nm_cache_mtime() {  # <path>
-  stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null || echo 0
+  # GNU stat first: BSD stat rejects -c without output, whereas GNU stat -f
+  # prints filesystem details on stdout before failing.
+  stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null || echo 0
 }
 
 # Run <command...> holding an exclusive flock on <lockfile>, waiting up to
@@ -138,9 +145,11 @@ fm_nm_cached_checked() {  # <cache_dir> <dir> <timeout_secs> <args...>
   # A collision-resistant digest keeps two lanes from ever sharing an entry;
   # cksum is only the fallback where neither SHA tool exists.
   if command -v shasum >/dev/null 2>&1; then
-    key=$(printf '%s\0' "$dir" "$@" | shasum -a 256 | cut -c1-40)
+    key=$(printf '%s\0' "$dir" "$@" | shasum -a 256)
+    key=${key:0:40}
   elif command -v sha256sum >/dev/null 2>&1; then
-    key=$(printf '%s\0' "$dir" "$@" | sha256sum | cut -c1-40)
+    key=$(printf '%s\0' "$dir" "$@" | sha256sum)
+    key=${key:0:40}
   else
     key=$(printf '%s\0' "$dir" "$@" | cksum | tr ' ' '-')
   fi

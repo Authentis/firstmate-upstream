@@ -1728,6 +1728,36 @@ test_concurrent_crew_state_runs_share_one_status_spawn() {
   pass "concurrent crew-state runs share one axi status spawn"
 }
 
+# GNU stat prints filesystem details on stdout for -f before failing; the age
+# helper must still return a bare number there.
+test_cache_mtime_survives_gnu_stat_semantics() {
+  reset_fakes
+  local d got
+  d=$(new_case cache-gnu-stat)
+  mkdir -p "$d/fakebin"
+  printf 'x\n' > "$d/f"
+  cat > "$d/fakebin/stat" <<'SH'
+#!/usr/bin/env bash
+# GNU-like: -c FORMAT FILE works; -f prints filesystem junk then fails.
+if [ "$1" = -c ]; then echo 1234567890; exit 0; fi
+echo "  File: \"$3\""; echo "    ID: 0 Namelen: 255"; exit 1
+SH
+  chmod +x "$d/fakebin/stat"
+  got=$(PATH="$d/fakebin:$PATH" bash -c '. "$1"; fm_nm_cache_mtime "$2"' _ "$ROOT/bin/fm-nm-run-lib.sh" "$d/f")
+  [ "$got" = 1234567890 ] || fail "cache mtime under GNU stat semantics was [$got]"
+  pass "cache mtime survives GNU stat semantics"
+}
+
+# The library must source under a PATH with no external tools, and resolve its
+# own absolute path with shell builtins only.
+test_library_sources_without_external_tools() {
+  reset_fakes
+  local got
+  got=$(cd "$ROOT/bin" && PATH=/nonexistent "$BASH" -c '. ./fm-nm-run-lib.sh; printf "%s" "$FM_NM_RUN_LIB_PATH"' 2>&1)
+  [ "$got" = "$ROOT/bin/fm-nm-run-lib.sh" ] || fail "library path under an empty PATH was [$got]"
+  pass "the library resolves its own path without external tools"
+}
+
 test_cache_prunes_old_entries_on_publish() {
   reset_fakes
   local d
@@ -5940,6 +5970,8 @@ test_live_holder_past_the_readers_timeout_is_never_overtaken
 test_different_timeouts_share_one_lock
 test_leftover_cli_child_does_not_pin_the_lock
 test_concurrent_crew_state_runs_share_one_status_spawn
+test_cache_mtime_survives_gnu_stat_semantics
+test_library_sources_without_external_tools
 test_cache_prunes_old_entries_on_publish
 test_lowload_kill_switch_restores_old_behavior
 test_terminal_passed_no_forge_switch_skips_read_but_keeps_receipt
