@@ -30,21 +30,10 @@ floor_families() { local f; f=$(cat "$H/data/floor-families" 2>/dev/null); print
 floor_family_busy() { local q; for q in "$H"/state/.floor-q-*; do [ -e "$q" ] && [ "$(awk '{print $2}' "$q")" = "$1" ] && return 0; done; return 1; }
 FLOOR_CANCELLED=""
 FLOOR_LOCK_HELD=0
-# every mutation of the queue records (sweep, reserve, launch, rollback) runs under one mkdir lock (flock is not portable)
-# The holder writes its pid into the lock; a lock whose holder is dead, or that is over 2 minutes old with no pid, is moved aside (atomic mv, so one
-# stealer wins) and the take retried, so a killed pass cannot disable queueing and cancelling for good.
-floor_lock_take() {
-  local lock="$H/state/.floor-lock" i=0 p
-  until mkdir "$lock" 2>/dev/null; do
-    p=$(cat "$lock/pid" 2>/dev/null)
-    if { [ -n "$p" ] && ! kill -0 "$p" 2>/dev/null; } || { [ -z "$p" ] && [ -n "$(find "$lock" -maxdepth 0 -mmin +2 2>/dev/null)" ]; }; then
-      mv "$lock" "$lock.stale.$$" 2>/dev/null && rm -rf "$lock.stale.$$"; continue
-    fi
-    i=$((i + 1)); [ "$i" -le 100 ] || return 1; sleep 0.1
-  done
-  echo "$$" > "$lock/pid"; FLOOR_LOCK_HELD=1
-}
-floor_lock_drop() { FLOOR_LOCK_HELD=0; rm -rf "$H/state/.floor-lock"; }
+# every mutation of the queue records (sweep, reserve, launch, rollback) runs under one flock on fd 8 (netcup-land.sh already relies on flock);
+# the kernel drops the lock when its holder exits or is killed, so a dead pass can never wedge queueing or cancelling, and nothing is ever stolen
+floor_lock_take() { exec 8>"$H/state/.floor-lock" && flock -w "${FLOOR_LOCK_WAIT:-10}" 8 && FLOOR_LOCK_HELD=1 || { exec 8>&-; return 1; }; }
+floor_lock_drop() { FLOOR_LOCK_HELD=0; exec 8>&-; }
 # current head of a PR; FLOOR_HEAD_CMD overrides the forge lookup (tests stub it)
 floor_current_head() { ${FLOOR_HEAD_CMD:-gh pr view --repo Authentis/decision-os --json headRefOid -q .headRefOid} "$1" 2>/dev/null; }
 floor_sweep() {
@@ -80,7 +69,8 @@ floor_autoqueue_locked() {
   case "$FLOOR_CANCELLED " in *" $pr "*) return 0;; esac   # cancelled earlier this pass: the new head waits for a later pass
   floor_sweep "$pr" "$head" || return 0   # a cancel ends this call; the new head is judged on a later pass
   # the head this pass captured may have moved (and been cancelled by another pass) while waiting for the lock: never queue a superseded head
-  cur=$(floor_current_head "$pr"); [ -z "$cur" ] || [ "$cur" = "$head" ] || { echo "bosgame-autoland: PR $pr floor: head moved to ${cur:0:8} before queueing ${head:0:8}; not queued" >&2; return 0; }
+  # an empty or failed lookup is not proof the head is unchanged, so nothing is queued until the next pass can confirm it
+  cur=$(floor_current_head "$pr"); [ "$cur" = "$head" ] || { echo "bosgame-autoland: PR $pr floor: head not confirmed as ${head:0:8} (forge says '${cur:0:8}'); not queued" >&2; return 0; }
   [ -e "$q" ] && { echo "bosgame-autoland: PR $pr floor: second-family review already queued ($(cut -d' ' -f2 "$q"))" >&2; return 0; }
   for t in "$H/state/.floor-n-$pr-$head"-*; do [ -e "$t" ] && n=$((n + 1)); done
   [ "$n" -lt 2 ] || { echo "bosgame-autoland: PR $pr floor: 2 automatic second-family queues already used for head ${head:0:8}" >&2; return 0; }
@@ -88,7 +78,7 @@ floor_autoqueue_locked() {
     [ -n "$fam" ] && [ ! -e "$H/state/.floor-n-$pr-$head-$fam" ] && ! floor_family_busy "$fam" || continue
     # the record is written before the launch so a review that finishes early is still newer than it; a failed launch rolls it back
     printf '%s %s\n' "$head" "$fam" > "$q"; : > "$H/state/.floor-n-$pr-$head-$fam"
-    ${FLOOR_QUEUE_CMD:-bash $H/data/bin/xreview.sh --family} "$fam" "$pr" "$head" "$H/data/xreview/$pr-fam2.md" </dev/null >/dev/null 2>&1 \
+    ${FLOOR_QUEUE_CMD:-bash $H/data/bin/xreview.sh --family} "$fam" "$pr" "$head" "$H/data/xreview/$pr-fam2.md" </dev/null >/dev/null 2>&1 8>&- \
       || { rm -f "$q" "$H/state/.floor-n-$pr-$head-$fam"; continue; }
     echo "bosgame-autoland: PR $pr floor: queued $fam second-family review for head ${head:0:8} ($((n + 1)) of 2)" >&2; return 0
   done < <(floor_families)

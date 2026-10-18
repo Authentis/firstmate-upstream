@@ -11,6 +11,15 @@ set -u
 
 LANDER="$ROOT/tests/fixtures/netcup/bosgame-autoland.sh"
 TMP_ROOT=$(fm_test_tmproot review-floor-autoqueue)
+# The lander takes its queue lock with flock(1), which macOS lacks; a perl shim with the same `flock -w <secs> <fd>` contract stands in there.
+if ! command -v flock >/dev/null 2>&1; then
+  mkdir -p "$TMP_ROOT/shim"
+  printf '%s\n' '#!/usr/bin/env perl' 'use Fcntl qw(:flock); use Time::HiRes qw(sleep time);' \
+    'my ($w, $fd) = ($ARGV[1], $ARGV[2]); open(my $fh, ">&=", $fd) or exit 1; my $end = time + $w;' \
+    'until (flock($fh, LOCK_EX | LOCK_NB)) { exit 1 if time >= $end; sleep 0.05 } exit 0' > "$TMP_ROOT/shim/flock"
+  chmod +x "$TMP_ROOT/shim/flock"
+  export PATH="$TMP_ROOT/shim:$PATH"
+fi
 HEAD1=1111111111111111111111111111111111111111
 HEAD2=2222222222222222222222222222222222222222
 
@@ -20,7 +29,7 @@ new_home() {  # <name> -> sets H, with stub queue/cancel commands that log to $H
   printf '%s\n' '#!/usr/bin/env bash' 'echo "queue $*" >> "$H/calls"' > "$H/queue.sh"
   printf '%s\n' '#!/usr/bin/env bash' 'echo "cancel $*" >> "$H/calls"' > "$H/cancel.sh"
   chmod +x "$H/queue.sh" "$H/cancel.sh"
-  printf '%s\n' '#!/usr/bin/env bash' 'exit 0' > "$H/nohead.sh"   # forge lookup finds nothing: the pass keeps its captured head
+  printf '%s\n' '#!/usr/bin/env bash' 'cat "$H/curhead" 2>/dev/null' > "$H/nohead.sh"   # forge lookup: the pass's own head, as written by run_floor
   chmod +x "$H/nohead.sh"
   export H FLOOR_QUEUE_CMD="$H/queue.sh" FLOOR_CANCEL_CMD="$H/cancel.sh" FLOOR_HEAD_CMD="$H/nohead.sh"
   : > "$H/calls"
@@ -29,6 +38,7 @@ lone_pass() {  # <pr> <head> <secs>
   printf 'at=1 secs=%s head=%s\nVERDICT: PASS\n' "$3" "$2" > "$H/data/xreview/$1.md"
 }
 run_floor() {  # <pr> <head> -> floor_ok in a fresh shell that sources only the functions
+  printf '%s' "$2" > "$H/curhead"
   BOSGAME_AUTOLAND_SOURCE_ONLY=1 bash -c '. "$1"; floor_ok "$2" "$3"' _ "$LANDER" "$1" "$2" 2>"$H/err"
 }
 calls() { wc -l < "$H/calls" | tr -d ' '; }
@@ -156,7 +166,7 @@ printf '%s\n' '#!/usr/bin/env bash' 'echo "queue $*" >> "$H/calls"' 'sleep 0.3' 
 run_floor 7 $HEAD1 &
 run_floor 7 $HEAD1 &
 wait
-if [ "$(calls)" = 1 ] && [ ! -d "$H/state/.floor-lock" ]; then pass "two overlapping refusals of one PR launch a single review and release the lock"
+if [ "$(calls)" = 1 ]; then pass "two overlapping refusals of one PR launch a single review"
 else fail "concurrent: $(cat "$H/calls")"; fi
 
 new_home launcher-cannot-eat-the-family-list
@@ -169,9 +179,12 @@ else fail "stdin: $(cat "$H/calls")"; fi
 new_home sweep-respects-the-queue-lock
 lone_pass 7 $HEAD1 12
 run_floor 7 $HEAD1
-mkdir "$H/state/.floor-lock"   # another pass holds the lock
-BOSGAME_AUTOLAND_SOURCE_ONLY=1 bash -c '. "$1"; floor_sweep 7 "$2"' _ "$LANDER" $HEAD2 2>/dev/null
-if [ -e "$H/state/.floor-q-7" ] && ! grep -q '^cancel' "$H/calls" && [ -d "$H/state/.floor-lock" ]; then
+( exec 8>"$H/state/.floor-lock"; flock -w 5 8; sleep 4 ) &   # another pass holds the lock
+holder=$!
+sleep 0.5
+FLOOR_LOCK_WAIT=1 BOSGAME_AUTOLAND_SOURCE_ONLY=1 bash -c '. "$1"; floor_sweep 7 "$2"' _ "$LANDER" $HEAD2 2>/dev/null
+kill "$holder" 2>/dev/null; wait "$holder" 2>/dev/null
+if [ -e "$H/state/.floor-q-7" ] && ! grep -q '^cancel' "$H/calls"; then
   pass "a sweep never mutates the queue records while another pass holds the lock"
 else fail "sweep lock: $(cat "$H/calls")"; fi
 
@@ -183,12 +196,21 @@ FLOOR_HEAD_CMD="$H/head.sh" run_floor 7 $HEAD1
 if [ "$(calls)" = 0 ] && [ ! -e "$H/state/.floor-q-7" ]; then pass "a head that moved while the pass waited for the lock is not queued"
 else fail "superseded: $(cat "$H/calls")"; fi
 
+new_home failed-head-lookup-queues-nothing
+lone_pass 7 $HEAD1 12
+printf '%s\n' '#!/usr/bin/env bash' 'exit 1' > "$H/nohead.sh"
+run_floor 7 $HEAD1
+if [ "$(calls)" = 0 ] && [ ! -e "$H/state/.floor-q-7" ]; then pass "a failed or empty forge head lookup queues nothing"
+else fail "lookup failure: $(cat "$H/calls")"; fi
+
 new_home dead-holder-lock-is-recovered
 lone_pass 7 $HEAD1 12
-mkdir "$H/state/.floor-lock"
-echo 999999 > "$H/state/.floor-lock/pid"   # no such process
+( exec 8>"$H/state/.floor-lock"; flock -w 5 8; sleep 30 ) &   # a pass takes the lock, then is killed
+holder=$!
+sleep 0.5
+kill "$holder" 2>/dev/null; wait "$holder" 2>/dev/null
 run_floor 7 $HEAD1
-if [ "$(calls)" = 1 ] && [ ! -d "$H/state/.floor-lock" ]; then pass "a lock left by a dead pass is recovered and the queue proceeds"
+if [ "$(calls)" = 1 ]; then pass "a lock whose holder was killed is released by the kernel and the queue proceeds"
 else fail "stale lock: $(cat "$H/calls")"; fi
 
 new_home cancel-ends-the-pass
