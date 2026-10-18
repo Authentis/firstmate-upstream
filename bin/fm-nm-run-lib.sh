@@ -66,13 +66,14 @@ fm_nm_run_bounded() {  # <dir> <timeout_secs> <args...>
 # its ownership can never be inferred from age or from a contender's timeout.
 # The lock identity is the key alone (worktree and arguments); a contender's
 # timeout only bounds its own wait. A contender that is not granted within
-# that wait serves the previous (stale) entry, or returns failure when there is
-# none; a refresh never runs without the lock. Lock files are never removed
+# that wait serves a cached entry only while it is still within the TTL (the
+# holder may have just published one), otherwise it returns failure, so an
+# expired entry is never replayed; a refresh never runs without the lock. Lock files are never removed
 # (removing one a process holds or is opening would split its identity).
 # Entries older than five TTLs are pruned on publish. Only exit-0 non-empty
 # output is cached, so an error or timeout is never replayed. Prints the output
 # and returns the call's status.
-FM_NM_RUN_LIB_PATH=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")
+FM_NM_RUN_LIB_PATH=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/${BASH_SOURCE[0]##*/}
 
 fm_nm_cache_mtime() {  # <path>
   stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null || echo 0
@@ -134,7 +135,15 @@ fm_nm_cached_checked() {  # <cache_dir> <dir> <timeout_secs> <args...>
     fm_nm_run_uncached "$dir" "$timeout_secs" "$@"
     return
   fi
-  key=$(printf '%s\0' "$dir" "$@" | cksum | tr ' ' '-')
+  # A collision-resistant digest keeps two lanes from ever sharing an entry;
+  # cksum is only the fallback where neither SHA tool exists.
+  if command -v shasum >/dev/null 2>&1; then
+    key=$(printf '%s\0' "$dir" "$@" | shasum -a 256 | cut -c1-40)
+  elif command -v sha256sum >/dev/null 2>&1; then
+    key=$(printf '%s\0' "$dir" "$@" | sha256sum | cut -c1-40)
+  else
+    key=$(printf '%s\0' "$dir" "$@" | cksum | tr ' ' '-')
+  fi
   file="$cache_dir/$key.out"
   now=$(date +%s)
   if [ -s "$file" ] && [ $((now - $(fm_nm_cache_mtime "$file"))) -lt "$ttl" ]; then
