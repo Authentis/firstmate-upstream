@@ -1255,6 +1255,9 @@ worker_process_once() { # <account-home>
     return 0
   fi
   WORKER_IDLE_SCAN=0
+  # Stamp the candidate mark before enumerating, so a record published during
+  # the scan leaves the jobs directory newer than the stamp and is never skipped.
+  : > "$FM_REMOTE_JOB_STATE/.idle-scan-pending" 2>/dev/null || scan_busy=1
   for job in "$FM_REMOTE_JOB_JOBS"/job-*; do
     [ -d "$job" ] && [ ! -L "$job" ] || continue
     id=${job##*/}
@@ -1314,7 +1317,10 @@ worker_process_once() { # <account-home>
   done
   if [ -z "$candidates" ]; then
     if [ "$scan_busy" -eq 0 ]; then
-      : > "$FM_REMOTE_JOB_STATE/.idle-scan-mark" 2>/dev/null && WORKER_IDLE_SCAN=1
+      if [ "$FM_REMOTE_JOB_STATE/.idle-scan-pending" -nt "$FM_REMOTE_JOB_JOBS" ] &&
+        mv -f -- "$FM_REMOTE_JOB_STATE/.idle-scan-pending" "$FM_REMOTE_JOB_STATE/.idle-scan-mark" 2>/dev/null; then
+        WORKER_IDLE_SCAN=1
+      fi
     fi
     return 0
   fi

@@ -1988,6 +1988,7 @@ idlecpu_run() { # <window-seconds> -> CPU centiseconds on stdout
   sleep "$1"
   kill -TERM "$wrapper"
   for i in $(seq 1 200); do kill -0 "$wrapper" 2>/dev/null || break; sleep 0.05; done
+  kill -0 "$wrapper" 2>/dev/null && kill -KILL "$wrapper" 2>/dev/null
   wait "$wrapper" 2>/dev/null || true
   [ -s "$IDLECPU_TIMES" ] || fail "the idle-cpu wrapper reported no CPU times"
   # `times` prints "shell user sys" then "children user sys" as XmY.YYYs; sum all four.
