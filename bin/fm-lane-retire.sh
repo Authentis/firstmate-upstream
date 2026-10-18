@@ -1,0 +1,186 @@
+#!/usr/bin/env bash
+# Retire finished ship lanes whose bound PR is merged or closed.
+#
+# One bounded pass over this home's state/<id>.meta records, meant to run from a
+# host's existing periodic trigger (a receipt cron) right after merges and
+# closes, so stale lane records stop being listed by anything that reads them.
+# It is not a daemon and keeps no state of its own beyond the log.
+#
+# Usage: fm-lane-retire.sh [--dry-run]
+#
+# For each kind=ship record with a recorded GitHub pr= and a worktree:
+#   - PR state comes from `gh pr view`; OPEN, unknown, or a lookup error leaves
+#     the record untouched.
+#   - A worktree with any tracked or untracked change is refused: a bundle only
+#     captures commits, so retiring it would lose the edits.
+#   - Commits beyond the lane's base (base_branch= or origin's default) are
+#     bundled first into data/bundles/<id>.bundle and the bundle must verify.
+#     No verified bundle, no retirement (SO-1: bundle unmerged work first).
+#   - MERGED retires through a plain `bin/fm-teardown.sh <id>`, so its landed-work
+#     gates still decide. CLOSED (never merged) retires through
+#     `fm-teardown.sh <id> --force` only after the verified bundle above, which is
+#     the standing SO-1 branch-retirement authority for finished lanes.
+# Every action, including each refusal, is appended to data/lane-retire.log.
+#
+# Kill switch: `touch config/lane-retire.off` (or FM_LANE_RETIRE=off) makes the
+# pass exit 0 before reading anything. A second pass started while one runs exits 0.
+set -u
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
+FM_HOME="${FM_HOME:-$FM_ROOT}"
+STATE="$FM_HOME/state"
+LOG="$FM_HOME/data/lane-retire.log"
+BUNDLES="$FM_HOME/data/bundles"
+
+# shellcheck source=bin/fm-backend.sh
+. "$SCRIPT_DIR/fm-backend.sh"
+# shellcheck source=bin/fm-pr-lib.sh
+. "$SCRIPT_DIR/fm-pr-lib.sh"
+
+TEARDOWN="$SCRIPT_DIR/fm-teardown.sh"
+[ "${FM_TEST_SEAM:-}" != 1 ] || [ -z "${FM_LANE_RETIRE_TEARDOWN:-}" ] || TEARDOWN=$FM_LANE_RETIRE_TEARDOWN
+
+DRY=0
+case "${1:-}" in
+  --dry-run) DRY=1 ;;
+  -h | --help)
+    sed -n '2,/^set -u$/s/^# \{0,1\}//p' "$0" | sed '$d'
+    exit 0
+    ;;
+  '') ;;
+  *)
+    echo "usage: fm-lane-retire.sh [--dry-run]" >&2
+    exit 2
+    ;;
+esac
+
+[ "${FM_LANE_RETIRE:-on}" != off ] || exit 0
+[ ! -e "$FM_HOME/config/lane-retire.off" ] || exit 0
+[ -d "$STATE" ] || exit 0
+
+log() {  # <action> <id> <detail>
+  local line
+  line="$(date -u +%Y-%m-%dT%H:%M:%SZ) $1 $2 $3"
+  printf '%s\n' "$line"
+  [ "$DRY" = 1 ] && return 0
+  mkdir -p "$(dirname "$LOG")" 2>/dev/null && printf '%s\n' "$line" >> "$LOG" 2>/dev/null
+  return 0
+}
+
+LOCK="$STATE/.lane-retire.lock"
+if ! mkdir "$LOCK" 2>/dev/null; then
+  # A lock left by a dead pass must not wedge retirement forever.
+  holder=$(cat "$LOCK/pid" 2>/dev/null || true)
+  if [ -n "$holder" ] && kill -0 "$holder" 2>/dev/null; then
+    exit 0
+  fi
+  rm -rf "$LOCK"
+  mkdir "$LOCK" 2>/dev/null || exit 0
+fi
+echo $$ > "$LOCK/pid"
+trap 'rm -rf "$LOCK"' EXIT
+
+pr_state() {  # <pr-url> -> merged|closed|open|unknown
+  local out
+  command -v gh >/dev/null 2>&1 || { echo unknown; return; }
+  out=$(gh pr view "$1" --json state --jq .state 2>/dev/null) || { echo unknown; return; }
+  case "$out" in
+    MERGED) echo merged ;;
+    CLOSED) echo closed ;;
+    OPEN) echo open ;;
+    *) echo unknown ;;
+  esac
+}
+
+# Print the lane's base ref, or nothing when it cannot be resolved.
+base_ref() {  # <worktree> <meta>
+  local wt=$1 base head
+  base=$(fm_meta_get "$2" base_branch)
+  if [ -n "$base" ]; then
+    printf 'origin/%s\n' "$base"
+    return
+  fi
+  head=$(git -C "$wt" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null) || return 0
+  printf '%s\n' "$head"
+}
+
+# 0 when nothing is at risk (no commits beyond base) or a verified bundle holds them.
+bundle_lane() {  # <id> <worktree> <base>
+  local id=$1 wt=$2 base=$3 n file
+  n=$(git -C "$wt" rev-list --count "$base..HEAD" 2>/dev/null) || return 1
+  [ "$n" -gt 0 ] || return 0
+  file="$BUNDLES/$id.bundle"
+  mkdir -p "$BUNDLES" 2>/dev/null || return 1
+  git -C "$wt" bundle create -q "$file.tmp" HEAD "^$base" >/dev/null 2>&1 \
+    && git -C "$wt" bundle verify -q "$file.tmp" >/dev/null 2>&1 \
+    && mv -f "$file.tmp" "$file" 2>/dev/null \
+    && git -C "$wt" bundle verify -q "$file" >/dev/null 2>&1 \
+    || { rm -f "$file.tmp"; return 1; }
+}
+
+retired=0 kept=0
+for meta in "$STATE"/*.meta; do
+  [ -e "$meta" ] || continue
+  id=$(basename "$meta" .meta)
+  case "$id" in
+    *[!A-Za-z0-9._-]* | '' | -*) continue ;;
+  esac
+  [ "$(fm_meta_get "$meta" kind)" = ship ] || continue
+  pr=$(fm_meta_get "$meta" pr)
+  [ -n "$pr" ] || continue
+  if ! fm_pr_url_parse "$pr" || [ "$FM_PR_PROVIDER" != github ]; then
+    continue
+  fi
+  wt=$(fm_meta_get "$meta" worktree)
+
+  st=$(pr_state "$pr")
+  case "$st" in
+    merged | closed) ;;
+    open) continue ;;
+    *)
+      log keep "$id" "PR state unreadable ($pr)"
+      kept=$((kept + 1))
+      continue
+      ;;
+  esac
+
+  if [ -z "$wt" ] || [ ! -d "$wt" ]; then
+    log keep "$id" "PR $st but worktree missing; reconcile by hand"
+    kept=$((kept + 1))
+    continue
+  fi
+  if [ -n "$(git -C "$wt" status --porcelain --untracked-files=all 2>/dev/null)" ]; then
+    log refuse "$id" "PR $st but worktree has uncommitted changes"
+    kept=$((kept + 1))
+    continue
+  fi
+  base=$(base_ref "$wt" "$meta")
+  if [ -z "$base" ]; then
+    log refuse "$id" "PR $st but the lane's base ref cannot be resolved"
+    kept=$((kept + 1))
+    continue
+  fi
+  if ! bundle_lane "$id" "$wt" "$base"; then
+    log refuse "$id" "PR $st but no verified bundle of its commits"
+    kept=$((kept + 1))
+    continue
+  fi
+
+  if [ "$DRY" = 1 ]; then
+    log would-retire "$id" "PR $st $pr"
+    continue
+  fi
+  args=("$id")
+  [ "$st" != closed ] || args+=(--force)
+  if "$TEARDOWN" "${args[@]}" >/dev/null 2>&1; then
+    log retire "$id" "PR $st $pr"
+    retired=$((retired + 1))
+  else
+    log refuse "$id" "PR $st but teardown refused (rc=$?); record kept"
+    kept=$((kept + 1))
+  fi
+done
+
+[ "$retired" -eq 0 ] && [ "$kept" -eq 0 ] || log summary pass "retired=$retired kept=$kept"
+exit 0
