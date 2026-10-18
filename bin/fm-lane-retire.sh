@@ -105,9 +105,10 @@ base_ref() {  # <worktree> <meta>
 }
 
 # 0 when nothing is at risk (no commits beyond base) or a verified bundle holds them.
-bundle_lane() {  # <id> <worktree> <base>
-  local id=$1 wt=$2 base=$3 n file
-  n=$(git -C "$wt" rev-list --count "$base..HEAD" 2>/dev/null) || return 1
+bundle_lane() {  # <id> <worktree> <base> <head-sha>
+  local id=$1 wt=$2 base=$3 head=$4 n file
+  [ -n "$head" ] || return 1
+  n=$(git -C "$wt" rev-list --count "$base..$head" 2>/dev/null) || return 1
   [ "$n" -gt 0 ] || return 0
   [ "$DRY" != 1 ] || return 0
   file="$BUNDLES/$id.bundle"
@@ -116,6 +117,7 @@ bundle_lane() {  # <id> <worktree> <base>
     && git -C "$wt" bundle verify -q "$file.tmp" >/dev/null 2>&1 \
     && mv -f "$file.tmp" "$file" 2>/dev/null \
     && git -C "$wt" bundle verify -q "$file" >/dev/null 2>&1 \
+    && git -C "$wt" bundle list-heads "$file" 2>/dev/null | grep -q "^$head HEAD" \
     || { rm -f "$file.tmp"; return 1; }
 }
 
@@ -170,7 +172,7 @@ for meta in "$STATE"/*.meta; do
     continue
   fi
   head0=$(git -C "$wt" rev-parse HEAD 2>/dev/null) || head0=
-  if ! bundle_lane "$id" "$wt" "$base"; then
+  if ! bundle_lane "$id" "$wt" "$base" "$head0"; then
     log refuse "$id" "PR $st but no verified bundle of its commits"
     kept=$((kept + 1))
     continue
@@ -187,13 +189,18 @@ for meta in "$STATE"/*.meta; do
     kept=$((kept + 1))
     continue
   fi
+  if [ "$(pr_state "$pr")" != "$st" ]; then
+    log refuse "$id" "PR state changed after inspection; retry next pass"
+    kept=$((kept + 1))
+    continue
+  fi
   if ! log intent "$id" "PR $st $pr"; then
     echo "fm-lane-retire: cannot write $LOG; refusing to retire $id" >&2
     kept=$((kept + 1))
     continue
   fi
   if "$TEARDOWN" "${args[@]}" >/dev/null 2>&1; then
-    log retire "$id" "PR $st $pr"
+    log retire "$id" "PR $st $pr" || echo "fm-lane-retire: WARNING: $id retired but the retire record could not be written to $LOG" >&2
     retired=$((retired + 1))
   else
     log refuse "$id" "PR $st but teardown refused (rc=$?); record kept"

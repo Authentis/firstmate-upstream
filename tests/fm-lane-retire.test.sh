@@ -134,7 +134,9 @@ add_lane "$H" lane-l 1
 : > "$H/data/lane-retire.log"
 chmod 444 "$H/data/lane-retire.log"
 run_pass "$H" >/dev/null 2>&1 || fail "nolog pass exited non-zero"
-if [ -w "$H/data/lane-retire.log" ]; then :; else
+if [ -w "$H/data/lane-retire.log" ]; then
+  echo "skip - log stays writable (running as root)"
+else
   assert_absent "$H/teardown.log" "retired without an audit record"
   assert_present "$H/state/lane-l.meta" "record removed without an audit record"
 fi
