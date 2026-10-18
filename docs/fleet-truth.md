@@ -11,7 +11,7 @@ In short:
 
 - `prs[]` reports each PR with `merged` true only when the forge names a merge commit and the compare API shows that commit on the default branch tip, so a closed-unmerged PR reads false.
 - `lanes[]` reports each lane's recorded pid and log, with `state` live only when the pid is alive and the log was written in the last 5 minutes.
-- `gate_waits[]` lists running no-mistakes runs parked at a gate, parsed from `no-mistakes axi status --run <id>`.
+- `gate_waits[]` lists running no-mistakes runs parked at a gate, parsed from `no-mistakes axi status --run <id>`; when `no-mistakes axi status` lists only its newest runs, a running run outside that window marks `no-mistakes` not ok.
 - `sources` says whether `gh` and `no-mistakes` answered every query; one unreadable PR, an unprovable merge, or a running run whose status could not be read marks the source not ok, and a section whose source is not ok proves nothing.
 
 Lane records are `key=value` files: `state/lanes/<id>.lane`, or a `state/<id>.meta` that carries `pid=` or `log=`.

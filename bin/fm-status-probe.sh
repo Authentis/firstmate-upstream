@@ -9,6 +9,10 @@
 #                 with --pr. Fields: url, head_sha, state (the forge's own
 #                 word), merged, merge_commit, gate (the newest no-mistakes run
 #                 status for that PR url, else null).
+#                 `no-mistakes axi status` lists only the newest runs; when its
+#                 `count: N of M total` line shows a window, `no-mistakes runs
+#                 --limit M` supplies every run, and a running run missing from
+#                 the window marks no_mistakes not ok, since its gate is unread.
 #                 `merged` is true only when the forge reports the PR merged,
 #                 names its merge commit, the PR targeted the repo's default
 #                 branch, and the forge's compare API shows that commit reachable
@@ -29,7 +33,7 @@
 #
 # Reporting rule: a status or report claim about a PR, a lane, or a gate wait
 # must quote the matching status.json field (section, key, value); a claim with
-# no matching field is not counted. docs/status-probe.md owns the rule.
+# no matching field is not counted. docs/fleet-truth.md owns the rule.
 #
 # A source is ok only when every query it was asked answered: one unreadable PR,
 # an unprovable merge commit, or a running no-mistakes run whose status could
@@ -244,6 +248,47 @@ else
   NM_ERR="$NM not found"
 fi
 
+# decode_runs_lines <total>: read `no-mistakes runs` output on stdin and print one
+# {status,branch,head,pr} object per run, newest first. A line that is not a run
+# row, or a run count other than <total>, makes the decode fail.
+decode_runs_lines() {
+  local rows
+  rows=$(awk -v total="$1" '
+    /^[ \t]*$/ { next }
+    NF < 5 || NF > 6 || (NF == 6 && $6 !~ /^https?:\/\//) { bad = 1; exit }
+    { print $1 "\t" $2 "\t" $3 "\t" (NF == 6 ? $6 : ""); rows++ }
+    END { exit (bad || rows != total) ? 3 : 0 }
+  ') || return 3
+  [ -z "$rows" ] || printf '%s\n' "$rows" | jq -Rc 'split("\t") | {status:.[0],branch:.[1],head:.[2],pr:.[3]}'
+}
+
+NM_ALL="$SCRATCH/nm-all.jsonl"   # every run, newest first, for PR gates
+: > "$NM_ALL"
+if [ "$NM_OK" = true ]; then
+  cp "$NM_RUNS" "$NM_ALL"
+  window=$(printf '%s\n' "$nm_list" | sed -n 's/^count: *\([0-9][0-9]*\) of \([0-9][0-9]*\) total[[:space:]]*$/\1 \2/p' | head -n1)
+  if [ -n "$window" ] && [ "${window% *}" -lt "${window#* }" ]; then
+    total=${window#* }
+    if ! nm_full=$(nm_in_home runs --limit "$total" 2>/dev/null) \
+       || ! printf '%s\n' "$nm_full" | decode_runs_lines "$total" > "$NM_ALL"; then
+      NM_OK=false
+      NM_ERR="$NM axi status lists ${window% *} of $total runs and the full list could not be read"
+    else
+      missing=$(jq -rs --slurpfile w "$NM_RUNS" '[.[] | select(.status == "running") | . as $r
+        | select(any($w[]; .status == "running" and .branch == $r.branch and .head == $r.head) | not)
+        | .branch] | join(" ")' "$NM_ALL")
+      if [ -n "$missing" ]; then
+        NM_OK=false
+        NM_ERR="running run(s) outside the ${window% *} runs $NM axi status lists: $missing"
+      fi
+    fi
+    if [ "$NM_OK" != true ]; then
+      : > "$NM_RUNS"
+      : > "$NM_ALL"
+    fi
+  fi
+fi
+
 # age_to_seconds <text> -> seconds from the first duration like 1d2h3m4s, else empty
 age_to_seconds() {
   printf '%s\n' "$1" | awk '
@@ -305,7 +350,7 @@ PR_URLS="$SCRATCH/pr-urls.txt"
 } | sed '/^$/d' | sort -u > "$PR_URLS"
 
 gate_for_url() {  # <pr-url> -> newest no-mistakes run status for the url, or empty
-  jq -r --arg u "$1" 'select(.pr == $u) | .status' "$NM_RUNS" | head -n1
+  jq -r --arg u "$1" 'select(.pr == $u) | .status' "$NM_ALL" | head -n1
 }
 
 # ref_path <ref> -> the ref safe to put in an API path. A branch name may hold a

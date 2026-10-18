@@ -167,7 +167,7 @@ is_acked() {  # <id>
 # seen half-written, and fail rather than print a partial list.
 print_pending() {
   local out rc=0
-  [ -f "$ORDERS" ] || return 0
+  [ -e "$ORDERS" ] || return 0
   lock_acquire || exit 2
   out=$(pending_lines) || rc=$?
   lock_release

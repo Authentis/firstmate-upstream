@@ -53,6 +53,8 @@ if [ "$1 $2" = "axi status" ] && [ "${3:-}" = "--run" ]; then
   cat "$f"
 elif [ "$1 $2" = "axi status" ]; then
   cat "$FAKE/nm-list"
+elif [ "$1 $2" = "runs --limit" ] && [ -f "$FAKE/nm-runs-$3" ]; then
+  cat "$FAKE/nm-runs-$3"
 else
   exit 1
 fi
@@ -224,6 +226,45 @@ EOF
   out=$(run_probe --pr https://github.com/o/r/pull/7) || fail "probe failed"
   assert_equals "completed" "$(printf '%s' "$out" | jq -r '.prs[0].gate')" "gate result"
   pass "a PR carries the status of the no-mistakes run that names its url"
+}
+
+# The window and `runs` layouts follow the real tool: `axi status` prints
+# `count: N of M total` over its newest N runs, and `runs --limit M` prints every
+# run as `status branch head date time [pr]`, newest first.
+test_a_windowed_run_list_reads_the_full_list() {
+  local out
+  make_case window
+  pr_json OPEN "" main > "$FAKE/pr-7.json"
+  cat > "$FAKE/nm-list" <<'EOF'
+current_branch: main
+count: 1 of 3 total
+runs[1]{id,branch,status,head,pr}:
+  "RUN3",fm/c,running,ccc,""
+EOF
+  printf 'current_branch: main\n' > "$FAKE/nm-run-RUN3"
+  cat > "$FAKE/nm-runs-3" <<'EOF'
+  running      fm/c ccc  2026-10-18 21:37
+  completed    fm/b bbb  2026-10-18 13:23  https://github.com/o/r/pull/7
+  cancelled    fm/a aaa  2026-10-18 11:10  https://github.com/o/r/pull/7
+
+EOF
+  out=$(run_probe --pr https://github.com/o/r/pull/7) || fail "probe failed"
+  assert_equals "true" "$(printf '%s' "$out" | jq -r '.sources.no_mistakes.ok')" "every running run is in the window"
+  assert_equals "completed" "$(printf '%s' "$out" | jq -r '.prs[0].gate')" "a PR whose runs are older than the window"
+
+  cat > "$FAKE/nm-runs-3" <<'EOF'
+  running      fm/c ccc  2026-10-18 21:37
+  completed    fm/b bbb  2026-10-18 13:23  https://github.com/o/r/pull/7
+  running      fm/a aaa  2026-10-15 11:10  https://github.com/o/r/pull/7
+EOF
+  out=$(run_probe --pr https://github.com/o/r/pull/7) || fail "probe failed"
+  assert_equals "false" "$(printf '%s' "$out" | jq -r '.sources.no_mistakes.ok')" "a running run outside the window"
+  assert_contains "$(printf '%s' "$out" | jq -r '.sources.no_mistakes.error')" "fm/a" "the error names the unlisted run"
+
+  rm "$FAKE/nm-runs-3"
+  out=$(run_probe --pr https://github.com/o/r/pull/7) || fail "probe failed"
+  assert_equals "false" "$(printf '%s' "$out" | jq -r '.sources.no_mistakes.ok')" "an unreadable full list"
+  pass "a windowed run list is checked against every run, and a running run outside it is not ok"
 }
 
 test_lane_freshness_uses_pid_and_mtime() {
@@ -481,6 +522,7 @@ test_an_unreadable_running_run_marks_the_source_not_ok
 test_read_reports_unknown_on_stale_or_missing_data
 test_read_marks_a_section_unknown_when_its_source_is_not_ok
 test_gate_result_comes_from_the_matching_run
+test_a_windowed_run_list_reads_the_full_list
 test_lane_freshness_uses_pid_and_mtime
 test_gate_waits_are_parsed_from_the_run_status
 test_failed_sources_are_reported_not_hidden

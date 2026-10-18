@@ -343,6 +343,13 @@ test_a_ledger_path_that_is_not_a_regular_file_is_refused() {
   ledger poll --once >/dev/null 2>&1 || rc=$?
   [ "$rc" -ne 0 ] || fail "a poll over a directory-shaped acks path reported success"
   assert_equals "0" "$(cat "$HOME_DIR/state/.wake-queue" 2>/dev/null | grep -c 'orders:')" "no wake is queued for orders that may be acknowledged"
+  rmdir "$HOME_DIR/state/orders.acks.jsonl"
+  rm "$HOME_DIR/state/orders.jsonl"
+  mkdir "$HOME_DIR/state/orders.jsonl"
+  rc=0
+  out=$(ledger pending 2>&1) || rc=$?
+  [ "$rc" -ne 0 ] || fail "pending over a directory-shaped ledger path reported success"
+  assert_contains "$out" "orders.jsonl is not a regular file" "the message names the ledger"
   pass "a ledger or acks path that is not a regular file is refused instead of re-listing every order"
 }
 
