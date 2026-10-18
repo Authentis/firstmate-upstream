@@ -164,6 +164,15 @@ run_floor 7 $HEAD1
 if grep -q "^queue grok 7 " "$H/calls"; then pass "a launcher that reads stdin does not swallow the remaining families"
 else fail "stdin: $(cat "$H/calls")"; fi
 
+new_home sweep-respects-the-queue-lock
+lone_pass 7 $HEAD1 12
+run_floor 7 $HEAD1
+mkdir "$H/state/.floor-lock"   # another pass holds the lock
+BOSGAME_AUTOLAND_SOURCE_ONLY=1 bash -c '. "$1"; floor_sweep 7 "$2"' _ "$LANDER" $HEAD2 2>/dev/null
+if [ -e "$H/state/.floor-q-7" ] && ! grep -q '^cancel' "$H/calls" && [ -d "$H/state/.floor-lock" ]; then
+  pass "a sweep never mutates the queue records while another pass holds the lock"
+else fail "sweep lock: $(cat "$H/calls")"; fi
+
 new_home cancel-ends-the-pass
 lone_pass 7 $HEAD1 12
 run_floor 7 $HEAD1

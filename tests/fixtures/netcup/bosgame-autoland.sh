@@ -29,8 +29,21 @@ floor_ok() {
 floor_families() { local f; f=$(cat "$H/data/floor-families" 2>/dev/null); printf '%s\n' ${f:-muse grok} | grep -viE '^(gpt|openai|codex|sol|kimi)' ; }
 floor_family_busy() { local q; for q in "$H"/state/.floor-q-*; do [ -e "$q" ] && [ "$(awk '{print $2}' "$q")" = "$1" ] && return 0; done; return 1; }
 FLOOR_CANCELLED=""
+FLOOR_LOCK_HELD=0
+# every mutation of the queue records (sweep, reserve, launch, rollback) runs under one mkdir lock (flock is not portable)
+floor_lock_take() { local i=0; until mkdir "$H/state/.floor-lock" 2>/dev/null; do i=$((i + 1)); [ "$i" -le 100 ] || return 1; sleep 0.1; done; FLOOR_LOCK_HELD=1; }
+floor_lock_drop() { FLOOR_LOCK_HELD=0; rmdir "$H/state/.floor-lock"; }
 floor_sweep() {
+  local pr=$1 rc
+  [ -e "$H/state/.floor-q-$pr" ] || return 0
+  [ "$FLOOR_LOCK_HELD" = 1 ] && { floor_sweep_locked "$@"; return; }
+  floor_lock_take || { echo "bosgame-autoland: PR $pr floor: queue lock busy; sweep waits for the next pass" >&2; return 0; }
+  floor_sweep_locked "$@"; rc=$?
+  floor_lock_drop; return "$rc"
+}
+floor_sweep_locked() {
   local pr=$1 head=${2:-} q="$H/state/.floor-q-$1" qh qf
+  [ -e "$q" ] || return 0
   [ -e "$q" ] || return 0
   read -r qh qf < "$q"
   if [ -e "$H/data/xreview/$pr-fam2.md" ] && ! [ "$q" -nt "$H/data/xreview/$pr-fam2.md" ] && grep -q "head=$qh" "$H/data/xreview/$pr-fam2.md" 2>/dev/null && grep -q '^VERDICT:' "$H/data/xreview/$pr-fam2.md"; then rm -f "$q"; return 0; fi
@@ -41,14 +54,11 @@ floor_sweep() {
   rm -f "$q"; FLOOR_CANCELLED="$FLOOR_CANCELLED $pr"; echo "bosgame-autoland: PR $pr head moved ${qh:0:8} -> ${head:0:8}; cancelled queued $qf floor review" >&2
   return 1
 }
-floor_autoqueue() {   # serialised: check, reserve, launch and rollback run under one mkdir lock (flock is not portable)
-  local lock="$H/state/.floor-lock" i=0 rc
-  until mkdir "$lock" 2>/dev/null; do
-    i=$((i + 1)); [ "$i" -le 100 ] || { echo "bosgame-autoland: PR $1 floor: queue lock busy; trying again next pass" >&2; return 0; }
-    sleep 0.1
-  done
+floor_autoqueue() {
+  local rc
+  floor_lock_take || { echo "bosgame-autoland: PR $1 floor: queue lock busy; trying again next pass" >&2; return 0; }
   floor_autoqueue_locked "$@"; rc=$?
-  rmdir "$lock"; return "$rc"
+  floor_lock_drop; return "$rc"
 }
 floor_autoqueue_locked() {
   local pr=$1 head=$2 q="$H/state/.floor-q-$1" n=0 fam t
