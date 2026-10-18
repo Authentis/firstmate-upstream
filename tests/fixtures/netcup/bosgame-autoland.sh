@@ -62,7 +62,7 @@ floor_autoqueue_locked() {
     [ -n "$fam" ] && [ ! -e "$H/state/.floor-n-$pr-$head-$fam" ] && ! floor_family_busy "$fam" || continue
     # the record is written before the launch so a review that finishes early is still newer than it; a failed launch rolls it back
     printf '%s %s\n' "$head" "$fam" > "$q"; : > "$H/state/.floor-n-$pr-$head-$fam"
-    ${FLOOR_QUEUE_CMD:-bash $H/data/bin/xreview.sh --family} "$fam" "$pr" "$head" "$H/data/xreview/$pr-fam2.md" >/dev/null 2>&1 \
+    ${FLOOR_QUEUE_CMD:-bash $H/data/bin/xreview.sh --family} "$fam" "$pr" "$head" "$H/data/xreview/$pr-fam2.md" </dev/null >/dev/null 2>&1 \
       || { rm -f "$q" "$H/state/.floor-n-$pr-$head-$fam"; continue; }
     echo "bosgame-autoland: PR $pr floor: queued $fam second-family review for head ${head:0:8} ($((n + 1)) of 2)" >&2; return 0
   done < <(floor_families)

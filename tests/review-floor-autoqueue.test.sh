@@ -157,6 +157,13 @@ wait
 if [ "$(calls)" = 1 ] && [ ! -d "$H/state/.floor-lock" ]; then pass "two overlapping refusals of one PR launch a single review and release the lock"
 else fail "concurrent: $(cat "$H/calls")"; fi
 
+new_home launcher-cannot-eat-the-family-list
+lone_pass 7 $HEAD1 12
+printf '%s\n' '#!/usr/bin/env bash' 'echo "queue $*" >> "$H/calls"' 'cat > /dev/null' '[ "$1" != muse ]' > "$H/queue.sh"
+run_floor 7 $HEAD1
+if grep -q "^queue grok 7 " "$H/calls"; then pass "a launcher that reads stdin does not swallow the remaining families"
+else fail "stdin: $(cat "$H/calls")"; fi
+
 new_home cancel-ends-the-pass
 lone_pass 7 $HEAD1 12
 run_floor 7 $HEAD1
