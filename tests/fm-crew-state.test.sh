@@ -86,6 +86,12 @@ make_fakebin() {  # <dir> -> echoes fakebin path
 #!/usr/bin/env bash
 set -u
 printf '%s|%s\n' "${NO_MISTAKES_NO_UPDATE_CHECK:-}" "$*" >> "${FM_FAKE_NM_LOG:-/dev/null}"
+if [ -n "${FM_FAKE_NM_CONC:-}" ] && [ "${1:-}" = axi ]; then
+  : > "$FM_FAKE_NM_CONC/run.$$"
+  ls "$FM_FAKE_NM_CONC" | grep -c '^run\.' >> "$FM_FAKE_NM_CONC/seen"
+  sleep 0.4
+  rm -f "$FM_FAKE_NM_CONC/run.$$"
+fi
 [ -z "${FM_FAKE_NM_SLEEP:-}" ] || sleep "$FM_FAKE_NM_SLEEP"
 [ -z "${FM_FAKE_NM_LEAVE:-}" ] || { sleep 20 > /dev/null 2>&1 < /dev/null & printf '%s\n' "$!" >> "$FM_FAKE_NM_LEAVE"; }
 case "${1:-}" in
@@ -1517,6 +1523,32 @@ test_status_cache_hit_skips_second_spawn_and_update_check() {
   [ "$(grep -c '|daemon status$' "$d/nm.log")" -le 2 ] || fail "daemon probe ran more than once per read"
   ! grep -qv '^1|' "$d/nm.log" || fail "a no-mistakes call ran without NO_MISTAKES_NO_UPDATE_CHECK=1"
   pass "status cache hit skips the second spawn and every call skips the update check"
+}
+
+test_status_reads_across_lanes_are_concurrency_limited() {
+  reset_fakes
+  local d i max
+  d=$(new_case lowload-slots)
+  make_fakebin "$d" >/dev/null
+  mkdir -p "$d/conc"
+  : > "$d/nm.log"
+  for i in 1 2 3 4 5 6; do
+    make_repo_on_branch "$d/wt$i" fm/feat-load
+    fm_write_meta "$d/state/feat-l$i.meta" "window=fm:fm-feat-l$i" "worktree=$d/wt$i" "kind=ship"
+  done
+  FM_FAKE_AXI_STATUS="$(run_running fm/feat-load)"
+  for i in 1 2 3 4 5 6; do
+    env FM_FAKE_NM_LOG="$d/nm.log" FM_FAKE_NM_CONC="$d/conc" FM_CREW_STATE_NM_TIMEOUT=20 \
+      PATH="$d/fakebin:$PATH" FM_STATE_OVERRIDE="$d/state" "$CREW_STATE" "feat-l$i" >"$d/out.$i" &
+  done
+  wait
+  max=$(sort -n "$d/conc/seen" | tail -1)
+  [ -n "$max" ] || fail "no concurrent no-mistakes status read was observed"
+  [ "$max" -le 2 ] || fail "status reads ran $max at once, over the default limit of 2"
+  [ "$(grep -c '|axi' "$d/nm.log")" -ge 6 ] || fail "every lane should have read its own status"
+  grep -q "source: run-step" "$d/out.6" || fail "a queued lane never got its status read: $(cat "$d/out.6")"
+  ! grep -qv '^1|' "$d/nm.log" || fail "a no-mistakes call ran without NO_MISTAKES_NO_UPDATE_CHECK=1"
+  pass "status reads across lanes are limited to two at once with the update check skipped"
 }
 
 test_status_cache_expires_after_ttl() {
@@ -5974,6 +6006,7 @@ test_concurrent_crew_state_runs_share_one_status_spawn
 test_cache_mtime_survives_gnu_stat_semantics
 test_library_sources_without_external_tools
 test_cache_prunes_old_entries_on_publish
+test_status_reads_across_lanes_are_concurrency_limited
 test_lowload_kill_switch_restores_old_behavior
 test_terminal_passed_no_forge_switch_skips_read_but_keeps_receipt
 test_terminal_passed_with_open_pr_does_not_claim_merged
