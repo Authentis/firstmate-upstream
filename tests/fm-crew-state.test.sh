@@ -1591,52 +1591,62 @@ test_parallel_cold_reads_spawn_once() {
   pass "parallel cold reads spawn the CLI once"
 }
 
-cache_queue() {  # <case-dir> -> queue dir of the cached key (after one priming read)
-  ls -d "$1"/cache/*.q | head -1
+# Slot-lease interleavings run against the lib with a fixed clock: lease length
+# is timeout 4 + 5 = 9 s, and a lock directory's mtime is set to the fake time
+# it was granted.
+lease_try() {  # <fake-now> <prefix> <slot>
+  (. "$ROOT/bin/fm-nm-run-lib.sh"; FM_NM_CACHE_NOW=$1 fm_nm_cache_try "$2" "$3" 4)
 }
 
-test_cache_recovers_orphaned_ticket_with_one_spawn() {
+lease_stamp() {  # <epoch> <dir>
+  perl -e '$t = shift; utime $t, $t, @ARGV' "$1" "$2"
+}
+
+cache_prefix_of() {  # <case-dir> -> lock prefix of the primed key
+  ls "$1"/cache/*.out | sed 's/\.out$/.lock/'
+}
+
+test_orphaned_lock_is_recovered_by_the_next_slot_with_one_spawn() {
   reset_fakes
-  local d queue
+  local d prefix slot
   d=$(cache_case cache-orphan)
   FM_FAKE_AXI_STATUS="$(run_running fm/feat-load)"
   export FM_FAKE_AXI_STATUS
   cache_read "$d" > /dev/null
-  queue=$(cache_queue "$d")
+  prefix=$(cache_prefix_of "$d")
   rm -f "$d"/cache/*.out
-  mkdir "$queue/000000000000"   # a dead writer's ticket, below every new one
-  touch -t 202001010000 "$queue/000000000000"
+  slot=$(( $(date +%s) / 9 ))
+  mkdir "$prefix.$slot"   # a dead writer's lock for the current slot
   : > "$d/nm.log"
   cache_read "$d" > /dev/null
-  [ "$(wc -l < "$d/nm.log")" -eq 1 ] || fail "orphaned ticket recovery spawned $(wc -l < "$d/nm.log") times"
-  [ ! -e "$queue/000000000000" ] || fail "expired orphan ticket was not removed"
+  [ "$(wc -l < "$d/nm.log")" -eq 1 ] || fail "orphaned lock recovery spawned $(wc -l < "$d/nm.log") times"
   [ -s "$(ls "$d"/cache/*.out)" ] || fail "refresh after orphan recovery did not publish"
-  pass "an orphaned ticket expires and the next refresh publishes once"
+  pass "an orphaned lock is outlived by the next slot and the refresh publishes once"
 }
 
-# A reader that cannot get its turn within budget never spawns around the lock:
-# it withdraws its ticket and serves the stale entry, or fails without one.
+# A reader that cannot be granted within budget never spawns around the lock:
+# it serves the stale entry, or fails when there is none.
 test_cache_serves_stale_on_wait_timeout_and_prunes_old_entries() {
   reset_fakes
-  local d queue out calls rc=0
+  local d prefix out rc=0
   d=$(cache_case cache-stale)
   FM_FAKE_AXI_STATUS="$(run_running fm/feat-load)"
   export FM_FAKE_AXI_STATUS
   cache_read "$d" > /dev/null
-  queue=$(cache_queue "$d")
+  prefix=$(cache_prefix_of "$d")
   touch -t 202001010000 "$d"/cache/*.out
-  mkdir "$queue/000000000000"
-  touch -t 209901010000 "$queue/000000000000"   # a writer that never expires within the test
+  # A clock pinned inside slot 150 (6 s leases) with that slot's lock held: no grant is
+  # possible, however long the reader waits.
+  mkdir "$prefix.150"
   : > "$d/nm.log"
-  out=$(cache_read "$d" CACHE_T=1)
-  calls=$(wc -l < "$d/nm.log")
-  [ "$calls" -eq 0 ] || fail "wait timeout spawned the CLI instead of serving the stale entry"
+  out=$(cache_read "$d" CACHE_T=1 FM_NM_CACHE_NOW=900)
+  [ ! -s "$d/nm.log" ] || fail "wait timeout spawned the CLI instead of serving the stale entry"
   [ -n "$out" ] || fail "wait timeout served nothing"
   rm -f "$d"/cache/*.out
-  out=$(cache_read "$d" CACHE_T=1) || rc=$?
+  out=$(cache_read "$d" CACHE_T=1 FM_NM_CACHE_NOW=900) || rc=$?
   [ "$rc" -ne 0 ] && [ -z "$out" ] || fail "no entry and a held lock did not fail cleanly"
   [ ! -s "$d/nm.log" ] || fail "reader spawned around a held lock"
-  rmdir "$queue/000000000000"
+  rmdir "$prefix.150"
   printf 'old\n' > "$d/cache/zzz.out"
   touch -t 202001010000 "$d/cache/zzz.out"
   cache_read "$d" > /dev/null
@@ -1644,54 +1654,54 @@ test_cache_serves_stale_on_wait_timeout_and_prunes_old_entries() {
   pass "wait timeout serves stale or fails without spawning, and publish prunes old entries"
 }
 
-# Deterministic interleaving: a delayed expiry-remover that judged ticket N
-# expired can only ever remove N. A replacement acquirer gets a NEW name, so
-# nothing it owns is reachable by the remover.
-test_replacement_ticket_is_unreachable_by_a_delayed_remover() {
+# Sol's expiry-vs-wait case: the ownership interval starts at the grant. B is
+# granted at 908 (slot 100 of 9 s); a contender at 909 is in slot 101 but B's
+# bounded call may run until 912, so it must not be granted; at 914 it may.
+test_grant_interval_is_protected_across_the_slot_boundary() {
   reset_fakes
-  local d queue first second
-  d=$(cache_case cache-replace)
-  queue="$d/cache/k.q"
-  mkdir -p "$queue"
-  (. "$ROOT/bin/fm-nm-run-lib.sh"; fm_nm_cache_ticket "$queue" > "$d/t1")
-  first=$(cat "$d/t1")
-  touch -t 202001010000 "$queue/$first"   # remover observes: ticket expired
-  # The owner finishes, then a second acquirer takes its turn before the delayed
-  # remover acts.
-  (. "$ROOT/bin/fm-nm-run-lib.sh"; fm_nm_cache_release "$queue" "$first")
-  (. "$ROOT/bin/fm-nm-run-lib.sh"; fm_nm_cache_ticket "$queue" > "$d/t2")
-  second=$(cat "$d/t2")
-  [ "$first" != "$second" ] || fail "a released ticket name was reissued"
-  rmdir "$queue/$first" 2>/dev/null   # the delayed remover finally acts, by exact name
-  [ -d "$queue/$second" ] || fail "delayed remover removed the replacement owner's ticket"
-  (. "$ROOT/bin/fm-nm-run-lib.sh"; fm_nm_cache_turn "$queue" "$second" 9) \
-    || fail "replacement owner lost its turn"
-  # Even with every ticket released and swept, names keep increasing.
-  (. "$ROOT/bin/fm-nm-run-lib.sh"; fm_nm_cache_release "$queue" "$second"; fm_nm_cache_ticket "$queue" > "$d/t3")
-  [ "$(cat "$d/t3")" != "$second" ] && [ "$(cat "$d/t3")" != "$first" ] || fail "ticket name reused after release"
-  pass "a delayed remover cannot reach a replacement owner's ticket"
+  local d prefix
+  d=$(cache_case cache-boundary)
+  prefix="$d/cache/k.lock"
+  mkdir -p "$d/cache"
+  lease_try 908 "$prefix" 100 > /dev/null || fail "B was not granted its slot"
+  lease_stamp 908 "$prefix.100"
+  lease_try 909 "$prefix" 101 > /dev/null && fail "a contender was granted over B's running refresh"
+  [ ! -e "$prefix.101" ] || fail "refused contender left a lock behind"
+  lease_try 913 "$prefix" 101 > /dev/null && fail "a contender was granted while B could still be running"
+  lease_try 914 "$prefix" 101 > /dev/null || fail "a contender was refused after B's bound had passed"
+  pass "a grant's interval is protected across the slot boundary"
 }
 
-# Deterministic interleaving: A pauses before releasing, its ticket expires and
-# is swept, B acquires; A's late release must not disturb B.
-test_delayed_release_does_not_disturb_the_next_owner() {
+# Sol's name-reuse case: a taker that computed a slot, stalled, and resumed
+# after the clock moved on cannot take that old slot's name.
+test_a_past_slot_name_is_never_recreated() {
   reset_fakes
-  local d queue a b
+  local d prefix
+  d=$(cache_case cache-reuse)
+  prefix="$d/cache/k.lock"
+  mkdir -p "$d/cache"
+  lease_try 920 "$prefix" 101 > /dev/null && fail "a stalled taker was granted a past slot"
+  [ ! -e "$prefix.101" ] || fail "a stalled taker left a lock behind"
+  lease_try 920 "$prefix" 102 > /dev/null || fail "the current slot was not grantable"
+  pass "a past slot's name is never recreated"
+}
+
+# Delayed release: A stalls, its slot passes, others take later slots; A's late
+# release names only its own directory and cannot disturb them.
+test_delayed_release_does_not_disturb_a_later_owner() {
+  reset_fakes
+  local d prefix
   d=$(cache_case cache-delayed-release)
-  queue="$d/cache/k.q"
-  mkdir -p "$queue"
-  (. "$ROOT/bin/fm-nm-run-lib.sh"; fm_nm_cache_ticket "$queue" > "$d/ta")
-  a=$(cat "$d/ta")
-  touch -t 202001010000 "$queue/$a"   # A stalls past the bound: expired
-  (. "$ROOT/bin/fm-nm-run-lib.sh"; fm_nm_cache_ticket "$queue" > "$d/tb")
-  b=$(cat "$d/tb")
-  (. "$ROOT/bin/fm-nm-run-lib.sh"; fm_nm_cache_turn "$queue" "$b" 9) || fail "B did not get its turn over an expired ticket"
-  [ ! -d "$queue/$a" ] || [ "$a" = "$(ls "$queue" | sort | tail -1)" ] || fail "expired ticket was not swept"
-  # A resumes and releases.
-  (. "$ROOT/bin/fm-nm-run-lib.sh"; fm_nm_cache_release "$queue" "$a")
-  [ -d "$queue/$b" ] || fail "A's delayed release removed B's ticket"
-  (. "$ROOT/bin/fm-nm-run-lib.sh"; fm_nm_cache_turn "$queue" "$b" 9) || fail "A's delayed release cost B its turn"
-  pass "a delayed release leaves the next owner's turn intact"
+  prefix="$d/cache/k.lock"
+  mkdir -p "$d/cache"
+  lease_try 908 "$prefix" 100 > /dev/null || fail "A was not granted"
+  lease_stamp 908 "$prefix.100"
+  lease_try 950 "$prefix" 105 > /dev/null || fail "C was not granted a later slot"   # sweeps A's aged slot
+  [ ! -e "$prefix.100" ] || fail "an aged past-slot lock was not swept"
+  rmdir "$prefix.100" 2>/dev/null   # A resumes and releases its own directory
+  [ -d "$prefix.105" ] || fail "A's late release disturbed C's lock"
+  lease_try 951 "$prefix" 105 > /dev/null && fail "C's slot was granted twice"
+  pass "a delayed release cannot disturb a later owner"
 }
 
 test_lowload_kill_switch_restores_old_behavior() {
@@ -5841,10 +5851,11 @@ test_status_cache_hit_skips_second_spawn_and_update_check
 test_status_cache_expires_after_ttl
 test_landed_lane_skips_every_no_mistakes_spawn
 test_parallel_cold_reads_spawn_once
-test_cache_recovers_orphaned_ticket_with_one_spawn
+test_orphaned_lock_is_recovered_by_the_next_slot_with_one_spawn
 test_cache_serves_stale_on_wait_timeout_and_prunes_old_entries
-test_replacement_ticket_is_unreachable_by_a_delayed_remover
-test_delayed_release_does_not_disturb_the_next_owner
+test_grant_interval_is_protected_across_the_slot_boundary
+test_a_past_slot_name_is_never_recreated
+test_delayed_release_does_not_disturb_a_later_owner
 test_lowload_kill_switch_restores_old_behavior
 test_terminal_passed_no_forge_switch_skips_read_but_keeps_receipt
 test_terminal_passed_with_open_pr_does_not_claim_merged
