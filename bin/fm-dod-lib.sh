@@ -678,7 +678,7 @@ fm_dod_gerrit_change_carries_head() {  # <worktree> <url>
 # change does. 1 when refused; stdout then holds a one-line reason.
 fm_dod_nm_custody_returned() {  # <worktree>
   local wt=$1 out outcome code pipeline_head head_tree pipeline_tree
-  if ! out=$(fm_nm_run_checked "$wt" 15 axi status) || ! printf '%s\n' "$out" | grep -q '^run:'; then
+  if ! out=$(FM_NM_CACHE_DIR='' fm_nm_run_checked "$wt" 15 axi status) || ! printf '%s\n' "$out" | grep -q '^run:'; then
     printf '%s\n' "the no-mistakes run for this copy could not be read, so its fixes cannot be proven recovered"
     return 1
   fi

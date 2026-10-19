@@ -35,14 +35,251 @@ fm_nm_bounded() {  # <dir> <timeout_secs> <command> <args...>
   esac
 }
 
+# Read-only status calls must not each fork the CLI's self-update probe
+# (`--update-check`, 30-50% CPU apiece when a heartbeat fans out over the
+# fleet), so every call here sets NO_MISTAKES_NO_UPDATE_CHECK=1. FM_NM_LOWLOAD=0
+# is the kill switch for this and the fm-crew-state.sh cache / landed-lane skip.
+fm_nm_lowload_enabled() {
+  [ "${FM_NM_LOWLOAD:-1}" != 0 ]
+}
+
 fm_nm_run_bounded() {  # <dir> <timeout_secs> <args...>
   local dir=$1 timeout_secs=$2
   shift 2
-  fm_nm_bounded "$dir" "$timeout_secs" no-mistakes "$@"
+  if fm_nm_lowload_enabled; then
+    NO_MISTAKES_NO_UPDATE_CHECK=1 fm_nm_bounded "$dir" "$timeout_secs" no-mistakes "$@"
+  else
+    fm_nm_bounded "$dir" "$timeout_secs" no-mistakes "$@"
+  fi
 }
 
-fm_nm_run_checked() {  # <dir> <timeout_secs> <args...>
+# Shared, short-lived cache for a successful read-only no-mistakes call, keyed
+# by worktree and arguments, so a heartbeat over N lanes does not respawn the
+# CLI for each read. TTL FM_NM_CACHE_TTL seconds (default 120, 0 disables).
+#
+# One writer per key, by a kernel lock owned by the writing process. The lock
+# is an flock on <key>.lock taken by a small perl wrapper that then execs the
+# refresh with the lock descriptor inherited, so the lock is held through the
+# freshness re-check, the call, and the atomic publish, and the kernel drops it
+# the moment the holder exits or dies. There is no stale-lock takeover to race:
+# a dead holder releases itself, and a live but paused holder keeps the lock, so
+# its ownership can never be inferred from age or from a contender's timeout.
+# The lock identity is the key alone (worktree and arguments); a contender's
+# timeout only bounds its own wait. A contender that is not granted within
+# that wait serves a cached entry only while it is still within the TTL (the
+# holder may have just published one), otherwise it returns failure, so an
+# expired entry is never replayed; a refresh never runs without the lock. Lock files are never removed
+# (removing one a process holds or is opening would split its identity).
+# A worktree's entries form one generation, named by a token in <worktree
+# key>.gen and carried in each entry's file name, so membership never depends
+# on timestamp resolution. The generation expires as a whole TTL seconds after
+# it starts. A key it lacks joins it when the same invocation (the caller's
+# FM_NM_CACHE_INVOCATION, else its process) started it, because one invocation's
+# reads fill it together; from any other invocation the key starts a new
+# generation with a new token, orphaning the sibling entries, so the reads
+# crew-state cross-checks against each other never stay answers from different
+# moments past one invocation. Entries older than five TTLs are pruned on
+# publish. Only exit-0 non-empty
+# output is cached, so an error or timeout is never replayed. Prints the output
+# and returns the call's status.
+case ${BASH_SOURCE[0]} in
+  */*) _fm_nm_lib_dir=${BASH_SOURCE[0]%/*} ;;
+  *) _fm_nm_lib_dir=. ;;
+esac
+FM_NM_RUN_LIB_PATH=$(cd "$_fm_nm_lib_dir" && pwd)/${BASH_SOURCE[0]##*/}
+unset _fm_nm_lib_dir
+
+fm_nm_cache_mtime() {  # <path>
+  # GNU stat first: BSD stat rejects -c without output, whereas GNU stat -f
+  # prints filesystem details on stdout before failing.
+  stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null || echo 0
+}
+
+# Run <command...> holding an exclusive flock on <lockfile>, waiting up to
+# <wait_secs>. Exits 197 when the lock cannot be opened and 198 when it was not
+# granted in time; otherwise it becomes the command, which inherits the lock.
+fm_nm_cache_locked() {  # <lockfile> <wait_secs> <command...>
+  perl -e '
+    use Fcntl qw(:flock);
+    $^F = 255;
+    my ($path, $wait) = (shift, shift);
+    open(my $fh, ">>", $path) or exit 197;
+    my $end = time + $wait;
+    until (flock($fh, LOCK_EX | LOCK_NB)) {
+      exit 198 if time >= $end;
+      select(undef, undef, undef, 0.1);
+    }
+    $ENV{FM_NM_LOCK_FD} = fileno($fh);
+    exec @ARGV or exit 197;
+  ' "$@"
+}
+
+# Run one refresh under a machine-wide concurrency limit: at most
+# FM_NM_STATUS_SLOTS (default 4) no-mistakes status reads run at once, however
+# many lanes a heartbeat fans out over, because each key lock only serializes
+# one lane. A caller not granted a slot within FM_NM_STATUS_WAIT seconds
+# (default 30) fails, which reads as unknown and is retried next heartbeat.
+# Each slot is a kernel flock like the key lock, so a dead holder frees it, and
+# the CLI runs with the slot descriptor closed so a child it leaves behind
+# cannot pin the slot.
+fm_nm_run_slotted() {  # <cache_dir> <dir> <timeout_secs> <args...>
+  local cache_dir=$1 slots=${FM_NM_STATUS_SLOTS:-4} wait=${FM_NM_STATUS_WAIT:-30} n deadline rc
+  shift
+  case "$slots" in ''|*[!0-9]*|0) slots=4 ;; esac
+  case "$wait" in ''|*[!0-9]*) wait=30 ;; esac
+  deadline=$(( $(date +%s) + wait ))
+  while :; do
+    n=0
+    while [ "$n" -lt "$slots" ]; do
+      n=$((n + 1))
+      rc=0
+      # shellcheck disable=SC2016  # The inner script expands after bash -c receives positional args.
+      fm_nm_cache_locked "$cache_dir/.slot$n.lock" 0 \
+        bash -c '. "$1"; shift; ( eval "exec ${FM_NM_LOCK_FD}>&-"; fm_nm_run_uncached "$@" )' \
+        _ "$FM_NM_RUN_LIB_PATH" "$@" || rc=$?
+      [ "$rc" = 198 ] || return "$rc"
+    done
+    [ "$(date +%s)" -lt "$deadline" ] || return 1
+    sleep "0.$((RANDOM % 3 + 1))"
+  done
+}
+
+# The generation record is "<token> <invocation>": the token names the
+# generation and the invocation is the one that started it.
+fm_nm_cache_gen_read() {  # <gen> -> sets gen_token and gen_invocation in the caller
+  gen_token='' gen_invocation=''
+  read -r gen_token gen_invocation 2>/dev/null <"$1" || true
+}
+
+# Prints the entry <base> published within the current generation and returns
+# 0 when it exists and the generation is younger than <ttl> seconds.
+fm_nm_cache_entry() {  # <base> <gen> <ttl>
+  local gen_token gen_invocation gen_at entry
+  fm_nm_cache_gen_read "$2"
+  [ -n "$gen_token" ] || return 1
+  entry="$1.$gen_token.out"
+  [ -s "$entry" ] || return 1
+  gen_at=$(fm_nm_cache_mtime "$2")
+  if [ $(($(date +%s) - gen_at)) -lt "$3" ] && [ "$(fm_nm_cache_mtime "$entry")" -ge "$gen_at" ]; then
+    printf '%s' "$entry"
+    return 0
+  fi
+  return 1
+}
+
+fm_nm_cache_key() {  # <words...>
+  local key
+  # A collision-resistant digest keeps two lanes from ever sharing an entry;
+  # cksum is only the fallback where neither SHA tool exists.
+  if command -v shasum >/dev/null 2>&1; then
+    key=$(printf '%s\0' "$@" | shasum -a 256)
+    printf '%s' "${key:0:40}"
+  elif command -v sha256sum >/dev/null 2>&1; then
+    key=$(printf '%s\0' "$@" | sha256sum)
+    printf '%s' "${key:0:40}"
+  else
+    printf '%s\0' "$@" | cksum | tr ' ' '-'
+  fi
+}
+
+# Child of the locked wrapper: re-check freshness, refresh, publish.
+fm_nm_cache_refresh() {  # <cache_dir> <base> <gen> <ttl> <dir> <timeout_secs> <invocation> <args...>
+  local cache_dir=$1 base=$2 gen=$3 ttl=$4 dir=$5 timeout_secs=$6 invocation=$7 out rc=0 entry
+  shift 7
+  if entry=$(fm_nm_cache_entry "$base" "$gen" "$ttl"); then
+    cat "$entry"
+    return 0
+  fi
+  # The CLI must not inherit the lock descriptor: a process it leaves behind
+  # would otherwise pin the key's lock. Closing it in the subshell leaves this
+  # shell holding the lock through publish.
+  out=$(
+    [ -z "${FM_NM_LOCK_FD:-}" ] || eval "exec ${FM_NM_LOCK_FD}>&-"
+    fm_nm_run_slotted "$cache_dir" "$dir" "$timeout_secs" "$@"
+  ) || rc=$?
+  if [ "$rc" = 0 ] && [ -n "$out" ]; then
+    fm_nm_cache_publish "$base" "$gen" "$ttl" "$invocation" "$out"
+    find "$cache_dir" -name '*.out' -mmin +$((ttl * 5 / 60 + 1)) -exec rm -f {} + 2>/dev/null
+  fi
+  [ -z "$out" ] || printf '%s\n' "$out"
+  # 197 and 198 are the lock wrapper's own "not granted" codes; a CLI exit with
+  # one of them must not be mistaken for that.
+  case "$rc" in 197|198) rc=1 ;; esac
+  return "$rc"
+}
+
+# Publish <out> as the entry <base> of the current generation, first starting a
+# new generation when there is none, it has expired, or <base> is new to it and
+# a different invocation started it.
+fm_nm_cache_publish() {  # <base> <gen> <ttl> <invocation> <out>
+  local base=$1 gen=$2 ttl=$3 invocation=$4 out=$5 gen_token gen_invocation
+  fm_nm_cache_gen_read "$gen"
+  if [ -z "$gen_token" ] \
+    || [ $(($(date +%s) - $(fm_nm_cache_mtime "$gen"))) -ge "$ttl" ] \
+    || { [ ! -s "$base.$gen_token.out" ] && [ "$gen_invocation" != "$invocation" ]; }; then
+    gen_token="$$.$RANDOM$RANDOM.$(date +%s)"
+    printf '%s %s\n' "$gen_token" "$invocation" >"$gen.$$" 2>/dev/null && mv -f "$gen.$$" "$gen" 2>/dev/null
+  fi
+  printf '%s\n' "$out" >"$base.$gen_token.out.$$" 2>/dev/null \
+    && mv -f "$base.$gen_token.out.$$" "$base.$gen_token.out" 2>/dev/null
+}
+
+fm_nm_cached_checked() {  # <cache_dir> <dir> <timeout_secs> <args...>
+  local cache_dir=$1 dir=$2 timeout_secs=$3 ttl key base gen invocation entry out rc=0
+  shift 3
+  ttl=${FM_NM_CACHE_TTL:-120}
+  case "$ttl" in ''|*[!0-9]*) ttl=120 ;; esac
+  if ! fm_nm_lowload_enabled || [ "$ttl" = 0 ] || [ -z "$cache_dir" ] \
+    || ! command -v perl >/dev/null 2>&1 || ! mkdir -p "$cache_dir" 2>/dev/null; then
+    fm_nm_run_uncached "$dir" "$timeout_secs" "$@"
+    return
+  fi
+  key=$(fm_nm_cache_key "$dir" "$@")
+  base="$cache_dir/$key"
+  gen="$cache_dir/$(fm_nm_cache_key "$dir").gen"
+  invocation=${FM_NM_CACHE_INVOCATION:-$$}
+  if entry=$(fm_nm_cache_entry "$base" "$gen" "$ttl"); then
+    cat "$entry"
+    return 0
+  fi
+  # shellcheck disable=SC2016  # The inner script expands after bash -c receives positional args.
+  out=$(fm_nm_cache_locked "$cache_dir/$key.lock" $((timeout_secs + 3)) \
+    bash -c '. "$1"; shift; fm_nm_cache_refresh "$@"' _ "$FM_NM_RUN_LIB_PATH" \
+    "$cache_dir" "$base" "$gen" "$ttl" "$dir" "$timeout_secs" "$invocation" "$@" 2>/dev/null) || rc=$?
+  case "$rc" in
+    197|198)
+      # Not granted: never refresh around the lock. Serve an entry only while it
+      # is still within the TTL (the holder may have just published one); an
+      # expired entry is never replayed, so staleness stays bounded by the TTL.
+      if entry=$(fm_nm_cache_entry "$base" "$gen" "$ttl"); then
+        cat "$entry"
+        return 0
+      fi
+      return 1
+      ;;
+  esac
+  [ -z "$out" ] || printf '%s\n' "$out"
+  return "$rc"
+}
+
+fm_nm_run_uncached() {  # <dir> <timeout_secs> <args...>
   fm_nm_run_bounded "$@" 2>/dev/null
+}
+
+# When the caller names FM_NM_CACHE_DIR (fm-crew-state.sh does; teardown and
+# the DoD custody gate never do, so their decisions always read live), the run-inventory reads
+# (`axi`, `axi status [--run id]`, `runs`) go through the shared cache. Liveness
+# probes (`daemon status`) and log reads stay live.
+fm_nm_run_checked() {  # <dir> <timeout_secs> <args...>
+  if [ -n "${FM_NM_CACHE_DIR:-}" ]; then
+    case "${3:-} ${4:-}" in
+      "axi "|"axi status"|"runs "*)
+        fm_nm_cached_checked "$FM_NM_CACHE_DIR" "$@"
+        return
+        ;;
+    esac
+  fi
+  fm_nm_run_uncached "$@"
 }
 
 fm_nm_run() {  # <dir> <timeout_secs> <args...>

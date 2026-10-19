@@ -353,6 +353,13 @@ strip_quotes() { fm_nm_strip_quotes "$@"; }
 nm_run() {  # <args...>
   fm_nm_run "$WT" "$NM_TIMEOUT" "$@"
 }
+# The run-inventory reads (`axi`, `axi status [--run]`, `runs`) share the ~2 min
+# cache in bin/fm-nm-run-lib.sh once FM_NM_CACHE_DIR names it; FM_NM_LOWLOAD=0
+# bypasses it. The invocation id lets this run's reads fill one cache
+# generation together.
+FM_NM_CACHE_DIR=${FM_NM_CACHE_DIR:-$STATE/nm-cache}
+FM_NM_CACHE_INVOCATION=$$.$(date +%s)
+export FM_NM_CACHE_DIR FM_NM_CACHE_INVOCATION
 
 # Scalar value of a TOON key in the captured run output ($RUN_OUT).
 RUN_OUT=""
@@ -360,68 +367,17 @@ nm_field() {  # <key>
   fm_nm_field "$RUN_OUT" "$1"
 }
 
-pr_read_record_bounded() {  # <owner> <repo> <number>
+# One bounded forge read: <reader> is the fm-pr-lib.sh function for the
+# provider, run in a child shell so a hung CLI cannot stall this helper.
+forge_read_record_bounded() {  # <reader> <reader-args...>
   local record state merged
   # shellcheck disable=SC2016  # The inner script expands after bash -c receives positional args.
   if ! record=$(fm_run_timed 5 bash -c '
     . "$1"
-    fm_pr_github_read_record "$2" "$3" "$4" || exit 1
+    shift
+    "$@" || exit 1
     printf "state=%s\nmerged=%s\n" "$FM_PR_RECORD_STATE" "$FM_PR_RECORD_MERGED"
-  ' _ "$SCRIPT_DIR/fm-pr-lib.sh" "$1" "$2" "$3" 2>/dev/null); then
-    return 1
-  fi
-  state=$(printf '%s\n' "$record" | sed -n 's/^state=//p' | head -1)
-  merged=$(printf '%s\n' "$record" | sed -n 's/^merged=//p' | head -1)
-  [ -n "$state" ] || return 1
-  [ "$merged" = true ] || [ "$merged" = false ] || return 1
-  FM_PR_RECORD_STATE=$state
-  FM_PR_RECORD_MERGED=$merged
-}
-
-mr_read_record_bounded() {  # <host> <path> <number>
-  local record state merged
-  # shellcheck disable=SC2016  # The inner script expands after bash -c receives positional args.
-  if ! record=$(fm_run_timed 5 bash -c '
-    . "$1"
-    fm_pr_gitlab_read_record "$2" "$3" "$4" || exit 1
-    printf "state=%s\nmerged=%s\n" "$FM_PR_RECORD_STATE" "$FM_PR_RECORD_MERGED"
-  ' _ "$SCRIPT_DIR/fm-pr-lib.sh" "$1" "$2" "$3" 2>/dev/null); then
-    return 1
-  fi
-  state=$(printf '%s\n' "$record" | sed -n 's/^state=//p' | head -1)
-  merged=$(printf '%s\n' "$record" | sed -n 's/^merged=//p' | head -1)
-  [ -n "$state" ] || return 1
-  [ "$merged" = true ] || [ "$merged" = false ] || return 1
-  FM_PR_RECORD_STATE=$state
-  FM_PR_RECORD_MERGED=$merged
-}
-
-forgejo_read_record_bounded() {  # <host> <path> <number>
-  local record state merged
-  # shellcheck disable=SC2016  # The inner script expands after bash -c receives positional args.
-  if ! record=$(fm_run_timed 5 bash -c '
-    . "$1"
-    fm_pr_forgejo_read_record "$2" "$3" "$4" || exit 1
-    printf "state=%s\nmerged=%s\n" "$FM_PR_RECORD_STATE" "$FM_PR_RECORD_MERGED"
-  ' _ "$SCRIPT_DIR/fm-pr-lib.sh" "$1" "$2" "$3" 2>/dev/null); then
-    return 1
-  fi
-  state=$(printf '%s\n' "$record" | sed -n 's/^state=//p' | head -1)
-  merged=$(printf '%s\n' "$record" | sed -n 's/^merged=//p' | head -1)
-  [ -n "$state" ] || return 1
-  [ "$merged" = true ] || [ "$merged" = false ] || return 1
-  FM_PR_RECORD_STATE=$state
-  FM_PR_RECORD_MERGED=$merged
-}
-
-change_read_record_bounded() {  # <host> <number>
-  local record state merged
-  # shellcheck disable=SC2016  # The inner script expands after bash -c receives positional args.
-  if ! record=$(fm_run_timed 5 bash -c '
-    . "$1"
-    fm_pr_gerrit_read_record "$2" "$3" || exit 1
-    printf "state=%s\nmerged=%s\n" "$FM_PR_RECORD_STATE" "$FM_PR_RECORD_MERGED"
-  ' _ "$SCRIPT_DIR/fm-pr-lib.sh" "$1" "$2" 2>/dev/null); then
+  ' _ "$SCRIPT_DIR/fm-pr-lib.sh" "$@" 2>/dev/null); then
     return 1
   fi
   state=$(printf '%s\n' "$record" | sed -n 's/^state=//p' | head -1)
@@ -469,7 +425,7 @@ passed_pr_detail() {
     github)
       owner=${path%%/*}
       repo=${path#*/}
-      if ! pr_read_record_bounded "$owner" "$repo" "$number"; then
+      if ! forge_read_record_bounded fm_pr_github_read_record "$owner" "$repo" "$number"; then
         printf 'run passed: PR state unknown (unreadable)'
         return
       fi
@@ -485,7 +441,7 @@ passed_pr_detail() {
       esac
       ;;
     gitlab)
-      if ! mr_read_record_bounded "$host" "$path" "$number"; then
+      if ! forge_read_record_bounded fm_pr_gitlab_read_record "$host" "$path" "$number"; then
         printf 'run passed: PR state unknown (unreadable)'
         return
       fi
@@ -501,7 +457,7 @@ passed_pr_detail() {
       esac
       ;;
     forgejo)
-      if ! forgejo_read_record_bounded "$host" "$path" "$number"; then
+      if ! forge_read_record_bounded fm_pr_forgejo_read_record "$host" "$path" "$number"; then
         printf 'run passed: PR state unknown (unreadable)'
         return
       fi
@@ -519,7 +475,7 @@ passed_pr_detail() {
       esac
       ;;
     gerrit)
-      if ! change_read_record_bounded "$host" "$number"; then
+      if ! forge_read_record_bounded fm_pr_gerrit_read_record "$host" "$number"; then
         printf 'run passed: PR state unknown (unreadable)'
         return
       fi
@@ -966,6 +922,11 @@ SELECTED_RUN_ID=""
 # Scouts and secondmates never drive a no-mistakes validation of their own
 # worktree, so skip the lookup for them and read state from pane/log directly.
 if [ "$KIND" = ship ] && [ -n "$CREW_BRANCH" ] && command -v no-mistakes >/dev/null 2>&1; then
+  # A landed lane (valid merge-poll retirement receipt, a local read) has
+  # nothing left to validate: skip every no-mistakes spawn for it.
+  if fm_nm_lowload_enabled && fm_pr_poll_retirement_receipt_valid "$STATE" "$ID"; then
+    emit "done" run-step "run passed: PR merged (landed; run lookup skipped): $FM_PR_RETIRE_URL"
+  fi
   RUN_OUT=$(nm_run axi status)
   if [ "$(strip_quotes "$(printf '%s\n' "$RUN_OUT" | sed -n 's/^error: //p')")" = "repo not initialized (run 'no-mistakes init' first)" ]; then
     RUN_OUT=""
