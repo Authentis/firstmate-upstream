@@ -1533,10 +1533,10 @@ EOF
   out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
   assert_contains "$out" "60 record(s) with a dead endpoint and no status file collapsed" "stale records were not counted"
   assert_contains "$out" "(+20 more)" "collapsed ids were not bounded with a disclosed remainder"
-  assert_not_contains "$out" "--- stale-1 ---" "a collapsed record still printed in full"
-  assert_contains "$out" "--- live-nostatus ---" "a live endpoint without status was collapsed"
-  assert_contains "$out" "--- dead-withstatus ---" "a record with a status file was collapsed"
-  assert_contains "$out" "--- nowindow ---" "an unknown-window record was collapsed"
+  assert_not_contains "$out" "stale-1 | kind=" "a collapsed record still printed"
+  assert_contains "$out" "live-nostatus | kind=" "a live endpoint without status was collapsed"
+  assert_contains "$out" "dead-withstatus | kind=" "a record with a status file was collapsed"
+  assert_contains "$out" "nowindow | kind=" "an unknown-window record was collapsed"
 
   pass "dead-endpoint records without a status file collapse to a bounded count while every other record stays whole"
 }
@@ -1560,18 +1560,18 @@ EOF
   fm_write_secondmate_meta "$home/state/zz-sm.meta" "$home/other-secondmate" "firstmate:fm-zz-sm" alpha
 
   out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$root" FM_FAKE_HARNESS_PID=$$ PATH="$fakebin:$BASE_PATH" \
-    FM_SESSION_START_REEMIT_WORK_MAX_BYTES=3000 \
+    FM_SESSION_START_REEMIT_WORK_MAX_BYTES=1500 \
     env -u CLAUDECODE -u PI_CODING_AGENT -u FM_PI_HARNESS -u GROK_AGENT \
     "$SESSION_START" --reemit)
   assert_contains "$out" "CONTEXT RE-EMIT TRUNCATED" "the capped re-emit carried no truncation banner"
   assert_contains "$out" "bin/fm-crew-state.sh" "the banner did not say how to read the omitted records"
-  assert_contains "$out" "--- zz-sm ---" "a secondmate record was dropped by the size bound"
-  assert_contains "$out" "--- ship-1" "the first records were not kept"
-  assert_not_contains "$out" "--- ship-30 ---" "the size bound did not omit later records"
+  assert_contains "$out" "zz-sm | kind=" "a secondmate record was dropped by the size bound"
+  assert_contains "$out" "ship-1 | kind=" "the first records were not kept"
+  assert_not_contains "$out" "ship-30 | kind=" "the size bound did not omit later records"
 
   out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
   assert_not_contains "$out" "CONTEXT RE-EMIT TRUNCATED" "a full session start was size-capped"
-  assert_contains "$out" "--- ship-30 ---" "a full session start dropped a record"
+  assert_contains "$out" "ship-30 | kind=" "a full session start dropped a record"
 
   pass "a context re-emit bounds its work-under-way section with a truncation banner and always keeps secondmates"
 }
