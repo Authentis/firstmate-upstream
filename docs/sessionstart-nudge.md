@@ -266,7 +266,7 @@ The extension maps Pi events onto wrapper sources:
 - It maps `session_start` reasons `startup`, `new`, `resume`, and `fork` onto wrapper sources.
 - It refines a Pi-reported `startup` to `resume` only when a continuation, resume-selection, or explicit-session flag accompanies a session header older than the current process.
 - It maps a fork flag to `fork`.
-- It handles `session_compact` as the compaction equivalent.
+- It handles `session_compact` as the compaction equivalent, queueing the capped re-emit with `deliverAs: "nextTurn"` so neither automatic nor manual compaction triggers a model call of its own.
 - Pi's `reload` reason is deliberately unmapped, as it always was.
 
 Setup-created entries such as `--name` are not restoration evidence.
