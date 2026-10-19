@@ -1,0 +1,16 @@
+== idle (cursor_y=35) ==
+bottom border:   ╰─────────────────────────────────────────────────────── Weekly limit left: 1% · Grok 4.7 (high) · always-approve ─╯
+fm_tmux_composer_state live pane: base=unknown target=unknown
+fm_composer_classify_screen tmux caps (cursor): base=unknown target=unknown
+fm_composer_classify_screen herdr caps (cursorless): base=unknown target=unknown
+quota-prefix removed bottom:   ╰─────────────────────────────────────────────────────── ────────────────────────Grok 4.7 (high) · always-approve ─╯
+  tmux caps: base=unknown target=empty
+  herdr caps: base=unknown target=empty
+== typed (cursor_y=35) ==
+bottom border:   ╰─────────────────────────────────────────────────────── Weekly limit left: 1% · Grok 4.7 (high) · always-approve ─╯
+fm_tmux_composer_state live pane: base=unknown target=unknown
+fm_composer_classify_screen tmux caps (cursor): base=pending-unproven target=pending-unproven
+fm_composer_classify_screen herdr caps (cursorless): base=pending-unproven target=pending-unproven
+quota-prefix removed bottom:   ╰─────────────────────────────────────────────────────── ────────────────────────Grok 4.7 (high) · always-approve ─╯
+  tmux caps: base=pending-unproven target=pending
+  herdr caps: base=pending-unproven target=pending

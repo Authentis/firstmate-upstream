@@ -1,0 +1,4 @@
+== pi closed-table-idle (live identity: ) ==
+fm_tmux_composer_state live pane (cursor): base=unknown target=unknown
+classify herdr caps cursorless + live identity: base=unknown target=need-identity
+classify zellij caps cursorless (no identity): base=unknown target=unknown

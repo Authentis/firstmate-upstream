@@ -1,0 +1,40 @@
+  /create-goal
+
+[Extensions]
+  @ff-labs/pi-fff:src, @tintinweb/pi-subagents:src, agmsg-turn-delivery.ts, extensions, herdr-agent-state.ts,
+muxy-notify.ts, pi-blackhole:dist, pi-unified-exec:src
+
+[Skill conflicts]
+  ~/.agents/skills/instabox-basic-setup/SKILL.md
+    Nested mappings are not allowed in compact mappings at line 2, column 14:
+
+description: Use when the user wants their instabox boxes set up like their lap…
+             ^
+
+
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ $ printf '┌──┬──┐\n│a │b │\n├──┼──┤\n│c │d │\n└──┴──┘\n'
+
+ ┌──┬──┐
+ │a │b │
+ ├──┼──┤
+ │c │d │
+ └──┴──┘
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ $ printf '┌────┐\n│open│\n'
+
+ ┌────┐
+ │open│
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+draft note do not send
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-lab.lBW1sq/herdr-cwd
+$0.000 (sub) 0.0%/272k (auto)                                                          (openai-codex) gpt-5.6-sol • low
+bh O▕░░░░░░░░▏ P▕░░░░░░░░▏ X▕░░░░░░░░▏
