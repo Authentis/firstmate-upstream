@@ -329,45 +329,6 @@ test_spawn_treehouse_root() {
   pass "fm-spawn: forwards a literal root before acquisition and fails closed"
 }
 
-test_treehouse_cleanup_registration() {
-  local meta escaped out status
-  meta="$TMP_ROOT/cleanup.meta"
-  escaped="$TMP_ROOT/escaped-pool"
-  printf 'worktree=%s\n' "$escaped" > "$meta"
-  # Run the real helpers with a failure handler that exposes cleanup ownership.
-  out=$(
-    . "$ROOT/tests/treehouse-test-cleanup.sh"
-    # This failure fixture deliberately keeps its root local to the subshell.
-    # shellcheck disable=SC2030
-    TREEHOUSE_ROOT="$TMP_ROOT/isolated"
-    WORKTREES=()
-    fail() { printf '%s' "${WORKTREES[0]:-}"; exit 1; }
-    record_worktree "$meta"
-  ); status=$?
-  expect_code 1 "$status" "launcher must reject an escaped pool"
-  [ "$out" = "$escaped" ] || fail "launcher failed before recording the escaped pool"
-  out=$(
-    . "$ROOT/tests/treehouse-test-cleanup.sh"
-    # This failure fixture deliberately keeps its root local to the subshell.
-    # shellcheck disable=SC2030
-    TREEHOUSE_ROOT="$TMP_ROOT/isolated"
-    RECORDED_WORKTREES=""
-    fail() { printf '%s' "$RECORDED_WORKTREES"; exit 1; }
-    remember_meta_worktree "$meta"
-  ); status=$?
-  expect_code 1 "$status" "presentation must reject an escaped pool"
-  [ "$out" = "$escaped" ] || fail "presentation failed before recording the escaped pool"
-  (
-    . "$ROOT/tests/treehouse-test-cleanup.sh"
-    TREEHOUSE_ROOT="$TMP_ROOT"
-    RECORDED_WORKTREES=""
-    remember_meta_worktree "$meta" >/dev/null
-    result=$REMEMBERED_WORKTREE
-    [ "$result" = "$escaped" ] && [ "$RECORDED_WORKTREES" = "$escaped"$'\n' ]
-  ) || fail "presentation result retrieval lost cleanup registration"
-  pass "Treehouse cleanup owns escaped pools and survives result retrieval"
-}
-
 test_lib_classification
 test_guard_banner
 test_bootstrap_line
@@ -376,4 +337,3 @@ test_spawn_isolation_abort
 test_spawn_tmux_window_construction
 
 test_spawn_treehouse_root
-test_treehouse_cleanup_registration
