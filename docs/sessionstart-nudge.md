@@ -115,6 +115,7 @@ The requested session start remains idempotent.
 `bin/fm-session-start.sh --reemit` owns these re-emit details:
 
 - Which work a re-emit skips.
+- Its capped FLEET STATE summary of current state, which replaces the record dump.
 - Its true-start AGENTS.md baseline.
 - Its supported stale-instruction refresh pairs.
 
