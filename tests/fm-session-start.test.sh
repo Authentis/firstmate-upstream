@@ -1195,7 +1195,8 @@ EOF
     > "$home/state/lane-a-healthy.status"
   fm_write_meta "$home/state/lane-b-nowindow.meta" 'kind=scout' 'spawn_gen=2'
   printf 'paused: waiting on validation\n\n' > "$home/state/lane-b-nowindow.status"
-  fm_write_meta "$home/state/lane-c-thin.meta" 'window=fm-sess:gone' 'spawn_gen=4'
+  # Live endpoint: a dead one with no status file is collapsed to a count.
+  fm_write_meta "$home/state/lane-c-thin.meta" 'window=fm-sess:live' 'spawn_gen=4'
 
   out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
 
@@ -1214,7 +1215,7 @@ EOF
     "lane-b-nowindow | kind=scout mode=- | endpoint: unknown (no window recorded) | last status: paused: waiting on validation | record missing: window" \
     "a lane with no window did not stay visible with the missing window named"
   assert_contains "$lanes" \
-    "lane-c-thin | kind=? mode=- | endpoint: dead (backend=tmux window=fm-sess:gone) | last status: (no status file yet) | record missing: kind, mode" \
+    "lane-c-thin | kind=? mode=- | endpoint: alive (backend=tmux window=fm-sess:live) | last status: (no status file yet) | record missing: kind, mode" \
     "a record missing a field was dropped or did not name what it is missing"
   assert_not_contains "$lanes" "option B: offline window" "a lane printed continuation prose as its last status"
   assert_not_contains "$lanes" "(empty status log)" "a trailing blank line hid a lane's last status event"
