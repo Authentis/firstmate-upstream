@@ -70,11 +70,16 @@ fm_nm_run_bounded() {  # <dir> <timeout_secs> <args...>
 # holder may have just published one), otherwise it returns failure, so an
 # expired entry is never replayed; a refresh never runs without the lock. Lock files are never removed
 # (removing one a process holds or is opening would split its identity).
-# A worktree's entries form one generation that expires as a whole TTL
-# seconds after it starts, and publishing a key the generation lacks starts a
-# new one, so the reads crew-state cross-checks against each other never stay
-# answers from different moments past one invocation. Entries older than five
-# TTLs are pruned on publish. Only exit-0 non-empty
+# A worktree's entries form one generation, named by a token in <worktree
+# key>.gen and carried in each entry's file name, so membership never depends
+# on timestamp resolution. The generation expires as a whole TTL seconds after
+# it starts. A key it lacks joins it when the same invocation (the caller's
+# FM_NM_CACHE_INVOCATION, else its process) started it, because one invocation's
+# reads fill it together; from any other invocation the key starts a new
+# generation with a new token, orphaning the sibling entries, so the reads
+# crew-state cross-checks against each other never stay answers from different
+# moments past one invocation. Entries older than five TTLs are pruned on
+# publish. Only exit-0 non-empty
 # output is cached, so an error or timeout is never replayed. Prints the output
 # and returns the call's status.
 case ${BASH_SOURCE[0]} in
@@ -139,13 +144,27 @@ fm_nm_run_slotted() {  # <cache_dir> <dir> <timeout_secs> <args...>
   done
 }
 
-# 0 if <file> was published within generation <gen> and <gen> is younger than
-# <ttl> seconds.
-fm_nm_cache_fresh() {  # <file> <gen> <ttl>
-  local gen_at
-  [ -s "$1" ] || return 1
+# The generation record is "<token> <invocation>": the token names the
+# generation and the invocation is the one that started it.
+fm_nm_cache_gen_read() {  # <gen> -> sets gen_token and gen_invocation in the caller
+  gen_token='' gen_invocation=''
+  read -r gen_token gen_invocation 2>/dev/null <"$1" || true
+}
+
+# Prints the entry <base> published within the current generation and returns
+# 0 when it exists and the generation is younger than <ttl> seconds.
+fm_nm_cache_entry() {  # <base> <gen> <ttl>
+  local gen_token gen_invocation gen_at entry
+  fm_nm_cache_gen_read "$2"
+  [ -n "$gen_token" ] || return 1
+  entry="$1.$gen_token.out"
+  [ -s "$entry" ] || return 1
   gen_at=$(fm_nm_cache_mtime "$2")
-  [ $(($(date +%s) - gen_at)) -lt "$3" ] && [ "$(fm_nm_cache_mtime "$1")" -ge "$gen_at" ]
+  if [ $(($(date +%s) - gen_at)) -lt "$3" ] && [ "$(fm_nm_cache_mtime "$entry")" -ge "$gen_at" ]; then
+    printf '%s' "$entry"
+    return 0
+  fi
+  return 1
 }
 
 fm_nm_cache_key() {  # <words...>
@@ -164,11 +183,11 @@ fm_nm_cache_key() {  # <words...>
 }
 
 # Child of the locked wrapper: re-check freshness, refresh, publish.
-fm_nm_cache_refresh() {  # <cache_dir> <file> <gen> <ttl> <dir> <timeout_secs> <args...>
-  local cache_dir=$1 file=$2 gen=$3 ttl=$4 dir=$5 timeout_secs=$6 out rc=0
-  shift 6
-  if fm_nm_cache_fresh "$file" "$gen" "$ttl"; then
-    cat "$file"
+fm_nm_cache_refresh() {  # <cache_dir> <base> <gen> <ttl> <dir> <timeout_secs> <invocation> <args...>
+  local cache_dir=$1 base=$2 gen=$3 ttl=$4 dir=$5 timeout_secs=$6 invocation=$7 out rc=0 entry
+  shift 7
+  if entry=$(fm_nm_cache_entry "$base" "$gen" "$ttl"); then
+    cat "$entry"
     return 0
   fi
   # The CLI must not inherit the lock descriptor: a process it leaves behind
@@ -179,10 +198,7 @@ fm_nm_cache_refresh() {  # <cache_dir> <file> <gen> <ttl> <dir> <timeout_secs> <
     fm_nm_run_slotted "$cache_dir" "$dir" "$timeout_secs" "$@"
   ) || rc=$?
   if [ "$rc" = 0 ] && [ -n "$out" ]; then
-    if [ ! -s "$file" ] || [ $(($(date +%s) - $(fm_nm_cache_mtime "$gen"))) -ge "$ttl" ]; then
-      touch "$gen" 2>/dev/null
-    fi
-    printf '%s\n' "$out" >"$file.$$" 2>/dev/null && mv -f "$file.$$" "$file" 2>/dev/null
+    fm_nm_cache_publish "$base" "$gen" "$ttl" "$invocation" "$out"
     find "$cache_dir" -name '*.out' -mmin +$((ttl * 5 / 60 + 1)) -exec rm -f {} + 2>/dev/null
   fi
   [ -z "$out" ] || printf '%s\n' "$out"
@@ -192,8 +208,24 @@ fm_nm_cache_refresh() {  # <cache_dir> <file> <gen> <ttl> <dir> <timeout_secs> <
   return "$rc"
 }
 
+# Publish <out> as the entry <base> of the current generation, first starting a
+# new generation when there is none, it has expired, or <base> is new to it and
+# a different invocation started it.
+fm_nm_cache_publish() {  # <base> <gen> <ttl> <invocation> <out>
+  local base=$1 gen=$2 ttl=$3 invocation=$4 out=$5 gen_token gen_invocation
+  fm_nm_cache_gen_read "$gen"
+  if [ -z "$gen_token" ] \
+    || [ $(($(date +%s) - $(fm_nm_cache_mtime "$gen"))) -ge "$ttl" ] \
+    || { [ ! -s "$base.$gen_token.out" ] && [ "$gen_invocation" != "$invocation" ]; }; then
+    gen_token="$$.$RANDOM$RANDOM.$(date +%s)"
+    printf '%s %s\n' "$gen_token" "$invocation" >"$gen.$$" 2>/dev/null && mv -f "$gen.$$" "$gen" 2>/dev/null
+  fi
+  printf '%s\n' "$out" >"$base.$gen_token.out.$$" 2>/dev/null \
+    && mv -f "$base.$gen_token.out.$$" "$base.$gen_token.out" 2>/dev/null
+}
+
 fm_nm_cached_checked() {  # <cache_dir> <dir> <timeout_secs> <args...>
-  local cache_dir=$1 dir=$2 timeout_secs=$3 ttl key file gen out rc=0
+  local cache_dir=$1 dir=$2 timeout_secs=$3 ttl key base gen invocation entry out rc=0
   shift 3
   ttl=${FM_NM_CACHE_TTL:-120}
   case "$ttl" in ''|*[!0-9]*) ttl=120 ;; esac
@@ -203,23 +235,24 @@ fm_nm_cached_checked() {  # <cache_dir> <dir> <timeout_secs> <args...>
     return
   fi
   key=$(fm_nm_cache_key "$dir" "$@")
-  file="$cache_dir/$key.out"
+  base="$cache_dir/$key"
   gen="$cache_dir/$(fm_nm_cache_key "$dir").gen"
-  if fm_nm_cache_fresh "$file" "$gen" "$ttl"; then
-    cat "$file"
+  invocation=${FM_NM_CACHE_INVOCATION:-$$}
+  if entry=$(fm_nm_cache_entry "$base" "$gen" "$ttl"); then
+    cat "$entry"
     return 0
   fi
   # shellcheck disable=SC2016  # The inner script expands after bash -c receives positional args.
   out=$(fm_nm_cache_locked "$cache_dir/$key.lock" $((timeout_secs + 3)) \
     bash -c '. "$1"; shift; fm_nm_cache_refresh "$@"' _ "$FM_NM_RUN_LIB_PATH" \
-    "$cache_dir" "$file" "$gen" "$ttl" "$dir" "$timeout_secs" "$@" 2>/dev/null) || rc=$?
+    "$cache_dir" "$base" "$gen" "$ttl" "$dir" "$timeout_secs" "$invocation" "$@" 2>/dev/null) || rc=$?
   case "$rc" in
     197|198)
       # Not granted: never refresh around the lock. Serve an entry only while it
       # is still within the TTL (the holder may have just published one); an
       # expired entry is never replayed, so staleness stays bounded by the TTL.
-      if fm_nm_cache_fresh "$file" "$gen" "$ttl"; then
-        cat "$file"
+      if entry=$(fm_nm_cache_entry "$base" "$gen" "$ttl"); then
+        cat "$entry"
         return 0
       fi
       return 1

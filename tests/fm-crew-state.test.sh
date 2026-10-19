@@ -1691,7 +1691,9 @@ test_parallel_cold_reads_spawn_once() {
 cache_lockfile_of() {  # <case-dir> -> lock file of the primed key
   local f
   for f in "$1"/cache/*.out; do
-    printf '%s' "${f%.out}.lock"
+    # Entries are <key>.<generation>.out; the lock is <key>.lock.
+    f=${f##*/}
+    printf '%s' "$1/cache/${f%%.*}.lock"
     return 0
   done
 }
@@ -1907,20 +1909,59 @@ test_new_key_refreshes_sibling_reads_of_the_same_worktree() {
   d=$(cache_case cache-generation)
   FM_FAKE_AXI_STATUS="$(run_running fm/feat-load)"
   export FM_FAKE_AXI_STATUS FM_FAKE_AXI_STATUS_RUN
-  old=$(cache_call "$d" axi status)
+  old=$(FM_NM_CACHE_INVOCATION=first cache_call "$d" axi status)
+  FM_NM_CACHE_INVOCATION=first cache_call "$d" axi > /dev/null
+  [ "$(FM_NM_CACHE_INVOCATION=second cache_call "$d" axi status)" = "$old" ] || fail "a fresh entry was not served"
+  # No pause: the generation must change even within one clock tick.
+  FM_FAKE_AXI_STATUS="$(run_passed fm/feat-load)"
+  FM_FAKE_AXI_STATUS_RUN=$FM_FAKE_AXI_STATUS
+  new=$(FM_NM_CACHE_INVOCATION=second cache_call "$d" axi status --run 01RUN)
+  [ "$new" != "$old" ] || fail "the never-read key was served from cache"
+  [ "$(FM_NM_CACHE_INVOCATION=second cache_call "$d" axi status)" = "$new" ] || fail "axi status kept its answer from before the live read"
+  [ "$(FM_NM_CACHE_INVOCATION=second cache_call "$d" axi)" = "$new" ] || fail "axi kept its answer from before the live read"
+  [ "$(FM_NM_CACHE_INVOCATION=second cache_call "$d" axi status)" = "$new" ] || fail "the refreshed entry was not served again"
+  [ "$(grep -c '|axi status$' "$d/nm.log")" -eq 2 ] || fail "axi status spawn count: $(tr '\n' ';' < "$d/nm.log")"
+  pass "a never-read key refreshes the sibling reads of the same worktree"
+}
+
+# An invocation that has not declared itself is its own invocation, so a key it
+# adds can never leave a sibling from another process answering from before it.
+test_undeclared_callers_never_share_a_generation() {
+  reset_fakes
+  local d new
+  d=$(cache_case cache-generation-undeclared)
+  FM_FAKE_AXI_STATUS="$(run_running fm/feat-load)"
+  export FM_FAKE_AXI_STATUS FM_FAKE_AXI_STATUS_RUN
+  cache_call "$d" axi status > /dev/null
   cache_call "$d" axi > /dev/null
-  [ "$(cache_call "$d" axi status)" = "$old" ] || fail "a fresh entry was not served"
-  # Entry ages have one-second resolution; the run changes a second later.
-  sleep 1
   FM_FAKE_AXI_STATUS="$(run_passed fm/feat-load)"
   FM_FAKE_AXI_STATUS_RUN=$FM_FAKE_AXI_STATUS
   new=$(cache_call "$d" axi status --run 01RUN)
-  [ "$new" != "$old" ] || fail "the never-read key was served from cache"
-  [ "$(cache_call "$d" axi status)" = "$new" ] || fail "axi status kept its answer from before the live read"
-  [ "$(cache_call "$d" axi)" = "$new" ] || fail "axi kept its answer from before the live read"
-  [ "$(cache_call "$d" axi status)" = "$new" ] || fail "the refreshed entry was not served again"
-  [ "$(grep -c '|axi status$' "$d/nm.log")" -eq 2 ] || fail "axi status spawn count: $(tr '\n' ';' < "$d/nm.log")"
-  pass "a never-read key refreshes the sibling reads of the same worktree"
+  [ "$(cache_call "$d" axi status)" = "$new" ] || fail "a sibling answered from before the new key in the same clock tick"
+  pass "undeclared callers never share a generation"
+}
+
+# One invocation's reads fill a generation together however long they take, so
+# the next invocation is served all of them rather than respawning the ones a
+# clock tick separated.
+test_one_invocation_fills_a_generation_across_a_clock_tick() {
+  reset_fakes
+  local d
+  d=$(cache_case cache-generation-fill)
+  FM_FAKE_AXI_STATUS="$(run_running fm/feat-load)"
+  FM_FAKE_AXI_STATUS_RUN=$FM_FAKE_AXI_STATUS
+  export FM_FAKE_AXI_STATUS FM_FAKE_AXI_STATUS_RUN
+  FM_NM_CACHE_INVOCATION=first cache_call "$d" axi status > /dev/null
+  sleep 1
+  FM_NM_CACHE_INVOCATION=first cache_call "$d" axi > /dev/null
+  sleep 1
+  FM_NM_CACHE_INVOCATION=first cache_call "$d" axi status --run 01RUN > /dev/null
+  : > "$d/nm.log"
+  FM_NM_CACHE_INVOCATION=second cache_call "$d" axi status > /dev/null
+  FM_NM_CACHE_INVOCATION=second cache_call "$d" axi > /dev/null
+  FM_NM_CACHE_INVOCATION=second cache_call "$d" axi status --run 01RUN > /dev/null
+  [ ! -s "$d/nm.log" ] || fail "the next invocation respawned reads the first had cached: $(tr '\n' ';' < "$d/nm.log")"
+  pass "one invocation fills a generation across a clock tick"
 }
 
 test_lowload_kill_switch_restores_old_behavior() {
@@ -6080,6 +6121,8 @@ test_cache_mtime_survives_gnu_stat_semantics
 test_library_sources_without_external_tools
 test_cache_prunes_old_entries_on_publish
 test_new_key_refreshes_sibling_reads_of_the_same_worktree
+test_undeclared_callers_never_share_a_generation
+test_one_invocation_fills_a_generation_across_a_clock_tick
 test_status_reads_across_lanes_are_concurrency_limited
 test_cold_heartbeat_of_eight_lanes_fits_the_snapshot_bound
 test_dod_custody_gate_bypasses_the_status_cache

@@ -355,9 +355,11 @@ nm_run() {  # <args...>
 }
 # The run-inventory reads (`axi`, `axi status [--run]`, `runs`) share the ~2 min
 # cache in bin/fm-nm-run-lib.sh once FM_NM_CACHE_DIR names it; FM_NM_LOWLOAD=0
-# bypasses it.
+# bypasses it. The invocation id lets this run's reads fill one cache
+# generation together.
 FM_NM_CACHE_DIR=${FM_NM_CACHE_DIR:-$STATE/nm-cache}
-export FM_NM_CACHE_DIR
+FM_NM_CACHE_INVOCATION=$$.$(date +%s)
+export FM_NM_CACHE_DIR FM_NM_CACHE_INVOCATION
 
 # Scalar value of a TOON key in the captured run output ($RUN_OUT).
 RUN_OUT=""
