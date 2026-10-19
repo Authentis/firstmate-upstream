@@ -23,7 +23,8 @@ REAL_HERDR=$(command -v herdr)
 REAL_TREEHOUSE=$(command -v treehouse)
 HERDR_ORIGINAL_PATH=$PATH
 TMP_ROOT=$(mktemp -d "$(cd "${TMPDIR:-/tmp}" && pwd -P)/fm-herdr-presentation.XXXXXX")
-export TREEHOUSE_ROOT="$TMP_ROOT/treehouse"
+# Containment bound only: spawn and the Herdr panes use Treehouse's default pool root.
+TREEHOUSE_ROOT="$HOME/.treehouse"
 FAKEBIN="$TMP_ROOT/fakebin"
 HERDR_CALL_LOG="$TMP_ROOT/herdr-calls.log"
 TREEHOUSE_CALL_LOG="$TMP_ROOT/treehouse-calls.log"
