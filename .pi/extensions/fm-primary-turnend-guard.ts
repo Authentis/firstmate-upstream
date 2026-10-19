@@ -578,9 +578,10 @@ export default function (pi: ExtensionAPI) {
     return message ? { message } : undefined;
   });
 
-  // Pi's compaction equivalent. Manual compaction is idle and auto-compaction
-  // may retry without another before_agent_start, so the event keeps its
-  // existing delivery path while sharing generation ownership and cancellation.
+  // Pi's compaction equivalent. An optionless sendMessage steers an active
+  // auto-compaction run into another model call and, when idle, starts a turn of
+  // its own, so the capped digest is queued with the next user prompt instead.
+  // Manual and automatic compaction share generation ownership and cancellation.
   pi.on?.("session_compact", async (_event, ctx) => {
     registerSessionstartExitListener();
     const generation = createSessionstartGeneration("compact", sessionIdFromContext(ctx));
@@ -588,7 +589,7 @@ export default function (pi: ExtensionAPI) {
     const message = await claimSessionstartMessage(generation, ctx);
     if (!message || !sessionstartGenerationIsLive(generation)) return;
     try {
-      pi.sendMessage(message);
+      pi.sendMessage(message, { deliverAs: "nextTurn" });
     } catch {
       generation.delivered = false;
     }

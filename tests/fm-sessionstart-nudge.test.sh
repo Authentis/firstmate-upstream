@@ -560,10 +560,11 @@ import { pathToFileURL } from "node:url";
 const state = `${process.env.FM_HOME}/state`;
 const runner = `${process.env.FM_HOME}/bin/fm-sessionstart-run.sh`;
 const handlers = new Map();
+const sentOptions = [];
 const sent = [];
 const pi = {
   on(event, handler) { handlers.set(event, handler); },
-  sendMessage(message) { sent.push(message); },
+  sendMessage(message, options) { sent.push(message); sentOptions.push(options); },
 };
 const extension = await import(`${pathToFileURL(process.env.EXT).href}?generation=${Date.now()}`);
 extension.default(pi);
@@ -754,10 +755,15 @@ assert(!truncatedResult.message.content.includes("TRUNCATION_SUFFIX_14"), "trunc
 // Compaction keeps its supported asynchronous transport for retry-without-
 // preflight, but it shares the same generation cancellation and exactly-once claim.
 plan(15, "success");
+// Auto-compaction runs inside an active agent run and manual /compact runs idle;
+// both must queue for the next prompt, never steer or start a model call.
 const compactContext = ctx("session-truncated");
-await handlers.get("session_compact")({}, compactContext);
+compactContext.isIdle = () => false;
+await handlers.get("session_compact")({ reason: "threshold" }, compactContext);
 assert(sent.length === 1 && sent[0].content.includes("GENERATION_DIGEST_15"),
   "compaction lost its existing persistent delivery");
+assert(sentOptions[0]?.deliverAs === "nextTurn" && !sentOptions[0].triggerTurn,
+  "auto-compaction re-emit was not a non-triggering nextTurn message");
 assert((await handlers.get("before_agent_start")({ prompt: "post compact" }, compactContext)) === undefined,
   "compaction delivered the same context twice");
 
@@ -770,6 +776,12 @@ const compactGrandchild = grandchildFor(16);
 await handlers.get("session_shutdown")({ reason: "quit" }, compactContext);
 await compactPending;
 assert(sent.length === 1, "cancelled compaction delivered stale context");
+plan(17, "success");
+const manualContext = ctx("session-truncated");
+manualContext.isIdle = () => true;
+await handlers.get("session_compact")({ reason: "manual" }, manualContext);
+assert(sent.length === 2 && sentOptions[1]?.deliverAs === "nextTurn" && !sentOptions[1].triggerTurn,
+  "manual compaction re-emit was not a non-triggering nextTurn message");
 await waitDead(compactPid, "shutdown left the compaction child alive");
 await waitDead(compactGrandchild, "shutdown left a compaction grandchild alive");
 JS
@@ -1004,9 +1016,10 @@ import { existsSync, readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 const handlers = new Map();
 const sent = [];
+const sentOptions = [];
 const pi = {
   on(event, handler) { handlers.set(event, handler); },
-  sendMessage(message) { sent.push(message); },
+  sendMessage(message, options) { sent.push(message); sentOptions.push(options); },
 };
 const extension = await import(`${pathToFileURL(process.env.EXT).href}?compact=${Date.now()}`);
 extension.default(pi);
@@ -1014,6 +1027,10 @@ const ctx = { sessionManager: { getEntries: () => [], getSessionId: () => "compa
 for (let round = 1; round <= 3; round++) {
   await handlers.get("session_compact")({}, ctx);
   if (sent.length !== round) throw new Error(`round ${round}: expected one nudge, saw ${sent.length}`);
+  const options = sentOptions[round - 1];
+  if (options?.deliverAs !== "nextTurn" || options.triggerTurn) {
+    throw new Error(`round ${round}: compaction nudge must be non-triggering nextTurn, saw ${JSON.stringify(options)}`);
+  }
   const content = sent[round - 1].content;
   if (content.length > 45000) throw new Error(`round ${round}: nudge was ${content.length} characters`);
   if (!content.includes("COMPACT_DIGEST_PREFIX")) throw new Error("capped nudge lost its leading instructions");
