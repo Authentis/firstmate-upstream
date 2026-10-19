@@ -11,6 +11,7 @@ set -u
 
 TMP_ROOT=$(fm_test_tmproot fm-pr-read-throttle)
 READ="$ROOT/bin/fm-pr-read.sh"
+POLL="$ROOT/bin/fm-pr-poll.sh"
 
 # Fake gh logs every graphql call. FM_FAKE_MODE: ok (default), limit (secondary
 # limit 403), forbidden (SAML 403), fail (HTTP 500), slow (sleeps FM_FAKE_SLOW,
@@ -29,7 +30,7 @@ case "${FM_FAKE_MODE:-ok}" in
   slow) sleep "${FM_FAKE_SLOW:-3}"; exit 1 ;;
 esac
 sleep 0.3
-printf 'state=OPEN\nmerged=false\n'
+printf 'state=%s\nmerged=%s\n' "${FM_FAKE_STATE:-OPEN}" "$([ "${FM_FAKE_STATE:-OPEN}" = MERGED ] && echo true || echo false)"
 SH
   cat > "$d/fakebin/gh-axi" <<'SH'
 #!/usr/bin/env bash
@@ -185,6 +186,33 @@ test_one_request_per_attempt() {
   pass "one request per attempt, gh-axi only when gh is absent"
 }
 
+# The watcher's merge poll is a timer caller, so it spends the same window and
+# honours the same backoff as every other reader.
+run_poll() {  # <case-dir> <now> <number> [VAR=val ...]
+  local d=$1 now=$2 number=$3
+  shift 3
+  env PATH="$d/fakebin:$PATH" FM_FAKE_LOG="$d/log" FM_PR_READ_CACHE_DIR="$d/cache" FM_PR_READ_NOW="$now" "$@" \
+    "$POLL" --validated github "https://github.com/o/r/pull/$number" github.com o/r "$number"
+}
+
+test_merge_poll_reads_through_the_throttle() {
+  local d out; d=$(new_case poll)
+  out=$(run_poll "$d" 8000 7)
+  assert_equals "" "$out" "an open pull request stays silent"
+  run_poll "$d" 8100 7 >/dev/null
+  run_read "$d" 8200 7 >/dev/null
+  assert_equals 1 "$(count "$d" gh)" "repeat polls and another reader inside the window share one provider read"
+  out=$(run_poll "$d" 8300 7 FM_FAKE_STATE=MERGED)
+  assert_equals merged "$out" "a merged pull request wakes once the window allows a fresh read"
+  assert_equals 2 "$(count "$d" gh)" "the expired window allowed exactly one more read"
+  export FM_FAKE_MODE=limit
+  run_poll "$d" 8400 9 >/dev/null
+  export FM_FAKE_MODE=ok
+  run_poll "$d" 8410 10 >/dev/null
+  assert_equals 3 "$(count "$d" gh)" "a poll inside the global backoff makes no provider request"
+  pass "the merge poll shares the read window and honours the global backoff"
+}
+
 test_repeat_calls_in_window_issue_one_read
 test_concurrent_callers_are_serialized_into_one_read
 test_secondary_limit_backs_off_globally_and_keeps_the_pr_window
@@ -194,3 +222,4 @@ test_lock_timeout_serves_last_good_record
 test_killed_read_still_spends_the_window
 test_dead_lock_holder_never_blocks_the_next_reader
 test_one_request_per_attempt
+test_merge_poll_reads_through_the_throttle
