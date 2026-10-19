@@ -1,0 +1,20 @@
+ok - peek names each unhandled record and no handled one
+ok - two-phase commit: no commit, no cursor; committed ids never repeat
+ok - commit without a pending marker is a no-op
+ok - throttle: decided before the scan, heartbeat refreshed, backwards clock safe
+ok - heartbeat carries every contract field
+ok - kill switch: env and file, resumable
+ok - replay trip: more than 20 notices an hour writes the kill file
+ok - trip boundary is exactly 20; a zero limit is clamped; glob characters in paths survive
+ok - an unknown cursor schema is migrated, never replayed
+ok - scan set: parent-route, environment, config; deduplicated; symlinks skipped
+ok - notice cap: 20 per notice, the rest follow
+ok - concurrent peeks print the notice at most once
+ok - a stale lock is recovered
+ok - silent contract: errors to heartbeat and log, exit 0
+ok - a mode-664 owner runs through its interpreter
+ok - an uncommitted pending set is replayed, never overwritten
+ok - a commit is bound to the transaction its notice carried
+ok - handled/ twins are never named and status is read-only
+ok - a dead lock is reclaimed by exactly one contender
+ok - status reports heartbeat, cursor and scan state
