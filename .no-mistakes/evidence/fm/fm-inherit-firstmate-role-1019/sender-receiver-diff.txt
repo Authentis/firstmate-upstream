@@ -1,0 +1,8 @@
+primary sender (origin/main 45dd50a5) items: 16
+pre-fix fork receiver (6ec6910c, after PR #21) items: 15
+fixed fork receiver (dce97aca) items: 16
+-- in sender, missing from pre-fix receiver:
+config/firstmate-role
+-- in pre-fix receiver, missing from sender:
+-- sender vs fixed receiver:
+(identical)

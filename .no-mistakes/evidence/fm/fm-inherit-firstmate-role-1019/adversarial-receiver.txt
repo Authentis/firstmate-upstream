@@ -1,0 +1,15 @@
+== absent config/firstmate-role (primary removed it; removal propagates)
+removed: config/firstmate-role
+exit=0 file-exists=no
+== put config/not-inherited (must refuse)
+error: path is not inherited material: config/not-inherited
+exit=1
+== put config/../config/firstmate-role (traversal spelling must refuse)
+error: path is not inherited material: config/../config/firstmate-role
+exit=1
+== put data/firstmate-role (wrong directory must refuse)
+error: path is not inherited material: data/firstmate-role
+exit=1
+== put config/firstmate-role with bytes not matching digest commitment (must refuse)
+error: inherited material digest does not match its commitment
+exit=1 file-exists=no

@@ -1,0 +1,21 @@
+== receiver rev: dce97aca; sender: dce97aca
+unchanged: config/crew-dispatch.json
+unchanged: config/dispatch-never-send
+unchanged: config/crew-harness
+unchanged: config/backlog-backend
+pushed: config/backend
+unchanged: config/herdr-presentation-spaces
+unchanged: config/herdr-project-groups
+unchanged: config/startup-memory-budget
+unchanged: config/trace-context
+unchanged: config/launch-env-allowlist
+unchanged: config/claude-permission-mode
+unchanged: config/lavish-axi-host
+unchanged: config/keep-ai-trailers
+unchanged: config/supervision-host-off
+pushed: config/firstmate-role
+unchanged: data/captain-shared.md
+== push exit status: 0
+== shim calls: 16
+== remote home config/firstmate-role: maintainer
+== remote home config/backend: herdr
