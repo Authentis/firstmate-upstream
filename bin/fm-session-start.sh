@@ -187,15 +187,22 @@
 #     event with its identical repeats collapsed to a count (bin/fm-classify-
 #     lib.sh's retry identity) and the other events in the classifier's event
 #     window folded into one earlier-event count; its open decision keys from
-#     the same incremental fold the drain just refreshed; and the receipt
-#     paths its recent lines, open decisions, and data/<id>/report.md cite,
-#     uncapped so each path stays exact.
+#     the same incremental fold the drain just refreshed, the newest four by
+#     name and the rest as a count (OPEN DECISIONS in the wake queue and the
+#     status log carry every key and note); and every receipt path its open
+#     decisions, latest event, last FM_SESSION_START_STATUS_TAIL lines, and
+#     data/<id>/report.md cite, uncapped so each path stays exact.
 #   - Resolved and superseded status history is dropped, and status logs whose
 #     task record is gone (cleaned-up work) collapse to a count and their ids.
-#   - The backlog collapses to group counts, then held, blocked, untracked
-#     in-flight, and ready rows while FM_SESSION_START_REEMIT_STATE_BYTES
-#     (default 15000) lasts, the budget the whole summary shares with OPEN
-#     ITEMS; every omitted row is disclosed with its count and command.
+#   - FM_SESSION_START_REEMIT_STATE_BYTES (default 15000) bounds the whole
+#     summary in bytes, its lede and its closing tally included, and the tally
+#     counts its own line. The lede, OPEN ITEMS, the backlog counts, every cut
+#     disclosure, and the tally are mandatory; the held, blocked, untracked
+#     in-flight, and ready backlog rows, then the closed-log ids, print in that
+#     order only while the exact whole still fits, and every cut is disclosed
+#     with its count and command. So the summary overruns its budget only when
+#     its mandatory lines alone do, and then only they print and the tally says
+#     so.
 # The wake queue, the supervision block, any AGENTS.md refresh, and CONTEXT
 # keep their own owners and bounds. A read-only re-emit drained nothing, so it
 # keeps the full dump instead of a fold no lock-holding drain refreshed.
@@ -444,7 +451,8 @@ STATUS_TAIL=${FM_SESSION_START_STATUS_TAIL:-5}
 case "$STATUS_TAIL" in ''|*[!0-9]*) STATUS_TAIL=5 ;; esac
 QUEUED_LIMIT=${FM_SESSION_START_QUEUED_LIMIT:-20}
 case "$QUEUED_LIMIT" in ''|*[!0-9]*|0) QUEUED_LIMIT=20 ;; esac
-# The whole re-emit state summary's byte budget; OPEN ITEMS print past it.
+# The whole re-emit state summary's byte budget; only its mandatory lines
+# print past it.
 REEMIT_STATE_BYTES=${FM_SESSION_START_REEMIT_STATE_BYTES:-15000}
 case "$REEMIT_STATE_BYTES" in ''|*[!0-9]*) REEMIT_STATE_BYTES=15000 ;; esac
 [ "$REEMIT_STATE_BYTES" -gt 0 ] 2>/dev/null || REEMIT_STATE_BYTES=15000
@@ -747,30 +755,42 @@ print_fleet_records_full() {
 
 # --- context re-emit state summary --------------------------------------------
 # This file's header ("CONTEXT RE-EMIT STATE SUMMARY") owns what it keeps and
-# drops. Every line is charged to REEMIT_STATE_USED in bytes; OPEN ITEMS and the
-# disclosure lines always print, and every other row prints only while it fits
-# with REEMIT_STATE_RESERVE still free for the short disclosure and tally lines
-# that follow it, so the summary stays within budget unless OPEN ITEMS alone
-# do not.
+# drops. Every printed line is charged to REEMIT_STATE_USED in bytes. The
+# optional rows after OPEN ITEMS are gathered into groups before anything after
+# OPEN ITEMS prints, so each is admitted only when the exact size of the whole
+# summary with it, the closing tally included, stays within the budget.
 REEMIT_STATE_USED=0
-REEMIT_STATE_RESERVE=1024
 REEMIT_STATE_DIR=state
 REEMIT_RECEIPTS=
-REEMIT_RECEIPT_LIMIT=3
 REEMIT_OPEN_KEY_LIMIT=4
 # Each summarized event or backlog row keeps its lede within this many
 # characters; the full log or listing command reaches the rest.
 REEMIT_LINE_CAP=160
+# The optional groups, in print and admission order: group g owns
+# REEMIT_G_TOTAL[g] rows of REEMIT_ROWS from REEMIT_G_FIRST[g], of which the
+# first REEMIT_G_SHOWN[g] print, and REEMIT_ROW_CUM[k] is the byte cost of every
+# row before row k.
+REEMIT_G_COUNT=0
+REEMIT_G_KIND=()
+REEMIT_G_LABEL=()
+REEMIT_G_COMMAND=()
+REEMIT_G_FIRST=()
+REEMIT_G_TOTAL=()
+REEMIT_G_SHOWN=()
+REEMIT_ROWS=()
+REEMIT_ROW_CUM=(0)
+REEMIT_BACKLOG_LINES=()
+REEMIT_IDS_LEAD='  ids:'
+
+reemit_bytes() {  # <text>: its length in bytes, in REEMIT_BYTES
+  local LC_ALL=C
+  REEMIT_BYTES=${#1}
+}
 
 reemit_state_put() {  # <line>: print one line and charge it to the budget
   local LC_ALL=C
   printf '%s\n' "$1"
   REEMIT_STATE_USED=$((REEMIT_STATE_USED + ${#1} + 1))
-}
-
-reemit_state_fits() {  # <line>: 0 while one more optional line fits the budget
-  local LC_ALL=C
-  [ $((REEMIT_STATE_USED + ${#1} + 1 + REEMIT_STATE_RESERVE)) -le "$REEMIT_STATE_BYTES" ]
 }
 
 reemit_state_subsection() {  # <label>
@@ -911,7 +931,7 @@ EOF
 }
 
 reemit_state_task_entry() {  # <meta>
-  local meta=$1 id kind mode yolo branch head pr pr_head line status path count=0 shown=''
+  local meta=$1 id kind mode yolo branch head pr pr_head line status path listed=''
   id=$(basename "$meta" .meta)
   kind=$(fm_meta_get "$meta" kind)
   [ -n "$kind" ] || kind=ship
@@ -953,25 +973,173 @@ reemit_state_task_entry() {  # <meta>
   fi
   while IFS= read -r path; do
     [ -n "$path" ] || continue
-    count=$((count + 1))
-    [ "$count" -le "$REEMIT_RECEIPT_LIMIT" ] && shown="$shown $path"
+    listed="$listed $path"
   done <<EOF
 $REEMIT_RECEIPTS
 EOF
-  if [ "$count" -gt 0 ]; then
-    line="  receipts:$shown"
-    [ "$count" -le "$REEMIT_RECEIPT_LIMIT" ] || line="$line +$((count - REEMIT_RECEIPT_LIMIT)) more in $REEMIT_STATE_DIR/$id.status"
-    reemit_state_put "$line"
+  [ -z "$listed" ] || reemit_state_put "  receipts:$listed"
+}
+
+# reemit_group_open <kind> <label> <command>: start gathering one optional
+# group. Kind `rows` is a titled listing with one row per line, `lines` the
+# untitled manual backlog listing, and `ids` the closed-log ids, which share
+# one line.
+reemit_group_open() {
+  REEMIT_G_KIND[REEMIT_G_COUNT]=$1
+  REEMIT_G_LABEL[REEMIT_G_COUNT]=$2
+  REEMIT_G_COMMAND[REEMIT_G_COUNT]=$3
+  REEMIT_G_FIRST[REEMIT_G_COUNT]=${#REEMIT_ROWS[@]}
+  REEMIT_G_TOTAL[REEMIT_G_COUNT]=0
+  REEMIT_G_SHOWN[REEMIT_G_COUNT]=0
+}
+
+# reemit_group_row <text>: add one row to the group being gathered. Its cost is
+# its bytes plus one, its own newline or, for an id, its leading space.
+reemit_group_row() {
+  local n=${#REEMIT_ROWS[@]}
+  reemit_bytes "$1"
+  REEMIT_ROWS[n]=$1
+  REEMIT_ROW_CUM[n + 1]=$((REEMIT_ROW_CUM[n] + REEMIT_BYTES + 1))
+  REEMIT_G_TOTAL[REEMIT_G_COUNT]=$((REEMIT_G_TOTAL[REEMIT_G_COUNT] + 1))
+}
+
+reemit_group_close() {  # keep the gathered group only when it has rows
+  [ "${REEMIT_G_TOTAL[REEMIT_G_COUNT]}" -eq 0 ] || REEMIT_G_COUNT=$((REEMIT_G_COUNT + 1))
+}
+
+# reemit_group_frame <g> <shown>: the heading and the disclosure group g prints
+# around its first <shown> rows, each empty when it prints none, and the exact
+# bytes the whole group then prints, in REEMIT_GROUP_HEAD, REEMIT_GROUP_TAIL,
+# and REEMIT_GROUP_BYTES.
+reemit_group_frame() {
+  local g=$1 shown=$2 label command total first
+  label=${REEMIT_G_LABEL[g]}
+  command=${REEMIT_G_COMMAND[g]}
+  total=${REEMIT_G_TOTAL[g]}
+  first=${REEMIT_G_FIRST[g]}
+  REEMIT_GROUP_BYTES=$((REEMIT_ROW_CUM[first + shown] - REEMIT_ROW_CUM[first]))
+  REEMIT_GROUP_HEAD=
+  REEMIT_GROUP_TAIL=
+  case "${REEMIT_G_KIND[g]}" in
+    rows)
+      if [ "$shown" -eq 0 ]; then
+        REEMIT_GROUP_TAIL="$label: $total row(s) omitted by the state budget - $command"
+      else
+        REEMIT_GROUP_HEAD="$label ($total):"
+        [ "$shown" -eq "$total" ] \
+          || REEMIT_GROUP_TAIL="  (+$((total - shown)) more omitted by the state budget - $command)"
+      fi
+      ;;
+    lines)
+      [ "$shown" -eq "$total" ] \
+        || REEMIT_GROUP_TAIL="(+$((total - shown)) $label omitted by the state budget - $command)"
+      ;;
+    ids)
+      REEMIT_GROUP_HEAD="$label: $total"
+      if [ "$shown" -gt 0 ]; then
+        reemit_bytes "$REEMIT_IDS_LEAD"
+        REEMIT_GROUP_BYTES=$((REEMIT_GROUP_BYTES + REEMIT_BYTES + 1))
+      fi
+      [ "$shown" -eq "$total" ] \
+        || REEMIT_GROUP_TAIL="  (+$((total - shown)) more ids omitted by the state budget - $command)"
+      ;;
+  esac
+  if [ -n "$REEMIT_GROUP_HEAD" ]; then
+    reemit_bytes "$REEMIT_GROUP_HEAD"
+    REEMIT_GROUP_BYTES=$((REEMIT_GROUP_BYTES + REEMIT_BYTES + 1))
+  fi
+  if [ -n "$REEMIT_GROUP_TAIL" ]; then
+    reemit_bytes "$REEMIT_GROUP_TAIL"
+    REEMIT_GROUP_BYTES=$((REEMIT_GROUP_BYTES + REEMIT_BYTES + 1))
   fi
 }
 
-# reemit_state_rows <label> <listing> <command> [untracked]: the indented rows
-# of one tasks-axi listing, each capped, while the budget lasts. With
+reemit_group_print() {  # <g>: print group g with its admitted rows
+  local g=$1 shown first i=0 ids=''
+  shown=${REEMIT_G_SHOWN[g]}
+  first=${REEMIT_G_FIRST[g]}
+  reemit_group_frame "$g" "$shown"
+  [ -z "$REEMIT_GROUP_HEAD" ] || reemit_state_put "$REEMIT_GROUP_HEAD"
+  while [ "$i" -lt "$shown" ]; do
+    if [ "${REEMIT_G_KIND[g]}" = ids ]; then
+      ids="$ids ${REEMIT_ROWS[first + i]}"
+    else
+      reemit_state_put "${REEMIT_ROWS[first + i]}"
+    fi
+    i=$((i + 1))
+  done
+  [ -z "$ids" ] || reemit_state_put "$REEMIT_IDS_LEAD$ids"
+  [ -z "$REEMIT_GROUP_TAIL" ] || reemit_state_put "$REEMIT_GROUP_TAIL"
+}
+
+# reemit_state_admit <bytes>: choose, group by group in order, the most rows
+# each group can print while the whole summary - <bytes> of mandatory lines,
+# every earlier group as chosen, and every later group at its disclosure
+# alone - stays within the budget. Each row past the first that still leaves
+# rows cut costs strictly more bytes, so that scan stops at the first misfit;
+# printing every row drops the disclosure, so that is tried on its own first.
+reemit_state_admit() {
+  local total=$1 g=0 base shown
+  local -a bytes=()
+  while [ "$g" -lt "$REEMIT_G_COUNT" ]; do
+    reemit_group_frame "$g" 0
+    bytes[g]=$REEMIT_GROUP_BYTES
+    total=$((total + REEMIT_GROUP_BYTES))
+    g=$((g + 1))
+  done
+  g=0
+  while [ "$g" -lt "$REEMIT_G_COUNT" ]; do
+    base=$((total - bytes[g]))
+    reemit_group_frame "$g" "${REEMIT_G_TOTAL[g]}"
+    if [ $((base + REEMIT_GROUP_BYTES)) -le "$REEMIT_STATE_BYTES" ]; then
+      REEMIT_G_SHOWN[g]=${REEMIT_G_TOTAL[g]}
+      bytes[g]=$REEMIT_GROUP_BYTES
+    else
+      shown=1
+      while [ "$shown" -lt "${REEMIT_G_TOTAL[g]}" ]; do
+        reemit_group_frame "$g" "$shown"
+        [ $((base + REEMIT_GROUP_BYTES)) -le "$REEMIT_STATE_BYTES" ] || break
+        REEMIT_G_SHOWN[g]=$shown
+        bytes[g]=$REEMIT_GROUP_BYTES
+        shown=$((shown + 1))
+      done
+    fi
+    total=$((base + bytes[g]))
+    g=$((g + 1))
+  done
+}
+
+# reemit_tally_text <total> <open-bytes>: the closing tally for a summary of
+# <total> bytes, in REEMIT_TALLY with its byte length in REEMIT_BYTES.
+reemit_tally_text() {
+  if [ "$1" -le "$REEMIT_STATE_BYTES" ]; then
+    REEMIT_TALLY="STATE SUMMARY: $1 of $REEMIT_STATE_BYTES bytes, this line included."
+  else
+    REEMIT_TALLY="STATE SUMMARY: $1 bytes with this line, over the $REEMIT_STATE_BYTES-byte budget, so only its mandatory lines printed: the lede, OPEN ITEMS ($2 bytes), the counts, the cut disclosures, and this tally."
+  fi
+  reemit_bytes "$REEMIT_TALLY"
+}
+
+# reemit_state_tally <bytes-before> <open-bytes>: the closing tally whose count
+# includes the tally line itself - the least total that equals the bytes before
+# it plus its own line.
+reemit_state_tally() {
+  local before=$1 total=$1 next
+  while :; do
+    reemit_tally_text "$total" "$2"
+    next=$((before + REEMIT_BYTES + 1))
+    [ "$next" -ne "$total" ] || return 0
+    total=$next
+  done
+}
+
+# reemit_gather_rows <label> <listing> <command> [untracked]: the indented rows
+# of one tasks-axi listing, each capped, as one optional group. With
 # `untracked`, rows whose task already has a state/*.meta entry above are
 # skipped, because OPEN ITEMS already carries them.
-reemit_state_rows() {
-  local label=$1 listing=$2 command=$3 filter=${4:-} line id total=0 shown=0 in_rows=0
-  local -a kept=()
+reemit_gather_rows() {
+  local label=$1 listing=$2 command=$3 filter=${4:-} line id in_rows=0
+  reemit_group_open rows "$label" "$command"
   while IFS= read -r line || [ -n "$line" ]; do
     case "$line" in
       help\[*) break ;;
@@ -984,27 +1152,12 @@ reemit_state_rows() {
       id=${id%%,*}
       [ ! -f "$STATE/$id.meta" ] || continue
     fi
-    total=$((total + 1))
     fm_cap_line_var "$line" "$REEMIT_LINE_CAP"
-    kept[${#kept[@]}]=$FM_LINE_CAP_LINE
+    reemit_group_row "$FM_LINE_CAP_LINE"
   done <<EOF
 $listing
 EOF
-  [ "$total" -gt 0 ] || return 0
-  for line in "${kept[@]}"; do
-    if [ "$shown" -eq 0 ]; then
-      reemit_state_fits "$label ($total):"$'\n'"$line" || break
-      reemit_state_put "$label ($total):"
-    fi
-    reemit_state_fits "$line" || break
-    reemit_state_put "$line"
-    shown=$((shown + 1))
-  done
-  if [ "$shown" -eq 0 ]; then
-    reemit_state_put "$label: $total row(s) omitted by the state budget - $command"
-  elif [ "$shown" -lt "$total" ]; then
-    reemit_state_put "  (+$((total - shown)) more omitted by the state budget - $command)"
-  fi
+  reemit_group_close
 }
 
 reemit_axi_count() {  # <listing>: the tool's own "count: N" line
@@ -1017,15 +1170,17 @@ EOF
   printf '?'
 }
 
-reemit_state_backlog() {
-  local path="$DATA/backlog.md" in_flight held blocked ready listing line total=0 shown=0
-  reemit_state_subsection "Backlog (data/backlog.md; done rows omitted; full bodies: bin/fm-tasks-axi.sh show <id> --full)"
+# reemit_gather_backlog: the backlog heading and counts, which always print,
+# into REEMIT_BACKLOG_LINES, and its rows as optional groups.
+reemit_gather_backlog() {
+  local path="$DATA/backlog.md" in_flight held blocked ready listing line
+  REEMIT_BACKLOG_LINES=('' "Backlog (data/backlog.md; done rows omitted; full bodies: bin/fm-tasks-axi.sh show <id> --full)" "$SUBRULE")
   if [ ! -f "$path" ]; then
-    reemit_state_put 'ABSENT'
+    REEMIT_BACKLOG_LINES[${#REEMIT_BACKLOG_LINES[@]}]='ABSENT'
     return 0
   fi
   if [ ! -s "$path" ]; then
-    reemit_state_put '(present, empty)'
+    REEMIT_BACKLOG_LINES[${#REEMIT_BACKLOG_LINES[@]}]='(present, empty)'
     return 0
   fi
   if fm_tasks_axi_backend_available "$CONFIG" \
@@ -1036,11 +1191,11 @@ reemit_state_backlog() {
     in_flight=$(printf '%s\n' "$in_flight" | fm_hold_reason_decode_stream)
     held=$(printf '%s\n' "$held" | fm_hold_reason_decode_stream)
     blocked=$(printf '%s\n' "$blocked" | fm_hold_reason_decode_stream)
-    reemit_state_put "counts: $(reemit_axi_count "$in_flight") in flight, $(reemit_axi_count "$held") held, $(reemit_axi_count "$blocked") blocked queued, $(reemit_axi_count "$ready") ready queued"
-    reemit_state_rows "held" "$held" "bin/fm-tasks-axi.sh list --state held"
-    reemit_state_rows "blocked queued" "$blocked" "bin/fm-tasks-axi.sh list --state queued --blocked"
-    reemit_state_rows "in flight with no task record" "$in_flight" "bin/fm-tasks-axi.sh list --state in_flight" untracked
-    reemit_state_rows "ready queued" "$ready" "bin/fm-tasks-axi.sh ready"
+    REEMIT_BACKLOG_LINES[${#REEMIT_BACKLOG_LINES[@]}]="counts: $(reemit_axi_count "$in_flight") in flight, $(reemit_axi_count "$held") held, $(reemit_axi_count "$blocked") blocked queued, $(reemit_axi_count "$ready") ready queued"
+    reemit_gather_rows "held" "$held" "bin/fm-tasks-axi.sh list --state held"
+    reemit_gather_rows "blocked queued" "$blocked" "bin/fm-tasks-axi.sh list --state queued --blocked"
+    reemit_gather_rows "in flight with no task record" "$in_flight" "bin/fm-tasks-axi.sh list --state in_flight" untracked
+    reemit_gather_rows "ready queued" "$ready" "bin/fm-tasks-axi.sh ready"
     return 0
   fi
   # The title-line renderer, budgeted line by line; it needs no task model.
@@ -1049,46 +1204,37 @@ reemit_state_backlog() {
   else
     listing=$(print_backlog_manual_compact "$path" "tasks-axi unavailable, incompatible, or failed")
   fi
+  reemit_group_open lines "backlog listing line(s)" "data/backlog.md"
   while IFS= read -r line || [ -n "$line" ]; do
-    total=$((total + 1))
     fm_cap_line_var "$line" "$REEMIT_LINE_CAP"
-    if [ "$shown" -eq $((total - 1)) ] && reemit_state_fits "$FM_LINE_CAP_LINE"; then
-      reemit_state_put "$FM_LINE_CAP_LINE"
-      shown=$((shown + 1))
-    fi
+    reemit_group_row "$FM_LINE_CAP_LINE"
   done <<EOF
 $listing
 EOF
-  [ "$shown" -eq "$total" ] \
-    || reemit_state_put "(+$((total - shown)) backlog listing line(s) omitted by the state budget - data/backlog.md)"
+  reemit_group_close
 }
 
 # Status logs whose task record is gone: cleaned-up work, counted and named
 # but never replayed.
-reemit_state_closed_logs() {
-  local status id total=0 shown=0 line=''
-  local -a ids=()
+reemit_gather_closed_logs() {
+  local status id
+  reemit_group_open ids "closed task logs ($REEMIT_STATE_DIR/*.status with no task record, not replayed)" \
+    "ls $REEMIT_STATE_DIR/*.status"
   for status in "$STATE"/*.status; do
     [ -f "$status" ] || continue
     id=$(basename "$status" .status)
     [ -f "$STATE/$id.meta" ] && continue
-    ids[${#ids[@]}]=$id
+    reemit_group_row "$id"
   done
-  total=${#ids[@]}
-  [ "$total" -gt 0 ] || return 0
-  reemit_state_put "closed task logs ($REEMIT_STATE_DIR/*.status with no task record, not replayed): $total"
-  for id in "${ids[@]}"; do
-    reemit_state_fits "  ids:$line $id" || break
-    line="$line $id"
-    shown=$((shown + 1))
-  done
-  [ "$shown" -eq 0 ] || reemit_state_put "  ids:$line"
-  [ "$shown" -eq "$total" ] || reemit_state_put "  (+$((total - shown)) more ids omitted by the state budget - ls $REEMIT_STATE_DIR/*.status)"
+  reemit_group_close
 }
 
 print_reemit_state_summary() {
-  local meta found=0 open_bytes
+  local meta found=0 open_start open_bytes line mandatory g=0
   REEMIT_STATE_USED=0
+  REEMIT_G_COUNT=0
+  REEMIT_ROWS=()
+  REEMIT_ROW_CUM=(0)
   REEMIT_STATE_DIR=$STATE
   case "$STATE" in "$FM_HOME"/?*) REEMIT_STATE_DIR=${STATE#"$FM_HOME"/} ;; esac
   reemit_state_put "Context re-emit: CURRENT STATE, not the log. Repeated status events are collapsed to counts,"
@@ -1097,8 +1243,10 @@ print_reemit_state_summary() {
   reemit_state_put "holds each full log, and OPEN DECISIONS in the WAKE QUEUE above carries decision notes."
   reemit_state_put "Relative paths are under $FM_HOME; pr_state reads local merge evidence only, never the"
   reemit_state_put "forge, and pr_head=head means the PR records the exact worktree head shown beside it."
-  reemit_state_put "Budget: $REEMIT_STATE_BYTES bytes for this whole summary; OPEN ITEMS always print in full."
+  reemit_state_put "Budget: $REEMIT_STATE_BYTES bytes for this whole summary, lede and tally included; the mandatory lede,"
+  reemit_state_put "OPEN ITEMS, counts, cut disclosures, and tally always print, and other rows only while the whole fits."
 
+  open_start=$REEMIT_STATE_USED
   reemit_state_subsection "OPEN ITEMS (mandatory: every state/*.meta record, never cut by the budget)"
   for meta in "$STATE"/*.meta; do
     [ -f "$meta" ] || continue
@@ -1106,16 +1254,30 @@ print_reemit_state_summary() {
     reemit_state_task_entry "$meta"
   done
   [ "$found" -eq 1 ] || reemit_state_put '(none)'
-  open_bytes=$REEMIT_STATE_USED
+  open_bytes=$((REEMIT_STATE_USED - open_start))
 
-  reemit_state_backlog
-  reemit_state_closed_logs
+  reemit_gather_backlog
+  reemit_gather_closed_logs
+  # The mandatory bytes still to come: the backlog heading and counts, the
+  # blank line, and the tally at its longest within-budget spelling.
+  mandatory=$REEMIT_STATE_USED
+  for line in "${REEMIT_BACKLOG_LINES[@]}"; do
+    reemit_bytes "$line"
+    mandatory=$((mandatory + REEMIT_BYTES + 1))
+  done
+  reemit_tally_text "$REEMIT_STATE_BYTES" "$open_bytes"
+  reemit_state_admit $((mandatory + 1 + REEMIT_BYTES + 1))
+
+  for line in "${REEMIT_BACKLOG_LINES[@]}"; do
+    reemit_state_put "$line"
+  done
+  while [ "$g" -lt "$REEMIT_G_COUNT" ]; do
+    reemit_group_print "$g"
+    g=$((g + 1))
+  done
   reemit_state_put ''
-  if [ "$REEMIT_STATE_USED" -gt "$REEMIT_STATE_BYTES" ]; then
-    reemit_state_put "STATE SUMMARY: $REEMIT_STATE_USED bytes, over the $REEMIT_STATE_BYTES-byte budget: OPEN ITEMS used $open_bytes and always print in full, so only counts and disclosures follow them."
-  else
-    reemit_state_put "STATE SUMMARY: $REEMIT_STATE_USED of $REEMIT_STATE_BYTES bytes."
-  fi
+  reemit_state_tally "$REEMIT_STATE_USED" "$open_bytes"
+  reemit_state_put "$REEMIT_TALLY"
 }
 
 # fm_session_start_endpoint_read <backend> <target> [expected-label]: ONE

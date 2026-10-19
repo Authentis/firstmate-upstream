@@ -31,8 +31,11 @@
 #     compatibility verdict is paid for once per session start
 #   - the locked context re-emit's FLEET STATE as capped state: identical
 #     status events collapsed to counts, superseded history and closed logs
-#     dropped, the default byte cap with disclosed cuts, and a mandatory
-#     open-items section carrying exact heads, receipt paths, and PR states
+#     dropped, the default byte cap with disclosed cuts, a mandatory
+#     open-items section carrying exact heads, every receipt path, and PR
+#     states (merge record, retirement receipt, armed poll, unwatched), and a
+#     byte tally that counts the whole summary, itself included, so a budget
+#     of exactly its size fits and one byte less cuts or reports the overrun
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -2586,6 +2589,40 @@ run_reemit() {  # <home> <root> <path>
     "$SESSION_START" --reemit
 }
 
+reemit_summary_bytes() {  # <summary>: its real serialized size, tally line included
+  printf '%s\n' "$1" | LC_ALL=C wc -c | tr -d ' '
+}
+
+# assert_reemit_tally_exact <summary> <context>: the closing tally's byte count
+# is the summary's real size, its own line included.
+assert_reemit_tally_exact() {
+  local actual tally
+  actual=$(reemit_summary_bytes "$1")
+  tally=$(printf '%s\n' "$1" | sed -n 's/^STATE SUMMARY: \([0-9][0-9]*\) .*/\1/p' | tail -1)
+  [ -n "$tally" ] && [ "$tally" -eq "$actual" ] \
+    || fail "$2: the tally counts ${tally:-nothing} bytes but the summary is $actual: $1"
+}
+
+# reemit_summary_at <home> <root> <fakebin> <budget>: the state summary a
+# locked --reemit prints under that byte budget, over 40 fake ready rows.
+reemit_summary_at() {
+  local reemit
+  reemit=$(FM_FAKE_TASKS_AXI_READY=40 FM_SESSION_START_REEMIT_STATE_BYTES="$4" \
+    run_reemit "$1" "$2" "$3:$BASE_PATH")
+  reemit_state_summary "$reemit"
+}
+
+# write_retirement_receipt <state> <id> <number>: a private
+# fm-pr-poll-retirement-v1 receipt recording github.com/o/r PR <number> merged,
+# in the 14-line shape bin/fm-pr-lib.sh validates.
+write_retirement_receipt() {
+  local hash
+  hash=$(printf '%064d' 0)
+  printf '%s\n' fm-pr-poll-retirement-v1 "$2" github "https://github.com/o/r/pull/$3" github.com o/r "$3" \
+    "$hash" "$hash" 1:1 1:2 "$hash" 1:3 merged > "$1/$2.pr-poll-retirement"
+  chmod 600 "$1/$2.pr-poll-retirement"
+}
+
 test_reemit_state_summary_is_capped_state_not_a_log() {
   local rec root home fakebin full full_fleet reemit summary bytes i
   rec=$(new_world reemit-state-cap)
@@ -2624,8 +2661,9 @@ EOF
   reemit=$(FM_FAKE_TASKS_AXI_READY=600 run_reemit "$home" "$root" "$fakebin:$BASE_PATH")
   summary=$(reemit_state_summary "$reemit")
   [ -n "$summary" ] || fail "the locked re-emit printed no state summary: $reemit"
-  bytes=$(printf '%s\n' "$summary" | LC_ALL=C wc -c | tr -d ' ')
+  bytes=$(reemit_summary_bytes "$summary")
   [ "$bytes" -le 15000 ] || fail "the re-emit state summary is $bytes bytes, over its default 15000-byte cap"
+  assert_reemit_tally_exact "$summary" "the default-budget summary"
   assert_contains "$summary" "Budget: 15000 bytes for this whole summary" "the summary did not state its default cap"
   assert_contains "$summary" "more omitted by the state budget - bin/fm-tasks-axi.sh ready" \
     "the cap cut ready rows without disclosing the remainder and its command"
@@ -2695,6 +2733,14 @@ EOF
   printf 'window=default:w5:p1\nbackend=tmux\nkind=scout\nmode=no-mistakes\nyolo=off\nbranch=fm/scout-f\n' > "$home/state/scout-f.meta"
   mkdir -p "$home/data/scout-f"
   printf '# findings\n' > "$home/data/scout-f/report.md"
+  # A retirement receipt bound to the recorded PR proves its merge; one bound
+  # to another PR proves nothing.
+  printf 'window=default:w6:p1\nbackend=tmux\nkind=ship\nmode=no-mistakes\nyolo=off\nbranch=fm/retired-g\npr=https://github.com/o/r/pull/14\n' \
+    > "$home/state/retired-g.meta"
+  write_retirement_receipt "$home/state" retired-g 14
+  printf 'window=default:w7:p1\nbackend=tmux\nkind=ship\nmode=no-mistakes\nyolo=off\nbranch=fm/retired-h\npr=https://github.com/o/r/pull/15\n' \
+    > "$home/state/retired-h.meta"
+  write_retirement_receipt "$home/state" retired-h 99
 
   # A budget far below the open items proves they are mandatory, never cut.
   reemit=$(FM_SESSION_START_REEMIT_STATE_BYTES=400 run_reemit "$home" "$root" "$fakebin:$BASE_PATH")
@@ -2702,11 +2748,10 @@ EOF
   [ -n "$summary" ] || fail "the locked re-emit printed no state summary: $reemit"
   assert_contains "$summary" "OPEN ITEMS (mandatory: every state/*.meta record, never cut by the budget)" \
     "the re-emit state summary has no mandatory open-items section"
-  assert_contains "$summary" "-byte budget: OPEN ITEMS used" \
-    "the summary did not disclose that its mandatory section outgrew the budget"
-  assert_contains "$summary" "always print in full, so only counts and disclosures follow them." \
-    "the over-budget tally did not say why it ran past the budget"
-  for i in merged-a watch-b bare-c remote-d sm-e scout-f; do
+  assert_contains "$summary" "bytes with this line, over the 400-byte budget, so only its mandatory lines printed: the lede, OPEN ITEMS (" \
+    "the over-budget tally did not say that only the mandatory lines printed"
+  assert_reemit_tally_exact "$summary" "the over-budget summary"
+  for i in merged-a watch-b bare-c remote-d sm-e scout-f retired-g retired-h; do
     assert_contains "$summary" "- $i [" "the open-items section dropped task $i under a tight budget"
   done
 
@@ -2722,21 +2767,122 @@ EOF
     "an armed merge poll was not reported as the PR's state"
   assert_contains "$summary" "pr=https://github.com/o/r/pull/13 pr_head=none pr_state=unwatched(" \
     "a recorded PR without local merge evidence was not disclosed as unwatched"
+  assert_contains "$summary" "pr=https://github.com/o/r/pull/14 pr_head=none pr_state=merged(retirement receipt)" \
+    "a retirement receipt bound to the recorded PR was not reported as its merge"
+  assert_contains "$summary" "pr=https://github.com/o/r/pull/15 pr_head=none pr_state=unwatched(" \
+    "a retirement receipt for another PR was accepted as this PR's merge"
 
-  # Receipt paths stay exact even when the event line that cites them is capped.
+  # Receipt paths stay exact even when the event line that cites them is capped,
+  # and every cited receipt is listed, never a count of the rest.
   assert_contains "$summary" "[truncated]" "the receipt fixture's latest event was not long enough to be capped"
   assert_contains "$summary" "receipts: /tmp/receipts/merged-a/proof.log" \
     "a receipt path cited past the line cap was lost"
   assert_contains "$summary" "receipts: data/scout-f/report.md" "a scout report receipt was not listed"
   assert_contains "$summary" "Relative paths are under $home;" "the summary did not anchor its relative receipt paths"
-  assert_contains "$summary" "data/watch-b/call-5.md" "a receipt cited by an open decision was not listed"
+  assert_contains "$summary" "receipts: data/watch-b/call-5.md data/watch-b/call-4.md data/watch-b/call-3.md data/watch-b/call-2.md data/watch-b/call-1.md" \
+    "a receipt cited by an open decision was dropped or reordered"
+  assert_not_contains "$summary" "more in state/" "receipts were cut to a count"
 
   # Open decisions: newest first, bounded, closed ones dropped.
   assert_contains "$summary" "open decisions (5): call-5(needs-decision), call-4(needs-decision), call-3(needs-decision), call-2(needs-decision), +1 more" \
     "open decision keys were not listed newest first with a bounded remainder"
   assert_not_contains "$summary" "old-call" "a resolved decision was carried into the state summary"
 
-  pass "--reemit open items keep exact heads, receipt paths, and local PR states under any budget"
+  pass "--reemit open items keep exact heads, every receipt path, and local PR states under any budget"
+}
+
+test_reemit_state_cap_counts_every_byte_at_the_boundary() {
+  local rec root home fakebin summary full tight mandatory mid bytes i
+  # An empty home: every line is mandatory, so one byte under its size overruns.
+  rec=$(new_world reemit-cap-empty)
+  IFS='|' read -r root home fakebin <<EOF
+$rec
+EOF
+  make_fake_toolchain "$fakebin"
+  make_fake_ps_claude "$fakebin"
+  summary=$(reemit_summary_at "$home" "$root" "$fakebin" 900)
+  assert_reemit_tally_exact "$summary" "an empty home under a 900-byte budget"
+  assert_contains "$summary" "over the 900-byte budget, so only its mandatory lines printed" \
+    "an empty home's mandatory lines overran 900 bytes without the tally saying so"
+  summary=$(reemit_summary_at "$home" "$root" "$fakebin" 100000)
+  full=$(reemit_summary_bytes "$summary")
+  tight=$(reemit_summary_bytes "$(reemit_summary_at "$home" "$root" "$fakebin" "$full")")
+  summary=$(reemit_summary_at "$home" "$root" "$fakebin" "$tight")
+  assert_reemit_tally_exact "$summary" "an empty home under a budget of exactly its size"
+  assert_contains "$summary" "STATE SUMMARY: $tight of $tight bytes, this line included." \
+    "an empty home whose mandatory lines exactly fill the budget did not fit it"
+  summary=$(reemit_summary_at "$home" "$root" "$fakebin" $((tight - 1)))
+  assert_reemit_tally_exact "$summary" "an empty home one byte under its size"
+  assert_contains "$summary" "over the $((tight - 1))-byte budget, so only its mandatory lines printed" \
+    "an empty home one byte over its budget was reported within it"
+
+  # A home with optional rows: backlog groups, then closed-log ids.
+  rec=$(new_world reemit-cap-rows)
+  IFS='|' read -r root home fakebin <<EOF
+$rec
+EOF
+  make_fake_toolchain "$fakebin"
+  make_fake_tasks_axi_compact "$fakebin"
+  make_fake_ps_claude "$fakebin"
+  printf '# Backlog\n\n## Queued\n- [ ] placeholder - answered by the fake tasks-axi\n' > "$home/data/backlog.md"
+  printf 'window=default:w1:p1\nbackend=tmux\nkind=ship\nmode=no-mistakes\nyolo=off\nbranch=fm/cap-b\n' \
+    > "$home/state/cap-b.meta"
+  printf 'working [at=1700000000]: implementing the fix\n' > "$home/state/cap-b.status"
+  i=1
+  while [ "$i" -le 30 ]; do
+    printf 'done [at=1690000000]: closed task %s\n' "$i" > "$home/state/closed-$i.status"
+    i=$((i + 1))
+  done
+
+  # Under a one-byte budget only the mandatory lines print, every cut disclosed.
+  summary=$(reemit_summary_at "$home" "$root" "$fakebin" 1)
+  assert_reemit_tally_exact "$summary" "the mandatory-only summary"
+  mandatory=$(reemit_summary_bytes "$summary")
+  assert_contains "$summary" "over the 1-byte budget, so only its mandatory lines printed" \
+    "a summary whose mandatory lines overran the budget did not say so"
+  assert_contains "$summary" "- cap-b [ship no-mistakes yolo=off]" "an open item was cut by the budget"
+  assert_contains "$summary" "counts: 1 in flight, 1 held, 1 blocked queued, 40 ready queued" "the backlog counts were cut"
+  assert_contains "$summary" "held: 1 row(s) omitted by the state budget - bin/fm-tasks-axi.sh list --state held" \
+    "a cut held row was not disclosed"
+  assert_contains "$summary" "ready queued: 40 row(s) omitted by the state budget - bin/fm-tasks-axi.sh ready" \
+    "cut ready rows were not disclosed"
+  assert_contains "$summary" "(+30 more ids omitted by the state budget - ls state/*.status)" \
+    "cut closed-log ids were not disclosed"
+  assert_not_contains "$summary" "Ready item 1" "an optional row printed past an overrun budget"
+  assert_not_contains "$summary" "ids: closed" "an optional id printed past an overrun budget"
+
+  # With room for everything nothing is cut, a budget of exactly that size
+  # still prints everything, and one byte less cuts the last group's ids first.
+  summary=$(reemit_summary_at "$home" "$root" "$fakebin" 100000)
+  assert_reemit_tally_exact "$summary" "the uncut summary"
+  assert_not_contains "$summary" "omitted by the state budget" "an ample budget still cut rows"
+  full=$(reemit_summary_bytes "$summary")
+  tight=$(reemit_summary_bytes "$(reemit_summary_at "$home" "$root" "$fakebin" "$full")")
+  summary=$(reemit_summary_at "$home" "$root" "$fakebin" "$tight")
+  assert_reemit_tally_exact "$summary" "the summary under a budget of exactly its size"
+  assert_contains "$summary" "STATE SUMMARY: $tight of $tight bytes, this line included." \
+    "a summary that exactly fills its budget was not printed whole"
+  assert_not_contains "$summary" "omitted by the state budget" "a budget of exactly the summary's size cut rows"
+  summary=$(reemit_summary_at "$home" "$root" "$fakebin" $((tight - 1)))
+  assert_reemit_tally_exact "$summary" "the summary one byte under its size"
+  bytes=$(reemit_summary_bytes "$summary")
+  [ "$bytes" -le $((tight - 1)) ] || fail "one byte under its size, the summary still took $bytes bytes"
+  assert_contains "$summary" "Ready item 40" "the budget cut a ready row before the later closed-log ids"
+  assert_contains "$summary" "more ids omitted by the state budget - ls state/*.status)" \
+    "the one-byte cut was not disclosed"
+
+  # Between the mandatory size and the whole, ready rows are cut and disclosed
+  # and the summary stays within its budget.
+  mid=$(((mandatory + tight) / 2))
+  summary=$(reemit_summary_at "$home" "$root" "$fakebin" "$mid")
+  assert_reemit_tally_exact "$summary" "the partly cut summary"
+  bytes=$(reemit_summary_bytes "$summary")
+  [ "$bytes" -le "$mid" ] || fail "under a $mid-byte budget the summary took $bytes bytes"
+  assert_contains "$summary" "Ready item 1" "a partly cut budget printed no ready row"
+  assert_contains "$summary" "more omitted by the state budget - bin/fm-tasks-axi.sh ready)" \
+    "partly cut ready rows were not disclosed"
+
+  pass "--reemit state cap counts every byte, tally included: exact size fits, one byte less cuts, mandatory-only overruns say so"
 }
 
 test_agents_baseline_stays_at_true_start_and_reemits_on_every_drifted_pi_compact() {
@@ -3424,6 +3570,7 @@ test_runtime_bound_leaves_harness_ancestry_headroom
 test_reemit_skips_startup_sweeps_but_keeps_the_wake_drain
 test_reemit_state_summary_is_capped_state_not_a_log
 test_reemit_open_items_keep_heads_receipts_and_pr_states
+test_reemit_state_cap_counts_every_byte_at_the_boundary
 test_reemit_cue_survives_the_hook_output_preview
 test_agents_baseline_stays_at_true_start_and_reemits_on_every_drifted_pi_compact
 test_sourceless_rerun_after_truncated_startup_writes_the_baseline_once
