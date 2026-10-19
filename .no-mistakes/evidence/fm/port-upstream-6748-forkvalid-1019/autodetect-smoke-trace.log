@@ -1,0 +1,87 @@
++ set -u
++++ dirname tests/fm-backend-autodetect-smoke.test.sh
+++ cd tests/..
+++ pwd
++ ROOT=~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0
++ command -v herdr
++ command -v jq
++ command -v treehouse
++ export FM_GATE_REFUSE_BYPASS=1
++ FM_GATE_REFUSE_BYPASS=1
++ . ~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0/tests/herdr-test-safety.sh
+++ set -u
++++ dirname ~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0/tests/herdr-test-safety.sh
+++ . ~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0/tests/git-config-helpers.sh
++++ export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
++++ GIT_CONFIG_GLOBAL=/dev/null
++++ GIT_CONFIG_NOSYSTEM=1
++++ unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR
+++ export FM_GATE_REFUSE_BYPASS=1
+++ FM_GATE_REFUSE_BYPASS=1
+++++ dirname ~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0/tests/herdr-test-safety.sh
++++ cd ~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0/tests/..
++++ pwd
+++ HERDR_TEST_SAFETY_DIR=~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0
+++ . ~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0/bin/fm-herdr-lab.sh
++++ set -u
++++ readonly fm_herdr_lab_viewer_timeout_seconds=5
++++ fm_herdr_lab_viewer_timeout_seconds=5
++++ readonly fm_herdr_lab_viewer_launcher_grace_seconds=6
++++ fm_herdr_lab_viewer_launcher_grace_seconds=6
++++ '[' ~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0/bin/fm-herdr-lab.sh = tests/fm-backend-autodetect-smoke.test.sh ']'
++ herdr_forget_inherited_pane
++ unset HERDR_ENV HERDR_PANE_ID HERDR_TAB_ID HERDR_WORKSPACE_ID HERDR_SOCKET_PATH HERDR_SESSION
++++ cd /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/
++++ pwd -P
+++ mktemp -d /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-backend-autodetect-smoke.XXXXXX
++ TMP_ROOT=/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-backend-autodetect-smoke.f3Udc5
++ export TREEHOUSE_ROOT=/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-backend-autodetect-smoke.f3Udc5/treehouse
++ TREEHOUSE_ROOT=/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-backend-autodetect-smoke.f3Udc5/treehouse
++ HERDR_LAB_HELPER=~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0/bin/fm-herdr-lab.sh
+++ ~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0/bin/fm-herdr-lab.sh name fm-autodetect-smoke-concurrency-h3
++ HERDR_LAB_SESSION=fm-lab-fm-autodetect-sm-89067-11710
++ export HERDR_SESSION=fm-lab-fm-autodetect-sm-89067-11710
++ HERDR_SESSION=fm-lab-fm-autodetect-sm-89067-11710
++ ID=autodetectsmoke1
++ WT=
++ trap on_exit EXIT
++ ~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0/bin/fm-herdr-lab.sh provision fm-lab-fm-autodetect-sm-89067-11710
++ STATE=/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-backend-autodetect-smoke.f3Udc5/state
++ DATA=/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-backend-autodetect-smoke.f3Udc5/data
++ CONFIG=/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-backend-autodetect-smoke.f3Udc5/config
++ mkdir -p /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-backend-autodetect-smoke.f3Udc5/state /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-backend-autodetect-smoke.f3Udc5/data/autodetectsmoke1 /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-backend-autodetect-smoke.f3Udc5/config
++ printf 'off\n'
++ cat
++ PROJ=/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-backend-autodetect-smoke.f3Udc5/scratch-project
++ mkdir -p /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-backend-autodetect-smoke.f3Udc5/scratch-project
++ git -C /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-backend-autodetect-smoke.f3Udc5/scratch-project init -q
++ printf '# scratch\n'
++ git -C /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-backend-autodetect-smoke.f3Udc5/scratch-project add README.md
++ git -C /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-backend-autodetect-smoke.f3Udc5/scratch-project -c 'user.name=Firstmate Tests' -c user.email=tests@example.invalid commit -qm initial
++ git clone --quiet --bare /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-backend-autodetect-smoke.f3Udc5/scratch-project /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-backend-autodetect-smoke.f3Udc5/scratch-project.origin.git
++ git -C /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-backend-autodetect-smoke.f3Udc5/scratch-project remote add origin file:///private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-backend-autodetect-smoke.f3Udc5/scratch-project.origin.git
++ OUT_FILE=/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-backend-autodetect-smoke.f3Udc5/spawn.out
++ ERR_FILE=/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-backend-autodetect-smoke.f3Udc5/spawn.err
++ env -u TMUX -u FM_BACKEND 'PATH=~/.kimi-code/bin:~/.mercury/bin:~/.grok/bin:~/.mynav:~/.bun/bin:~/.antigravity/antigravity/bin:~/.opencode/bin:~/.local/bin:~/.nvm/versions/node/v22.18.0/bin:~/.rd/bin:~/.local/bin:~/.local/bin:/opt/local/bin:/opt/local/sbin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Library/Apple/usr/bin:/usr/local/share/dotnet:~/.dotnet/tools:/opt/podman/bin:~/.local/bin:~/go/bin:~/.cargo/bin:~/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/sbin:~/.orbstack/bin:~/.cache/lm-studio/bin' HERDR_ENV=1 FM_ROOT_OVERRIDE=~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0 FM_STATE_OVERRIDE=/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-backend-autodetect-smoke.f3Udc5/state FM_DATA_OVERRIDE=/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-backend-autodetect-smoke.f3Udc5/data FM_CONFIG_OVERRIDE=/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-backend-autodetect-smoke.f3Udc5/config FM_PROJECTS_OVERRIDE=/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-backend-autodetect-smoke.f3Udc5/unused-projects FM_SPAWN_NO_GUARD=1 ~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0/bin/fm-spawn.sh autodetectsmoke1 /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-backend-autodetect-smoke.f3Udc5/scratch-project 'sh -c '\''echo autodetect-smoke-ok'\''' --mode no-mistakes --yolo off
++ status=1
++ '[' 1 -eq 0 ']'
+++ cat /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-backend-autodetect-smoke.f3Udc5/spawn.out
+++ cat /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-backend-autodetect-smoke.f3Udc5/spawn.err
++ fail $'fm-spawn.sh did not succeed auto-detecting herdr\n--- stdout ---\n\n--- stderr ---\nerror: could not resolve the shared Treehouse project lock for /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-backend-autodetect-smoke.f3Udc5/scratch-project'
++ printf 'not ok - %s\n' $'fm-spawn.sh did not succeed auto-detecting herdr\n--- stdout ---\n\n--- stderr ---\nerror: could not resolve the shared Treehouse project lock for /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-backend-autodetect-smoke.f3Udc5/scratch-project'
+not ok - fm-spawn.sh did not succeed auto-detecting herdr
+--- stdout ---
+
+--- stderr ---
+error: could not resolve the shared Treehouse project lock for /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-backend-autodetect-smoke.f3Udc5/scratch-project
++ exit 1
++ on_exit
++ local status=1
++ cleanup_all
++ local cleanup_status=0
++ '[' -n '' ']'
++ ~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0/bin/fm-herdr-lab.sh teardown fm-lab-fm-autodetect-sm-89067-11710
++ rm -rf /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-backend-autodetect-smoke.f3Udc5
++ return 0
++ trap - EXIT
++ exit 1

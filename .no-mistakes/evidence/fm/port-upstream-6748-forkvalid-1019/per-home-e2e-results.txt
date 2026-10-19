@@ -1,0 +1,11 @@
+ok - real herdr E2E: a primary-shaped home spawns a crewmate on the herdr backend
+ok - real herdr E2E: the primary-shaped home's crewmate landed in the 'firstmate' workspace
+ok - real herdr E2E: the primary spawns a --secondmate task on the herdr backend
+ok - real herdr E2E: a --secondmate spawn by the PRIMARY lands in the SECONDMATE's own labeled workspace, distinct from the primary's
+ok - real herdr E2E: a crewmate spawns successfully FROM a secondmate-shaped home's own fm-spawn.sh process
+ok - real herdr E2E: a crewmate spawned FROM the secondmate-shaped home lands in the secondmate's OWN workspace - falls out of per-home resolution, no glue needed
+ok - real herdr E2E: list_live from the primary's own context sees only the primary's own task
+ok - real herdr E2E: list_live from the secondmate's own context sees only tasks in the secondmate's own workspace (both its own tab and its crewmate's)
+not ok - fm-teardown.sh failed for the primary-shaped crewmate cm1
++ WT1=/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/treehouse/.treehouse/scratch-project-1-c7cf25/1/scratch-project-1
++ WT2=/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/treehouse/.treehouse/scratch-project-2-da671e/1/scratch-project-2

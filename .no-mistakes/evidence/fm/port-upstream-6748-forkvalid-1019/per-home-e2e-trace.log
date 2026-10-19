@@ -1,0 +1,725 @@
++ set -u
++++ dirname tests/fm-backend-herdr-workspace-per-home-e2e.test.sh
+++ cd tests/..
+++ pwd
++ ROOT=~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0
++ command -v herdr
++ command -v jq
++ command -v treehouse
++ . ~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0/tests/herdr-test-safety.sh
+++ set -u
++++ dirname ~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0/tests/herdr-test-safety.sh
+++ . ~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0/tests/git-config-helpers.sh
++++ export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
++++ GIT_CONFIG_GLOBAL=/dev/null
++++ GIT_CONFIG_NOSYSTEM=1
++++ unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR
+++ export FM_GATE_REFUSE_BYPASS=1
+++ FM_GATE_REFUSE_BYPASS=1
+++++ dirname ~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0/tests/herdr-test-safety.sh
++++ cd ~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0/tests/..
++++ pwd
+++ HERDR_TEST_SAFETY_DIR=~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0
+++ . ~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0/bin/fm-herdr-lab.sh
++++ set -u
++++ readonly fm_herdr_lab_viewer_timeout_seconds=5
++++ fm_herdr_lab_viewer_timeout_seconds=5
++++ readonly fm_herdr_lab_viewer_launcher_grace_seconds=6
++++ fm_herdr_lab_viewer_launcher_grace_seconds=6
++++ '[' ~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0/bin/fm-herdr-lab.sh = tests/fm-backend-herdr-workspace-per-home-e2e.test.sh ']'
++ herdr_forget_inherited_pane
++ unset HERDR_ENV HERDR_PANE_ID HERDR_TAB_ID HERDR_WORKSPACE_ID HERDR_SOCKET_PATH HERDR_SESSION
++++ cd /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/
++++ pwd -P
+++ mktemp -d /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.XXXXXX
++ TMP_ROOT=/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA
++ export TREEHOUSE_ROOT=/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/treehouse
++ TREEHOUSE_ROOT=/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/treehouse
++ SESSION=fm-lab-herdr-e2e-85438
++ export HERDR_SESSION=fm-lab-herdr-e2e-85438
++ HERDR_SESSION=fm-lab-herdr-e2e-85438
++ WT1=
++ WT2=
++ trap cleanup_all EXIT
++ fm_herdr_lab_prepare fm-lab-herdr-e2e-85438
++ local name=fm-lab-herdr-e2e-85438 sessions state_dir tripwire
++ fm_herdr_lab_validate_name fm-lab-herdr-e2e-85438
++ local name=fm-lab-herdr-e2e-85438
++ [[ fm-lab-herdr-e2e-85438 =~ ^fm-lab-[a-zA-Z0-9][a-zA-Z0-9_-]*$ ]]
++ return 0
++ command -v herdr
++ command -v jq
+++ fm_herdr_lab_session_list fm-lab-herdr-e2e-85438
++ sessions='{"sessions":[{"default":true,"name":"default","running":true,"session_dir":"~/.config/herdr","socket_path":"~/.config/herdr/herdr.sock"},{"default":false,"name":"fm-lab-afk-herdr-e2e-99472","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-afk-herdr-e2e-99472","socket_path":"~/.config/herdr/sessions/fm-lab-afk-herdr-e2e-99472/herdr.sock"},{"default":false,"name":"fm-lab-fm-herdr-present-45751-25761","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-45751-25761","socket_path":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-45751-25761/herdr.sock"},{"default":false,"name":"fm-lab-fm-herdr-present-52694-29243","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-52694-29243","socket_path":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-52694-29243/herdr.sock"},{"default":false,"name":"fm-lab-fm-herdr-present-69940-17442","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-69940-17442","socket_path":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-69940-17442/herdr.sock"},{"default":false,"name":"fm-lab-fm-herdr-present-97775-6417","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-97775-6417","socket_path":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-97775-6417/herdr.sock"},{"default":false,"name":"fm-lab-ring-1385-23199","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-ring-1385-23199","socket_path":"~/.config/herdr/sessions/fm-lab-ring-1385-23199/herdr.sock"},{"default":false,"name":"fm-lab-ringb-84008-32721","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-ringb-84008-32721","socket_path":"~/.config/herdr/sessions/fm-lab-ringb-84008-32721/herdr.sock"},{"default":false,"name":"fm-remote","running":false,"session_dir":"~/.config/herdr/sessions/fm-remote","socket_path":"~/.config/herdr/sessions/fm-remote/herdr.sock"},{"default":false,"name":"fmnmtest3","running":false,"session_dir":"~/.config/herdr/sessions/fmnmtest3","socket_path":"~/.config/herdr/sessions/fmnmtest3/herdr.sock"}]}'
++ printf %s '{"sessions":[{"default":true,"name":"default","running":true,"session_dir":"~/.config/herdr","socket_path":"~/.config/herdr/herdr.sock"},{"default":false,"name":"fm-lab-afk-herdr-e2e-99472","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-afk-herdr-e2e-99472","socket_path":"~/.config/herdr/sessions/fm-lab-afk-herdr-e2e-99472/herdr.sock"},{"default":false,"name":"fm-lab-fm-herdr-present-45751-25761","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-45751-25761","socket_path":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-45751-25761/herdr.sock"},{"default":false,"name":"fm-lab-fm-herdr-present-52694-29243","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-52694-29243","socket_path":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-52694-29243/herdr.sock"},{"default":false,"name":"fm-lab-fm-herdr-present-69940-17442","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-69940-17442","socket_path":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-69940-17442/herdr.sock"},{"default":false,"name":"fm-lab-fm-herdr-present-97775-6417","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-97775-6417","socket_path":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-97775-6417/herdr.sock"},{"default":false,"name":"fm-lab-ring-1385-23199","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-ring-1385-23199","socket_path":"~/.config/herdr/sessions/fm-lab-ring-1385-23199/herdr.sock"},{"default":false,"name":"fm-lab-ringb-84008-32721","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-ringb-84008-32721","socket_path":"~/.config/herdr/sessions/fm-lab-ringb-84008-32721/herdr.sock"},{"default":false,"name":"fm-remote","running":false,"session_dir":"~/.config/herdr/sessions/fm-remote","socket_path":"~/.config/herdr/sessions/fm-remote/herdr.sock"},{"default":false,"name":"fmnmtest3","running":false,"session_dir":"~/.config/herdr/sessions/fmnmtest3","socket_path":"~/.config/herdr/sessions/fmnmtest3/herdr.sock"}]}'
++ jq -e --arg name fm-lab-herdr-e2e-85438 '.sessions[]? | select(.name == $name)'
+++ fm_herdr_lab_state_dir
+++ printf %s /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-herdr-lab-501
++ state_dir=/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-herdr-lab-501
+++ fm_herdr_lab_tripwire_path fm-lab-herdr-e2e-85438
++++ fm_herdr_lab_state_dir
++++ printf %s /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-herdr-lab-501
+++ printf %s/%s.fleet-state.json /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-herdr-lab-501 fm-lab-herdr-e2e-85438
++ tripwire=/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-herdr-lab-501/fm-lab-herdr-e2e-85438.fleet-state.json
++ mkdir -p /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-herdr-lab-501
++ '[' '!' -e /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-herdr-lab-501/fm-lab-herdr-e2e-85438.fleet-state.json ']'
++ fm_herdr_lab_fleet_state fm-lab-herdr-e2e-85438
++ local name=fm-lab-herdr-e2e-85438 sessions snapshot
+++ fm_herdr_lab_session_list fm-lab-herdr-e2e-85438
++ sessions='{"sessions":[{"default":true,"name":"default","running":true,"session_dir":"~/.config/herdr","socket_path":"~/.config/herdr/herdr.sock"},{"default":false,"name":"fm-lab-afk-herdr-e2e-99472","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-afk-herdr-e2e-99472","socket_path":"~/.config/herdr/sessions/fm-lab-afk-herdr-e2e-99472/herdr.sock"},{"default":false,"name":"fm-lab-fm-herdr-present-45751-25761","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-45751-25761","socket_path":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-45751-25761/herdr.sock"},{"default":false,"name":"fm-lab-fm-herdr-present-52694-29243","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-52694-29243","socket_path":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-52694-29243/herdr.sock"},{"default":false,"name":"fm-lab-fm-herdr-present-69940-17442","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-69940-17442","socket_path":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-69940-17442/herdr.sock"},{"default":false,"name":"fm-lab-fm-herdr-present-97775-6417","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-97775-6417","socket_path":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-97775-6417/herdr.sock"},{"default":false,"name":"fm-lab-ring-1385-23199","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-ring-1385-23199","socket_path":"~/.config/herdr/sessions/fm-lab-ring-1385-23199/herdr.sock"},{"default":false,"name":"fm-lab-ringb-84008-32721","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-ringb-84008-32721","socket_path":"~/.config/herdr/sessions/fm-lab-ringb-84008-32721/herdr.sock"},{"default":false,"name":"fm-remote","running":false,"session_dir":"~/.config/herdr/sessions/fm-remote","socket_path":"~/.config/herdr/sessions/fm-remote/herdr.sock"},{"default":false,"name":"fmnmtest3","running":false,"session_dir":"~/.config/herdr/sessions/fmnmtest3","socket_path":"~/.config/herdr/sessions/fmnmtest3/herdr.sock"}]}'
+++ printf %s '{"sessions":[{"default":true,"name":"default","running":true,"session_dir":"~/.config/herdr","socket_path":"~/.config/herdr/herdr.sock"},{"default":false,"name":"fm-lab-afk-herdr-e2e-99472","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-afk-herdr-e2e-99472","socket_path":"~/.config/herdr/sessions/fm-lab-afk-herdr-e2e-99472/herdr.sock"},{"default":false,"name":"fm-lab-fm-herdr-present-45751-25761","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-45751-25761","socket_path":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-45751-25761/herdr.sock"},{"default":false,"name":"fm-lab-fm-herdr-present-52694-29243","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-52694-29243","socket_path":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-52694-29243/herdr.sock"},{"default":false,"name":"fm-lab-fm-herdr-present-69940-17442","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-69940-17442","socket_path":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-69940-17442/herdr.sock"},{"default":false,"name":"fm-lab-fm-herdr-present-97775-6417","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-97775-6417","socket_path":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-97775-6417/herdr.sock"},{"default":false,"name":"fm-lab-ring-1385-23199","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-ring-1385-23199","socket_path":"~/.config/herdr/sessions/fm-lab-ring-1385-23199/herdr.sock"},{"default":false,"name":"fm-lab-ringb-84008-32721","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-ringb-84008-32721","socket_path":"~/.config/herdr/sessions/fm-lab-ringb-84008-32721/herdr.sock"},{"default":false,"name":"fm-remote","running":false,"session_dir":"~/.config/herdr/sessions/fm-remote","socket_path":"~/.config/herdr/sessions/fm-remote/herdr.sock"},{"default":false,"name":"fmnmtest3","running":false,"session_dir":"~/.config/herdr/sessions/fmnmtest3","socket_path":"~/.config/herdr/sessions/fmnmtest3/herdr.sock"}]}'
+++ jq -c $'\n    [.sessions[]? | select(.default == true)]\n    | if length == 1 and .[0].name == "default" and .[0].running == true\n      then .[0] | {name, default, running, socket_path}\n      else empty\n      end\n  '
++ snapshot='{"name":"default","default":true,"running":true,"socket_path":"~/.config/herdr/herdr.sock"}'
++ '[' -n '{"name":"default","default":true,"running":true,"socket_path":"~/.config/herdr/herdr.sock"}' ']'
++ printf '%s\n' '{"name":"default","default":true,"running":true,"socket_path":"~/.config/herdr/herdr.sock"}'
++ . ~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0/bin/fm-backend.sh
+++ FM_BACKEND_SCRIPT=~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0/bin/fm-backend.sh
+++++ dirname ~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0/bin/fm-backend.sh
++++ cd ~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0/bin
++++ pwd
+++ FM_BACKEND_LIB_DIR=~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0/bin
+++ unset FM_BACKEND_SCRIPT
++++ cd ~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0/bin/..
++++ pwd
+++ FM_BACKEND_DEFAULT_ROOT=~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0
+++ FM_ROOT=~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0
+++ FM_HOME=~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0
+++ FM_BACKEND_CONFIG_DIR=~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0/config
+++ FM_BACKEND_KNOWN='tmux herdr zellij orca cmux'
+++ FM_BACKEND_SPAWN='tmux herdr zellij orca cmux'
+++ FM_BACKEND_CMUX_BUNDLE_ID=com.cmuxterm.app
+++ FM_BACKEND_VISIBLE_CAPTURE='tmux herdr zellij'
++ fm_backend_source herdr
++ local name=herdr adapter rel sibling
++ fm_backend_validate herdr
++ local name=herdr
++ fm_backend_is_known herdr
++ fm_backend_list_contains 'tmux herdr zellij orca cmux' herdr
++ local 'list=tmux herdr zellij orca cmux' name=herdr
++ case "$name" in
++ case " $list " in
++ return 0
++ return 0
++ adapter=~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0/bin/backends/herdr.sh
++ case "$name" in
++ set -- fm-composer-lib.sh fm-transition-lib.sh fm-agent-process-lib.sh fm-session-lock-lib.sh fm-gemini-lib.sh
++ fm_backend_source_readable ~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0/bin/backends/herdr.sh
++ '[' -f ~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0/bin/backends/herdr.sh ']'
++ '[' -r ~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0/bin/backends/herdr.sh ']'
++ for rel in "$@"
++ sibling=~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0/bin/fm-composer-lib.sh
++ fm_backend_source_readable ~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0/bin/fm-composer-lib.sh
++ '[' -f ~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0/bin/fm-composer-lib.sh ']'
++ '[' -r ~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0/bin/fm-composer-lib.sh ']'
++ for rel in "$@"
++ sibling=~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0/bin/fm-transition-lib.sh
++ fm_backend_source_readable ~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0/bin/fm-transition-lib.sh
++ '[' -f ~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0/bin/fm-transition-lib.sh ']'
++ '[' -r ~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0/bin/fm-transition-lib.sh ']'
++ for rel in "$@"
++ sibling=~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0/bin/fm-agent-process-lib.sh
++ fm_backend_source_readable ~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0/bin/fm-agent-process-lib.sh
++ '[' -f ~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0/bin/fm-agent-process-lib.sh ']'
++ '[' -r ~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0/bin/fm-agent-process-lib.sh ']'
++ for rel in "$@"
++ sibling=~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0/bin/fm-session-lock-lib.sh
++ fm_backend_source_readable ~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0/bin/fm-session-lock-lib.sh
++ '[' -f ~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0/bin/fm-session-lock-lib.sh ']'
++ '[' -r ~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0/bin/fm-session-lock-lib.sh ']'
++ for rel in "$@"
++ sibling=~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0/bin/fm-gemini-lib.sh
++ fm_backend_source_readable ~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0/bin/fm-gemini-lib.sh
++ '[' -f ~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0/bin/fm-gemini-lib.sh ']'
++ '[' -r ~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0/bin/fm-gemini-lib.sh ']'
++ case "$name" in
++ '[' -z '' ']'
++ . ~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0/bin/backends/herdr.sh
++++ d=~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0/bin/backends
++++ '[' ~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0/bin/backends '!=' ~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0/bin/backends/herdr.sh ']'
++++ cd ~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0/bin/backends/../..
++++ pwd
+++ FM_BACKEND_HERDR_ROOT=~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0
+++ FM_ROOT=~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0
+++ FM_HOME=~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0
+++ . ~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0/bin/fm-composer-lib.sh
++++ FM_COMPOSER_UNICODE_SPACES=()
++++ for _fm_composer_space_octal in '\0302\0205' '\0302\0240' '\0341\0232\0200' '\0342\0200\0200' '\0342\0200\0201' '\0342\0200\0202' '\0342\0200\0203' '\0342\0200\0204' '\0342\0200\0205' '\0342\0200\0206' '\0342\0200\0207' '\0342\0200\0210' '\0342\0200\0211' '\0342\0200\0212' '\0342\0200\0250' '\0342\0200\0251' '\0342\0200\0257' '\0342\0201\0237' '\0343\0200\0200'
++++ printf -v _fm_composer_space_utf8 %b '\0302\0205'
++++ FM_COMPOSER_UNICODE_SPACES+=("$_fm_composer_space_utf8")
++++ for _fm_composer_space_octal in '\0302\0205' '\0302\0240' '\0341\0232\0200' '\0342\0200\0200' '\0342\0200\0201' '\0342\0200\0202' '\0342\0200\0203' '\0342\0200\0204' '\0342\0200\0205' '\0342\0200\0206' '\0342\0200\0207' '\0342\0200\0210' '\0342\0200\0211' '\0342\0200\0212' '\0342\0200\0250' '\0342\0200\0251' '\0342\0200\0257' '\0342\0201\0237' '\0343\0200\0200'
++++ printf -v _fm_composer_space_utf8 %b '\0302\0240'
++++ FM_COMPOSER_UNICODE_SPACES+=("$_fm_composer_space_utf8")
++++ for _fm_composer_space_octal in '\0302\0205' '\0302\0240' '\0341\0232\0200' '\0342\0200\0200' '\0342\0200\0201' '\0342\0200\0202' '\0342\0200\0203' '\0342\0200\0204' '\0342\0200\0205' '\0342\0200\0206' '\0342\0200\0207' '\0342\0200\0210' '\0342\0200\0211' '\0342\0200\0212' '\0342\0200\0250' '\0342\0200\0251' '\0342\0200\0257' '\0342\0201\0237' '\0343\0200\0200'
++++ printf -v _fm_composer_space_utf8 %b '\0341\0232\0200'
++++ FM_COMPOSER_UNICODE_SPACES+=("$_fm_composer_space_utf8")
++++ for _fm_composer_space_octal in '\0302\0205' '\0302\0240' '\0341\0232\0200' '\0342\0200\0200' '\0342\0200\0201' '\0342\0200\0202' '\0342\0200\0203' '\0342\0200\0204' '\0342\0200\0205' '\0342\0200\0206' '\0342\0200\0207' '\0342\0200\0210' '\0342\0200\0211' '\0342\0200\0212' '\0342\0200\0250' '\0342\0200\0251' '\0342\0200\0257' '\0342\0201\0237' '\0343\0200\0200'
++++ printf -v _fm_composer_space_utf8 %b '\0342\0200\0200'
++++ FM_COMPOSER_UNICODE_SPACES+=("$_fm_composer_space_utf8")
++++ for _fm_composer_space_octal in '\0302\0205' '\0302\0240' '\0341\0232\0200' '\0342\0200\0200' '\0342\0200\0201' '\0342\0200\0202' '\0342\0200\0203' '\0342\0200\0204' '\0342\0200\0205' '\0342\0200\0206' '\0342\0200\0207' '\0342\0200\0210' '\0342\0200\0211' '\0342\0200\0212' '\0342\0200\0250' '\0342\0200\0251' '\0342\0200\0257' '\0342\0201\0237' '\0343\0200\0200'
++++ printf -v _fm_composer_space_utf8 %b '\0342\0200\0201'
++++ FM_COMPOSER_UNICODE_SPACES+=("$_fm_composer_space_utf8")
++++ for _fm_composer_space_octal in '\0302\0205' '\0302\0240' '\0341\0232\0200' '\0342\0200\0200' '\0342\0200\0201' '\0342\0200\0202' '\0342\0200\0203' '\0342\0200\0204' '\0342\0200\0205' '\0342\0200\0206' '\0342\0200\0207' '\0342\0200\0210' '\0342\0200\0211' '\0342\0200\0212' '\0342\0200\0250' '\0342\0200\0251' '\0342\0200\0257' '\0342\0201\0237' '\0343\0200\0200'
++++ printf -v _fm_composer_space_utf8 %b '\0342\0200\0202'
++++ FM_COMPOSER_UNICODE_SPACES+=("$_fm_composer_space_utf8")
++++ for _fm_composer_space_octal in '\0302\0205' '\0302\0240' '\0341\0232\0200' '\0342\0200\0200' '\0342\0200\0201' '\0342\0200\0202' '\0342\0200\0203' '\0342\0200\0204' '\0342\0200\0205' '\0342\0200\0206' '\0342\0200\0207' '\0342\0200\0210' '\0342\0200\0211' '\0342\0200\0212' '\0342\0200\0250' '\0342\0200\0251' '\0342\0200\0257' '\0342\0201\0237' '\0343\0200\0200'
++++ printf -v _fm_composer_space_utf8 %b '\0342\0200\0203'
++++ FM_COMPOSER_UNICODE_SPACES+=("$_fm_composer_space_utf8")
++++ for _fm_composer_space_octal in '\0302\0205' '\0302\0240' '\0341\0232\0200' '\0342\0200\0200' '\0342\0200\0201' '\0342\0200\0202' '\0342\0200\0203' '\0342\0200\0204' '\0342\0200\0205' '\0342\0200\0206' '\0342\0200\0207' '\0342\0200\0210' '\0342\0200\0211' '\0342\0200\0212' '\0342\0200\0250' '\0342\0200\0251' '\0342\0200\0257' '\0342\0201\0237' '\0343\0200\0200'
++++ printf -v _fm_composer_space_utf8 %b '\0342\0200\0204'
++++ FM_COMPOSER_UNICODE_SPACES+=("$_fm_composer_space_utf8")
++++ for _fm_composer_space_octal in '\0302\0205' '\0302\0240' '\0341\0232\0200' '\0342\0200\0200' '\0342\0200\0201' '\0342\0200\0202' '\0342\0200\0203' '\0342\0200\0204' '\0342\0200\0205' '\0342\0200\0206' '\0342\0200\0207' '\0342\0200\0210' '\0342\0200\0211' '\0342\0200\0212' '\0342\0200\0250' '\0342\0200\0251' '\0342\0200\0257' '\0342\0201\0237' '\0343\0200\0200'
++++ printf -v _fm_composer_space_utf8 %b '\0342\0200\0205'
++++ FM_COMPOSER_UNICODE_SPACES+=("$_fm_composer_space_utf8")
++++ for _fm_composer_space_octal in '\0302\0205' '\0302\0240' '\0341\0232\0200' '\0342\0200\0200' '\0342\0200\0201' '\0342\0200\0202' '\0342\0200\0203' '\0342\0200\0204' '\0342\0200\0205' '\0342\0200\0206' '\0342\0200\0207' '\0342\0200\0210' '\0342\0200\0211' '\0342\0200\0212' '\0342\0200\0250' '\0342\0200\0251' '\0342\0200\0257' '\0342\0201\0237' '\0343\0200\0200'
++++ printf -v _fm_composer_space_utf8 %b '\0342\0200\0206'
++++ FM_COMPOSER_UNICODE_SPACES+=("$_fm_composer_space_utf8")
++++ for _fm_composer_space_octal in '\0302\0205' '\0302\0240' '\0341\0232\0200' '\0342\0200\0200' '\0342\0200\0201' '\0342\0200\0202' '\0342\0200\0203' '\0342\0200\0204' '\0342\0200\0205' '\0342\0200\0206' '\0342\0200\0207' '\0342\0200\0210' '\0342\0200\0211' '\0342\0200\0212' '\0342\0200\0250' '\0342\0200\0251' '\0342\0200\0257' '\0342\0201\0237' '\0343\0200\0200'
++++ printf -v _fm_composer_space_utf8 %b '\0342\0200\0207'
++++ FM_COMPOSER_UNICODE_SPACES+=("$_fm_composer_space_utf8")
++++ for _fm_composer_space_octal in '\0302\0205' '\0302\0240' '\0341\0232\0200' '\0342\0200\0200' '\0342\0200\0201' '\0342\0200\0202' '\0342\0200\0203' '\0342\0200\0204' '\0342\0200\0205' '\0342\0200\0206' '\0342\0200\0207' '\0342\0200\0210' '\0342\0200\0211' '\0342\0200\0212' '\0342\0200\0250' '\0342\0200\0251' '\0342\0200\0257' '\0342\0201\0237' '\0343\0200\0200'
++++ printf -v _fm_composer_space_utf8 %b '\0342\0200\0210'
++++ FM_COMPOSER_UNICODE_SPACES+=("$_fm_composer_space_utf8")
++++ for _fm_composer_space_octal in '\0302\0205' '\0302\0240' '\0341\0232\0200' '\0342\0200\0200' '\0342\0200\0201' '\0342\0200\0202' '\0342\0200\0203' '\0342\0200\0204' '\0342\0200\0205' '\0342\0200\0206' '\0342\0200\0207' '\0342\0200\0210' '\0342\0200\0211' '\0342\0200\0212' '\0342\0200\0250' '\0342\0200\0251' '\0342\0200\0257' '\0342\0201\0237' '\0343\0200\0200'
++++ printf -v _fm_composer_space_utf8 %b '\0342\0200\0211'
++++ FM_COMPOSER_UNICODE_SPACES+=("$_fm_composer_space_utf8")
++++ for _fm_composer_space_octal in '\0302\0205' '\0302\0240' '\0341\0232\0200' '\0342\0200\0200' '\0342\0200\0201' '\0342\0200\0202' '\0342\0200\0203' '\0342\0200\0204' '\0342\0200\0205' '\0342\0200\0206' '\0342\0200\0207' '\0342\0200\0210' '\0342\0200\0211' '\0342\0200\0212' '\0342\0200\0250' '\0342\0200\0251' '\0342\0200\0257' '\0342\0201\0237' '\0343\0200\0200'
++++ printf -v _fm_composer_space_utf8 %b '\0342\0200\0212'
++++ FM_COMPOSER_UNICODE_SPACES+=("$_fm_composer_space_utf8")
++++ for _fm_composer_space_octal in '\0302\0205' '\0302\0240' '\0341\0232\0200' '\0342\0200\0200' '\0342\0200\0201' '\0342\0200\0202' '\0342\0200\0203' '\0342\0200\0204' '\0342\0200\0205' '\0342\0200\0206' '\0342\0200\0207' '\0342\0200\0210' '\0342\0200\0211' '\0342\0200\0212' '\0342\0200\0250' '\0342\0200\0251' '\0342\0200\0257' '\0342\0201\0237' '\0343\0200\0200'
++++ printf -v _fm_composer_space_utf8 %b '\0342\0200\0250'
++++ FM_COMPOSER_UNICODE_SPACES+=("$_fm_composer_space_utf8")
++++ for _fm_composer_space_octal in '\0302\0205' '\0302\0240' '\0341\0232\0200' '\0342\0200\0200' '\0342\0200\0201' '\0342\0200\0202' '\0342\0200\0203' '\0342\0200\0204' '\0342\0200\0205' '\0342\0200\0206' '\0342\0200\0207' '\0342\0200\0210' '\0342\0200\0211' '\0342\0200\0212' '\0342\0200\0250' '\0342\0200\0251' '\0342\0200\0257' '\0342\0201\0237' '\0343\0200\0200'
++++ printf -v _fm_composer_space_utf8 %b '\0342\0200\0251'
++++ FM_COMPOSER_UNICODE_SPACES+=("$_fm_composer_space_utf8")
++++ for _fm_composer_space_octal in '\0302\0205' '\0302\0240' '\0341\0232\0200' '\0342\0200\0200' '\0342\0200\0201' '\0342\0200\0202' '\0342\0200\0203' '\0342\0200\0204' '\0342\0200\0205' '\0342\0200\0206' '\0342\0200\0207' '\0342\0200\0210' '\0342\0200\0211' '\0342\0200\0212' '\0342\0200\0250' '\0342\0200\0251' '\0342\0200\0257' '\0342\0201\0237' '\0343\0200\0200'
++++ printf -v _fm_composer_space_utf8 %b '\0342\0200\0257'
++++ FM_COMPOSER_UNICODE_SPACES+=("$_fm_composer_space_utf8")
++++ for _fm_composer_space_octal in '\0302\0205' '\0302\0240' '\0341\0232\0200' '\0342\0200\0200' '\0342\0200\0201' '\0342\0200\0202' '\0342\0200\0203' '\0342\0200\0204' '\0342\0200\0205' '\0342\0200\0206' '\0342\0200\0207' '\0342\0200\0210' '\0342\0200\0211' '\0342\0200\0212' '\0342\0200\0250' '\0342\0200\0251' '\0342\0200\0257' '\0342\0201\0237' '\0343\0200\0200'
++++ printf -v _fm_composer_space_utf8 %b '\0342\0201\0237'
++++ FM_COMPOSER_UNICODE_SPACES+=("$_fm_composer_space_utf8")
++++ for _fm_composer_space_octal in '\0302\0205' '\0302\0240' '\0341\0232\0200' '\0342\0200\0200' '\0342\0200\0201' '\0342\0200\0202' '\0342\0200\0203' '\0342\0200\0204' '\0342\0200\0205' '\0342\0200\0206' '\0342\0200\0207' '\0342\0200\0210' '\0342\0200\0211' '\0342\0200\0212' '\0342\0200\0250' '\0342\0200\0251' '\0342\0200\0257' '\0342\0201\0237' '\0343\0200\0200'
++++ printf -v _fm_composer_space_utf8 %b '\0343\0200\0200'
++++ FM_COMPOSER_UNICODE_SPACES+=("$_fm_composer_space_utf8")
++++ unset -v _fm_composer_space_octal _fm_composer_space_utf8
++++ FM_DELIVERY_BUSY_REGEX_DEFAULT='esc (to )?interrupt|Working(\.\.\.|…)|Ctrl\+c:cancel|ctrl\+c to stop|esc[[:space:]]+to[[:space:]]+cancel|esc twice to interrupt|^[[:space:]]*❭ Guide Devin while it works$'
++++ FM_DELIVERY_CLAUDE_BUSY_REGEX_DEFAULT='esc to interrupt|…[[:space:]]+\([0-9]+[smh]'
++++ FM_DELIVERY_DEVIN_BUSY_REGEX_DEFAULT='esc twice to interrupt|^[[:space:]]*❭ Guide Devin while it works$'
++++ FM_DELIVERY_CODEX_BUSY_REGEX_DEFAULT='esc to interrupt'
++++ FM_DELIVERY_COMMANDCODE_BUSY_REGEX_DEFAULT='esc to interrupt|•[[:space:]]+[0-9]+[smh]([[:space:]]+[0-9]+[smh])*[[:space:]]+•[[:space:]]+↓'
++++ FM_DELIVERY_OPENCODE_BUSY_REGEX_DEFAULT='esc interrupt'
++++ FM_DELIVERY_PI_BUSY_REGEX_DEFAULT='Working\.\.\.'
++++ FM_OMP_SPINNER_FRAMES_RE='(⠋|⠙|⠹|⠸|⠼|⠴|⠦|⠧|⠇|⠏|⣾|⣽|⣻|⢿|⡿|⣟|⣯|⣷)'
++++ FM_DELIVERY_OMP_BUSY_REGEX_DEFAULT='Working…|^[[:space:]]*(⠋|⠙|⠹|⠸|⠼|⠴|⠦|⠧|⠇|⠏|⣾|⣽|⣻|⢿|⡿|⣟|⣯|⣷)[[:space:]]+[0-9]+[smh]'
++++ FM_DELIVERY_GROK_BUSY_REGEX_DEFAULT='Ctrl\+c:cancel'
++++ FM_DELIVERY_CURSOR_BUSY_REGEX_DEFAULT='ctrl\+c to stop'
++++ FM_DELIVERY_AGY_BUSY_REGEX_DEFAULT='esc[[:space:]]+to[[:space:]]+cancel'
++++ FM_DELIVERY_KIMI_BUSY_REGEX_DEFAULT='^[[:space:]]*(🌑|🌒|🌓|🌔|🌕|🌖|🌗|🌘)[[:space:]]+·[[:space:]]+'
+++++ printf '%s\n' ❯ › ⟩ → ❭
++++ FM_COMPOSER_AGENT_PROMPT_GLYPHS=$'❯\n›\n⟩\n→\n❭'
++++ FM_COMPOSER_SLASH_MENU_AGENT=claude
++++ FM_COMPOSER_SLASH_MENU_GLYPH=❯
++++ FM_COMPOSER_MENU_AGENT=none
++++ FM_COMPOSER_MENU_NEEDS_IDENTITY=0
+++++ printf '%s\n' '>' '$' % '#'
++++ FM_COMPOSER_SHELL_PROMPT_GLYPHS=$'>\n$\n%\n#'
++++ FM_COMPOSER_IDLE_RE_DEFAULT='^Type a message\.\.\.$|^Ask anything(\.\.\.|…)|^Plan, search, build anything$|^Add a follow-up$|^Ask Devin to build features, fix bugs, or work on your code$|^Ask your question\.\.\.$'
++++ FM_COMPOSER_LEFTBAR_FOOTER_RE_DEFAULT='^(Build|Plan)[[:space:]]+·[[:space:]]+'
++++ FM_COMPOSER_LEFTBAR_HINT_RE_DEFAULT='ctrl\+p[[:space:]]+commands([[:space:]]+•.*)?[[:space:]]*$'
++++ FM_COMPOSER_MODE_HINT_RE_DEFAULT='^[[:space:]]*(⏵|⏸)'
++++ FM_COMPOSER_OMP_STATUS_RE_DEFAULT='^[[:space:]]*(π|󰵗)[[:space:]]+·[[:space:]]|^[[:space:]]*(⠋|⠙|⠹|⠸|⠼|⠴|⠦|⠧|⠇|⠏|⣾|⣽|⣻|⢿|⡿|⣟|⣯|⣷)[[:space:]]+[0-9]+[smh]([[:space:]]|$)|[[:space:]]·[[:space:]].*[0-9]+(\.[0-9]+)?%/[0-9]+K'
++++ FM_COMPOSER_PI_STATUS_RE_DEFAULT='^\$[0-9]+(\.[0-9]+)?([[:space:]]|$)'
++++ FM_COMPOSER_CAPTURE_LINES=20
++++ FM_COMPOSER_PI_MAX_LINES=8
++++ FM_COMPOSER_GROK_TITLE_OVERHANG=3
++++ _FM_COMPOSER_SGR_AWK=$'\n    function apply(params,   n, a, k, code) {\n      if (params == "") params = "0"\n      n = split(params, a, ";")\n      for (k = 1; k <= n; k++) {\n        code = a[k]\n        sub(/:.*/, "", code)\n        if (code == "" || code == "0") { rev = 0; fg = 0; fgspec = "" }\n        else if (code == "7") rev = 1\n        else if (code == "27") rev = 0\n        else if (code == "39") { fg = 0; fgspec = "" }\n        else if (code == "38") {\n          fg = 1; fgspec = a[k]\n          if (index(a[k], ":") == 0) {\n            if (a[k + 1] == "2") { fgspec = "38;2;" a[k + 2] ";" a[k + 3] ";" a[k + 4]; k += 4 }\n            else if (a[k + 1] == "5") { fgspec = "38;5;" a[k + 2]; k += 2 }\n          }\n        }\n        else if ((code >= 30 && code <= 37) || (code >= 90 && code <= 97)) { fg = 1; fgspec = code }\n        else if (code == "48") { if (index(a[k], ":") == 0) { if (a[k + 1] == "2") k += 4; else if (a[k + 1] == "5") k += 2 } }\n      }\n    }\n    function sgr_skip(line, i, n,   j, params) {\n      j = i + 1\n      if (substr(line, j, 1) != "[") return j + 1\n      j++; params = ""\n      while (j <= n && substr(line, j, 1) ~ /[0-9;:?]/) { params = params substr(line, j, 1); j++ }\n      if (substr(line, j, 1) == "m") apply(params)\n      return j + 1\n    }\n'
+++ . ~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0/bin/fm-transition-lib.sh
++++ FM_TRANSITION_FIELD_SEP=$'\t'
+++ . ~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0/bin/fm-agent-process-lib.sh
++++ _FM_AGENT_PROCESS_LIB_DIR=~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0/bin
++++ '[' ~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0/bin '!=' ~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0/bin/fm-agent-process-lib.sh ']'
++++ . ~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0/bin/fm-session-lock-lib.sh
+++++ _FM_SESSION_LOCK_LIB_DIR=~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0/bin
+++++ '[' ~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0/bin '!=' ~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0/bin/fm-session-lock-lib.sh ']'
+++++ . ~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0/bin/fm-cursor-lib.sh
++++++ FM_CURSOR_PROBE_TIMEOUT=10
+++++ unset _FM_SESSION_LOCK_LIB_DIR
+++++ FM_HARNESS_RE='claude|codex|opencode|grok|kimi|^pi$|^pi-signed$|^omp$'
+++++ FM_HARNESS_NAMES=(claude codex opencode grok kimi pi-signed pi omp)
+++++ FM_HARNESS_IS_CLAUDE=0
+++++ FM_SESSION_LOCK_FOREIGN_OWNER_PID=
+++++ FM_LOCK_INSPECT_STATE=unknown
+++++ FM_LOCK_INSPECT_PID=
+++++ FM_LOCK_INSPECT_LIVE_HARNESS=unknown
++++ . ~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0/bin/fm-gemini-lib.sh
++++ unset _FM_AGENT_PROCESS_LIB_DIR
+++ FM_BACKEND_HERDR_MIN_PROTOCOL=14
+++ FM_BACKEND_HERDR_MIN_EVENTS_PROTOCOL=16
+++ FM_BACKEND_HERDR_MIN_WORKSPACE_MOVE_PROTOCOL=16
+++ FM_BACKEND_HERDR_MIN_PRESENTATION_PROTOCOL=19
+++ FM_BACKEND_HERDR_MIN_PRESENTATION_VERSION=0.8.0
+++ FM_BACKEND_HERDR_PRESENTATION_FLOOR_MARKER_PREFIX=.herdr-presentation-floor-
+++ FM_BACKEND_HERDR_ESCALATED_PREFIX=.herdr-escalated-
+++ FM_BACKEND_HERDR_SECONDMATE_MARKER=.fm-secondmate-home
+++ FM_BACKEND_HERDR_PRESENTATION_JOURNAL_SUFFIX=.herdr-presentation
+++ FM_BACKEND_HERDR_PRESENTATION_CONFIG=herdr-presentation-spaces
+++ FM_BACKEND_HERDR_TUNABLE_MAX_SECS=5
+++ FM_BACKEND_HERDR_SUBMIT_POLLS=6
+++ FM_BACKEND_HERDR_SUBMIT_MIN_SLEEP=0.6
++ _FM_BACKEND_HERDR_SOURCED=1
++ PRIMARY_HOME=/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/primary-home
++ mkdir -p /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/primary-home/state /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/primary-home/data/cm1 /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/primary-home/config
++ printf 'off\n'
++ cat
++ SM_HOME=/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/secondmate-home
++ mkdir -p /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/secondmate-home/state /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/secondmate-home/data/cm2 /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/secondmate-home/config /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/secondmate-home/projects /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/secondmate-home/bin
++ printf 'off\n'
++ printf '# scratch secondmate home AGENTS.md placeholder\n'
++ printf 'e2esm1\n'
++ printf 'trivial e2e secondmate charter: nothing to do.\n'
++ printf '%s\n' projects/ state/ data/ config/ .no-mistakes/
++ git -C /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/secondmate-home init -q -b main
++ cat
++ PROJ1=/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/scratch-project-1
++ make_scratch_project /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/scratch-project-1
++ local dir=/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/scratch-project-1
++ mkdir -p /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/scratch-project-1
++ git -C /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/scratch-project-1 init -q
++ printf '# scratch\n'
++ git -C /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/scratch-project-1 add README.md
++ git -C /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/scratch-project-1 -c 'user.name=Firstmate Tests' -c user.email=tests@example.invalid commit -qm initial
++ git clone --quiet --bare /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/scratch-project-1 /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/scratch-project-1.origin.git
++ git -C /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/scratch-project-1 remote add origin file:///private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/scratch-project-1.origin.git
++ PROJ2=/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/scratch-project-2
++ make_scratch_project /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/scratch-project-2
++ local dir=/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/scratch-project-2
++ mkdir -p /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/scratch-project-2
++ git -C /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/scratch-project-2 init -q
++ printf '# scratch\n'
++ git -C /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/scratch-project-2 add README.md
++ git -C /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/scratch-project-2 -c 'user.name=Firstmate Tests' -c user.email=tests@example.invalid commit -qm initial
++ git clone --quiet --bare /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/scratch-project-2 /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/scratch-project-2.origin.git
++ git -C /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/scratch-project-2 remote add origin file:///private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/scratch-project-2.origin.git
++ CM1_OUT=/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/cm1.out
++ CM1_ERR=/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/cm1.err
++ FM_SPAWN_NO_GUARD=1
++ FM_HOME=/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/primary-home
++ FM_ROOT_OVERRIDE=~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0
++ ~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0/bin/fm-spawn.sh cm1 /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/scratch-project-1 'sh -c '\''echo primary-crew-ok'\''' --mode no-mistakes --yolo off --backend herdr
++ rc=0
++ '[' 0 -eq 0 ']'
++ CM1_META=/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/primary-home/state/cm1.meta
++ '[' -f /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/primary-home/state/cm1.meta ']'
+++ cat /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/primary-home/state/cm1.meta
++ assert_contains_local $'window=fm-lab-herdr-e2e-85438:w1:p2\nendpoint_task_id=cm1\nworktree=/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/treehouse/.treehouse/scratch-project-1-c7cf25/1/scratch-project-1\nlease_id=ce2686823ddc193568e3134f65063954\nproject=/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/scratch-project-1\nharness=sh\nkind=ship\nmode=no-mistakes\nyolo=off\nbranch=fm/cm1\ntasktmp=/tmp/fm-cm1\nmodel=default\neffort=default\nspawn_gen=s1792403157.86355.32356\nspawn_first=1792403157\nbackend=herdr\nherdr_session=fm-lab-herdr-e2e-85438\nherdr_workspace_id=w1\nherdr_tab_id=w1:t2\nherdr_pane_id=w1:p2' backend=herdr 'cm1 meta missing backend=herdr'
++ case "$1" in
++ :
+++ grep '^worktree=' /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/primary-home/state/cm1.meta
+++ cut -d= -f2-
++ WT1=/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/treehouse/.treehouse/scratch-project-1-c7cf25/1/scratch-project-1
++ case "$WT1" in
++ :
+++ grep '^herdr_pane_id=' /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/primary-home/state/cm1.meta
+++ cut -d= -f2-
++ CM1_PANE=w1:p2
++ '[' -n w1:p2 ']'
++ pass 'real herdr E2E: a primary-shaped home spawns a crewmate on the herdr backend'
++ printf 'ok - %s\n' 'real herdr E2E: a primary-shaped home spawns a crewmate on the herdr backend'
+ok - real herdr E2E: a primary-shaped home spawns a crewmate on the herdr backend
++ sleep 1
+++ fm_backend_herdr_capture fm-lab-herdr-e2e-85438:w1:p2 30
+++ fm_backend_herdr_target_ready fm-lab-herdr-e2e-85438:w1:p2
+++ fm_backend_herdr_parse_target fm-lab-herdr-e2e-85438:w1:p2
+++ local target=fm-lab-herdr-e2e-85438:w1:p2
+++ FM_BACKEND_HERDR_SESSION=fm-lab-herdr-e2e-85438
+++ FM_BACKEND_HERDR_PANE=w1:p2
+++ '[' -n fm-lab-herdr-e2e-85438 ']'
+++ '[' -n w1:p2 ']'
+++ '[' w1:p2 '!=' fm-lab-herdr-e2e-85438:w1:p2 ']'
+++ fm_backend_herdr_server_ensure fm-lab-herdr-e2e-85438
+++ local session=fm-lab-herdr-e2e-85438 running out i
++++ fm_backend_herdr_cli fm-lab-herdr-e2e-85438 status --json
++++ jq -r '.server.running // false'
+++ running=true
+++ '[' true = true ']'
+++ return 0
+++ local lines=30 fetch out
+++ case "$lines" in
+++ fetch=30
+++ case "$fetch" in
+++ '[' 30 -ge 200 ']'
+++ fetch=200
++++ fm_backend_herdr_cli fm-lab-herdr-e2e-85438 pane read w1:p2 --source recent --lines 200
+++ out=$'lundi@M4-25 scratch-project-1 % cd -- \'/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/tre\nehouse/.treehouse/scratch-project-1-c7cf25/1/scratch-project-1\'\nlundi@M4-25 scratch-project-1 % export GOTMPDIR=/tmp/fm-cm1/gotmp\nlundi@M4-25 scratch-project-1 % export COMPACT_ADVISER_DISABLE=1\nlundi@M4-25 scratch-project-1 % export FM_TASK_ID=cm1\nlundi@M4-25 scratch-project-1 % . \'/tmp/fm-cm1+3daa42dbfb0b50ed4b7db29d158357171fa9ce98858540b8498c03fc2110af15/launch.\ns1792403157.86355.32356.sh\'\nprimary-crew-ok\nlundi@M4-25 scratch-project-1 %'
+++ printf %s $'lundi@M4-25 scratch-project-1 % cd -- \'/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/tre\nehouse/.treehouse/scratch-project-1-c7cf25/1/scratch-project-1\'\nlundi@M4-25 scratch-project-1 % export GOTMPDIR=/tmp/fm-cm1/gotmp\nlundi@M4-25 scratch-project-1 % export COMPACT_ADVISER_DISABLE=1\nlundi@M4-25 scratch-project-1 % export FM_TASK_ID=cm1\nlundi@M4-25 scratch-project-1 % . \'/tmp/fm-cm1+3daa42dbfb0b50ed4b7db29d158357171fa9ce98858540b8498c03fc2110af15/launch.\ns1792403157.86355.32356.sh\'\nprimary-crew-ok\nlundi@M4-25 scratch-project-1 %'
+++ tail -n 30
++ CM1_CAPTURE=$'lundi@M4-25 scratch-project-1 % cd -- \'/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/tre\nehouse/.treehouse/scratch-project-1-c7cf25/1/scratch-project-1\'\nlundi@M4-25 scratch-project-1 % export GOTMPDIR=/tmp/fm-cm1/gotmp\nlundi@M4-25 scratch-project-1 % export COMPACT_ADVISER_DISABLE=1\nlundi@M4-25 scratch-project-1 % export FM_TASK_ID=cm1\nlundi@M4-25 scratch-project-1 % . \'/tmp/fm-cm1+3daa42dbfb0b50ed4b7db29d158357171fa9ce98858540b8498c03fc2110af15/launch.\ns1792403157.86355.32356.sh\'\nprimary-crew-ok\nlundi@M4-25 scratch-project-1 %'
++ assert_contains_local $'lundi@M4-25 scratch-project-1 % cd -- \'/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/tre\nehouse/.treehouse/scratch-project-1-c7cf25/1/scratch-project-1\'\nlundi@M4-25 scratch-project-1 % export GOTMPDIR=/tmp/fm-cm1/gotmp\nlundi@M4-25 scratch-project-1 % export COMPACT_ADVISER_DISABLE=1\nlundi@M4-25 scratch-project-1 % export FM_TASK_ID=cm1\nlundi@M4-25 scratch-project-1 % . \'/tmp/fm-cm1+3daa42dbfb0b50ed4b7db29d158357171fa9ce98858540b8498c03fc2110af15/launch.\ns1792403157.86355.32356.sh\'\nprimary-crew-ok\nlundi@M4-25 scratch-project-1 %' primary-crew-ok 'cm1'\''s raw launch command did not run in its herdr pane'
++ case "$1" in
++ :
+++ herdr pane get w1:p2 --session fm-lab-herdr-e2e-85438
+++ jq -r '.result.pane.workspace_id // empty'
++ CM1_WSID=w1
++ '[' -n w1 ']'
+++ herdr workspace list --session fm-lab-herdr-e2e-85438
+++ jq -r --arg id w1 '.result.workspaces[]? | select(.workspace_id == $id) | .label'
++ CM1_WS_LABEL=firstmate
++ '[' firstmate = firstmate ']'
++ pass 'real herdr E2E: the primary-shaped home'\''s crewmate landed in the '\''firstmate'\'' workspace'
++ printf 'ok - %s\n' 'real herdr E2E: the primary-shaped home'\''s crewmate landed in the '\''firstmate'\'' workspace'
+ok - real herdr E2E: the primary-shaped home's crewmate landed in the 'firstmate' workspace
++ SM_OUT=/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/sm.out
++ SM_ERR=/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/sm.err
++ FM_SPAWN_NO_GUARD=1
++ FM_HOME=/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/primary-home
++ FM_ROOT_OVERRIDE=~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0
++ ~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0/bin/fm-spawn.sh e2esm1 /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/secondmate-home 'sh -c '\''echo secondmate-launch-ok'\''' --secondmate --backend herdr
++ rc=0
++ '[' 0 -eq 0 ']'
++ SM_META=/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/primary-home/state/e2esm1.meta
++ '[' -f /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/primary-home/state/e2esm1.meta ']'
+++ cat /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/primary-home/state/e2esm1.meta
++ assert_contains_local $'window=fm-lab-herdr-e2e-85438:w2:p2\nendpoint_task_id=e2esm1\nworktree=/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/secondmate-home\nproject=/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/secondmate-home\nharness=sh\nkind=secondmate\nmode=secondmate\nyolo=off\ntasktmp=/tmp/fm-e2esm1\nmodel=default\neffort=default\nspawn_gen=s1792403164.1079.6001\nspawn_first=1792403164\nbackend=herdr\nherdr_session=fm-lab-herdr-e2e-85438\nherdr_workspace_id=w2\nherdr_tab_id=w2:t2\nherdr_pane_id=w2:p2\nhome=/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/secondmate-home\nprojects=' kind=secondmate 'e2esm1 meta missing kind=secondmate'
++ case "$1" in
++ :
+++ cat /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/primary-home/state/e2esm1.meta
++ assert_contains_local $'window=fm-lab-herdr-e2e-85438:w2:p2\nendpoint_task_id=e2esm1\nworktree=/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/secondmate-home\nproject=/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/secondmate-home\nharness=sh\nkind=secondmate\nmode=secondmate\nyolo=off\ntasktmp=/tmp/fm-e2esm1\nmodel=default\neffort=default\nspawn_gen=s1792403164.1079.6001\nspawn_first=1792403164\nbackend=herdr\nherdr_session=fm-lab-herdr-e2e-85438\nherdr_workspace_id=w2\nherdr_tab_id=w2:t2\nherdr_pane_id=w2:p2\nhome=/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/secondmate-home\nprojects=' backend=herdr 'e2esm1 meta missing backend=herdr'
++ case "$1" in
++ :
+++ cat /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/primary-home/state/e2esm1.meta
++ assert_contains_local $'window=fm-lab-herdr-e2e-85438:w2:p2\nendpoint_task_id=e2esm1\nworktree=/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/secondmate-home\nproject=/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/secondmate-home\nharness=sh\nkind=secondmate\nmode=secondmate\nyolo=off\ntasktmp=/tmp/fm-e2esm1\nmodel=default\neffort=default\nspawn_gen=s1792403164.1079.6001\nspawn_first=1792403164\nbackend=herdr\nherdr_session=fm-lab-herdr-e2e-85438\nherdr_workspace_id=w2\nherdr_tab_id=w2:t2\nherdr_pane_id=w2:p2\nhome=/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/secondmate-home\nprojects=' home=/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/secondmate-home 'e2esm1 meta does not record its own home'
++ case "$1" in
++ :
+++ grep '^herdr_pane_id=' /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/primary-home/state/e2esm1.meta
+++ cut -d= -f2-
++ SM_PANE=w2:p2
++ '[' -n w2:p2 ']'
++ pass 'real herdr E2E: the primary spawns a --secondmate task on the herdr backend'
++ printf 'ok - %s\n' 'real herdr E2E: the primary spawns a --secondmate task on the herdr backend'
+ok - real herdr E2E: the primary spawns a --secondmate task on the herdr backend
+++ herdr pane get w2:p2 --session fm-lab-herdr-e2e-85438
+++ jq -r '.result.pane.workspace_id // empty'
++ SM_WSID=w2
++ '[' -n w2 ']'
++ '[' w2 '!=' w1 ']'
+++ herdr workspace list --session fm-lab-herdr-e2e-85438
+++ jq -r --arg id w2 '.result.workspaces[]? | select(.workspace_id == $id) | .label'
++ SM_WS_LABEL=2ndmate-e2esm1
++ '[' 2ndmate-e2esm1 = 2ndmate-e2esm1 ']'
++ pass 'real herdr E2E: a --secondmate spawn by the PRIMARY lands in the SECONDMATE'\''s own labeled workspace, distinct from the primary'\''s'
++ printf 'ok - %s\n' 'real herdr E2E: a --secondmate spawn by the PRIMARY lands in the SECONDMATE'\''s own labeled workspace, distinct from the primary'\''s'
+ok - real herdr E2E: a --secondmate spawn by the PRIMARY lands in the SECONDMATE's own labeled workspace, distinct from the primary's
++ CM2_OUT=/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/cm2.out
++ CM2_ERR=/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/cm2.err
++ FM_SPAWN_NO_GUARD=1
++ FM_HOME=/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/secondmate-home
++ FM_ROOT_OVERRIDE=~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0
++ ~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0/bin/fm-spawn.sh cm2 /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/scratch-project-2 'sh -c '\''echo sm-crew-ok'\''' --mode no-mistakes --yolo off --backend herdr
++ rc=0
++ '[' 0 -eq 0 ']'
++ CM2_META=/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/secondmate-home/state/cm2.meta
++ '[' -f /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/secondmate-home/state/cm2.meta ']'
+++ cat /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/secondmate-home/state/cm2.meta
++ assert_contains_local $'window=fm-lab-herdr-e2e-85438:w2:p3\nendpoint_task_id=cm2\nworktree=/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/treehouse/.treehouse/scratch-project-2-da671e/1/scratch-project-2\nlease_id=61b77326f1d1875986c1daa18052758d\nproject=/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/scratch-project-2\nharness=sh\nkind=ship\nmode=no-mistakes\nyolo=off\nbranch=fm/cm2\ntasktmp=/tmp/fm-cm2\nmodel=default\neffort=default\nspawn_gen=s1792403171.11869.14920\nspawn_first=1792403171\nbackend=herdr\nherdr_session=fm-lab-herdr-e2e-85438\nherdr_workspace_id=w2\nherdr_tab_id=w2:t3\nherdr_pane_id=w2:p3' backend=herdr 'cm2 meta missing backend=herdr'
++ case "$1" in
++ :
+++ grep '^worktree=' /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/secondmate-home/state/cm2.meta
+++ cut -d= -f2-
++ WT2=/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/treehouse/.treehouse/scratch-project-2-da671e/1/scratch-project-2
++ case "$WT2" in
++ :
+++ grep '^herdr_pane_id=' /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/secondmate-home/state/cm2.meta
+++ cut -d= -f2-
++ CM2_PANE=w2:p3
++ '[' -n w2:p3 ']'
++ pass 'real herdr E2E: a crewmate spawns successfully FROM a secondmate-shaped home'\''s own fm-spawn.sh process'
++ printf 'ok - %s\n' 'real herdr E2E: a crewmate spawns successfully FROM a secondmate-shaped home'\''s own fm-spawn.sh process'
+ok - real herdr E2E: a crewmate spawns successfully FROM a secondmate-shaped home's own fm-spawn.sh process
++ sleep 1
+++ fm_backend_herdr_capture fm-lab-herdr-e2e-85438:w2:p3 30
+++ fm_backend_herdr_target_ready fm-lab-herdr-e2e-85438:w2:p3
+++ fm_backend_herdr_parse_target fm-lab-herdr-e2e-85438:w2:p3
+++ local target=fm-lab-herdr-e2e-85438:w2:p3
+++ FM_BACKEND_HERDR_SESSION=fm-lab-herdr-e2e-85438
+++ FM_BACKEND_HERDR_PANE=w2:p3
+++ '[' -n fm-lab-herdr-e2e-85438 ']'
+++ '[' -n w2:p3 ']'
+++ '[' w2:p3 '!=' fm-lab-herdr-e2e-85438:w2:p3 ']'
+++ fm_backend_herdr_server_ensure fm-lab-herdr-e2e-85438
+++ local session=fm-lab-herdr-e2e-85438 running out i
++++ fm_backend_herdr_cli fm-lab-herdr-e2e-85438 status --json
++++ jq -r '.server.running // false'
+++ running=true
+++ '[' true = true ']'
+++ return 0
+++ local lines=30 fetch out
+++ case "$lines" in
+++ fetch=30
+++ case "$fetch" in
+++ '[' 30 -ge 200 ']'
+++ fetch=200
++++ fm_backend_herdr_cli fm-lab-herdr-e2e-85438 pane read w2:p3 --source recent --lines 200
+++ out=$'cd -- \'/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/treehouse/.treehouse/scratch-projec\nt-2-da671e/1/scratch-project-2\'\nlundi@M4-25 scratch-project-2 % cd -- \'/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/tre\nehouse/.treehouse/scratch-project-2-da671e/1/scratch-project-2\'\nlundi@M4-25 scratch-project-2 % export GOTMPDIR=/tmp/fm-cm2/gotmp\nlundi@M4-25 scratch-project-2 % export COMPACT_ADVISER_DISABLE=1\nlundi@M4-25 scratch-project-2 % export FM_TASK_ID=cm2\nlundi@M4-25 scratch-project-2 % . \'/tmp/fm-cm2+5bd8de2687619cc5b7f3be908ed2f516c92e967383a0761204b59e5c51adb2f2/launch.\ns1792403171.11869.14920.sh\'\nsm-crew-ok\nlundi@M4-25 scratch-project-2 %'
+++ printf %s $'cd -- \'/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/treehouse/.treehouse/scratch-projec\nt-2-da671e/1/scratch-project-2\'\nlundi@M4-25 scratch-project-2 % cd -- \'/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/tre\nehouse/.treehouse/scratch-project-2-da671e/1/scratch-project-2\'\nlundi@M4-25 scratch-project-2 % export GOTMPDIR=/tmp/fm-cm2/gotmp\nlundi@M4-25 scratch-project-2 % export COMPACT_ADVISER_DISABLE=1\nlundi@M4-25 scratch-project-2 % export FM_TASK_ID=cm2\nlundi@M4-25 scratch-project-2 % . \'/tmp/fm-cm2+5bd8de2687619cc5b7f3be908ed2f516c92e967383a0761204b59e5c51adb2f2/launch.\ns1792403171.11869.14920.sh\'\nsm-crew-ok\nlundi@M4-25 scratch-project-2 %'
+++ tail -n 30
++ CM2_CAPTURE=$'cd -- \'/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/treehouse/.treehouse/scratch-projec\nt-2-da671e/1/scratch-project-2\'\nlundi@M4-25 scratch-project-2 % cd -- \'/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/tre\nehouse/.treehouse/scratch-project-2-da671e/1/scratch-project-2\'\nlundi@M4-25 scratch-project-2 % export GOTMPDIR=/tmp/fm-cm2/gotmp\nlundi@M4-25 scratch-project-2 % export COMPACT_ADVISER_DISABLE=1\nlundi@M4-25 scratch-project-2 % export FM_TASK_ID=cm2\nlundi@M4-25 scratch-project-2 % . \'/tmp/fm-cm2+5bd8de2687619cc5b7f3be908ed2f516c92e967383a0761204b59e5c51adb2f2/launch.\ns1792403171.11869.14920.sh\'\nsm-crew-ok\nlundi@M4-25 scratch-project-2 %'
++ assert_contains_local $'cd -- \'/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/treehouse/.treehouse/scratch-projec\nt-2-da671e/1/scratch-project-2\'\nlundi@M4-25 scratch-project-2 % cd -- \'/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/tre\nehouse/.treehouse/scratch-project-2-da671e/1/scratch-project-2\'\nlundi@M4-25 scratch-project-2 % export GOTMPDIR=/tmp/fm-cm2/gotmp\nlundi@M4-25 scratch-project-2 % export COMPACT_ADVISER_DISABLE=1\nlundi@M4-25 scratch-project-2 % export FM_TASK_ID=cm2\nlundi@M4-25 scratch-project-2 % . \'/tmp/fm-cm2+5bd8de2687619cc5b7f3be908ed2f516c92e967383a0761204b59e5c51adb2f2/launch.\ns1792403171.11869.14920.sh\'\nsm-crew-ok\nlundi@M4-25 scratch-project-2 %' sm-crew-ok 'cm2'\''s raw launch command did not run in its herdr pane'
++ case "$1" in
++ :
+++ herdr pane get w2:p3 --session fm-lab-herdr-e2e-85438
+++ jq -r '.result.pane.workspace_id // empty'
++ CM2_WSID=w2
++ '[' w2 = w2 ']'
++ '[' w2 '!=' w1 ']'
++ pass 'real herdr E2E: a crewmate spawned FROM the secondmate-shaped home lands in the secondmate'\''s OWN workspace - falls out of per-home resolution, no glue needed'
++ printf 'ok - %s\n' 'real herdr E2E: a crewmate spawned FROM the secondmate-shaped home lands in the secondmate'\''s OWN workspace - falls out of per-home resolution, no glue needed'
+ok - real herdr E2E: a crewmate spawned FROM the secondmate-shaped home lands in the secondmate's OWN workspace - falls out of per-home resolution, no glue needed
+++ FM_HOME=/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/primary-home
+++ fm_backend_herdr_list_live fm-lab-herdr-e2e-85438
+++ local session=fm-lab-herdr-e2e-85438 wsid tabs tab_id label pane_id
++++ fm_backend_herdr_workspace_find fm-lab-herdr-e2e-85438
++++ fm_backend_herdr_workspace_find_all fm-lab-herdr-e2e-85438
++++ local session=fm-lab-herdr-e2e-85438 label list
++++ head -1
+++++ fm_backend_herdr_workspace_label
+++++ local marker=/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/primary-home/.fm-secondmate-home id
+++++ '[' -f /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/primary-home/.fm-secondmate-home ']'
+++++ printf firstmate
++++ label=firstmate
+++++ fm_backend_herdr_cli fm-lab-herdr-e2e-85438 workspace list
++++ list='{"id":"cli:workspace:list","result":{"type":"workspace_list","workspaces":[{"active_tab_id":"w1:t2","agent_status":"unknown","focused":true,"label":"firstmate","number":1,"pane_count":1,"tab_count":1,"workspace_id":"w1"},{"active_tab_id":"w2:t2","agent_status":"unknown","focused":false,"label":"2ndmate-e2esm1","number":2,"pane_count":2,"tab_count":2,"workspace_id":"w2"}]}}'
++++ printf %s '{"id":"cli:workspace:list","result":{"type":"workspace_list","workspaces":[{"active_tab_id":"w1:t2","agent_status":"unknown","focused":true,"label":"firstmate","number":1,"pane_count":1,"tab_count":1,"workspace_id":"w1"},{"active_tab_id":"w2:t2","agent_status":"unknown","focused":false,"label":"2ndmate-e2esm1","number":2,"pane_count":2,"tab_count":2,"workspace_id":"w2"}]}}'
++++ jq -r --arg want firstmate '.result.workspaces[]? | select(.label == $want) | .workspace_id'
+++ wsid=w1
+++ '[' -n w1 ']'
++++ fm_backend_herdr_cli fm-lab-herdr-e2e-85438 tab list --workspace w1
+++ tabs='{"id":"cli:tab:list","result":{"tabs":[{"agent_status":"unknown","focused":true,"label":"fm-cm1","number":2,"pane_count":1,"tab_id":"w1:t2","workspace_id":"w1"}],"type":"tab_list"}}'
+++ IFS=$'\t'
+++ read -r tab_id label
++++ printf %s '{"id":"cli:tab:list","result":{"tabs":[{"agent_status":"unknown","focused":true,"label":"fm-cm1","number":2,"pane_count":1,"tab_id":"w1:t2","workspace_id":"w1"}],"type":"tab_list"}}'
++++ jq -r '.result.tabs[]? | select(.label | startswith("fm-")) | "\(.tab_id)\t\(.label)"'
+++ '[' -n w1:t2 ']'
++++ fm_backend_herdr_pane_for_tab fm-lab-herdr-e2e-85438 w1 w1:t2
++++ local session=fm-lab-herdr-e2e-85438 wsid=w1 tab_id=w1:t2 panes
+++++ fm_backend_herdr_cli fm-lab-herdr-e2e-85438 pane list --workspace w1
++++ panes='{"id":"cli:pane:list","result":{"panes":[{"agent_status":"unknown","cwd":"/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/treehouse/.treehouse/scratch-project-1-c7cf25/1/scratch-project-1","focused":true,"foreground_cwd":"/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/treehouse/.treehouse/scratch-project-1-c7cf25/1/scratch-project-1","pane_id":"w1:p2","revision":0,"scroll":{"max_offset_from_bottom":0,"offset_from_bottom":0,"viewport_rows":40},"tab_id":"w1:t2","terminal_id":"term_65e2e6154fba12","workspace_id":"w1"}],"type":"pane_list"}}'
++++ printf %s '{"id":"cli:pane:list","result":{"panes":[{"agent_status":"unknown","cwd":"/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/treehouse/.treehouse/scratch-project-1-c7cf25/1/scratch-project-1","focused":true,"foreground_cwd":"/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/treehouse/.treehouse/scratch-project-1-c7cf25/1/scratch-project-1","pane_id":"w1:p2","revision":0,"scroll":{"max_offset_from_bottom":0,"offset_from_bottom":0,"viewport_rows":40},"tab_id":"w1:t2","terminal_id":"term_65e2e6154fba12","workspace_id":"w1"}],"type":"pane_list"}}'
++++ jq -r --arg tab w1:t2 '.result.panes[]? | select(.tab_id == $tab) | .pane_id'
++++ head -1
+++ pane_id=w1:p2
+++ '[' -n w1:p2 ']'
+++ printf '%s:%s\t%s\n' fm-lab-herdr-e2e-85438 w1:p2 fm-cm1
+++ IFS=$'\t'
+++ read -r tab_id label
++ PRIMARY_LIVE=$'fm-lab-herdr-e2e-85438:w1:p2\tfm-cm1'
++ assert_contains_local $'fm-lab-herdr-e2e-85438:w1:p2\tfm-cm1' fm-cm1 'the primary home'\''s list_live did not see its own task'
++ case "$1" in
++ :
++ assert_not_contains_local $'fm-lab-herdr-e2e-85438:w1:p2\tfm-cm1' fm-e2esm1 'the primary home'\''s list_live must not see the secondmate'\''s own task'
++ case "$1" in
++ :
++ assert_not_contains_local $'fm-lab-herdr-e2e-85438:w1:p2\tfm-cm1' fm-cm2 'the primary home'\''s list_live must not see the secondmate-owned crewmate'\''s task'
++ case "$1" in
++ :
++ pass 'real herdr E2E: list_live from the primary'\''s own context sees only the primary'\''s own task'
++ printf 'ok - %s\n' 'real herdr E2E: list_live from the primary'\''s own context sees only the primary'\''s own task'
+ok - real herdr E2E: list_live from the primary's own context sees only the primary's own task
+++ FM_HOME=/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/secondmate-home
+++ fm_backend_herdr_list_live fm-lab-herdr-e2e-85438
+++ local session=fm-lab-herdr-e2e-85438 wsid tabs tab_id label pane_id
++++ fm_backend_herdr_workspace_find fm-lab-herdr-e2e-85438
++++ fm_backend_herdr_workspace_find_all fm-lab-herdr-e2e-85438
++++ local session=fm-lab-herdr-e2e-85438 label list
++++ head -1
+++++ fm_backend_herdr_workspace_label
+++++ local marker=/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/secondmate-home/.fm-secondmate-home id
+++++ '[' -f /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/secondmate-home/.fm-secondmate-home ']'
++++++ tr -d '[:space:]'
+++++ id=e2esm1
+++++ '[' -n e2esm1 ']'
+++++ printf 2ndmate-%s e2esm1
+++++ return 0
++++ label=2ndmate-e2esm1
+++++ fm_backend_herdr_cli fm-lab-herdr-e2e-85438 workspace list
++++ list='{"id":"cli:workspace:list","result":{"type":"workspace_list","workspaces":[{"active_tab_id":"w1:t2","agent_status":"unknown","focused":true,"label":"firstmate","number":1,"pane_count":1,"tab_count":1,"workspace_id":"w1"},{"active_tab_id":"w2:t2","agent_status":"unknown","focused":false,"label":"2ndmate-e2esm1","number":2,"pane_count":2,"tab_count":2,"workspace_id":"w2"}]}}'
++++ printf %s '{"id":"cli:workspace:list","result":{"type":"workspace_list","workspaces":[{"active_tab_id":"w1:t2","agent_status":"unknown","focused":true,"label":"firstmate","number":1,"pane_count":1,"tab_count":1,"workspace_id":"w1"},{"active_tab_id":"w2:t2","agent_status":"unknown","focused":false,"label":"2ndmate-e2esm1","number":2,"pane_count":2,"tab_count":2,"workspace_id":"w2"}]}}'
++++ jq -r --arg want 2ndmate-e2esm1 '.result.workspaces[]? | select(.label == $want) | .workspace_id'
+++ wsid=w2
+++ '[' -n w2 ']'
++++ fm_backend_herdr_cli fm-lab-herdr-e2e-85438 tab list --workspace w2
+++ tabs='{"id":"cli:tab:list","result":{"tabs":[{"agent_status":"unknown","focused":false,"label":"fm-e2esm1","number":2,"pane_count":1,"tab_id":"w2:t2","workspace_id":"w2"},{"agent_status":"unknown","focused":false,"label":"fm-cm2","number":3,"pane_count":1,"tab_id":"w2:t3","workspace_id":"w2"}],"type":"tab_list"}}'
+++ IFS=$'\t'
+++ read -r tab_id label
++++ printf %s '{"id":"cli:tab:list","result":{"tabs":[{"agent_status":"unknown","focused":false,"label":"fm-e2esm1","number":2,"pane_count":1,"tab_id":"w2:t2","workspace_id":"w2"},{"agent_status":"unknown","focused":false,"label":"fm-cm2","number":3,"pane_count":1,"tab_id":"w2:t3","workspace_id":"w2"}],"type":"tab_list"}}'
++++ jq -r '.result.tabs[]? | select(.label | startswith("fm-")) | "\(.tab_id)\t\(.label)"'
+++ '[' -n w2:t2 ']'
++++ fm_backend_herdr_pane_for_tab fm-lab-herdr-e2e-85438 w2 w2:t2
++++ local session=fm-lab-herdr-e2e-85438 wsid=w2 tab_id=w2:t2 panes
+++++ fm_backend_herdr_cli fm-lab-herdr-e2e-85438 pane list --workspace w2
++++ panes='{"id":"cli:pane:list","result":{"panes":[{"agent_status":"unknown","cwd":"/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/secondmate-home","focused":false,"foreground_cwd":"/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/secondmate-home","pane_id":"w2:p2","revision":0,"scroll":{"max_offset_from_bottom":0,"offset_from_bottom":0,"viewport_rows":40},"tab_id":"w2:t2","terminal_id":"term_65e2e61d7f7464","workspace_id":"w2"},{"agent_status":"unknown","cwd":"/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/treehouse/.treehouse/scratch-project-2-da671e/1/scratch-project-2","focused":false,"foreground_cwd":"/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/treehouse/.treehouse/scratch-project-2-da671e/1/scratch-project-2","pane_id":"w2:p3","revision":0,"scroll":{"max_offset_from_bottom":0,"offset_from_bottom":0,"viewport_rows":40},"tab_id":"w2:t3","terminal_id":"term_65e2e622e0ac45","workspace_id":"w2"}],"type":"pane_list"}}'
++++ printf %s '{"id":"cli:pane:list","result":{"panes":[{"agent_status":"unknown","cwd":"/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/secondmate-home","focused":false,"foreground_cwd":"/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/secondmate-home","pane_id":"w2:p2","revision":0,"scroll":{"max_offset_from_bottom":0,"offset_from_bottom":0,"viewport_rows":40},"tab_id":"w2:t2","terminal_id":"term_65e2e61d7f7464","workspace_id":"w2"},{"agent_status":"unknown","cwd":"/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/treehouse/.treehouse/scratch-project-2-da671e/1/scratch-project-2","focused":false,"foreground_cwd":"/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/treehouse/.treehouse/scratch-project-2-da671e/1/scratch-project-2","pane_id":"w2:p3","revision":0,"scroll":{"max_offset_from_bottom":0,"offset_from_bottom":0,"viewport_rows":40},"tab_id":"w2:t3","terminal_id":"term_65e2e622e0ac45","workspace_id":"w2"}],"type":"pane_list"}}'
++++ jq -r --arg tab w2:t2 '.result.panes[]? | select(.tab_id == $tab) | .pane_id'
++++ head -1
+++ pane_id=w2:p2
+++ '[' -n w2:p2 ']'
+++ printf '%s:%s\t%s\n' fm-lab-herdr-e2e-85438 w2:p2 fm-e2esm1
+++ IFS=$'\t'
+++ read -r tab_id label
+++ '[' -n w2:t3 ']'
++++ fm_backend_herdr_pane_for_tab fm-lab-herdr-e2e-85438 w2 w2:t3
++++ local session=fm-lab-herdr-e2e-85438 wsid=w2 tab_id=w2:t3 panes
+++++ fm_backend_herdr_cli fm-lab-herdr-e2e-85438 pane list --workspace w2
++++ panes='{"id":"cli:pane:list","result":{"panes":[{"agent_status":"unknown","cwd":"/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/secondmate-home","focused":false,"foreground_cwd":"/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/secondmate-home","pane_id":"w2:p2","revision":0,"scroll":{"max_offset_from_bottom":0,"offset_from_bottom":0,"viewport_rows":40},"tab_id":"w2:t2","terminal_id":"term_65e2e61d7f7464","workspace_id":"w2"},{"agent_status":"unknown","cwd":"/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/treehouse/.treehouse/scratch-project-2-da671e/1/scratch-project-2","focused":false,"foreground_cwd":"/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/treehouse/.treehouse/scratch-project-2-da671e/1/scratch-project-2","pane_id":"w2:p3","revision":0,"scroll":{"max_offset_from_bottom":0,"offset_from_bottom":0,"viewport_rows":40},"tab_id":"w2:t3","terminal_id":"term_65e2e622e0ac45","workspace_id":"w2"}],"type":"pane_list"}}'
++++ printf %s '{"id":"cli:pane:list","result":{"panes":[{"agent_status":"unknown","cwd":"/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/secondmate-home","focused":false,"foreground_cwd":"/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/secondmate-home","pane_id":"w2:p2","revision":0,"scroll":{"max_offset_from_bottom":0,"offset_from_bottom":0,"viewport_rows":40},"tab_id":"w2:t2","terminal_id":"term_65e2e61d7f7464","workspace_id":"w2"},{"agent_status":"unknown","cwd":"/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/treehouse/.treehouse/scratch-project-2-da671e/1/scratch-project-2","focused":false,"foreground_cwd":"/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/treehouse/.treehouse/scratch-project-2-da671e/1/scratch-project-2","pane_id":"w2:p3","revision":0,"scroll":{"max_offset_from_bottom":0,"offset_from_bottom":0,"viewport_rows":40},"tab_id":"w2:t3","terminal_id":"term_65e2e622e0ac45","workspace_id":"w2"}],"type":"pane_list"}}'
++++ jq -r --arg tab w2:t3 '.result.panes[]? | select(.tab_id == $tab) | .pane_id'
++++ head -1
+++ pane_id=w2:p3
+++ '[' -n w2:p3 ']'
+++ printf '%s:%s\t%s\n' fm-lab-herdr-e2e-85438 w2:p3 fm-cm2
+++ IFS=$'\t'
+++ read -r tab_id label
++ SM_LIVE=$'fm-lab-herdr-e2e-85438:w2:p2\tfm-e2esm1\nfm-lab-herdr-e2e-85438:w2:p3\tfm-cm2'
++ assert_contains_local $'fm-lab-herdr-e2e-85438:w2:p2\tfm-e2esm1\nfm-lab-herdr-e2e-85438:w2:p3\tfm-cm2' fm-e2esm1 'the secondmate home'\''s list_live did not see its own task'
++ case "$1" in
++ :
++ assert_contains_local $'fm-lab-herdr-e2e-85438:w2:p2\tfm-e2esm1\nfm-lab-herdr-e2e-85438:w2:p3\tfm-cm2' fm-cm2 'the secondmate home'\''s list_live did not see the crewmate spawned from it'
++ case "$1" in
++ :
++ assert_not_contains_local $'fm-lab-herdr-e2e-85438:w2:p2\tfm-e2esm1\nfm-lab-herdr-e2e-85438:w2:p3\tfm-cm2' fm-cm1 'the secondmate home'\''s list_live must not see the primary'\''s task'
++ case "$1" in
++ :
++ pass 'real herdr E2E: list_live from the secondmate'\''s own context sees only tasks in the secondmate'\''s own workspace (both its own tab and its crewmate'\''s)'
++ printf 'ok - %s\n' 'real herdr E2E: list_live from the secondmate'\''s own context sees only tasks in the secondmate'\''s own workspace (both its own tab and its crewmate'\''s)'
+ok - real herdr E2E: list_live from the secondmate's own context sees only tasks in the secondmate's own workspace (both its own tab and its crewmate's)
++ TD1_OUT=/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/td1.out
++ FM_ROOT_OVERRIDE=~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0
++ FM_STATE_OVERRIDE=/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/primary-home/state
++ FM_DATA_OVERRIDE=/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/primary-home/data
++ FM_CONFIG_OVERRIDE=/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/primary-home/config
++ ~/.no-mistakes/worktrees/2a8f84a93235/01M59RKHDXFP71A5K1P60WGNP0/bin/fm-teardown.sh cm1
++ rc=1
++ '[' 1 -eq 0 ']'
+++ cat /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/td1.out
++ fail $'fm-teardown.sh failed for the primary-shaped crewmate cm1\nREFUSED: cannot resolve the shared Treehouse project lock for /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/scratch-project-1; nothing was changed'
++ printf 'not ok - %s\n' $'fm-teardown.sh failed for the primary-shaped crewmate cm1\nREFUSED: cannot resolve the shared Treehouse project lock for /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/scratch-project-1; nothing was changed'
+not ok - fm-teardown.sh failed for the primary-shaped crewmate cm1
+REFUSED: cannot resolve the shared Treehouse project lock for /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/scratch-project-1; nothing was changed
++ cleanup_all
++ '[' -n /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/treehouse/.treehouse/scratch-project-1-c7cf25/1/scratch-project-1 ']'
++ command -v treehouse
++ treehouse return --force /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/treehouse/.treehouse/scratch-project-1-c7cf25/1/scratch-project-1
++ '[' -n /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/treehouse/.treehouse/scratch-project-2-da671e/1/scratch-project-2 ']'
++ command -v treehouse
++ treehouse return --force /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/treehouse/.treehouse/scratch-project-2-da671e/1/scratch-project-2
++ herdr_safe_stop_and_delete fm-lab-herdr-e2e-85438
++ fm_herdr_lab_teardown fm-lab-herdr-e2e-85438
++ local name=fm-lab-herdr-e2e-85438 tripwire sessions delete_status=0
++ fm_herdr_lab_validate_name fm-lab-herdr-e2e-85438
++ local name=fm-lab-herdr-e2e-85438
++ [[ fm-lab-herdr-e2e-85438 =~ ^fm-lab-[a-zA-Z0-9][a-zA-Z0-9_-]*$ ]]
++ return 0
+++ fm_herdr_lab_tripwire_path fm-lab-herdr-e2e-85438
++++ fm_herdr_lab_state_dir
++++ printf %s /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-herdr-lab-501
+++ printf %s/%s.fleet-state.json /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-herdr-lab-501 fm-lab-herdr-e2e-85438
++ tripwire=/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-herdr-lab-501/fm-lab-herdr-e2e-85438.fleet-state.json
++ '[' -f /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-herdr-lab-501/fm-lab-herdr-e2e-85438.fleet-state.json ']'
++ fm_herdr_lab_viewer_stop fm-lab-herdr-e2e-85438
++ local name=fm-lab-herdr-e2e-85438 record log role waited attempt reason timeout=5
++ fm_herdr_lab_validate_name fm-lab-herdr-e2e-85438
++ local name=fm-lab-herdr-e2e-85438
++ [[ fm-lab-herdr-e2e-85438 =~ ^fm-lab-[a-zA-Z0-9][a-zA-Z0-9_-]*$ ]]
++ return 0
+++ fm_herdr_lab_viewer_record_path fm-lab-herdr-e2e-85438
++++ fm_herdr_lab_state_dir
++++ printf %s /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-herdr-lab-501
+++ printf %s/%s.viewer /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-herdr-lab-501 fm-lab-herdr-e2e-85438
++ record=/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-herdr-lab-501/fm-lab-herdr-e2e-85438.viewer
+++ fm_herdr_lab_viewer_log_path fm-lab-herdr-e2e-85438
++++ fm_herdr_lab_state_dir
++++ printf %s /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-herdr-lab-501
+++ printf %s/%s.viewer.log /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-herdr-lab-501 fm-lab-herdr-e2e-85438
++ log=/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-herdr-lab-501/fm-lab-herdr-e2e-85438.viewer.log
++ '[' -f /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-herdr-lab-501/fm-lab-herdr-e2e-85438.viewer ']'
++ return 0
+++ fm_herdr_lab_session_list fm-lab-herdr-e2e-85438
++ sessions='{"sessions":[{"default":true,"name":"default","running":true,"session_dir":"~/.config/herdr","socket_path":"~/.config/herdr/herdr.sock"},{"default":false,"name":"fm-lab-afk-herdr-e2e-99472","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-afk-herdr-e2e-99472","socket_path":"~/.config/herdr/sessions/fm-lab-afk-herdr-e2e-99472/herdr.sock"},{"default":false,"name":"fm-lab-fm-herdr-present-45751-25761","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-45751-25761","socket_path":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-45751-25761/herdr.sock"},{"default":false,"name":"fm-lab-fm-herdr-present-52694-29243","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-52694-29243","socket_path":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-52694-29243/herdr.sock"},{"default":false,"name":"fm-lab-fm-herdr-present-69940-17442","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-69940-17442","socket_path":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-69940-17442/herdr.sock"},{"default":false,"name":"fm-lab-fm-herdr-present-97775-6417","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-97775-6417","socket_path":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-97775-6417/herdr.sock"},{"default":false,"name":"fm-lab-herdr-e2e-85438","running":true,"session_dir":"~/.config/herdr/sessions/fm-lab-herdr-e2e-85438","socket_path":"~/.config/herdr/sessions/fm-lab-herdr-e2e-85438/herdr.sock"},{"default":false,"name":"fm-lab-ring-1385-23199","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-ring-1385-23199","socket_path":"~/.config/herdr/sessions/fm-lab-ring-1385-23199/herdr.sock"},{"default":false,"name":"fm-lab-ringb-84008-32721","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-ringb-84008-32721","socket_path":"~/.config/herdr/sessions/fm-lab-ringb-84008-32721/herdr.sock"},{"default":false,"name":"fm-remote","running":false,"session_dir":"~/.config/herdr/sessions/fm-remote","socket_path":"~/.config/herdr/sessions/fm-remote/herdr.sock"},{"default":false,"name":"fmnmtest3","running":false,"session_dir":"~/.config/herdr/sessions/fmnmtest3","socket_path":"~/.config/herdr/sessions/fmnmtest3/herdr.sock"}]}'
++ printf %s '{"sessions":[{"default":true,"name":"default","running":true,"session_dir":"~/.config/herdr","socket_path":"~/.config/herdr/herdr.sock"},{"default":false,"name":"fm-lab-afk-herdr-e2e-99472","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-afk-herdr-e2e-99472","socket_path":"~/.config/herdr/sessions/fm-lab-afk-herdr-e2e-99472/herdr.sock"},{"default":false,"name":"fm-lab-fm-herdr-present-45751-25761","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-45751-25761","socket_path":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-45751-25761/herdr.sock"},{"default":false,"name":"fm-lab-fm-herdr-present-52694-29243","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-52694-29243","socket_path":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-52694-29243/herdr.sock"},{"default":false,"name":"fm-lab-fm-herdr-present-69940-17442","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-69940-17442","socket_path":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-69940-17442/herdr.sock"},{"default":false,"name":"fm-lab-fm-herdr-present-97775-6417","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-97775-6417","socket_path":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-97775-6417/herdr.sock"},{"default":false,"name":"fm-lab-herdr-e2e-85438","running":true,"session_dir":"~/.config/herdr/sessions/fm-lab-herdr-e2e-85438","socket_path":"~/.config/herdr/sessions/fm-lab-herdr-e2e-85438/herdr.sock"},{"default":false,"name":"fm-lab-ring-1385-23199","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-ring-1385-23199","socket_path":"~/.config/herdr/sessions/fm-lab-ring-1385-23199/herdr.sock"},{"default":false,"name":"fm-lab-ringb-84008-32721","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-ringb-84008-32721","socket_path":"~/.config/herdr/sessions/fm-lab-ringb-84008-32721/herdr.sock"},{"default":false,"name":"fm-remote","running":false,"session_dir":"~/.config/herdr/sessions/fm-remote","socket_path":"~/.config/herdr/sessions/fm-remote/herdr.sock"},{"default":false,"name":"fmnmtest3","running":false,"session_dir":"~/.config/herdr/sessions/fmnmtest3","socket_path":"~/.config/herdr/sessions/fmnmtest3/herdr.sock"}]}'
++ jq -e --arg name fm-lab-herdr-e2e-85438 '.sessions[]? | select(.name == $name)'
++ fm_herdr_lab_stop fm-lab-herdr-e2e-85438
++ sleep 0.5
++ fm_herdr_lab_refuse_if_default fm-lab-herdr-e2e-85438
++ local name=fm-lab-herdr-e2e-85438 info flag
++ fm_herdr_lab_validate_name fm-lab-herdr-e2e-85438
++ local name=fm-lab-herdr-e2e-85438
++ [[ fm-lab-herdr-e2e-85438 =~ ^fm-lab-[a-zA-Z0-9][a-zA-Z0-9_-]*$ ]]
++ return 0
+++ fm_herdr_lab_session_list fm-lab-herdr-e2e-85438
++ info='{"sessions":[{"default":true,"name":"default","running":true,"session_dir":"~/.config/herdr","socket_path":"~/.config/herdr/herdr.sock"},{"default":false,"name":"fm-lab-afk-herdr-e2e-99472","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-afk-herdr-e2e-99472","socket_path":"~/.config/herdr/sessions/fm-lab-afk-herdr-e2e-99472/herdr.sock"},{"default":false,"name":"fm-lab-fm-herdr-present-45751-25761","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-45751-25761","socket_path":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-45751-25761/herdr.sock"},{"default":false,"name":"fm-lab-fm-herdr-present-52694-29243","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-52694-29243","socket_path":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-52694-29243/herdr.sock"},{"default":false,"name":"fm-lab-fm-herdr-present-69940-17442","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-69940-17442","socket_path":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-69940-17442/herdr.sock"},{"default":false,"name":"fm-lab-fm-herdr-present-97775-6417","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-97775-6417","socket_path":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-97775-6417/herdr.sock"},{"default":false,"name":"fm-lab-herdr-e2e-85438","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-herdr-e2e-85438","socket_path":"~/.config/herdr/sessions/fm-lab-herdr-e2e-85438/herdr.sock"},{"default":false,"name":"fm-lab-ring-1385-23199","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-ring-1385-23199","socket_path":"~/.config/herdr/sessions/fm-lab-ring-1385-23199/herdr.sock"},{"default":false,"name":"fm-lab-ringb-84008-32721","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-ringb-84008-32721","socket_path":"~/.config/herdr/sessions/fm-lab-ringb-84008-32721/herdr.sock"},{"default":false,"name":"fm-remote","running":false,"session_dir":"~/.config/herdr/sessions/fm-remote","socket_path":"~/.config/herdr/sessions/fm-remote/herdr.sock"},{"default":false,"name":"fmnmtest3","running":false,"session_dir":"~/.config/herdr/sessions/fmnmtest3","socket_path":"~/.config/herdr/sessions/fmnmtest3/herdr.sock"}]}'
+++ printf %s '{"sessions":[{"default":true,"name":"default","running":true,"session_dir":"~/.config/herdr","socket_path":"~/.config/herdr/herdr.sock"},{"default":false,"name":"fm-lab-afk-herdr-e2e-99472","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-afk-herdr-e2e-99472","socket_path":"~/.config/herdr/sessions/fm-lab-afk-herdr-e2e-99472/herdr.sock"},{"default":false,"name":"fm-lab-fm-herdr-present-45751-25761","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-45751-25761","socket_path":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-45751-25761/herdr.sock"},{"default":false,"name":"fm-lab-fm-herdr-present-52694-29243","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-52694-29243","socket_path":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-52694-29243/herdr.sock"},{"default":false,"name":"fm-lab-fm-herdr-present-69940-17442","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-69940-17442","socket_path":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-69940-17442/herdr.sock"},{"default":false,"name":"fm-lab-fm-herdr-present-97775-6417","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-97775-6417","socket_path":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-97775-6417/herdr.sock"},{"default":false,"name":"fm-lab-herdr-e2e-85438","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-herdr-e2e-85438","socket_path":"~/.config/herdr/sessions/fm-lab-herdr-e2e-85438/herdr.sock"},{"default":false,"name":"fm-lab-ring-1385-23199","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-ring-1385-23199","socket_path":"~/.config/herdr/sessions/fm-lab-ring-1385-23199/herdr.sock"},{"default":false,"name":"fm-lab-ringb-84008-32721","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-ringb-84008-32721","socket_path":"~/.config/herdr/sessions/fm-lab-ringb-84008-32721/herdr.sock"},{"default":false,"name":"fm-remote","running":false,"session_dir":"~/.config/herdr/sessions/fm-remote","socket_path":"~/.config/herdr/sessions/fm-remote/herdr.sock"},{"default":false,"name":"fmnmtest3","running":false,"session_dir":"~/.config/herdr/sessions/fmnmtest3","socket_path":"~/.config/herdr/sessions/fmnmtest3/herdr.sock"}]}'
+++ jq -r --arg name fm-lab-herdr-e2e-85438 '.sessions[]? | select(.name == $name) | .default'
++ flag=false
++ '[' false = false ']'
++ return 0
++ fm_herdr_lab_raw fm-lab-herdr-e2e-85438 session delete fm-lab-herdr-e2e-85438 --json
+++ fm_herdr_lab_session_list fm-lab-herdr-e2e-85438
++ sessions='{"sessions":[{"default":true,"name":"default","running":true,"session_dir":"~/.config/herdr","socket_path":"~/.config/herdr/herdr.sock"},{"default":false,"name":"fm-lab-afk-herdr-e2e-99472","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-afk-herdr-e2e-99472","socket_path":"~/.config/herdr/sessions/fm-lab-afk-herdr-e2e-99472/herdr.sock"},{"default":false,"name":"fm-lab-fm-herdr-present-45751-25761","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-45751-25761","socket_path":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-45751-25761/herdr.sock"},{"default":false,"name":"fm-lab-fm-herdr-present-52694-29243","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-52694-29243","socket_path":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-52694-29243/herdr.sock"},{"default":false,"name":"fm-lab-fm-herdr-present-69940-17442","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-69940-17442","socket_path":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-69940-17442/herdr.sock"},{"default":false,"name":"fm-lab-fm-herdr-present-97775-6417","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-97775-6417","socket_path":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-97775-6417/herdr.sock"},{"default":false,"name":"fm-lab-ring-1385-23199","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-ring-1385-23199","socket_path":"~/.config/herdr/sessions/fm-lab-ring-1385-23199/herdr.sock"},{"default":false,"name":"fm-lab-ringb-84008-32721","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-ringb-84008-32721","socket_path":"~/.config/herdr/sessions/fm-lab-ringb-84008-32721/herdr.sock"},{"default":false,"name":"fm-remote","running":false,"session_dir":"~/.config/herdr/sessions/fm-remote","socket_path":"~/.config/herdr/sessions/fm-remote/herdr.sock"},{"default":false,"name":"fmnmtest3","running":false,"session_dir":"~/.config/herdr/sessions/fmnmtest3","socket_path":"~/.config/herdr/sessions/fmnmtest3/herdr.sock"}]}'
++ printf %s '{"sessions":[{"default":true,"name":"default","running":true,"session_dir":"~/.config/herdr","socket_path":"~/.config/herdr/herdr.sock"},{"default":false,"name":"fm-lab-afk-herdr-e2e-99472","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-afk-herdr-e2e-99472","socket_path":"~/.config/herdr/sessions/fm-lab-afk-herdr-e2e-99472/herdr.sock"},{"default":false,"name":"fm-lab-fm-herdr-present-45751-25761","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-45751-25761","socket_path":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-45751-25761/herdr.sock"},{"default":false,"name":"fm-lab-fm-herdr-present-52694-29243","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-52694-29243","socket_path":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-52694-29243/herdr.sock"},{"default":false,"name":"fm-lab-fm-herdr-present-69940-17442","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-69940-17442","socket_path":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-69940-17442/herdr.sock"},{"default":false,"name":"fm-lab-fm-herdr-present-97775-6417","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-97775-6417","socket_path":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-97775-6417/herdr.sock"},{"default":false,"name":"fm-lab-ring-1385-23199","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-ring-1385-23199","socket_path":"~/.config/herdr/sessions/fm-lab-ring-1385-23199/herdr.sock"},{"default":false,"name":"fm-lab-ringb-84008-32721","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-ringb-84008-32721","socket_path":"~/.config/herdr/sessions/fm-lab-ringb-84008-32721/herdr.sock"},{"default":false,"name":"fm-remote","running":false,"session_dir":"~/.config/herdr/sessions/fm-remote","socket_path":"~/.config/herdr/sessions/fm-remote/herdr.sock"},{"default":false,"name":"fmnmtest3","running":false,"session_dir":"~/.config/herdr/sessions/fmnmtest3","socket_path":"~/.config/herdr/sessions/fmnmtest3/herdr.sock"}]}'
++ jq -e --arg name fm-lab-herdr-e2e-85438 '.sessions[]? | select(.name == $name)'
++ fm_herdr_lab_verify_tripwire fm-lab-herdr-e2e-85438
++ local name=fm-lab-herdr-e2e-85438 tripwire
++ fm_herdr_lab_check_tripwire fm-lab-herdr-e2e-85438
++ local name=fm-lab-herdr-e2e-85438 tripwire before after
+++ fm_herdr_lab_tripwire_path fm-lab-herdr-e2e-85438
++++ fm_herdr_lab_state_dir
++++ printf %s /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-herdr-lab-501
+++ printf %s/%s.fleet-state.json /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-herdr-lab-501 fm-lab-herdr-e2e-85438
++ tripwire=/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-herdr-lab-501/fm-lab-herdr-e2e-85438.fleet-state.json
++ '[' -f /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-herdr-lab-501/fm-lab-herdr-e2e-85438.fleet-state.json ']'
+++ cat /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-herdr-lab-501/fm-lab-herdr-e2e-85438.fleet-state.json
++ before='{"name":"default","default":true,"running":true,"socket_path":"~/.config/herdr/herdr.sock"}'
+++ fm_herdr_lab_fleet_state fm-lab-herdr-e2e-85438
+++ local name=fm-lab-herdr-e2e-85438 sessions snapshot
++++ fm_herdr_lab_session_list fm-lab-herdr-e2e-85438
+++ sessions='{"sessions":[{"default":true,"name":"default","running":true,"session_dir":"~/.config/herdr","socket_path":"~/.config/herdr/herdr.sock"},{"default":false,"name":"fm-lab-afk-herdr-e2e-99472","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-afk-herdr-e2e-99472","socket_path":"~/.config/herdr/sessions/fm-lab-afk-herdr-e2e-99472/herdr.sock"},{"default":false,"name":"fm-lab-fm-herdr-present-45751-25761","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-45751-25761","socket_path":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-45751-25761/herdr.sock"},{"default":false,"name":"fm-lab-fm-herdr-present-52694-29243","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-52694-29243","socket_path":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-52694-29243/herdr.sock"},{"default":false,"name":"fm-lab-fm-herdr-present-69940-17442","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-69940-17442","socket_path":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-69940-17442/herdr.sock"},{"default":false,"name":"fm-lab-fm-herdr-present-97775-6417","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-97775-6417","socket_path":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-97775-6417/herdr.sock"},{"default":false,"name":"fm-lab-ring-1385-23199","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-ring-1385-23199","socket_path":"~/.config/herdr/sessions/fm-lab-ring-1385-23199/herdr.sock"},{"default":false,"name":"fm-lab-ringb-84008-32721","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-ringb-84008-32721","socket_path":"~/.config/herdr/sessions/fm-lab-ringb-84008-32721/herdr.sock"},{"default":false,"name":"fm-remote","running":false,"session_dir":"~/.config/herdr/sessions/fm-remote","socket_path":"~/.config/herdr/sessions/fm-remote/herdr.sock"},{"default":false,"name":"fmnmtest3","running":false,"session_dir":"~/.config/herdr/sessions/fmnmtest3","socket_path":"~/.config/herdr/sessions/fmnmtest3/herdr.sock"}]}'
++++ printf %s '{"sessions":[{"default":true,"name":"default","running":true,"session_dir":"~/.config/herdr","socket_path":"~/.config/herdr/herdr.sock"},{"default":false,"name":"fm-lab-afk-herdr-e2e-99472","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-afk-herdr-e2e-99472","socket_path":"~/.config/herdr/sessions/fm-lab-afk-herdr-e2e-99472/herdr.sock"},{"default":false,"name":"fm-lab-fm-herdr-present-45751-25761","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-45751-25761","socket_path":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-45751-25761/herdr.sock"},{"default":false,"name":"fm-lab-fm-herdr-present-52694-29243","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-52694-29243","socket_path":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-52694-29243/herdr.sock"},{"default":false,"name":"fm-lab-fm-herdr-present-69940-17442","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-69940-17442","socket_path":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-69940-17442/herdr.sock"},{"default":false,"name":"fm-lab-fm-herdr-present-97775-6417","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-97775-6417","socket_path":"~/.config/herdr/sessions/fm-lab-fm-herdr-present-97775-6417/herdr.sock"},{"default":false,"name":"fm-lab-ring-1385-23199","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-ring-1385-23199","socket_path":"~/.config/herdr/sessions/fm-lab-ring-1385-23199/herdr.sock"},{"default":false,"name":"fm-lab-ringb-84008-32721","running":false,"session_dir":"~/.config/herdr/sessions/fm-lab-ringb-84008-32721","socket_path":"~/.config/herdr/sessions/fm-lab-ringb-84008-32721/herdr.sock"},{"default":false,"name":"fm-remote","running":false,"session_dir":"~/.config/herdr/sessions/fm-remote","socket_path":"~/.config/herdr/sessions/fm-remote/herdr.sock"},{"default":false,"name":"fmnmtest3","running":false,"session_dir":"~/.config/herdr/sessions/fmnmtest3","socket_path":"~/.config/herdr/sessions/fmnmtest3/herdr.sock"}]}'
++++ jq -c $'\n    [.sessions[]? | select(.default == true)]\n    | if length == 1 and .[0].name == "default" and .[0].running == true\n      then .[0] | {name, default, running, socket_path}\n      else empty\n      end\n  '
+++ snapshot='{"name":"default","default":true,"running":true,"socket_path":"~/.config/herdr/herdr.sock"}'
+++ '[' -n '{"name":"default","default":true,"running":true,"socket_path":"~/.config/herdr/herdr.sock"}' ']'
+++ printf '%s\n' '{"name":"default","default":true,"running":true,"socket_path":"~/.config/herdr/herdr.sock"}'
++ after='{"name":"default","default":true,"running":true,"socket_path":"~/.config/herdr/herdr.sock"}'
++ '[' '{"name":"default","default":true,"running":true,"socket_path":"~/.config/herdr/herdr.sock"}' = '{"name":"default","default":true,"running":true,"socket_path":"~/.config/herdr/herdr.sock"}' ']'
+++ fm_herdr_lab_tripwire_path fm-lab-herdr-e2e-85438
++++ fm_herdr_lab_state_dir
++++ printf %s /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-herdr-lab-501
+++ printf %s/%s.fleet-state.json /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-herdr-lab-501 fm-lab-herdr-e2e-85438
++ tripwire=/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-herdr-lab-501/fm-lab-herdr-e2e-85438.fleet-state.json
++ rm -f /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-herdr-lab-501/fm-lab-herdr-e2e-85438.fleet-state.json
++ find /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA -type d -exec chmod u+rwx '{}' +
++ rm -rf /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA
++ exit 1
++ cleanup_all
++ '[' -n /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/treehouse/.treehouse/scratch-project-1-c7cf25/1/scratch-project-1 ']'
++ command -v treehouse
++ treehouse return --force /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/treehouse/.treehouse/scratch-project-1-c7cf25/1/scratch-project-1
++ '[' -n /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/treehouse/.treehouse/scratch-project-2-da671e/1/scratch-project-2 ']'
++ command -v treehouse
++ treehouse return --force /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA/treehouse/.treehouse/scratch-project-2-da671e/1/scratch-project-2
++ herdr_safe_stop_and_delete fm-lab-herdr-e2e-85438
++ fm_herdr_lab_teardown fm-lab-herdr-e2e-85438
++ local name=fm-lab-herdr-e2e-85438 tripwire sessions delete_status=0
++ fm_herdr_lab_validate_name fm-lab-herdr-e2e-85438
++ local name=fm-lab-herdr-e2e-85438
++ [[ fm-lab-herdr-e2e-85438 =~ ^fm-lab-[a-zA-Z0-9][a-zA-Z0-9_-]*$ ]]
++ return 0
+++ fm_herdr_lab_tripwire_path fm-lab-herdr-e2e-85438
++++ fm_herdr_lab_state_dir
++++ printf %s /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-herdr-lab-501
+++ printf %s/%s.fleet-state.json /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-herdr-lab-501 fm-lab-herdr-e2e-85438
++ tripwire=/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-herdr-lab-501/fm-lab-herdr-e2e-85438.fleet-state.json
++ '[' -f /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-herdr-lab-501/fm-lab-herdr-e2e-85438.fleet-state.json ']'
++ fm_herdr_lab_error 'missing fleet-state tripwire for '\''fm-lab-herdr-e2e-85438'\''; refusing destructive calls'
++ echo 'fm-herdr-lab: missing fleet-state tripwire for '\''fm-lab-herdr-e2e-85438'\''; refusing destructive calls'
+fm-herdr-lab: missing fleet-state tripwire for 'fm-lab-herdr-e2e-85438'; refusing destructive calls
++ return 1
++ find /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA -type d -exec chmod u+rwx '{}' +
++ rm -rf /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-herdr-e2e.B0HzHA
