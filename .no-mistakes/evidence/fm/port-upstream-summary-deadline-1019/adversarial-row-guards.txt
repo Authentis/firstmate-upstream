@@ -1,0 +1,18 @@
+### concurrency=default(8) fail_id=none
+writer exit=0
+row builds=40 max concurrent rows=8
+ledger generated before=2026-10-19T13:17:44Z after=2026-10-19T13:18:30Z endpoints=40
+refresh log:
+(none)
+### concurrency=2 fail_id=none
+writer exit=0
+row builds=40 max concurrent rows=2
+ledger generated before=2026-10-19T13:18:30Z after=2026-10-19T13:18:54Z endpoints=40
+refresh log:
+(none)
+### concurrency=default(8) fail_id=busy-7
+writer exit=0
+row builds=40 max concurrent rows=8
+ledger generated before=2026-10-19T13:18:54Z after=2026-10-19T13:18:54Z endpoints=40
+refresh log:
+[2026-10-19T13:20:03Z] summary producer failed with exit 1: fm-fleet-snapshot: task snapshot failed 

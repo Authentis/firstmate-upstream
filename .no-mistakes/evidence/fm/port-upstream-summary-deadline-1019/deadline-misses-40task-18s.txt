@@ -1,0 +1,21 @@
+run 1 base exit=0 wall=18.7s
+run 1 target exit=0 wall=17.8s
+run 2 base exit=0 wall=18.7s
+run 2 target exit=0 wall=16.7s
+run 3 base exit=0 wall=18.6s
+run 3 target exit=0 wall=16.1s
+run 4 base exit=0 wall=18.6s
+run 4 target exit=0 wall=15.9s
+run 5 base exit=0 wall=18.6s
+run 5 target exit=0 wall=15.9s
+== base /tmp/fm-drive-01M5A3/fm-lab.Sqjwvz/state/.home-summary-refresh.log
+[2026-10-19T13:15:04Z] refresh exceeded its 18-second deadline
+[2026-10-19T13:15:41Z] refresh exceeded its 18-second deadline
+[2026-10-19T13:16:16Z] refresh exceeded its 18-second deadline
+[2026-10-19T13:16:51Z] refresh exceeded its 18-second deadline
+[2026-10-19T13:17:25Z] refresh exceeded its 18-second deadline
+base missed-deadline count: 5 of 5
+{"schema":"fm-secondmate-home-summary.v1","endpoints":40,"decisions_open":8,"generated":"2026-10-19T13:08:29Z"}
+== target /tmp/fm-drive-01M5A3/fm-lab.RMPwv1/state/.home-summary-refresh.log
+target missed-deadline count: 0 of 5
+{"schema":"fm-secondmate-home-summary.v1","endpoints":40,"decisions_open":8,"generated":"2026-10-19T13:17:44Z"}
