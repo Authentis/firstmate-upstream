@@ -1,0 +1,80 @@
+== cached read 1 (cold)
+rc=1 first line: error: repo not initialized (run 'no-mistakes init' first)|help[1]: Run `no-mistakes init` to set up the gate in this repository|
+== cached read 2 (warm, same invocation)
+rc=1 identical=yes
+spawns so far (expect 1):
+spawn NO_MISTAKES_NO_UPDATE_CHECK=1 axi status
+spawn NO_MISTAKES_NO_UPDATE_CHECK=1 axi status
+cache entries:
+  f5d29178f2af301282c41146be756071873afd45.lock
+== live read (FM_NM_CACHE_DIR unset, as teardown / DoD custody gate do)
+rc=1
+spawns (expect 2):
+spawn NO_MISTAKES_NO_UPDATE_CHECK=1 axi status
+spawn NO_MISTAKES_NO_UPDATE_CHECK=1 axi status
+spawn NO_MISTAKES_NO_UPDATE_CHECK=1 axi status
+== TTL expiry: FM_NM_CACHE_TTL=0 disables the cache
+spawns (expect 3): 4
+== cached read 1 (cold)
+rc=0 first line: no-mistakes version v1.94.0 (6915613) 2026-10-11T13:39:09Z|
+== cached read 2 (warm, same invocation)
+rc=0 identical=yes
+spawns so far (expect 1):
+spawn NO_MISTAKES_NO_UPDATE_CHECK=1 --version
+spawn NO_MISTAKES_NO_UPDATE_CHECK=1 --version
+cache entries:
+ls: /tmp/fmthr-01M58/nmcache: No such file or directory
+== live read (FM_NM_CACHE_DIR unset, as teardown / DoD custody gate do)
+rc=0
+spawns (expect 2):
+spawn NO_MISTAKES_NO_UPDATE_CHECK=1 --version
+spawn NO_MISTAKES_NO_UPDATE_CHECK=1 --version
+spawn NO_MISTAKES_NO_UPDATE_CHECK=1 --version
+== TTL expiry: FM_NM_CACHE_TTL=0 disables the cache
+spawns (expect 3): 4
+
+######## isolated NM_HOME instance, real axi status ########
+== cached read 1 (cold)
+rc=0 first line: current_branch: lab-feature|runs_on_current_branch: 0|runs: 0 runs yet in this repository|
+== cached read 2 (warm, same invocation)
+rc=0 identical=yes
+spawns so far (expect 1):
+spawn NO_MISTAKES_NO_UPDATE_CHECK=1 axi status
+cache entries:
+  4265d639ea73ff506f75c941654d717a5220af75.gen
+  e5c26e44c262e196218a2bcb8aa489c6ab5c7d15.58925.872219169.1792375993.out
+  e5c26e44c262e196218a2bcb8aa489c6ab5c7d15.lock
+== live read (FM_NM_CACHE_DIR unset, as teardown / DoD custody gate do)
+rc=0
+spawns (expect 2):
+spawn NO_MISTAKES_NO_UPDATE_CHECK=1 axi status
+spawn NO_MISTAKES_NO_UPDATE_CHECK=1 axi status
+== TTL expiry: FM_NM_CACHE_TTL=0 disables the cache
+spawns (expect 3): 3
+== cached axi status from a second crew-state invocation within TTL reuses the entry
+spawns (expect 4): 3
+== daemon status (liveness probe) is never cached
+spawns (expect 6): 5
+NOTE (driver labels corrected): 'expect 4' was a harness mislabel - a second invocation reading a key that already exists in the current generation is by design a cache hit (only a key the generation LACKS from a foreign invocation starts a new generation), so 3 spawns is correct; the two uncached daemon-status probes then take it to 5, as observed.
+
+######## real bin/fm-crew-state.sh against the isolated no-mistakes instance (lane worktree /tmp/fmnm/repo) ########
+-- crew-state invocation 1:
+state: unknown · source: none · backend target gone: fm:fm-lab-x
+   cumulative no-mistakes spawns:
+     spawn NO_MISTAKES_NO_UPDATE_CHECK=1 axi status
+     spawn NO_MISTAKES_NO_UPDATE_CHECK=1 axi
+     spawn NO_MISTAKES_NO_UPDATE_CHECK=1 runs --limit 200
+-- crew-state invocation 2:
+state: unknown · source: none · backend target gone: fm:fm-lab-x
+   cumulative no-mistakes spawns:
+     spawn NO_MISTAKES_NO_UPDATE_CHECK=1 axi status
+     spawn NO_MISTAKES_NO_UPDATE_CHECK=1 axi
+     spawn NO_MISTAKES_NO_UPDATE_CHECK=1 runs --limit 200
+-- cache dir:
+   30609024cd6a5a0e1dd7ab212381a788d02bf09b.21117.205008553.1792376023.out
+   30609024cd6a5a0e1dd7ab212381a788d02bf09b.lock
+   4265d639ea73ff506f75c941654d717a5220af75.gen
+   d30f0b9d1445473117e93a1317ea6136117556d0.21117.205008553.1792376023.out
+   d30f0b9d1445473117e93a1317ea6136117556d0.lock
+   e5c26e44c262e196218a2bcb8aa489c6ab5c7d15.21117.205008553.1792376023.out
+   e5c26e44c262e196218a2bcb8aa489c6ab5c7d15.lock

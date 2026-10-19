@@ -1,0 +1,23 @@
+ok - status cache hit skips the second spawn and every call skips the update check
+ok - status reads across lanes are limited to four at once with the update check skipped
+ok - a cold heartbeat of 8 lanes x 3 reads fits the snapshot bound
+ok - DoD custody gate reads the run live past a cached pass
+ok - status cache expires after the TTL and TTL=0 disables it
+ok - landed lane skips every no-mistakes spawn
+ok - parallel cold reads spawn the CLI once
+ok - a dead holder's lock is released by the kernel and the refresh publishes once
+ok - a live holder past the reader's timeout is never overtaken, nor an expired entry replayed
+ok - readers with different timeouts share one lock
+ok - a process left by the CLI cannot pin the cache lock
+ok - a process left by the CLI cannot pin a status slot
+ok - concurrent crew-state runs share one axi status spawn
+ok - cache mtime survives GNU stat semantics
+ok - the library resolves its own path without external tools
+ok - publish prunes entries older than a few TTLs
+ok - a never-read key refreshes the sibling reads of the same worktree
+ok - undeclared callers never share a generation
+ok - one invocation fills a generation across a clock tick
+ok - FM_NM_LOWLOAD=0 restores uncached, update-checking calls
+selected nm-cache crew-state tests passed
+/opt/homebrew/bin/bash tests/.tmp-nmcache-runner.test.sh  10.42s user 9.96s system 37% cpu 54.443 total
+rc=0

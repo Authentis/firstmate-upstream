@@ -1,0 +1,48 @@
+== S1 watcher poll of a merged GitHub PR (real gh) reads through the throttle
+poll #17 -> merged
+[exit=0]
+gh calls: 1
+cache record:
+  1792375392
+  MERGED
+  true
+poll #17 again -> merged
+[exit=0]
+gh calls after 2nd poll (expect 1): 1
+== S2 fm-pr-read.sh and the poll share one window
+fm-pr-read #17:
+  state=MERGED
+  merged=true
+gh calls (expect still 1): 1
+== S3 open PR: poll stays silent
+poll #20 -> '[exit=0]'
+gh calls (expect 2): 2
+  #20 rec: 1792375392
+  #20 rec: OPEN
+  #20 rec: false
+== S4 rate-limit refusal sets the global backoff; later polls make no request
+poll #17 at now+400 with gh rate-limited -> merged
+[exit=0]
+gh calls (expect 1): 1
+backoff file: 1792375853 60  (expect 1792375853 60)
+poll #20 at now+410 during backoff -> '[exit=0]'
+gh calls (expect still 1 - backoff blocks every PR): 1
+poll #17 after backoff and window expiry (now+701), limited again:
+backoff file: 1792376214 120  (expect delay doubled to 120)
+== S5 a non-rate-limit 403 (SAML) does not set a global backoff
+poll #20 with SAML 403 -> '[exit=0]'
+backoff file present? no
+poll #17 right after (real gh) -> merged
+[exit=0]
+gh calls (expect 2): 2
+== S6 machine-wide lock held past the 4s wait: stale last-good record is served
+fm-pr-read #17 (record 900s stale, lock busy) rc=0 after 4s:
+  state=MERGED
+merged=true
+poll #17 under the same conditions -> merged
+[exit=0]
+gh calls (expect 0): 0
+== S7 a copy of the poll run outside bin/ reads gh directly
+copy poll #17 -> merged
+gh calls (expect 1, direct read, cache untouched): 1
+== done
