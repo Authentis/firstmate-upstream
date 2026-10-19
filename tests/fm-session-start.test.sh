@@ -2624,7 +2624,7 @@ write_retirement_receipt() {
 }
 
 test_reemit_state_summary_is_capped_state_not_a_log() {
-  local rec root home fakebin full full_fleet reemit summary bytes i
+  local rec root home fakebin full full_fleet reemit summary bytes log i
   rec=$(new_world reemit-state-cap)
   IFS='|' read -r root home fakebin <<EOF
 $rec
@@ -2657,8 +2657,15 @@ EOF
   [ "$full_fleet" -gt 20000 ] || fail "the cap fixture is vacuous: the full record dump is only $full_fleet bytes"
   assert_contains "$full" "Work under way (state/*.meta)" "a full startup stopped printing the record dump"
   assert_not_contains "$full" "OPEN ITEMS (mandatory" "a full startup printed the re-emit state summary"
+  # Let the full startup's deferred network stage publish before the re-emit,
+  # as the sibling re-emit test does, so the two never race.
+  wait_for_network_stage "$home" "$root" \
+    || fail "the cap fixture's full startup never published its deferred network stage"
 
-  reemit=$(FM_FAKE_TASKS_AXI_READY=600 run_reemit "$home" "$root" "$fakebin:$BASE_PATH")
+  log="$home/tasks-axi.log"
+  reemit=$(FM_FAKE_TASKS_AXI_LOG="$log" FM_FAKE_TASKS_AXI_READY=600 run_reemit "$home" "$root" "$fakebin:$BASE_PATH")
+  grep -q '^ready --file ' "$log" 2>/dev/null \
+    || fail "the re-emit never asked the fake tasks-axi for its 600 ready rows, so the cap was not under test: $(cat "$log" 2>/dev/null)"
   summary=$(reemit_state_summary "$reemit")
   [ -n "$summary" ] || fail "the locked re-emit printed no state summary: $reemit"
   bytes=$(reemit_summary_bytes "$summary")
