@@ -772,6 +772,13 @@ install_pi_watch_extension_fixture() {
   cp "$ROOT/.pi/extensions/fm-primary-pi-watch.ts" "$root/.pi/extensions/fm-primary-pi-watch.ts"
 }
 
+install_pi_inbox_extension_fixture() {
+  local root=$1
+  mkdir -p "$root/.pi/extensions/lib"
+  cp "$ROOT/.pi/extensions/fm-inbox-pull.ts" "$root/.pi/extensions/fm-inbox-pull.ts"
+  cp "$ROOT/.pi/extensions/lib/fm-async-exec.ts" "$root/.pi/extensions/lib/fm-async-exec.ts"
+}
+
 write_pi_watch_loaded_marker() {
   local home=$1 root=$2 pid=$3 version
   version=$(hash_file_for_test "$root/.pi/extensions/fm-primary-pi-watch.ts")
@@ -784,8 +791,15 @@ write_pi_turnend_loaded_marker() {
   printf '%s\n%s\n' "$version" "$pid" > "$home/state/.pi-turnend-extension-loaded"
 }
 
+write_pi_inbox_loaded_marker() {
+  local home=$1 root=$2 pid=$3 version
+  version=$(hash_file_for_test "$root/.pi/extensions/fm-inbox-pull.ts")
+  printf '%s\n%s\n' "$version" "$pid" > "$home/state/.pi-inbox-pull-extension-loaded"
+}
+
 write_pi_loaded_markers() {
   local home=$1 root=$2 pid=$3
+  write_pi_inbox_loaded_marker "$home" "$root" "$pid"
   write_pi_watch_loaded_marker "$home" "$root" "$pid"
   write_pi_turnend_loaded_marker "$home" "$root" "$pid"
 }
@@ -3313,7 +3327,7 @@ EOF
   assert_contains "$out" "SUPERVISION OPERATING INSTRUCTIONS - primary harness: pi" "pi supervision block missing"
   assert_contains "$out" "Mode: Pi extension background wake." "pi snippet missing from session start"
   assert_contains "$out" "PI_WATCH_EXTENSION: not loaded" "pi extension load diagnostic missing"
-  assert_contains "$out" "restart plain pi so $root/.pi/extensions/fm-primary-turnend-guard.ts and $root/.pi/extensions/fm-primary-pi-watch.ts auto-load" "pi extension load diagnostic omits the turn-end guard extension"
+  assert_contains "$out" "restart plain pi so $root/.pi/extensions/fm-primary-turnend-guard.ts, $root/.pi/extensions/fm-primary-pi-watch.ts and $root/.pi/extensions/fm-inbox-pull.ts auto-load" "pi extension load diagnostic omits one of the three tracked extensions"
 
   wake_line=$(printf '%s\n' "$out" | grep -n '^WAKE QUEUE$' | head -1 | cut -d: -f1)
   sup_line=$(printf '%s\n' "$out" | grep -n '^SUPERVISION OPERATING INSTRUCTIONS' | head -1 | cut -d: -f1)
@@ -3341,7 +3355,7 @@ EOF
     "pi-signed primary did not reuse Pi's supervision protocol"
   assert_contains "$out" "PI_WATCH_EXTENSION: not loaded" \
     "pi-signed primary skipped Pi extension validation"
-  assert_contains "$out" "restart pi-signed so $root/.pi/extensions/fm-primary-turnend-guard.ts and $root/.pi/extensions/fm-primary-pi-watch.ts auto-load" \
+  assert_contains "$out" "restart pi-signed so $root/.pi/extensions/fm-primary-turnend-guard.ts, $root/.pi/extensions/fm-primary-pi-watch.ts and $root/.pi/extensions/fm-inbox-pull.ts auto-load" \
     "pi-signed extension diagnostic did not preserve the executable identity"
 
   pass "session start preserves pi-signed primary identity while applying Pi extension guarantees"
@@ -3360,6 +3374,7 @@ EOF
   make_fake_ps_pi_holder "$fakebin" "$holder_pid"
   install_pi_turnend_extension_fixture "$root"
   install_pi_watch_extension_fixture "$root"
+  install_pi_inbox_extension_fixture "$root"
   marker="$home/state/.pi-watch-extension-loaded"
   printf 'stale-extension-version\n%s\n' "$holder_pid" > "$marker"
   write_pi_turnend_loaded_marker "$home" "$root" "$holder_pid"
@@ -3387,6 +3402,7 @@ EOF
   make_fake_ps_pi_holder "$fakebin" "$holder_pid"
   install_pi_turnend_extension_fixture "$root"
   install_pi_watch_extension_fixture "$root"
+  install_pi_inbox_extension_fixture "$root"
   write_pi_loaded_markers "$home" "$root" "$holder_pid"
   marker="$home/state/.pi-watch-extension-loaded"
   head -n 2 "$marker" > "$marker.tmp"
@@ -3416,6 +3432,7 @@ EOF
   make_fake_ps_pi_holder "$fakebin" "$holder_pid"
   install_pi_turnend_extension_fixture "$root"
   install_pi_watch_extension_fixture "$root"
+  install_pi_inbox_extension_fixture "$root"
 
   write_pi_loaded_markers "$home" "$root" "$holder_pid"
 
@@ -3486,6 +3503,7 @@ EOF
   make_fake_ps_pi_holder "$fakebin" "$holder_pid"
   install_pi_turnend_extension_fixture "$root"
   install_pi_watch_extension_fixture "$root"
+  install_pi_inbox_extension_fixture "$root"
 
   write_pi_watch_loaded_marker "$home" "$root" "$holder_pid"
 
@@ -3496,6 +3514,34 @@ EOF
   assert_contains "$out" "PI_WATCH_EXTENSION: not loaded" "pi diagnostic trusted a session without the turn-end guard extension"
 
   pass "session start rejects Pi sessions missing the turn-end guard marker"
+}
+
+test_pi_diagnostic_rejects_missing_inbox_pull_marker() {
+  local rec root home fakebin out holder_pid
+  rec=$(new_world pi-missing-inbox-pull-marker)
+  IFS='|' read -r root home fakebin <<EOF
+$rec
+EOF
+  make_fake_toolchain "$fakebin"
+
+  sleep 300 &
+  holder_pid=$!
+  make_fake_ps_pi_holder "$fakebin" "$holder_pid"
+  install_pi_turnend_extension_fixture "$root"
+  install_pi_watch_extension_fixture "$root"
+  install_pi_inbox_extension_fixture "$root"
+
+  write_pi_loaded_markers "$home" "$root" "$holder_pid"
+  rm -f "$home/state/.pi-inbox-pull-extension-loaded"
+
+  out=$(FM_FAKE_HARNESS=pi run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
+  kill "$holder_pid" 2>/dev/null || true
+  wait "$holder_pid" 2>/dev/null || true
+
+  assert_contains "$out" "PI_WATCH_EXTENSION: not loaded" "pi diagnostic accepted a session whose inbox pull extension never loaded"
+  assert_contains "$out" "fm-inbox-pull.ts" "pi diagnostic does not name the inbox pull extension"
+
+  pass "session start rejects a Pi session that did not load the inbox pull extension"
 }
 
 test_pi_diagnostic_rejects_previous_session_loaded_marker() {
@@ -3511,6 +3557,7 @@ EOF
   make_fake_ps_pi_holder "$fakebin" "$holder_pid"
   install_pi_turnend_extension_fixture "$root"
   install_pi_watch_extension_fixture "$root"
+  install_pi_inbox_extension_fixture "$root"
   marker="$home/state/.pi-watch-extension-loaded"
   version=$(hash_file_for_test "$root/.pi/extensions/fm-primary-pi-watch.ts")
   printf '%s\n999999\n' "$version" > "$marker"
@@ -3578,6 +3625,7 @@ test_pi_diagnostic_accepts_prelock_loaded_marker
 test_omp_supervision_block_and_diagnostic
 test_omp_diagnostic_accepts_prelock_loaded_marker
 test_pi_diagnostic_rejects_missing_turnend_guard_marker
+test_pi_diagnostic_rejects_missing_inbox_pull_marker
 test_pi_diagnostic_rejects_previous_session_loaded_marker
 test_runtime_bound_truncates_loudly_and_exits_zero
 test_stale_stage_file_env_leaves_runtime_bound_intact

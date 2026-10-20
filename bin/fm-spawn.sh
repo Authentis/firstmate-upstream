@@ -449,6 +449,8 @@
 #                  first-call readiness hook, written by this script)
 #     __PITURNEND__ absolute path to .pi/extensions/fm-primary-turnend-guard.ts in a pi secondmate home
 #     __PIWATCH__   absolute path to .pi/extensions/fm-primary-pi-watch.ts in a pi secondmate home
+#     __PIINBOX__   absolute path to .pi/extensions/fm-inbox-pull.ts in a pi secondmate home
+#                  (the mid-turn inbox pull; bin/fm-inbox-pull.sh owns its semantics)
 #     __OMPBIN__   quoted concrete omp executable path resolved from PATH
 #     __OMPEXT__   absolute path to state/<task-id>.omp-ext.ts (omp busy-state extension,
 #                  written by this script; outside the worktree so omp's cwd-only
@@ -2340,12 +2342,13 @@ launch_template() {
   pi | pi-signed)
     printf '%s' '__PIBIN____PITUIMODE____PIAPPROVE____PIEXCLUDE____PIRESUME__'
     if [ "$kind" = secondmate ]; then
-      # The two primary extensions supervise the mate's own home. __PIEXT__ is
+      # The two primary extensions supervise the mate's own home, and __PIINBOX__
+      # pulls its steering inbox into a running turn (FM_INBOX_PULL_DIR below). __PIEXT__ is
       # the parent-home busy contract, loaded from outside the home so Pi's
       # project-trust gate does not fire on it. __PIFIRSTCALL__ is the
       # first-call readiness hook (fm-pi-first-call.sh), a separate file so it
       # never shadows the busy extension.
-      printf '%s' ' __MODELFLAG____EFFORTFLAG__-e __PITURNEND__ -e __PIWATCH__ -e __PIEXT__ -e __PIFIRSTCALL__ "$(__OPINPUT__ encode launch-brief < __BRIEF__)"'
+      printf '%s' ' __MODELFLAG____EFFORTFLAG__-e __PITURNEND__ -e __PIWATCH__ -e __PIINBOX__ -e __PIEXT__ -e __PIFIRSTCALL__ "$(__OPINPUT__ encode launch-brief < __BRIEF__)"'
     else
       printf '%s' ' __MODELFLAG____EFFORTFLAG__-e __PIEXT__ "$(__OPINPUT__ encode launch-brief < __BRIEF__)"'
     fi
@@ -5768,6 +5771,7 @@ sq_piext=$(shell_quote "$STATE/$ID.pi-ext.ts")
 sq_pifirstcall=$(shell_quote "$STATE/$ID.pi-first-call.ts")
 sq_piturnend=$(shell_quote "$PROJ_ABS/.pi/extensions/fm-primary-turnend-guard.ts")
 sq_piwatch=$(shell_quote "$PROJ_ABS/.pi/extensions/fm-primary-pi-watch.ts")
+sq_piinbox=$(shell_quote "$PROJ_ABS/.pi/extensions/fm-inbox-pull.ts")
 sq_ompext=$(shell_quote "$STATE/$ID.omp-ext.ts")
 sq_ompcfg=$(shell_quote "${OMP_WORKER_CFG:-$FM_ROOT/.omp/fm-worker-overlay.yml}")
 sq_opinput=$(shell_quote "$FM_ROOT/bin/fm-operational-input.sh")
@@ -5815,6 +5819,7 @@ LAUNCH=${LAUNCH//__PIEXT__/$sq_piext}
 LAUNCH=${LAUNCH//__PIFIRSTCALL__/$sq_pifirstcall}
 LAUNCH=${LAUNCH//__PITURNEND__/$sq_piturnend}
 LAUNCH=${LAUNCH//__PIWATCH__/$sq_piwatch}
+LAUNCH=${LAUNCH//__PIINBOX__/$sq_piinbox}
 LAUNCH=${LAUNCH//__OMPEXT__/$sq_ompext}
 LAUNCH=${LAUNCH//__OMPWORKERCFG__/$sq_ompcfg}
 LAUNCH=${LAUNCH//__OPINPUT__/$sq_opinput}
@@ -5942,6 +5947,12 @@ fi
 # kill switch below it is an export statement, so it survives a compound raw
 # launch and the launch-env-allowlist `env -i` wrapper.
 LAUNCH="export FM_TASK_INBOX=$(shell_quote "$STATE_REAL/$ID.inbox"); $LAUNCH"
+# A pi secondmate additionally names that same inbox for the mid-turn pull
+# (bin/fm-inbox-pull.sh); a remote mate needs no such export because its own
+# state/parent-route/ is already in the pull's default scan set.
+if [ "$KIND" = secondmate ] && { [ "$HARNESS" = pi ] || [ "$HARNESS" = pi-signed ]; }; then
+  LAUNCH="export FM_INBOX_PULL_DIR=$(shell_quote "$STATE_REAL/$ID.inbox"); $LAUNCH"
+fi
 LAUNCH="export COMPACT_ADVISER_DISABLE=1; $LAUNCH"
 # Launch PATH (header): carry this process's PATH into the pane so a bare pane
 # PATH cannot hide the harness binary this spawn already resolved. Skipped, with

@@ -50,13 +50,15 @@ Without `deliverAs: "followUp"`, Pi rejects the send while the agent is still pr
 On native Windows, the extension runs its session-start, both PreToolUse, turn-end, and operational-input Bash helpers through `bash`; macOS and Linux invoke those helpers directly.
 
 The primary watcher protocol also requires `.pi/extensions/fm-primary-pi-watch.ts`.
-The Pi engine auto-discovers both tracked project-local extensions once the project is trusted.
+The mid-turn inbox pull is the third tracked extension, `.pi/extensions/fm-inbox-pull.ts`: after each tool result it runs `../../../bin/fm-inbox-pull.sh peek` and steers a printed notice into the running turn with `pi.sendMessage(..., { deliverAs: "steer", triggerTurn: false })`, so the next model request carries it.
+That owner script's header owns the scan set, cursor, throttle, kill switch, and heartbeat; the extension writes nothing to the TUI and commits only when a `context` event shows the notice inside a model request, because Pi 1.3.0 holds a steered custom message until its turn ends and emits no extension `message_end` for it.
+The Pi engine auto-discovers all three tracked project-local extensions once the project is trusted.
 The model arms through the `fm_watch_arm_pi` tool, never through a foreground shell arm.
 Native-harness adapters can discover the same guarded FirstMate tools and operational message allowlist through the public Pi event-bus contract in `.pi/extensions/lib/fm-native-contract.ts`; no Pi built-in tools cross that contract.
 The tool result and clean-exit fallback are owned by `../../../docs/supervision-protocols/pi.md`.
-`../../../bin/fm-session-start.sh` reports when the live Pi-family session has not loaded both extensions and points at the selected executable after project trust as the fix, with `-e` as a trust-free fallback.
+`../../../bin/fm-session-start.sh` reports when the live Pi-family session has not loaded all three extensions and points at the selected executable after project trust as the fix, with `-e` as a trust-free fallback.
 
-When a secondmate is launched on Pi or Pi-signed, `../../../bin/fm-spawn.sh --secondmate` launches the selected executable with `-e .pi/extensions/fm-primary-turnend-guard.ts`, `-e .pi/extensions/fm-primary-pi-watch.ts`, and `-e` of the parent home's `state/<id>.pi-ext.ts` busy extension.
-Both primary files already exist in the secondmate home's git worktree.
+When a secondmate is launched on Pi or Pi-signed, `../../../bin/fm-spawn.sh --secondmate` launches the selected executable with `-e .pi/extensions/fm-primary-turnend-guard.ts`, `-e .pi/extensions/fm-primary-pi-watch.ts`, `-e .pi/extensions/fm-inbox-pull.ts` (with `FM_INBOX_PULL_DIR` set to the mate's steering inbox), and `-e` of the parent home's `state/<id>.pi-ext.ts` busy extension.
+All three tracked files already exist in the secondmate home's git worktree.
 The busy extension lives outside that home, so Pi's project-trust gate does not see it, and its turn-end handler does not touch the parent's turn-ended marker.
 The PreToolUse-equivalent watcher-arm seatbelt returns `{block: true}` from the `tool_call` event.

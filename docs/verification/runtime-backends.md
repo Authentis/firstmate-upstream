@@ -2498,6 +2498,28 @@ ok - under the away-posture record the wake carries the verbatim read-back tail,
 
 The merge suite and the security suite dominate the wall time.
 
+### 2026-10-18 mid-turn inbox pull
+
+The live guard drives the installed Pi 1.3.0 in a real tmux pane with the launch command that the real `bin/fm-spawn.sh --secondmate` stages for a Pi secondmate, a mode-664 `bin/fm-inbox-pull.sh`, and a scripted local OpenAI-compatible model, so no credentials or tokens are involved and every assertion reads the model-side request log.
+It was run on macOS (Darwin 27.0.0) and on Linux (bosgame, kernel 6.8.0) with the same result.
+
+```sh
+bash tests/fm-pi-inbox-pull-live-e2e.test.sh
+bash tests/fm-inbox-pull.test.sh
+```
+
+```text
+ok - main timeline on pi 1.3.0: 001 on the next request, 002 after the throttle, once each, heartbeat fresh, mode-664 owner, silent pane, restart quiet
+ok - the kill file stops the pull and the heartbeat says so
+ok - FM_INBOX_PULL=0 stops the pull
+ok - a missing owner is logged, disables the pull after five failures, and never reaches the pane or blocks the model
+```
+
+Two Pi 1.3.0 facts the extension depends on were observed directly.
+A `pi.sendMessage(..., { deliverAs: "steer", triggerTurn: false })` call from a `tool_result` handler reaches the model on the very next request of the same run.
+Pi holds a steered custom message until its current turn ends and emits no extension `message_end` for it, so the extension commits its cursor on the `context` event that shows the notice inside a model request.
+Rerun the guard after every Pi upgrade.
+
 ## Native Codex through Pi
 
 Verified on 2026-09-08 with Pi 0.85.1 and the installed `pi-codex-native` 0.2.1 adapter.
