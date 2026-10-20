@@ -498,7 +498,8 @@ status_stamp_width() {  # -> characters a stamp adds to a line
 
 # Strip the one well-formed time tag _fm_status_at_epoch accepts, for readers
 # that need a stamped line as the exact bytes it carried before stamping:
-# retry-dedup identity here, and the pending-reply escalation match in
+# retry-dedup identity here, the context re-emit's repeat collapse in
+# bin/fm-session-start.sh, and the pending-reply escalation match in
 # bin/fm-pending-reply-lib.sh, which compares against its own literal spellings.
 # Every other [at=...] byte run - malformed, duplicate, or outside the canonical
 # bounds - is ordinary line bytes here, never a time tag, so a retry of it stays
