@@ -105,7 +105,7 @@
 # absent stops the merge before any state is recorded.
 #
 # Opt-in review-receipt gate: when config/merge-receipt-required has a line for
-# this project (docs/configuration.md owns the schema), both forge verifiers add
+# this project (docs/configuration.md owns the schema), every forge verifier adds
 # one more refusal after their live conditions and before any forge merge
 # command unless this exact PR number has, for the live head they just read,
 # either a PASS receipt or a waiver in that line's data directory (relative to
@@ -147,7 +147,7 @@
 # because there is no established translation from a gh/glab-style flag into
 # a Forgejo API field yet.
 #
-# Before either forge merge, the task's existing per-task control lock
+# Before any forge merge, the task's existing per-task control lock
 # serializes the captain-hold check through the forge command. A still-held or
 # unreadable row refuses before that command, so a captain approval must be
 # recorded as an `answer --release` before this entrypoint is invoked. While
@@ -848,12 +848,25 @@ FIELDS
   # per context, so every page is read until an empty one and the head is
   # green only when each non-empty page is; the first page that is not
   # success, or that cannot be read, decides the refusal.
+  #
+  # tea api exits 0 on an HTTP-level failure, so every page must itself be a
+  # combined status: an object carrying the statuses field, null or an array
+  # (the empty page is served with statuses null). An error object such as
+  # {"message":...} lacks that field and is unreadable rather than the empty
+  # page that would end pagination with an earlier page's success standing.
+  # A non-empty page must carry a string state and an object with a string
+  # status for every entry.
   ci_state=none
   while :; do
     if ! status_json=$(tea api --login "$FORGEJO_LOGIN" --repo "$PR_OWNER/$PR_REPO" \
         "/repos/{owner}/{repo}/commits/$live_head/status?limit=50&page=$page" 2>/dev/null) \
       || ! fields=$(printf '%s' "$status_json" | jq -r '
-          if type == "object" and ((.statuses // []) | type) == "array" then
+          if type == "object" and has("statuses")
+            and (.statuses == null or (.statuses | type) == "array")
+            and (((.statuses // []) | length) == 0
+              or ((.state | type) == "string"
+                and all(.statuses[]; type == "object" and (.status | type) == "string")))
+          then
             "count=" + ((.statuses // []) | length | tostring),
             "state=" + ((.state // "") | tostring)
           else
@@ -899,6 +912,10 @@ FIELDS
 "
   [ "$ci_state" = success ] \
     || refusals="$refusals  - the combined commit status is \"$ci_state\", not success
+"
+
+  merge_receipt_gate "$live_head"
+  [ -z "$FM_MERGE_RECEIPT_REFUSAL" ] || refusals="$refusals$FM_MERGE_RECEIPT_REFUSAL
 "
 
   if [ -n "$refusals" ]; then
@@ -1776,7 +1793,7 @@ forgejo_confirm_merged() {
   [ "$merged" = true ]
 }
 
-# Record before either forge call. This arms the merge poll without claiming a
+# Record before any forge call. This arms the merge poll without claiming a
 # landed outcome, so even a provider read failure after a real merge cannot
 # leave teardown without the PR identity it needs to verify the result.
 precheck_expected_head || exit 1

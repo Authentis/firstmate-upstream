@@ -260,6 +260,16 @@ case "${FM_FAKE_SSH_MODE:-normal}" in
     fi
     exit "$rc"
     ;;
+  # A remote retirement whose return failed and whose process-event
+  # registrations could not be rearmed keeps its home and records and exits
+  # with the restoration status tests/fm-secondmate-safety.test.sh owns.
+  retire-procevent-failed)
+    if [ "$command_name:$_command_action" = fm-remote-secondmate-control.sh:retire ]; then
+      printf 'error: process-event restoration could not rearm secondmate home /remote/home; active waits may remain retired; recover registrations from /remote/backup\n' >&2
+      exit 5
+    fi
+    exec "$FM_FAKE_REMOTE_ENTRYPOINT" "$@"
+    ;;
   *) exec "$FM_FAKE_REMOTE_ENTRYPOINT" "$@" ;;
 esac
 SH
@@ -1547,6 +1557,19 @@ assert_grep '- ios ' "$PARENT/data/secondmates.md" "a liveness-busy retirement r
   || fail "a liveness-busy retirement removed or took the episode's lock"
 kill "$liveness_holder_pid" 2>/dev/null || true
 wait "$liveness_holder_pid" 2>/dev/null || true
+teardown_rc=0
+FM_FAKE_SSH_MODE=retire-procevent-failed remote_env "$ROOT/bin/fm-teardown.sh" ios \
+  > "$TMP_ROOT/teardown-procevent-failed.out" 2> "$TMP_ROOT/teardown-procevent-failed.err" || teardown_rc=$?
+[ "$teardown_rc" -eq 5 ] \
+  || fail "remote retirement with a failed process-event restoration did not exit 5 (exit $teardown_rc)"
+assert_grep 'active waits may remain retired' "$TMP_ROOT/teardown-procevent-failed.err" \
+  "a failed remote restoration did not forward its recovery diagnostic"
+assert_no_grep 'teardown ios complete' "$TMP_ROOT/teardown-procevent-failed.out" \
+  "a failed remote restoration was reported as a completed retirement"
+assert_present "$REMOTE_HOME" "a failed remote restoration removed the remote home"
+assert_present "$PARENT/state/ios.meta" "a failed remote restoration removed parent metadata"
+assert_present "$retired_wake_rec" "a failed remote restoration removed the receiver wake correlation"
+assert_grep '- ios ' "$PARENT/data/secondmates.md" "a failed remote restoration removed the registry route"
 handoff_lock="$PARENT/state/.backlog-handoff-ios.lock"
 FM_HOME="$PARENT" /bin/bash -c '
   . "$1"

@@ -25,6 +25,7 @@ export FM_REAL_GIT
 # Env the fake reads: FM_FAKE_TH_LOG (one line per invocation),
 # FM_FAKE_LEASE_PATH / FM_FAKE_LEASE_ID (what `get --lease --json` reports),
 # FM_FAKE_SLOT_LEASE (the lease currently on the slot, for status and return),
+# FM_FAKE_SLOT_LEASE_LATER (the lease status reports from its second read on),
 # FM_FAKE_POOL_PATH (the slot path `status --json` lists; unset lists nothing),
 # FM_FAKE_RETURN_LEASE (the lease on the slot by the time of the return, when it
 # changed after status was read),
@@ -52,9 +53,14 @@ case "${1:-}" in
     exit 0 ;;
   status)
     [ "${FM_FAKE_TH_STATUS_FAIL:-0}" != 1 ] || exit 1
+    slot_lease=${FM_FAKE_SLOT_LEASE:-}
+    if [ -n "${FM_FAKE_SLOT_LEASE_LATER:-}" ]; then
+      [ ! -e "$FM_FAKE_TH_LOG.status-read" ] || slot_lease=$FM_FAKE_SLOT_LEASE_LATER
+      : > "$FM_FAKE_TH_LOG.status-read"
+    fi
     if [ -n "${FM_FAKE_POOL_PATH:-}" ]; then
       printf '[{"name":"1","path":"%s","status":"leased","lease_id":"%s"}]\n' \
-        "$FM_FAKE_POOL_PATH" "${FM_FAKE_SLOT_LEASE:-}"
+        "$FM_FAKE_POOL_PATH" "$slot_lease"
     else
       echo '[]'
     fi
@@ -395,6 +401,28 @@ test_forced_and_scout_teardowns_force_the_lease_bound_return() {
   pass "an explicit --force teardown and a scout return a dirty slot forced, still lease-bound"
 }
 
+# The scrub of a forced or scout slot deletes untracked files and nested
+# repositories, so the lease is confirmed again immediately before it: a lease
+# that changed after teardown's first check leaves the successor's work alone.
+test_lease_changed_before_scrub_leaves_the_slot_untouched() {
+  local case_dir out status
+  case_dir=$(make_teardown_case td-scrub-changed)
+  write_teardown_meta "$case_dir" "lease_id=lease0123abcd"
+  printf 'successor work\n' > "$case_dir/wt/successor.txt"
+  git init -q "$case_dir/wt/nested-repo"
+  printf 'nested\n' > "$case_dir/wt/nested-repo/file.txt"
+  out=$(FM_FAKE_SLOT_LEASE=lease0123abcd FM_FAKE_SLOT_LEASE_LATER=someone-elses-lease FM_FAKE_RETURN_LEASE=someone-elses-lease \
+    run_teardown "$case_dir" --force)
+  status=$?
+  [ "$status" -ne 0 ] || fail "a lease that changed before the scrub must abort teardown"$'\n'"$out"
+  assert_contains "$out" "lease changed" "teardown did not report that the lease changed before the scrub"
+  assert_present "$case_dir/wt/successor.txt" "the scrub removed a successor's untracked file"
+  assert_present "$case_dir/wt/nested-repo/file.txt" "the scrub removed a successor's nested repository"
+  assert_no_grep "return" "$case_dir/treehouse.log" "no return may be attempted once the lease changed"
+  assert_present "$case_dir/state/task-x1.meta" "a refused teardown must keep the task record"
+  pass "a lease that changed after the first check stops a forced teardown before its scrub"
+}
+
 test_forced_return_refused_by_a_lease_change_is_reported_as_such() {
   local case_dir out status
   case_dir=$(make_teardown_case td-force-changed)
@@ -434,6 +462,7 @@ test_changed_lease_stops_teardown_before_a_stale_lock_is_removed
 test_unconfirmable_lease_stops_teardown_before_anything_destructive
 test_dirty_slot_return_is_refused_not_forced
 test_forced_and_scout_teardowns_force_the_lease_bound_return
+test_lease_changed_before_scrub_leaves_the_slot_untouched
 test_forced_return_refused_by_a_lease_change_is_reported_as_such
 test_teardown_refuses_a_malformed_lease_id
 
