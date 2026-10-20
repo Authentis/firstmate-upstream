@@ -1468,7 +1468,7 @@ EOF
 }
 
 test_reemit_work_under_way_is_size_bounded() {
-  local rec root home fakebin out i
+  local rec root home fakebin holder_pid out i
   rec=$(new_world work-reemit-cap)
   IFS='|' read -r root home fakebin <<EOF
 $rec
@@ -1485,10 +1485,20 @@ EOF
   done
   fm_write_secondmate_meta "$home/state/zz-sm.meta" "$home/other-secondmate" "firstmate:fm-zz-sm" alpha
 
-  out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$root" FM_FAKE_HARNESS_PID=$$ PATH="$fakebin:$BASE_PATH" \
+  # A locked re-emit prints the capped state summary instead of the record
+  # dump, so the dump's size bound is exercised on the read-only re-emit: another
+  # live holder owns the session lock.
+  sleep 300 &
+  holder_pid=$!
+  printf '%s\n' "$holder_pid" > "$home/state/.lock"
+  out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$root" PATH="$fakebin:$BASE_PATH" \
     FM_SESSION_START_REEMIT_WORK_MAX_BYTES=3000 \
     env -u CLAUDECODE -u PI_CODING_AGENT -u FM_PI_HARNESS -u GROK_AGENT \
-    "$SESSION_START" --reemit)
+    "$SESSION_START" --reemit) || true
+  kill "$holder_pid" 2>/dev/null || true
+  wait "$holder_pid" 2>/dev/null || true
+  rm -f "$home/state/.lock"
+  assert_contains "$out" "READ-ONLY SESSION" "the re-emit did not take the read-only path"
   assert_contains "$out" "CONTEXT RE-EMIT TRUNCATED" "the capped re-emit carried no truncation banner"
   assert_contains "$out" "bin/fm-crew-state.sh" "the banner did not say how to read the omitted records"
   assert_contains "$out" "--- zz-sm ---" "a secondmate record was dropped by the size bound"
@@ -1499,7 +1509,7 @@ EOF
   assert_not_contains "$out" "CONTEXT RE-EMIT TRUNCATED" "a full session start was size-capped"
   assert_contains "$out" "--- ship-30 ---" "a full session start dropped a record"
 
-  pass "a context re-emit bounds its work-under-way section with a truncation banner and always keeps secondmates"
+  pass "a read-only context re-emit bounds its work-under-way section with a truncation banner and always keeps secondmates"
 }
 
 test_endpoint_liveness_herdr() {
