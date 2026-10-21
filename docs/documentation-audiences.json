@@ -389,6 +389,10 @@
       "audience": "operator-current"
     },
     {
+      "path": "docs/fleet-truth.md",
+      "audience": "operator-current"
+    },
+    {
       "path": "docs/herdr-backend.md",
       "audience": "operator-current"
     },
