@@ -304,7 +304,7 @@ So native and manual startup never run concurrently.
 An intentional gate or non-primary stand-down returns no message.
 Context-preserving sources retain their existing silent result when the current process already holds the lock.
 
-Manual and automatic compaction retain the existing persistent delivery path, because an automatic retry may have no new `before_agent_start`.
+Manual and automatic compaction send their message directly rather than through `before_agent_start`, because an automatic retry may have no new `before_agent_start`; the `session_compact` entry above owns its delivery timing.
 That path still shares the same generation cancellation and exactly-once claim.
 
 The extension encodes an unencoded digest or fallback as `session-start` operational input and leaves an already-encoded nudge alone.
