@@ -1326,10 +1326,10 @@ secondmate_liveness_run() {
     esac
     [ -z "$reason" ] \
       || published="${published}wake"$'\t'"$id"$'\t'"$notify_key"$'\t'"$reason"$'\n'
-    fm_secondmate_liveness_unlock "$id"
     # A live mate can still be wedged on an exhausted provider pool; the
     # failover library owns that check and restarts through the persist-first
-    # restart owner, so it runs after this mate's liveness lock is released.
+    # restart owner. It runs while this mate's liveness lock is held, so no
+    # other sweep can probe the endpoint mid-relaunch and kill it.
     if [ "$FM_SM_LIVE_STATUS" = alive ] && [ -z "$err" ]; then
       if ! fm_quota_failover_tick "$meta" "$id"; then
         err=$FM_QF_REPORT
@@ -1337,6 +1337,7 @@ secondmate_liveness_run() {
         published="${published}wake"$'\t'"$id"$'\t'"secondmate-quota-$id-$now"$'\t'"$FM_QF_REPORT"$'\n'
       fi
     fi
+    fm_secondmate_liveness_unlock "$id"
     if [ -n "$err" ]; then
       triage_log "secondmate $id liveness error: $err" || true
       published="${published}error"$'\t'"$id"$'\t'"$err"$'\n'

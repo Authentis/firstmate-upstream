@@ -33,6 +33,10 @@ for f in "$ROOT"/bin/*; do ln -s "$f" "$BIN/${f##*/}"; done
 rm -f "$BIN/fm-secondmate-restart.sh"
 cat > "$BIN/fm-secondmate-restart.sh" <<'SH'
 #!/usr/bin/env bash
+if [ -z "${FM_HOME:-}" ]; then
+  echo "error: FM_HOME is not set; fm-secondmate-restart refuses to resolve second mates without an explicit firstmate home" >&2
+  exit 1
+fi
 printf '%s|wait=%s|pin=%s\n' "$*" "${FM_SECONDMATE_PERSIST_WAIT:-}" \
   "$(grep "^$FM_TEST_ID " "$FM_CONFIG_OVERRIDE/secondmate-harness")" >> "$FM_TEST_CALLS"
 id=${!#}
@@ -81,16 +85,24 @@ pane() {  # <text>
   printf '%s\n' "$1" > "$HOME_DIR/pane"
 }
 
+# The wedged agent answers one more turn with a quota error.
+again() {  # [text]
+  printf '%s\n' "${1:-429 Too Many Requests}" >> "$HOME_DIR/pane"
+}
+
 # One check in a FRESH process, as each watcher pass is: nothing carries over
-# except the durable state file.
+# except the durable state file. FM_HOME is a plain shell variable there, as
+# the watcher's own default is, so the restart owner sees it only when the
+# library passes it on.
+# shellcheck disable=SC2016 # Expanded by the child shell, not here.
 tick() {  # <now>
-  PATH="$FAKEBIN:$PATH" FM_HOME="$HOME_DIR" STATE="$HOME_DIR/state" \
+  env -u FM_HOME PATH="$FAKEBIN:$PATH" STATE="$HOME_DIR/state" \
     FM_CONFIG_OVERRIDE="$HOME_DIR/config" FM_TEST_ID="$ID" \
     FM_TEST_CALLS="$HOME_DIR/calls" FM_TEST_PANE="$HOME_DIR/pane" \
     FM_TEST_TMUX_LOG="$HOME_DIR/tmux.log" \
     FM_QUOTA_FAILOVER_WINDOW_SECS=60 FM_QUOTA_FAILOVER_RESET_SECS=600 \
-    bash -c '. "$1/fm-quota-failover-lib.sh"; fm_quota_failover_tick "$2" "$3" "$4"; rc=$?; printf "%s" "$FM_QF_REPORT"; exit "$rc"' \
-    _ "$BIN" "$HOME_DIR/state/$ID.meta" "$ID" "$1"
+    bash -c 'FM_HOME=$5; . "$1/fm-quota-failover-lib.sh"; fm_quota_failover_tick "$2" "$3" "$4"; rc=$?; printf "%s" "$FM_QF_REPORT"; exit "$rc"' \
+    _ "$BIN" "$HOME_DIR/state/$ID.meta" "$ID" "$1" "$HOME_DIR"
 }
 
 pin() { grep "^$ID " "$HOME_DIR/config/secondmate-harness"; }
@@ -129,8 +141,9 @@ assert_equals 0 "$(calls)" "the first sighting restarts nothing"
 assert_equals 1000 "$(state_field first_seen)" "the first sighting is recorded durably"
 assert_grep "capture-pane -p -t fmtest:fm-$ID -S -12" "$HOME_DIR/tmux.log" "detection reads the recorded endpoint's newest lines"
 
+again 'API Error: 429 {"type":"error","error":{"message":"usage limit reached"}}'
 out=$(tick 1059) || fail "inside-window tick failed: $out"
-assert_equals 0 "$(calls)" "a sighting inside the window restarts nothing"
+assert_equals 0 "$(calls)" "a recurring error inside the window restarts nothing"
 assert_equals 1000 "$(state_field first_seen)" "the first sighting survives a fresh process"
 
 out=$(tick 1060) || fail "window tick failed: $out"
@@ -156,30 +169,35 @@ tick 1119 >/dev/null
 assert_equals 1 "$(calls)" "the replaced agent's error text must not fail the new link over"
 assert_equals "" "$(state_field first_seen)" "stale error text records no sighting inside its window"
 tick 1120 >/dev/null
-assert_equals 1120 "$(state_field first_seen)" "a stale record expires after one window"
-pass "error text left in the reused endpoint's scrollback is ignored for one window only"
+tick 1200 >/dev/null
+assert_equals 1 "$(calls)" "the old error, unchanged after its stale record expires, must not fail the new link over"
+assert_equals "" "$(state_field recurred)" "an unchanged old error line never recurs"
+pass "error text left in the reused endpoint's scrollback never counts as a sustained error"
 
 # A clear capture resets the window; the next sustained sighting advances again.
 pane 'all quiet'
-tick 1130 >/dev/null || fail "clear tick failed"
+tick 1210 >/dev/null || fail "clear tick failed"
 assert_equals "" "$(state_field first_seen)" "a clear capture resets the window"
 pane 'Error: exceeded_current_quota'
-tick 1140 >/dev/null
-tick 1199 >/dev/null
+tick 1220 >/dev/null
+again 'Error: exceeded_current_quota'
+tick 1279 >/dev/null
 assert_equals 1 "$(calls)" "a clear capture restarted the window"
-out=$(tick 1200)
+out=$(tick 1280)
 assert_equals 2 "$(calls)" "the second link fails over to the last"
 assert_equals "$ID harness-d model-d medium" "$(pin)" "the pin moved to the last link"
 
 # The last link stays put and reports exhaustion once per episode.
 pane 'Error: exceeded_current_quota
 You have hit your usage limit.'
-tick 1210 >/dev/null
-out=$(tick 1270)
+tick 1290 >/dev/null
+again 'You have hit your usage limit.'
+out=$(tick 1350)
 assert_equals 2 "$(calls)" "an exhausted chain restarts nothing before link 0's reset"
 assert_contains "$out" "last chain link" "an exhausted chain is reported"
 assert_equals "$ID harness-d model-d medium" "$(pin)" "an exhausted chain keeps the last link"
-out=$(tick 1330)
+again 'You have hit your usage limit.'
+out=$(tick 1410)
 assert_equals "" "$out" "an exhausted chain is reported once, not every window"
 out=$(tick 1659)
 assert_equals "" "$out" "an exhausted chain stays quiet until link 0's reset period passes"
@@ -195,11 +213,23 @@ assert_equals 0 "$(state_field link)" "link 0 is recorded"
 assert_contains "$out" "back to chain link 0" "the move back is reported"
 pass "a mate wedged on its last link returns to link 0 once that pool's reset period has passed"
 
+# --- one static error line is not a sustained quota error --------------------
+
+new_home static
+pane 'relayed from crew-one: API Error: 429 Too Many Requests'
+tick 1000 >/dev/null
+assert_equals 1000 "$(state_field first_seen)" "the relayed error line is sighted once"
+tick 1060 >/dev/null
+tick 1400 >/dev/null
+assert_equals 0 "$(calls)" "one unchanged error line seen again past the window must not fail the mate over"
+pass "a single static quota error line, such as a relayed crew error, never advances the chain"
+
 # --- return to the first link after the pool resets --------------------------
 
 new_home return
 pane '429 Too Many Requests'
 tick 1000 >/dev/null
+again
 tick 1060 >/dev/null
 assert_equals 1 "$(calls)" "the return case first fails over"
 pane 'all quiet'
@@ -208,8 +238,8 @@ tick 1659 >/dev/null
 assert_equals 1 "$(calls)" "a clear period shorter than the reset does not return"
 out=$(tick 1660)
 assert_equals 2 "$(calls)" "a clear period of the reset length returns"
-assert_equals "--no-nudge $ID|wait=|pin=$ID harness-a model-a high" "$(sed -n 2p "$HOME_DIR/calls")" \
-  "the return keeps the ordinary persist gate and bound, and never sends the re-read message"
+assert_equals "--no-nudge $ID|wait=120|pin=$ID harness-a model-a high" "$(sed -n 2p "$HOME_DIR/calls")" \
+  "the return keeps the persist gate within the failover wait, and never sends the re-read message"
 assert_equals 0 "$(state_field link)" "the first link is recorded"
 assert_contains "$out" "returned to chain link 0" "the return is reported"
 pass "a mate returns to the first link after its quota stays clear for the reset period"
@@ -248,9 +278,10 @@ pass "an empty stale record suppresses nothing"
 new_home repeat
 pane 'Error: exceeded_current_quota'
 tick 1000 >/dev/null
+again 'Error: exceeded_current_quota'
 tick 1060 >/dev/null
-pane 'Error: exceeded_current_quota
-Error: exceeded_current_quota'
+assert_equals 1 "$(calls)" "the repeat case first fails over"
+again 'Error: exceeded_current_quota'
 tick 1070 >/dev/null
 assert_equals 1070 "$(state_field first_seen)" "a repeat of the stale error is a sighting"
 pass "a quota error that keeps occurring after a relaunch is a sighting"
@@ -261,6 +292,7 @@ new_home held
 printf 'harness-zero\n%s   harness-a  model-a   high\n' "$ID" > "$HOME_DIR/config/secondmate-harness"
 pane '429 Too Many Requests'
 tick 1000 >/dev/null
+again
 out=$(FM_TEST_RESTART=held tick 1060)
 assert_equals 1 "$(calls)" "the failover restart was attempted"
 assert_equals "$ID   harness-a  model-a   high" "$(pin)" "a refused restart restores the exact prior pin line"
@@ -269,10 +301,17 @@ assert_equals 1060 "$(state_field first_seen)" "a refused restart re-arms the wi
 assert_contains "$out" "did not complete; pin restored to link 0: held: $ID:" "a refused restart is reported with its reason"
 pass "a failover restart refused before the agent was touched restores the exact prior pin and re-arms"
 
+again
+out=$(FM_TEST_RESTART=held tick 1120)
+assert_equals 2 "$(calls)" "a refused failover is retried the next window"
+assert_equals "" "$out" "a repeated refusal is reported once per episode, not every window"
+pass "a refused failover retries each window and reports once"
+
 new_home unpinned
 printf 'harness-zero\n' > "$HOME_DIR/config/secondmate-harness"
 pane '429 Too Many Requests'
 tick 1000 >/dev/null
+again
 FM_TEST_RESTART=held tick 1060 >/dev/null
 assert_equals "--failover $ID|wait=120|pin=$ID harness-c model-c low" "$(head -1 "$HOME_DIR/calls")" \
   "the restart ran on the next link's pin"
@@ -283,6 +322,7 @@ pass "a refused restart of a mate without a keyed pin leaves it without one"
 new_home unknown
 pane '429 Too Many Requests'
 tick 1000 >/dev/null
+again
 out=$(FM_TEST_RESTART=unknown tick 1060)
 assert_equals "$ID harness-c model-c low" "$(pin)" "an unknown restart outcome keeps the target pin"
 assert_equals 1 "$(state_field link)" "an unknown restart outcome records the target link"
@@ -293,6 +333,7 @@ pass "an unknown restart outcome keeps the pin on the target link instead of the
 new_home unpersisted
 pane '429 Too Many Requests'
 tick 1000 >/dev/null
+again
 out=$(FM_TEST_RESTART=unpersisted tick 1060)
 assert_contains "$out" "quota failover from chain link 0 to link 1" "the restart is reported"
 assert_contains "$out" "without a persist answer" "a restart without a persist answer says so"
@@ -315,6 +356,7 @@ tick 1000 >/dev/null
 HOLDER=$!
 for _ in $(seq 1 100); do [ -e "$HOME_DIR/held" ] && break; sleep 0.05; done
 [ -e "$HOME_DIR/held" ] || fail "the lock holder never acquired the failover lock"
+again
 out=$(tick 1060) || fail "a skipped tick must not fail: $out"
 assert_equals "" "$out" "a mate whose failover is in flight is skipped silently"
 assert_equals 0 "$(calls)" "a concurrent pass must not start a second failover"
@@ -352,6 +394,7 @@ printf '%s harness-a model-a high\nmate-two harness-b\n%s harness-c model-c low\
   > "$HOME_DIR/config/secondmate-quota-chain"
 pane '429 Too Many Requests'
 tick 1000 >/dev/null || fail "another mate's malformed line must not fail this mate's check"
+again
 out=$(tick 1060)
 assert_equals 1 "$(calls)" "another mate's malformed line does not stop this mate's failover"
 assert_contains "$out" "quota failover from chain link 0 to link 1" "this mate still fails over"

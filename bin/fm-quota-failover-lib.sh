@@ -29,16 +29,22 @@
 #     relaunch are recorded in state/.quota-failover-<id>.stale and ignored for
 #     one window unless they repeat, because the replacement shares the old
 #     endpoint's scrollback.
+#   - Recurrence: each capture's signature lines, with the line before each,
+#     are fingerprinted (fm_quota_failover_fingerprint). A sighting is a
+#     fingerprint change while a signature is on screen, so one static error
+#     line - a relayed crew error, or the old agent's last words - never
+#     counts twice, while each new error the wedged agent prints does.
 #   - Window: the first sighting is recorded durably in
 #     state/.quota-failover-<id>, so the sustained window survives watcher
 #     restarts. A clear capture resets it.
-#   - Advance: a signature sustained for FM_QUOTA_FAILOVER_WINDOW_SECS (300)
-#     rewrites the mate's keyed pin in config/secondmate-harness to the next
-#     link and restarts the mate through bin/fm-secondmate-restart.sh
-#     --failover, the persist-first restart owner. No separate restart path
+#   - Advance: a signature first sighted at least FM_QUOTA_FAILOVER_WINDOW_SECS
+#     (300) ago and sighted again since rewrites the mate's keyed pin in
+#     config/secondmate-harness to the next link and restarts the mate through
+#     bin/fm-secondmate-restart.sh --failover, the persist-first restart owner. No separate restart path
 #     exists here. The target link is recorded before the pin moves. A restart
 #     refused before the agent was touched restores the exact prior pin line
-#     and re-arms; one whose outcome is unknown keeps the target pin, so
+#     and re-arms, retrying each window and reporting once per refused
+#     episode; one whose outcome is unknown keeps the target pin, so
 #     liveness recovery relaunches onto that link rather than the exhausted one.
 #   - Exhausted: on the last link a sustained signature is reported once per
 #     episode. Once link 0's reset period (FM_QUOTA_FAILOVER_RESET_SECS) has
@@ -46,15 +52,16 @@
 #     way it advances; a pool that has not reset simply fails over again.
 #   - Return: a mate on a later link whose captures stay free of every
 #     signature for FM_QUOTA_FAILOVER_RESET_SECS (18000, one common provider
-#     window) is moved back to link 0 through the ordinary persist-gated
-#     restart, so a mate that cannot confirm its open work keeps running where
-#     it is.
+#     window) is moved back to link 0 through the persist-gated restart, so a
+#     mate that cannot confirm its open work within the persist wait keeps
+#     running where it is and retries after the next clear period.
 # Every restart here passes --no-nudge or --failover, so a mate that is not
 # restarted is never sent the instruction-update re-read message.
 #
 # State file fields (key=value): link=<n>, first_seen=<epoch|empty>,
+# recurred=<1|empty>, seen=<last capture's fingerprint|empty>,
 # clear_since=<epoch|empty>, left0=<epoch the mate left link 0|empty>,
-# episode=<exhausted|malformed|empty>, stale_until=<epoch|empty>. Teardown of
+# episode=<exhausted|refused|malformed|empty>, stale_until=<epoch|empty>. Teardown of
 # the mate may remove it; an absent file means link 0 with no sighting.
 # state/.quota-failover-<id>.lock serializes checks of one mate, so an
 # overlapping watcher pass skips a mate whose failover is still in flight.
@@ -62,8 +69,7 @@
 # Environment knobs:
 #   FM_QUOTA_FAILOVER_WINDOW_SECS    sustained-signature window (300)
 #   FM_QUOTA_FAILOVER_RESET_SECS     provider reset period before returning to link 0 (18000)
-#   FM_QUOTA_FAILOVER_PERSIST_WAIT   persist-answer wait for a failover restart (120);
-#                                    a return keeps the restart's ordinary bound
+#   FM_QUOTA_FAILOVER_PERSIST_WAIT   persist-answer wait for a failover or return restart (120)
 #   FM_QUOTA_FAILOVER_LINES          newest non-blank pane lines read per check (12, at most 100)
 #
 # Callers set STATE and either FM_HOME or FM_CONFIG_OVERRIDE before sourcing.
@@ -94,13 +100,21 @@ fm_quota_failover_require_locks() {
 # "status=429", "HTTP 429", "429 Too Many Requests"), the
 # exceeded_current_quota error code, or a reached/exceeded usage limit. A bare
 # 429 such as an issue or PR number is not a signature.
+FM_QF_SIGNATURES=(
+  -e '(error|status|http|code)["'"'"':=([:space:]]*(code[[:space:]:=]*)?429([^0-9]|$)'
+  -e '(^|[^0-9])429[[:space:]]+too many requests'
+  -e 'exceeded_current_quota'
+  -e '(hit|reached|exceeded)[[:space:]]+(your|the)[[:space:]]+usage[ _-]limit'
+  -e 'usage[ _-]limit[ _-](reached|exceeded|hit)'
+)
 fm_quota_failover_matches() {  # <text>
-  printf '%s\n' "$1" | grep -Ei \
-    -e '(error|status|http|code)["'"'"':=([:space:]]*(code[[:space:]:=]*)?429([^0-9]|$)' \
-    -e '(^|[^0-9])429[[:space:]]+too many requests' \
-    -e 'exceeded_current_quota' \
-    -e '(hit|reached|exceeded)[[:space:]]+(your|the)[[:space:]]+usage[ _-]limit' \
-    -e 'usage[ _-]limit[ _-](reached|exceeded|hit)'
+  printf '%s\n' "$1" | grep -Ei "${FM_QF_SIGNATURES[@]}"
+}
+
+# Print a checksum of <text>'s signature lines, each with the line before it,
+# so a new error changes it even when its wording repeats an earlier one.
+fm_quota_failover_fingerprint() {  # <text>
+  printf '%s\n' "$1" | grep -Ei -B1 "${FM_QF_SIGNATURES[@]}" | cksum | awk '{print $1}'
 }
 
 # Succeeds when <text> carries a provider-quota signature.
@@ -150,22 +164,25 @@ fm_quota_failover_state_file() {  # <id>
   printf '%s/.quota-failover-%s\n' "${STATE:?}" "$1"
 }
 
-# Load FM_QF_LINK, FM_QF_FIRST_SEEN, FM_QF_CLEAR_SINCE, FM_QF_LEFT0,
-# FM_QF_EPISODE, and FM_QF_STALE_UNTIL for <id>.
+# Load FM_QF_LINK, FM_QF_FIRST_SEEN, FM_QF_RECURRED, FM_QF_SEEN,
+# FM_QF_CLEAR_SINCE, FM_QF_LEFT0, FM_QF_EPISODE, and FM_QF_STALE_UNTIL for <id>.
 fm_quota_failover_load() {  # <id>
   local file key value
-  FM_QF_LINK=0 FM_QF_FIRST_SEEN='' FM_QF_CLEAR_SINCE='' FM_QF_LEFT0='' FM_QF_EPISODE='' FM_QF_STALE_UNTIL=''
+  FM_QF_LINK=0 FM_QF_FIRST_SEEN='' FM_QF_RECURRED='' FM_QF_SEEN='' FM_QF_CLEAR_SINCE=''
+  FM_QF_LEFT0='' FM_QF_EPISODE='' FM_QF_STALE_UNTIL=''
   file=$(fm_quota_failover_state_file "$1")
   [ -f "$file" ] || return 0
   while IFS='=' read -r key value; do
     if [ "$key" = episode ]; then
-      case "$value" in exhausted|malformed) FM_QF_EPISODE=$value ;; esac
+      case "$value" in exhausted|refused|malformed) FM_QF_EPISODE=$value ;; esac
       continue
     fi
     case "$value" in *[!0-9]*) value='' ;; esac
     case "$key" in
       link) FM_QF_LINK=${value:-0} ;;
       first_seen) FM_QF_FIRST_SEEN=$value ;;
+      recurred) FM_QF_RECURRED=$value ;;
+      seen) FM_QF_SEEN=$value ;;
       clear_since) FM_QF_CLEAR_SINCE=$value ;;
       left0) FM_QF_LEFT0=$value ;;
       stale_until) FM_QF_STALE_UNTIL=$value ;;
@@ -177,8 +194,8 @@ fm_quota_failover_save() {  # <id>
   local file tmp
   file=$(fm_quota_failover_state_file "$1")
   tmp="$file.tmp.$$"
-  printf 'link=%s\nfirst_seen=%s\nclear_since=%s\nleft0=%s\nepisode=%s\nstale_until=%s\n' \
-    "$FM_QF_LINK" "$FM_QF_FIRST_SEEN" "$FM_QF_CLEAR_SINCE" "$FM_QF_LEFT0" \
+  printf 'link=%s\nfirst_seen=%s\nrecurred=%s\nseen=%s\nclear_since=%s\nleft0=%s\nepisode=%s\nstale_until=%s\n' \
+    "$FM_QF_LINK" "$FM_QF_FIRST_SEEN" "$FM_QF_RECURRED" "$FM_QF_SEEN" "$FM_QF_CLEAR_SINCE" "$FM_QF_LEFT0" \
     "$FM_QF_EPISODE" "$FM_QF_STALE_UNTIL" > "$tmp" \
     && mv -f "$tmp" "$file"
 }
@@ -227,11 +244,13 @@ fm_quota_failover_put_pin() {  # <id> <line>
   mv -f "$tmp" "$file"
 }
 
-# Pure decision step. Given the current capture verdict, update the loaded
-# state and set FM_QF_ACTION to none, advance, wrap, exhausted, or return,
-# with FM_QF_TARGET naming the link to move to.
-fm_quota_failover_decide() {  # <links> <quota:0|1> <now>
-  local links=$1 quota=$2 now=$3 window reset last
+# Pure decision step. Given the current capture verdict - whether a live
+# signature is on screen and whether the signature lines changed since the
+# last capture - update the loaded state and set FM_QF_ACTION to none,
+# advance, wrap, exhausted, or return, with FM_QF_TARGET naming the link to
+# move to.
+fm_quota_failover_decide() {  # <links> <quota:0|1> <changed:0|1> <now>
+  local links=$1 quota=$2 changed=$3 now=$4 window reset last
   window=$(fm_quota_failover_knob "${FM_QUOTA_FAILOVER_WINDOW_SECS:-}" 300)
   reset=$(fm_quota_failover_knob "${FM_QUOTA_FAILOVER_RESET_SECS:-}" 18000)
   last=$((links - 1))
@@ -239,9 +258,11 @@ fm_quota_failover_decide() {  # <links> <quota:0|1> <now>
   [ "$FM_QF_LINK" -le "$last" ] || FM_QF_LINK=$last
   if [ "$quota" = 1 ]; then
     FM_QF_CLEAR_SINCE=''
-    if [ -z "$FM_QF_FIRST_SEEN" ]; then
-      FM_QF_FIRST_SEEN=$now
-    elif [ $((now - FM_QF_FIRST_SEEN)) -ge "$window" ]; then
+    if [ "$changed" = 1 ]; then
+      if [ -z "$FM_QF_FIRST_SEEN" ]; then FM_QF_FIRST_SEEN=$now; else FM_QF_RECURRED=1; fi
+    fi
+    if [ -n "$FM_QF_FIRST_SEEN" ] && [ "$FM_QF_RECURRED" = 1 ] \
+      && [ $((now - FM_QF_FIRST_SEEN)) -ge "$window" ]; then
       if [ "$FM_QF_LINK" -lt "$last" ]; then
         FM_QF_ACTION=advance FM_QF_TARGET=$((FM_QF_LINK + 1))
       elif [ -n "$FM_QF_LEFT0" ] && [ $((now - FM_QF_LEFT0)) -ge "$reset" ]; then
@@ -251,8 +272,8 @@ fm_quota_failover_decide() {  # <links> <quota:0|1> <now>
       fi
     fi
   else
-    FM_QF_FIRST_SEEN=''
-    [ "$FM_QF_EPISODE" != exhausted ] || FM_QF_EPISODE=''
+    FM_QF_FIRST_SEEN='' FM_QF_RECURRED=''
+    case "$FM_QF_EPISODE" in exhausted|refused) FM_QF_EPISODE='' ;; esac
     [ -n "$FM_QF_CLEAR_SINCE" ] || FM_QF_CLEAR_SINCE=$now
     if [ "$FM_QF_LINK" -gt 0 ] && [ $((now - FM_QF_CLEAR_SINCE)) -ge "$reset" ]; then
       FM_QF_ACTION=return FM_QF_TARGET=0
@@ -286,12 +307,13 @@ fm_quota_failover_capture() {  # <meta> <id>
 # Sets FM_QF_OUT.
 fm_quota_failover_apply() {  # <id> <chain-text> <target> <failover|ordinary> <now>
   local id=$1 chain=$2 target=$3 mode=$4 now=$5 profile prior wait rc=0
-  local from=$FM_QF_LINK left0=$FM_QF_LEFT0 episode=$FM_QF_EPISODE
-  local -a args=(--no-nudge "$id") env=()
+  local from=$FM_QF_LINK left0=$FM_QF_LEFT0 episode=$FM_QF_EPISODE recurred=$FM_QF_RECURRED
+  local -a args=(--no-nudge "$id")
   profile=$(printf '%s\n' "$chain" | sed -n "$((target + 1))p")
   prior=$(fm_quota_failover_pin_line "$id")
+  wait=$(fm_quota_failover_knob "${FM_QUOTA_FAILOVER_PERSIST_WAIT:-}" 120)
   FM_QF_OUT='' FM_QF_UNKNOWN=0
-  FM_QF_LINK=$target FM_QF_FIRST_SEEN='' FM_QF_EPISODE=''
+  FM_QF_LINK=$target FM_QF_FIRST_SEEN='' FM_QF_RECURRED='' FM_QF_EPISODE=''
   if [ "$target" -eq 0 ]; then
     FM_QF_LEFT0=''
   elif [ "$from" -eq 0 ]; then
@@ -304,13 +326,9 @@ fm_quota_failover_apply() {  # <id> <chain-text> <target> <failover|ordinary> <n
     FM_QF_OUT="the secondmate pin could not be rewritten"
     rc=1
   else
-    if [ "$mode" = failover ]; then
-      wait=$(fm_quota_failover_knob "${FM_QUOTA_FAILOVER_PERSIST_WAIT:-}" 120)
-      args=(--failover "$id")
-      env=("FM_SECONDMATE_PERSIST_WAIT=$wait")
-    fi
-    FM_QF_OUT=$(env ${env[@]+"${env[@]}"} FM_STATE_OVERRIDE="$STATE" FM_CONFIG_OVERRIDE="$(fm_quota_failover_config)" \
-      "$FM_QF_LIB_DIR/fm-secondmate-restart.sh" "${args[@]}" 2>&1) || rc=$?
+    [ "$mode" != failover ] || args=(--failover "$id")
+    FM_QF_OUT=$(FM_HOME="${FM_HOME:-}" FM_STATE_OVERRIDE="$STATE" FM_CONFIG_OVERRIDE="$(fm_quota_failover_config)" \
+      FM_SECONDMATE_PERSIST_WAIT="$wait" "$FM_QF_LIB_DIR/fm-secondmate-restart.sh" "${args[@]}" 2>&1) || rc=$?
     if [ "$rc" -eq 0 ] || printf '%s\n' "$FM_QF_OUT" | grep -q '^unreached:'; then
       [ "$rc" -eq 0 ] || FM_QF_UNKNOWN=1
       FM_QF_CLEAR_SINCE=$now
@@ -318,7 +336,8 @@ fm_quota_failover_apply() {  # <id> <chain-text> <target> <failover|ordinary> <n
     fi
   fi
   fm_quota_failover_put_pin "$id" "$prior" || true
-  FM_QF_LINK=$from FM_QF_LEFT0=$left0 FM_QF_EPISODE=$episode FM_QF_FIRST_SEEN='' FM_QF_CLEAR_SINCE=''
+  FM_QF_LINK=$from FM_QF_LEFT0=$left0 FM_QF_EPISODE=$episode FM_QF_RECURRED=$recurred
+  FM_QF_FIRST_SEEN='' FM_QF_CLEAR_SINCE=''
   [ "$mode" != failover ] || FM_QF_FIRST_SEEN=$now
   [ "$mode" != ordinary ] || FM_QF_CLEAR_SINCE=$now
   return "$rc"
@@ -347,7 +366,7 @@ fm_quota_failover_mark_stale() {  # <meta> <id> <stale-file> <now>
 
 # One locked check of <id>; see fm_quota_failover_tick.
 fm_quota_failover_check() {  # <meta> <id> <now> <chain-text> <malformed:0|1>
-  local meta=$1 id=$2 now=$3 chain=$4 links pane matches stale quota=0 rc=0 from mode detail
+  local meta=$1 id=$2 now=$3 chain=$4 links pane matches stale quota=0 changed=0 fp='' rc=0 from mode detail
   fm_quota_failover_load "$id"
   if [ "$5" = 1 ]; then
     if [ "$FM_QF_EPISODE" != malformed ]; then
@@ -372,7 +391,10 @@ fm_quota_failover_check() {  # <meta> <id> <now> <chain-text> <malformed:0|1>
   elif ! fm_quota_failover_stale "$matches" "$stale"; then
     quota=1
   fi
-  fm_quota_failover_decide "$links" "$quota" "$now"
+  [ "$quota" = 0 ] || fp=$(fm_quota_failover_fingerprint "$pane")
+  [ "$fp" = "$FM_QF_SEEN" ] || changed=1
+  FM_QF_SEEN=$fp
+  fm_quota_failover_decide "$links" "$quota" "$changed" "$now"
   case "$FM_QF_ACTION" in
     advance|wrap|return)
       from=$FM_QF_LINK mode=failover
@@ -394,7 +416,9 @@ fm_quota_failover_check() {  # <meta> <id> <now> <chain-text> <malformed:0|1>
       elif [ "$FM_QF_UNKNOWN" = 1 ]; then
         FM_QF_REPORT="check: secondmate $id quota $FM_QF_ACTION to chain link $FM_QF_TARGET has an unknown restart outcome; pin kept on link $FM_QF_TARGET: ${detail:-restart exit $rc}"
       else
-        FM_QF_REPORT="check: secondmate $id quota $FM_QF_ACTION to chain link $FM_QF_TARGET did not complete; pin restored to link $from: ${detail:-restart exit $rc}"
+        [ "$FM_QF_EPISODE" = refused ] \
+          || FM_QF_REPORT="check: secondmate $id quota $FM_QF_ACTION to chain link $FM_QF_TARGET did not complete; pin restored to link $from: ${detail:-restart exit $rc}"
+        FM_QF_EPISODE=refused
       fi
       ;;
     exhausted)
