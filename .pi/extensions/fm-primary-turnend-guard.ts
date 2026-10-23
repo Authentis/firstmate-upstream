@@ -580,9 +580,10 @@ export default function (pi: ExtensionAPI) {
 
   // Pi's compaction equivalent. An optionless sendMessage steers an active run
   // into another model call; triggerTurn: false never adds one. Idle (manual)
-  // compaction appends the capped digest at once, and compaction inside a run
-  // holds it until the current turn's tool results land, so the run's next model
-  // call sees it. Unlike nextTurn, it is persisted where a later compaction can
+  // compaction appends the capped digest at once. Compaction inside a run holds
+  // it until the end of the turn in progress, so the first model call after a
+  // mid-run compaction may miss it; a later call in that run, or else the next
+  // user prompt, sees it. Unlike nextTurn, it is persisted where a later compaction can
   // summarize it instead of queueing stale copies for the next user prompt.
   // Manual and automatic compaction share generation ownership and cancellation.
   pi.on?.("session_compact", async (_event, ctx) => {
