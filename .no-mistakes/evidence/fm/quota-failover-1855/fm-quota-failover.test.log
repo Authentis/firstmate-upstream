@@ -1,0 +1,56 @@
+ok - quota signatures need error context: a bare 429, a PR number, or usage-limit prose never counts
+ok - pilot: an injected 429 sustained past the window advances the chain and restarts persist-first
+ok - error text left in the reused endpoint's scrollback never counts as a sustained error
+ok - an exhausted chain stays on its last link and reports once
+ok - a mate wedged on its last link returns to link 0 once that pool's reset period has passed
+ok - a single static quota error line, such as a relayed crew error, never advances the chain
+ok - a static quota error line with only an in-place redraw below it never advances the chain
+ok - a periodic wedge captured alternately mid-turn and after the error still fails over
+ok - a static quota error line with a transient line appearing and clearing below it never advances the chain
+ok - static quota error lines scrolling within the newest lines never advance the chain
+ok - a wedged agent repeating one identical error through a full window still fails over
+ok - a mate returns to the first link after its quota stays clear for the reset period
+ok - only a quota error among the twelve newest pane lines counts
+ok - an empty stale record suppresses nothing
+ok - a quota error that keeps occurring after a relaunch is a sighting
+ok - a failover restart refused before the agent was touched restores the exact prior pin and re-arms
+ok - a refused failover retries each window and reports once
+ok - a refused restart of a mate without a keyed pin leaves it without one
+ok - an unknown restart outcome keeps the pin on the target link instead of the exhausted one
+ok - a failover restart made without a persist answer says so
+ok - a pass skips a mate whose failover is held by another live pass
+ok - a mate without a chain of two links is never read or restarted
+ok - a malformed chain stops only that mate's failover and is reported once
+ok - a malformed line for another mate leaves this mate's chain working
+taskpolicy -b bash tests/fm-quota-failover.test.sh  11.59s user 20.34s system 79% cpu 40.312 total
+ok - quota signatures need error context: a bare 429, a PR number, or usage-limit prose never counts
+ok - pilot: an injected 429 sustained past the window advances the chain and restarts persist-first
+ok - error text left in the reused endpoint's scrollback never counts as a sustained error
+ok - an exhausted chain stays on its last link and reports once
+ok - a mate wedged on its last link returns to link 0 once that pool's reset period has passed
+ok - a single static quota error line, such as a relayed crew error, never advances the chain
+ok - a static quota error line with only an in-place redraw below it never advances the chain
+ok - a periodic wedge captured alternately mid-turn and after the error still fails over
+ok - a static quota error line with a transient line appearing and clearing below it never advances the chain
+ok - static quota error lines scrolling within the newest lines never advance the chain
+ok - a wedged agent repeating one identical error through a full window still fails over
+ok - a mate returns to the first link after its quota stays clear for the reset period
+ok - only a quota error among the twelve newest pane lines counts
+ok - an empty stale record suppresses nothing
+ok - a quota error that keeps occurring after a relaunch is a sighting
+ok - a failover restart refused before the agent was touched restores the exact prior pin and re-arms
+ok - a refused failover retries each window and reports once
+ok - a refused restart of a mate without a keyed pin leaves it without one
+ok - an unknown restart outcome keeps the pin on the target link instead of the exhausted one
+ok - a relaunch the control plane refused before stopping the agent restores the prior pin
+ok - a chain link a secondmate relaunch would refuse is never pinned
+ok - a failover never moves the pin while another relaunch of the mate holds its control lock
+ok - overlapping pin rewrites are serialized and never lose each other's update
+ok - a failed state save after a completed failover is reported as part of its check
+ok - a failover restart made without a persist answer says so
+ok - a pass skips a mate whose failover is held by another live pass
+ok - a mate without a chain of two links is never read or restarted
+ok - a malformed chain stops only that mate's failover and is reported once
+ok - a malformed line for another mate leaves this mate's chain working
+taskpolicy -b bash tests/fm-quota-failover.test.sh  13.27s user 24.05s system 77% cpu 48.223 total
+rc=0

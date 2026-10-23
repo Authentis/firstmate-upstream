@@ -1,0 +1,10 @@
+21:39:40 injected turn 1; state: link=0 first_seen= recurred= clear_since=1792777173 left0= episode= stale_until= 
+21:40:27 injected turn 2; state: link=0 first_seen= recurred= clear_since=1792777173 left0= episode= stale_until= 
+21:41:13 injected turn 3; state: link=0 first_seen=1792777238 recurred= clear_since= left0= episode= stale_until= 
+21:41:59 injected turn 4; state: link=0 first_seen=1792777238 recurred=1 clear_since= left0= episode= stale_until= 
+21:42:46 injected turn 5; state: link=0 first_seen=1792777238 recurred=1 clear_since= left0= episode= stale_until= 
+21:43:32 injected turn 6; state: link=0 first_seen=1792777238 recurred=1 clear_since= left0= episode= stale_until= 
+21:44:19 injected turn 7; state: link=0 first_seen=1792777238 recurred=1 clear_since= left0= episode= stale_until= 
+21:45:05 injected turn 8; state: link=0 first_seen=1792777238 recurred=1 clear_since= left0= episode= stale_until= 
+21:45:51 injected turn 9; state: link=0 first_seen=1792777238 recurred=1 clear_since= left0= episode= stale_until= 
+21:46:37 link moved to 1; stopping injection

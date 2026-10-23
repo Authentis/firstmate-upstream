@@ -1,0 +1,6 @@
+clear_since=1792777561 simulated now=1792795562 (reset period 18000s elapsed)
+tick rc=0
+report: check: secondmate labf86694b1b592-mate quota return to chain link 0 did not complete; pin restored to link 1: held: labf86694b1b592-mate: it did not confirm within 120s that its open work is written down, so its conversation was not spent
+restart output:
+held: labf86694b1b592-mate: it did not confirm within 120s that its open work is written down, so its conversation was not spent
+summary: 0 of 1 restarted, 0 nudged, 0 unreached, 1 held

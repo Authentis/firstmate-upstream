@@ -1,0 +1,62 @@
+# Phase B pilot: recurring fake 429 on a live lab second mate (claude sonnet low), chain link0 sonnet low -> link1 haiku low, default 300s window
+== config/secondmate-quota-chain
+# lab quota chain for the live failover pilot
+labf86694b1b592-mate claude sonnet low
+labf86694b1b592-mate claude haiku low
+== injection driver log
+21:39:40 injected turn 1; state: link=0 first_seen= recurred= clear_since=1792777173 left0= episode= stale_until= 
+21:40:27 injected turn 2; state: link=0 first_seen= recurred= clear_since=1792777173 left0= episode= stale_until= 
+21:41:13 injected turn 3; state: link=0 first_seen=1792777238 recurred= clear_since= left0= episode= stale_until= 
+21:41:59 injected turn 4; state: link=0 first_seen=1792777238 recurred=1 clear_since= left0= episode= stale_until= 
+21:42:46 injected turn 5; state: link=0 first_seen=1792777238 recurred=1 clear_since= left0= episode= stale_until= 
+21:43:32 injected turn 6; state: link=0 first_seen=1792777238 recurred=1 clear_since= left0= episode= stale_until= 
+21:44:19 injected turn 7; state: link=0 first_seen=1792777238 recurred=1 clear_since= left0= episode= stale_until= 
+21:45:05 injected turn 8; state: link=0 first_seen=1792777238 recurred=1 clear_since= left0= episode= stale_until= 
+21:45:51 injected turn 9; state: link=0 first_seen=1792777238 recurred=1 clear_since= left0= episode= stale_until= 
+21:46:37 link moved to 1; stopping injection
+first_seen=1792777238 (Fri Oct 23 21:40:38 +04 2026); failover wake key epoch 1792777560 (Fri Oct 23 21:46:00 +04 2026); delta=322s
+== quota state after failover
+link=1
+first_seen=
+recurred=
+clear_since=1792777561
+left0=1792777561
+episode=
+stale_until=
+== config/secondmate-harness after failover
+claude sonnet low
+labf86694b1b592-mate claude haiku low
+== mate meta after relaunch
+window=firstmate:fm-labf86694b1b592-mate
+harness=claude
+model=haiku
+effort=low
+spawn_gen=s1792777588.57029.5067
+spawn_first=1792776154
+== wake queue / wake turns
+1792776253	turn	urgent	signal: /private/tmp/fmlab.3YUxVQ/home/state/labf86694b1b592-mate.status
+1792777611	turn	urgent	signal: /private/tmp/fmlab.3YUxVQ/home/state/labf86694b1b592-mate.status
+1792777617	turn	urgent	check: secondmate labf86694b1b592-mate quota failover from chain link 0 to link 1 after a provider quota error persisted
+== mate pane after relaunch
+ ▐▛███▛█   Claude Code v2.1.306
+▝▜██████▀  Haiku 5.5 with low effort · Claude Max
+ ▝▝   ▝▝   /private/tmp/fmlab.3YUxVQ/mate
+❯ : Firstmate operational input waiting: read '/private/tmp/fmlab.3YUxVQ/mate/state/operational-inbox/1792777590-d5785fa9c67f72df.msg' and handle its contents as Firstmate operational input.                              
+  Read 1 file, listed 1 directory, ran 1 shell command           
+⏺ Captain, the operational input is a launch brief for a persistent second mate, not a task for me to carry out.
+  What it says: It sets up an idle live-validation lab second mate in /private/tmp/fmlab.3YUxVQ/home. Its charter covers synthetic test outcomes only, with no external PR activity, merges, or self-retirement. It has no
+  project clones and takes no work unless the main firstmate routes it.
+  Why I didn't act on it:
+  - Launching or seeding a second mate is secondmate provisioning, which needs the secondmate-provisioning skill and a registry entry in data/secondmates.md. That file is empty here, so nothing in this home registers
+    this lab mate.                                                                                                                                                                                                      
+  - The home directory already exists, so it may be an existing mate that needs reconciling, or a new one that should only be created on your word. The inbox file alone doesn't say which.
+  - The brief is marked as a launch brief, and AGENTS.md says that storing a brief in a home doesn't change this agent's role. I'm the primary firstmate here, so I left the second mate's launch and any
+    /private/tmp/fmlab.3YUxVQ/home changes alone.                                                                                                                                                        
+  What I need from you: Do you want me to register and launch this lab second mate now, or is it already running and this is a re-send? If you want it launched, I'll follow secondmate-provisioning and record it in
+  data/secondmates.md.
+  I left the inbox file in place. Acknowledging it would move it into handled/, and I'd rather you confirm the outcome first.
+✻ Sautéed for 28s · done 9:47 PM
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ auto mode on (shift+tab to cycle)                                  

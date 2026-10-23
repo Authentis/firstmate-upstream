@@ -1,0 +1,41 @@
+# Phase A: one static fake 429 on a live lab second mate; window 300s
+first_seen=1792776464 (Fri Oct 23 21:27:44 +04 2026)  now=1792777136 (Fri Oct 23 21:38:56 +04 2026)  elapsed=672s
+== quota state
+link=0
+first_seen=1792776464
+recurred=
+clear_since=
+left0=
+episode=
+stale_until=
+== config/secondmate-harness (unchanged unkeyed pin, no keyed pin written)
+claude sonnet low
+== wake queue rows mentioning quota
+0
+== mate pane (newest lines)
+ ▐▛███▛█   Claude Code v2.1.306
+▝▜██████▀  Sonnet 5.5 with low effort · Claude Max
+ ▝▝   ▝▝   /private/tmp/fmlab.3YUxVQ/mate
+❯ : Firstmate operational input waiting: read '/private/tmp/fmlab.3YUxVQ/mate/state/operational-inbox/1792776158-300ce7f5f1ac71f6.msg' and handle its contents as Firstmate operational input.                              
+  Read 1 file                                                    
+⏺ Captain, the charter is read and I have no assigned work. I'm idling until the main firstmate routes me a synthetic test.                                                                                                 
+  I haven't appended anything to the parent channel, since a marked request with a correlation token hasn't arrived and the charter says not to acknowledge receipt. I also didn't list the steering inbox, so I don't know
+  whether it holds any messages.
+✻ Baked for 27s · done 9:23 PM                                                                                                                                                                                              
+❯ : Firstmate instruction waiting: list "$FM_TASK_INBOX"/*.msg in your 'labf86694b1b592-mate.inbox' steering inbox, read and act on each in numeric order, then mv each into its handled/.                                  
+  Ran 1 shell command                                            
+⏺ Marked request; read the referenced file.
+  Read 1 file                                               
+⏺ Config noted (startup-memory-budget=7500). Reply with correlated status and ack.
+  Ran 3 shell commands                                      
+⏺ Captain, I applied the one steering message and acknowledged it. The status line is on the parent channel.
+  The message was a config re-read notice. The only changed setting is startup-memory-budget, now 7500. I'll apply that value from now on.
+  The first acknowledge attempt failed because it ran without the home environment set, so I reran it with FM_HOME set. I'm idle again.
+✻ Crunched for 25s · done 9:23 PM
+❯ Synthetic lab test of quota-error detection. Reply with exactly this one line and nothing else, do not run any tool: API Error: 429 Too Many Requests (lab fake injection A)                                              
+⏺ API Error: 429 Too Many Requests (lab fake injection A)
+✻ Churned for 7s · done 9:27 PM
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯                                                                                                                                                                                         
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ auto mode on (shift+tab to cycle)                                  

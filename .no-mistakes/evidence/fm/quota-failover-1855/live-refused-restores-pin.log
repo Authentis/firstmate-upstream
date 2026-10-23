@@ -1,0 +1,50 @@
+(eval):1: command not found: timeout
+=== scenario refused, mate mate-one
+--- chain:
+    mate-one claude claude-sonnet-5-5 high
+    mate-one codex gpt-6.1-sol low
+    mate-one claude claude-opus-5-5 high
+--- pre-existing relaunch journal planted (control plane must refuse pre-stop)
+--- pin: mate-one claude claude-sonnet-5-5 high
+--- state:
+    <none>
+### inject fake 429 (turn 1)
+  pane| check inbox 1
+  pane| > check inbox 1
+  pane|   turn 1 at 22:11:36
+  pane|   API Error: 429 {"type":"error","error":{"type":"rate_limit_error","message":"usage limit reached"}}
+tick(mate-one) rc=0 report=<none>
+--- pin: mate-one claude claude-sonnet-5-5 high
+--- state:
+    link=0
+    first_seen=1792779097
+    recurred=
+    clear_since=
+    left0=
+    episode=
+    stale_until=
+### wait past the 4s window, inject turn 2
+tick(mate-one) rc=0 report=check: secondmate mate-one quota advance to chain link 1 did not complete; pin restored to link 0: held: mate-one: the request to write down its open work could not be delivered: no-mistakes gate agent must not drive the fleet (NO_MISTAKES_GATE set)
+(tick took 1s)
+--- pin: mate-one claude claude-sonnet-5-5 high
+--- state:
+    link=0
+    first_seen=1792779103
+    recurred=1
+    clear_since=
+    left0=
+    episode=refused
+    stale_until=
+--- pane after:
+  pane| fake agent ready (pid 95999)
+  pane| check inbox 1
+  pane| > check inbox 1
+  pane|   turn 1 at 22:11:36
+  pane|   API Error: 429 {"type":"error","error":{"type":"rate_limit_error","message":"usage limit reached"}}
+  pane| check inbox 2
+  pane| > check inbox 2
+  pane|   turn 2 at 22:11:42
+  pane|   API Error: 429 {"type":"error","error":{"type":"rate_limit_error","message":"usage limit reached"}}
+--- relaunch journal:
+    phase=prepared
+    harness=claude

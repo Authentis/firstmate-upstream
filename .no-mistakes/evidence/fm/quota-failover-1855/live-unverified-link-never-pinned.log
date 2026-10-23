@@ -1,0 +1,46 @@
+=== scenario badlink, mate mate-one
+--- chain:
+    mate-one claude claude-sonnet-5-5 high
+    mate-one muse muse-model low
+--- pin: mate-one claude claude-sonnet-5-5 high
+--- state:
+    <none>
+### inject fake 429 (turn 1)
+  pane| check inbox 1
+  pane| > check inbox 1
+  pane|   turn 1 at 22:14:19
+  pane|   API Error: 429 {"type":"error","error":{"type":"rate_limit_error","message":"usage limit reached"}}
+tick(mate-one) rc=0 report=<none>
+--- pin: mate-one claude claude-sonnet-5-5 high
+--- state:
+    link=0
+    first_seen=1792779259
+    recurred=
+    clear_since=
+    left0=
+    episode=
+    stale_until=
+### wait past the 4s window, inject turn 2
+tick(mate-one) rc=0 report=check: secondmate mate-one quota advance to chain link 1 did not complete; pin restored to link 0: chain link harness 'muse' is not verified to run a secondmate
+(tick took 1s)
+--- pin: mate-one claude claude-sonnet-5-5 high
+--- state:
+    link=0
+    first_seen=1792779265
+    recurred=1
+    clear_since=
+    left0=
+    episode=refused
+    stale_until=
+--- pane after:
+  pane| fake agent ready (pid 71691)
+  pane| check inbox 1
+  pane| > check inbox 1
+  pane|   turn 1 at 22:14:19
+  pane|   API Error: 429 {"type":"error","error":{"type":"rate_limit_error","message":"usage limit reached"}}
+  pane| check inbox 2
+  pane| > check inbox 2
+  pane|   turn 2 at 22:14:25
+  pane|   API Error: 429 {"type":"error","error":{"type":"rate_limit_error","message":"usage limit reached"}}
+--- relaunch journal:
+    <none>

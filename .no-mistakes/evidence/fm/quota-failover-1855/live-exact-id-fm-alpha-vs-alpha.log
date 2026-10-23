@@ -1,0 +1,71 @@
+=== scenario exactid, mate fm-alpha
+--- chain:
+    mate-one claude claude-sonnet-5-5 high
+    mate-one codex gpt-6.1-sol low
+    mate-one claude claude-opus-5-5 high
+    fm-alpha claude claude-sonnet-5-5 high
+    fm-alpha codex gpt-6.1-sol low
+--- pin: fm-alpha claude claude-sonnet-5-5 high
+--- state:
+    <none>
+### inject fake 429 (turn 1)
+  pane| check inbox 1
+  pane| > check inbox 1
+  pane|   turn 1 at 22:14:42
+  pane|   API Error: 429 {"type":"error","error":{"type":"rate_limit_error","message":"usage limit reached"}}
+tick(fm-alpha) rc=0 report=<none>
+--- pin: fm-alpha claude claude-sonnet-5-5 high
+--- state:
+    link=0
+    first_seen=1792779283
+    recurred=
+    clear_since=
+    left0=
+    episode=
+    stale_until=
+### wait past the 4s window, inject turn 2
+tick(fm-alpha) rc=0 report=check: secondmate fm-alpha quota advance to chain link 1 has an unknown restart outcome; pin kept on link 1: unreached: fm-alpha: the restart outcome is unknown: fm-gate-refuse: gate agent lifecycle permitted only against lab home /private/tmp/fm-lab.ghFljd
+(tick took 7s)
+--- pin: fm-alpha codex gpt-6.1-sol low
+--- state:
+    link=1
+    first_seen=
+    recurred=
+    clear_since=1792779289
+    left0=1792779289
+    episode=
+    stale_until=1792779293
+--- pane after:
+  pane| fake agent ready (pid 10400)
+  pane| check inbox 1
+  pane| > check inbox 1
+  pane|   turn 1 at 22:14:42
+  pane|   API Error: 429 {"type":"error","error":{"type":"rate_limit_error","message":"usage limit reached"}}
+  pane| check inbox 2
+  pane| > check inbox 2
+  pane|   turn 2 at 22:14:48
+  pane|   API Error: 429 {"type":"error","error":{"type":"rate_limit_error","message":"usage limit reached"}}
+--- relaunch journal:
+    v1
+    task=fm-alpha
+    phase=failed:stopping
+    ts=2026-10-23T18:14:55Z
+    backend=tmux
+    endpoint=fmlab:fm-fm-alpha
+    worktree=/private/tmp/fm-lab.ghFljd/sm-fm-alpha
+    kind=secondmate
+    from_harness=claude
+    from_model=default
+    from_effort=default
+    to_harness=codex
+    to_model=gpt-6.1-sol
+    to_effort=low
+    rollback=instructions-restored-agent-state-ambiguous
+--- alpha inbox msgs: 0; fm-alpha inbox msgs: 2
+--- alpha pane:
+  alpha-pane| fake agent ready (pid 10447)
+    window fm-mate-one pid=10352 dead=0
+    window fm-fm-alpha pid=10400 dead=0
+    window fm-alpha pid=10447 dead=0
+--- alpha pin: alpha claude claude-sonnet-5-5 high
+--- alpha relaunch journal present: no
