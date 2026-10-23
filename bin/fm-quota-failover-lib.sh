@@ -21,19 +21,19 @@
 # a check, and every other mate is unaffected.
 #
 # Behavior, per mate with a chain:
-#   - Detection: the newest FM_QUOTA_FAILOVER_LINES (12) non-blank pane lines
-#     are matched against the provider-quota signatures
-#     (fm_quota_failover_matches), each anchored to error context, so a quota
-#     error counts only while it is the agent's latest output, not while it
-#     merely sits in scrollback. Signature lines on screen right after a
+#   - Detection: the newest 12 non-blank pane lines are matched against the
+#     provider-quota signatures (fm_quota_failover_matches), each anchored to
+#     error context, so a quota error counts only while it is the agent's
+#     latest output, not while it merely sits in scrollback. Signature lines on screen right after a
 #     relaunch are recorded in state/.quota-failover-<id>.stale and ignored for
 #     one window unless they repeat, because the replacement shares the old
 #     endpoint's scrollback.
-#   - Recurrence: each capture's signature lines, with the line before each,
-#     are fingerprinted (fm_quota_failover_fingerprint). A sighting is a
-#     fingerprint change while a signature is on screen, so one static error
-#     line - a relayed crew error, or the old agent's last words - never
-#     counts twice, while each new error the wedged agent prints does.
+#   - Recurrence: each capture's signature lines are kept in
+#     state/.quota-failover-<id>.seen. A sighting is a capture holding a
+#     signature line, counted with repeats, that the previous capture did not,
+#     so one static error line - a relayed crew error, or the old agent's last
+#     words - never counts twice however the lines around it scroll, while
+#     each new error the wedged agent prints does.
 #   - Window: the first sighting is recorded durably in
 #     state/.quota-failover-<id>, so the sustained window survives watcher
 #     restarts. A clear capture resets it.
@@ -59,7 +59,7 @@
 # restarted is never sent the instruction-update re-read message.
 #
 # State file fields (key=value): link=<n>, first_seen=<epoch|empty>,
-# recurred=<1|empty>, seen=<last capture's fingerprint|empty>,
+# recurred=<1|empty>,
 # clear_since=<epoch|empty>, left0=<epoch the mate left link 0|empty>,
 # episode=<exhausted|refused|malformed|empty>, stale_until=<epoch|empty>. Teardown of
 # the mate may remove it; an absent file means link 0 with no sighting.
@@ -70,7 +70,6 @@
 #   FM_QUOTA_FAILOVER_WINDOW_SECS    sustained-signature window (300)
 #   FM_QUOTA_FAILOVER_RESET_SECS     provider reset period before returning to link 0 (18000)
 #   FM_QUOTA_FAILOVER_PERSIST_WAIT   persist-answer wait for a failover or return restart (120)
-#   FM_QUOTA_FAILOVER_LINES          newest non-blank pane lines read per check (12, at most 100)
 #
 # Callers set STATE and either FM_HOME or FM_CONFIG_OVERRIDE before sourcing.
 
@@ -111,22 +110,15 @@ fm_quota_failover_matches() {  # <text>
   printf '%s\n' "$1" | grep -Ei "${FM_QF_SIGNATURES[@]}"
 }
 
-# Print a checksum of <text>'s signature lines, each with the line before it,
-# so a new error changes it even when its wording repeats an earlier one.
-fm_quota_failover_fingerprint() {  # <text>
-  printf '%s\n' "$1" | grep -Ei -B1 "${FM_QF_SIGNATURES[@]}" | cksum | awk '{print $1}'
-}
-
 # Succeeds when <text> carries a provider-quota signature.
 fm_quota_failover_signature() {  # <text>
   fm_quota_failover_matches "$1" >/dev/null
 }
 
-# A relaunch reuses the same endpoint, so the replaced agent's error text can
-# stay in the captured scrollback. Succeeds when every signature line in
-# <matches> (counting repeats) was already recorded in <stale-file> at the
-# relaunch, so those lines prove nothing about the new link.
-fm_quota_failover_stale() {  # <matches> <stale-file>
+# Succeeds when every signature line in <matches>, counting repeats, is
+# already recorded in <record>: the stale lines left on screen at a relaunch,
+# or the previous capture's lines. Such lines prove no new error.
+fm_quota_failover_covered() {  # <matches> <record>
   [ -s "$2" ] || return 1
   printf '%s\n' "$1" | awk 'NR == FNR { n[$0]++; next } { if (--n[$0] < 0) bad = 1 } END { exit bad }' "$2" -
 }
@@ -164,11 +156,11 @@ fm_quota_failover_state_file() {  # <id>
   printf '%s/.quota-failover-%s\n' "${STATE:?}" "$1"
 }
 
-# Load FM_QF_LINK, FM_QF_FIRST_SEEN, FM_QF_RECURRED, FM_QF_SEEN,
-# FM_QF_CLEAR_SINCE, FM_QF_LEFT0, FM_QF_EPISODE, and FM_QF_STALE_UNTIL for <id>.
+# Load FM_QF_LINK, FM_QF_FIRST_SEEN, FM_QF_RECURRED, FM_QF_CLEAR_SINCE,
+# FM_QF_LEFT0, FM_QF_EPISODE, and FM_QF_STALE_UNTIL for <id>.
 fm_quota_failover_load() {  # <id>
   local file key value
-  FM_QF_LINK=0 FM_QF_FIRST_SEEN='' FM_QF_RECURRED='' FM_QF_SEEN='' FM_QF_CLEAR_SINCE=''
+  FM_QF_LINK=0 FM_QF_FIRST_SEEN='' FM_QF_RECURRED='' FM_QF_CLEAR_SINCE=''
   FM_QF_LEFT0='' FM_QF_EPISODE='' FM_QF_STALE_UNTIL=''
   file=$(fm_quota_failover_state_file "$1")
   [ -f "$file" ] || return 0
@@ -182,7 +174,6 @@ fm_quota_failover_load() {  # <id>
       link) FM_QF_LINK=${value:-0} ;;
       first_seen) FM_QF_FIRST_SEEN=$value ;;
       recurred) FM_QF_RECURRED=$value ;;
-      seen) FM_QF_SEEN=$value ;;
       clear_since) FM_QF_CLEAR_SINCE=$value ;;
       left0) FM_QF_LEFT0=$value ;;
       stale_until) FM_QF_STALE_UNTIL=$value ;;
@@ -194,8 +185,8 @@ fm_quota_failover_save() {  # <id>
   local file tmp
   file=$(fm_quota_failover_state_file "$1")
   tmp="$file.tmp.$$"
-  printf 'link=%s\nfirst_seen=%s\nrecurred=%s\nseen=%s\nclear_since=%s\nleft0=%s\nepisode=%s\nstale_until=%s\n' \
-    "$FM_QF_LINK" "$FM_QF_FIRST_SEEN" "$FM_QF_RECURRED" "$FM_QF_SEEN" "$FM_QF_CLEAR_SINCE" "$FM_QF_LEFT0" \
+  printf 'link=%s\nfirst_seen=%s\nrecurred=%s\nclear_since=%s\nleft0=%s\nepisode=%s\nstale_until=%s\n' \
+    "$FM_QF_LINK" "$FM_QF_FIRST_SEEN" "$FM_QF_RECURRED" "$FM_QF_CLEAR_SINCE" "$FM_QF_LEFT0" \
     "$FM_QF_EPISODE" "$FM_QF_STALE_UNTIL" > "$tmp" \
     && mv -f "$tmp" "$file"
 }
@@ -283,10 +274,7 @@ fm_quota_failover_decide() {  # <links> <quota:0|1> <changed:0|1> <now>
 
 # Print the recorded endpoint's newest non-blank pane lines, local or remote.
 fm_quota_failover_capture() {  # <meta> <id>
-  local meta=$1 id=$2 lines backend target pane
-  lines=$(fm_quota_failover_knob "${FM_QUOTA_FAILOVER_LINES:-}" 12)
-  [ "$lines" -ge 1 ] || lines=1
-  [ "$lines" -le 100 ] || lines=100
+  local meta=$1 id=$2 lines=12 backend target pane
   if [ -n "$(fm_meta_get "$meta" remote_host)" ]; then
     pane=$("$FM_QF_LIB_DIR/fm-on.sh" "$id" fm-remote-secondmate-control.sh capture "$id" "$lines" < /dev/null 2>/dev/null) || return 1
   else
@@ -366,7 +354,7 @@ fm_quota_failover_mark_stale() {  # <meta> <id> <stale-file> <now>
 
 # One locked check of <id>; see fm_quota_failover_tick.
 fm_quota_failover_check() {  # <meta> <id> <now> <chain-text> <malformed:0|1>
-  local meta=$1 id=$2 now=$3 chain=$4 links pane matches stale quota=0 changed=0 fp='' rc=0 from mode detail
+  local meta=$1 id=$2 now=$3 chain=$4 links pane matches stale seen quota=0 changed=0 rc=0 from mode detail
   fm_quota_failover_load "$id"
   if [ "$5" = 1 ]; then
     if [ "$FM_QF_EPISODE" != malformed ]; then
@@ -388,12 +376,17 @@ fm_quota_failover_check() {  # <meta> <id> <now> <chain-text> <malformed:0|1>
   if [ -z "$matches" ]; then
     rm -f -- "$stale"
     FM_QF_STALE_UNTIL=''
-  elif ! fm_quota_failover_stale "$matches" "$stale"; then
+  elif ! fm_quota_failover_covered "$matches" "$stale"; then
     quota=1
   fi
-  [ "$quota" = 0 ] || fp=$(fm_quota_failover_fingerprint "$pane")
-  [ "$fp" = "$FM_QF_SEEN" ] || changed=1
-  FM_QF_SEEN=$fp
+  seen="$(fm_quota_failover_state_file "$id").seen"
+  if [ "$quota" = 1 ]; then
+    fm_quota_failover_covered "$matches" "$seen" || changed=1
+    printf '%s\n' "$matches" > "$seen" \
+      || { FM_QF_REPORT="quota failover state for $id could not be saved"; return 1; }
+  else
+    rm -f -- "$seen"
+  fi
   fm_quota_failover_decide "$links" "$quota" "$changed" "$now"
   case "$FM_QF_ACTION" in
     advance|wrap|return)

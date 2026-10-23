@@ -3541,13 +3541,13 @@ printf 'restarted: %s (stub)\nsummary: 1 of 1 restarted, 0 nudged, 0 unreached, 
 SH
   chmod +x "$bin/fm-secondmate-restart.sh"
   printf 'sm1 claude model-one high\nsm1 codex model-two low\n' > "$dir/config/secondmate-quota-chain"
-  # The wedged agent answers every turn it is given with the same quota error.
+  # The wedged agent answers every turn it is given with a quota error.
   : > "$dir/pane"
   (
     n=0
     while [ -d "$dir" ]; do
       n=$((n + 1))
-      printf '> turn %s\nAPI Error: 429 Too Many Requests\n' "$n" >> "$dir/pane"
+      printf '> turn %s\nAPI Error: 429 Too Many Requests (request req-%s)\n' "$n" "$n" >> "$dir/pane"
       sleep 0.5
     done
   ) &

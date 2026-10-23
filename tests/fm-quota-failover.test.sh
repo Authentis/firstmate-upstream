@@ -22,7 +22,7 @@ mkdir -p "$TMP_ROOT"
 TMP_ROOT=$(cd "$TMP_ROOT" && pwd -P)
 HOLDER=
 trap '[ -z "$HOLDER" ] || kill "$HOLDER" 2>/dev/null; rm -rf -- "$TMP_ROOT"' EXIT
-unset FM_SECONDMATE_PERSIST_WAIT FM_QUOTA_FAILOVER_LINES FM_QUOTA_FAILOVER_PERSIST_WAIT
+unset FM_SECONDMATE_PERSIST_WAIT FM_QUOTA_FAILOVER_PERSIST_WAIT
 
 ID=mate-one
 
@@ -224,6 +224,27 @@ tick 1400 >/dev/null
 assert_equals 0 "$(calls)" "one unchanged error line seen again past the window must not fail the mate over"
 pass "a single static quota error line, such as a relayed crew error, never advances the chain"
 
+# The lines around static errors scrolling - the line before one leaving the
+# newest lines, then an older error leaving them too - is not a new error.
+new_home staticscroll
+relayed='crew-two reported:
+Error: exceeded_current_quota
+relayed from crew-one: API Error: 429 Too Many Requests'
+pane "$relayed"
+tick 1000 >/dev/null
+assert_equals 1000 "$(state_field first_seen)" "the relayed error lines are sighted once"
+pane "$relayed
+$(printf 'reply line %s\n' 1 2 3 4 5 6 7 8 9 10)"
+tick 1030 >/dev/null
+pane "$relayed
+$(printf 'reply line %s\n' 1 2 3 4 5 6 7 8 9 10 11)"
+tick 1040 >/dev/null
+tick 1100 >/dev/null
+tick 1400 >/dev/null
+assert_equals "" "$(state_field recurred)" "scrolling static error lines never recur"
+assert_equals 0 "$(calls)" "static error lines scrolled to the top of the newest lines must not fail the mate over"
+pass "static quota error lines scrolling within the newest lines never advance the chain"
+
 # --- return to the first link after the pool resets --------------------------
 
 new_home return
@@ -261,9 +282,7 @@ pane 'relayed: PR #429 merged'
 tick 2020 >/dev/null
 assert_equals "" "$(state_field first_seen)" "a PR number on screen is not a sighting"
 assert_equals 0 "$(calls)" "nothing here is restarted"
-FM_QUOTA_FAILOVER_LINES=500 tick 2030 >/dev/null
-assert_grep "capture-pane -p -t fmtest:fm-$ID -S -100" "$HOME_DIR/tmux.log" "the line count is clamped to the remote capture limit"
-pass "only a quota error among the newest pane lines counts, read at most 100 lines deep"
+pass "only a quota error among the twelve newest pane lines counts"
 
 # An empty stale record proves nothing about the new link.
 new_home emptystale
