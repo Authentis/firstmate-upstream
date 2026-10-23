@@ -87,10 +87,12 @@
 #     target link is recorded before the pin moves. A restart refused before
 #     the agent was touched (the restart owner's "held:" line, including a
 #     relaunch the control plane refused before stopping the agent) restores
-#     the exact prior pin line and re-arms, retrying each window and reporting
-#     once per refused episode; one whose outcome is unknown keeps the target
-#     pin, so liveness recovery relaunches onto that link rather than the
-#     exhausted one.
+#     the exact prior pin line, except as Serialization below keeps the
+#     target, and re-arms, retrying each window and reporting once per
+#     refused episode; one whose outcome is unknown keeps the target pin, so
+#     liveness recovery relaunches onto that link rather than the exhausted
+#     one. A target pin that cannot be written runs no restart and leaves the
+#     mate on its current link.
 #   - Serialization: the pin is written while this library holds
 #     state/.control-<id>.lock, the lock bin/fm-control.sh takes for every
 #     local relaunch - /updatefirstmate's restart and a manual relaunch of the
@@ -107,8 +109,8 @@
 #     after a refusal retakes the control lock and keeps the target pin,
 #     reporting an unknown outcome, when that lock stays busy, when the mate's
 #     record already shows it running the target link, or when the write back
-#     fails, so the pin never reverts under a mate running the target. Every rewrite
-#     of config/secondmate-harness, for any mate, holds
+#     fails, so the pin never reverts under a mate running the target. Every
+#     rewrite of config/secondmate-harness, for any mate, holds
 #     state/.quota-failover-pin.lock across its read-modify-rename, so
 #     overlapping passes cannot lose each other's pin updates.
 #   - Exhausted: on the last link a sustained signature is reported once per
