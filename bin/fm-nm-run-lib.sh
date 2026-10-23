@@ -271,7 +271,10 @@ fm_nm_run_uncached() {  # <dir> <timeout_secs> <args...>
 # (`axi`, `axi status [--run id]`, `runs`) go through the shared cache. Liveness
 # probes (`daemon status`) and log reads stay live.
 fm_nm_run_checked() {  # <dir> <timeout_secs> <args...>
-  if [ -n "${FM_NM_CACHE_DIR:-}" ]; then
+  # An empty FM_NM_CACHE_DIR is the caller's "read live" escape: a copy of
+  # the cache dir into the call (bin/fm-dod-lib.sh's custody gate) passes
+  # '' rather than unsetting, so the emptiness test is the contract here.
+  if [ -n "${FM_NM_CACHE_DIR:-}" ] && [ -n "$FM_NM_CACHE_DIR" ]; then
     case "${3:-} ${4:-}" in
       "axi "|"axi status"|"runs "*)
         fm_nm_cached_checked "$FM_NM_CACHE_DIR" "$@"
