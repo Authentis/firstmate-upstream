@@ -77,6 +77,10 @@
 #                different, self-proving thing: real claude 2.x draws exactly
 #                that (`─` rule, `❯`+NBSP, `─` rule), so the glyph inside the
 #                pair carries the shape and no identity is needed.
+#                Pi's Working top edge has its own stricter styled
+#                editor/footer proof (_fm_composer_pi_styled_footer); only a
+#                backend-native idle/done Pi state can make it empty, never
+#                tmux's identity, which infers state from rendered text.
 #
 # THE COMPOSER FOOTER ZONE (task firstmate-doorbell-vals-pending-p1): a
 # harness draws its own furniture BELOW the composer - a user statusLine, a
@@ -2563,6 +2567,97 @@ fm_composer_send_refusal() {  # <screen> <composer-state> [harness]
   return 0
 }
 
+# Real Pi captures can top the editor with a `── <spinner> Working ─…` edge
+# instead of a plain rule, above a width-cut usage row and zero to two
+# extension rows. Only that Working edge under Pi's full styled footer gets
+# this proof; keep it separate from the generic separator predicate so a
+# titled transcript rule never becomes an empty composer. Return 1 for any
+# other shape, including the plain identical-rule pair, so the unchanged
+# generic proof decides; otherwise print a verdict, refusing incomplete or
+# ambiguous geometry. Pi editor text counts regardless of intensity, colour,
+# or resemblance to another prompt.
+_fm_composer_pi_styled_footer() {  # <screen>
+  printf '%s\n' "$1" | LC_ALL=C awk '
+    function rule(s, t) {
+      t = s
+      return gsub(/─/, "", t) >= 40 && t == ""
+    }
+    # Byte-locale codepoint count: the proven footer uses ASCII plus arrows
+    # and a middle dot, all single-column; editor cells are checked in bytes.
+    function width(s, t) {
+      t = s; gsub(/[\200-\277]/, "", t)
+      return length(t)
+    }
+    function working(s) {
+      # Two dashes (6 bytes), space, braille (3), space, Working, space:
+      # the closing dash run starts at byte 20, independent of ambient locale.
+      return s ~ /^── \342[\240-\243][\200-\277] Working / && rule(substr(s, 20))
+    }
+    BEGIN {
+      esc = sprintf("%c", 27); reset = esc "[0m"
+      boundary = "^" esc "\\[0m" esc "\\[38;2;[0-9]+;[0-9]+;[0-9]+m"
+      number = "[0-9]+(\\.[0-9]+)?[kKMGT]?"
+      usage = "^↑" number " ↓" number " R" number " CH[0-9]+(\\.[0-9]+)?% \\$[0-9]+(\\.[0-9]+)? \\((sub|api)\\) "
+    }
+    {
+      sub(/\r$/, ""); raw[++n] = $0; plain[n] = $0
+      gsub(/\033\[[0-9;]*m/, "", plain[n])
+      safe = plain[n]; gsub(/\t/, " ", safe)
+      if (safe ~ /[[:cntrl:]]/) unsafe = 1
+    }
+    END {
+      verdict = "unknown"
+      while (n && plain[n] ~ /^ *$/) n--
+      footer = 0
+      for (extra = 0; extra <= 2; extra++) {
+        i = n - 1 - extra
+        if (i < 4) continue
+        if (plain[i] ~ /^(~\/|\/)[^ ]/ && plain[i+1] ~ usage) {
+          footer = i; break
+        }
+      }
+      if (!footer) exit 1
+      lower = footer - 1
+      if (!rule(plain[lower]) || raw[lower] !~ boundary || substr(raw[lower], length(raw[lower])-3) != reset) exit 1
+      upper = lower - 1
+      while (upper > 0 && !rule(plain[upper]) && !working(plain[upper])) upper--
+      if (!upper || !working(plain[upper])) exit 1
+      if (unsafe || lower-upper < 2 || lower-upper > 9) { print verdict; exit }
+      colour = substr(raw[lower], 1, index(raw[lower], "─") - 1)
+      count = 0; working_count = 0
+      for (i = 1; i <= lower; i++) {
+        if (raw[i] == raw[lower]) count++
+        if (working(plain[i])) working_count++
+      }
+      spinner = substr(plain[upper], 8, 3)
+      expected = colour "── " spinner reset " " colour "Working " substr(plain[upper], 20) reset
+      if (raw[upper] != expected || count != 1 || working_count != 1 || width(substr(plain[upper], 20))+13 != width(plain[lower])) {
+        print verdict; exit
+      }
+      w = width(plain[lower])
+      usage_cells = plain[footer+1]
+      gsub(/↑|↓|•/, " ", usage_cells)
+      if (usage_cells ~ /[^ -~]/ || width(plain[footer+1]) > w) { print verdict; exit }
+      for (i = footer+2; i <= n; i++) {
+        if (index(plain[i], "────────") || plain[i] ~ /^(❯|›|⟩|→|❭|>|\$|%|#)/) { print verdict; exit }
+      }
+      for (i = upper > 8 ? upper-8 : 1; i < upper; i++) {
+        s = tolower(plain[i])
+        if (s ~ /do you want to|allow [^?][^?]*\?|press enter to send|\[y\/n\]|\(y\/n\)|esc to (cancel|clear|exit|close)|enter.* to (confirm|select)|to navigate/) {
+          print verdict; exit
+        }
+      }
+      verdict = "empty"
+      for (i = upper+1; i < lower; i++) {
+        if (length(plain[i]) > w) { print "unknown"; exit }
+        if (plain[i] ~ /[^ ]/) verdict = "pending"
+        else if (length(plain[i]) != w) { print "unknown"; exit }
+      }
+      print verdict
+    }
+  '
+}
+
 fm_composer_classify_screen() {  # <caps> <screen> [cursor_row] [identity]
   local caps=$1 screen=$2 cy=${3:-} identity=${4:-}
   local styled=0 cursor=0 has_identity=0 kv plain
@@ -2582,6 +2677,24 @@ EOF
     case "$cy" in *[!0-9]*) printf 'unknown'; return 0 ;; esac
   fi
   _fm_composer_menu_agent_set "$identity" "$has_identity"
+  # The cursor capability is tmux's, whose Pi state is inferred from rendered
+  # busy text that never matches the Working edge, so it cannot vouch for it.
+  local pi_footer_state pi_status=${identity#pi$'\t'}
+  if [ "$styled" = 1 ] && [ "$cursor" = 0 ] && { [ "$pi_status" != "$identity" ] \
+       || { [ -z "$identity" ] && [ "$has_identity" = 1 ]; }; } \
+     && pi_footer_state=$(_fm_composer_pi_styled_footer "$screen"); then
+    if [ -z "$identity" ]; then
+      printf 'need-identity'
+    elif [ "$pi_footer_state" = empty ] && [ "$pi_status" != idle ] && [ "$pi_status" != 'done' ]; then
+      # A native working/blocked state still cannot authorize typing.
+      printf 'unknown'
+    elif fm_composer_open_menu "$screen" all; then
+      printf 'unknown'
+    else
+      printf '%s' "$pi_footer_state"
+    fi
+    return 0
+  fi
   plain=$(printf '%s\n' "$screen" | fm_composer_strip_ansi)
   _fm_composer_scan_screen "$plain" "$cy"
   if [ -n "$cy" ]; then
