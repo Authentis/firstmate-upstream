@@ -3557,7 +3557,8 @@ SH
     FM_FAKE_TMUX_CAPTURE="$dir/pane" FM_QUOTA_FAILOVER_WINDOW_SECS=0; pid=$LIVENESS_PID
   wait_for_exit "$pid" 600 || { kill "$appender" 2>/dev/null; fail "the watcher did not wake on a quota-wedged secondmate"; }
   kill "$appender" 2>/dev/null
-  wait "$appender" 2>/dev/null
+  # The killed appender's status is expected; an earlier case may leave errexit on.
+  wait "$appender" 2>/dev/null || true
   out="$dir/watch-quota.out"
   [ "$(cat "$state/restart-calls" 2>/dev/null)" = '--failover sm1|pin=sm1 codex model-two low' ] \
     || fail "the watcher did not restart the mate once, persist-first, on the next chain link: $(cat "$state/restart-calls" 2>&1)"
