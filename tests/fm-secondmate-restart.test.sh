@@ -310,6 +310,27 @@ test_failover_restarts_without_an_answer() {
   pass "T1b --failover asks to persist first, then restarts a mate that cannot answer"
 }
 
+# --- T1c: --no-nudge holds a mate it will not restart, and sends it nothing --
+test_no_nudge_holds_without_the_reread_message() {
+  local dir out rc
+  dir=$(new_case nonudge)
+  add_local_mate "$dir" sm1
+  out=$(FM_TEST_PERSIST_WAIT=0 run_restart "$dir" --no-nudge sm1); rc=$?
+
+  expect_code 3 "$rc" "an unconfirmed persist under --no-nudge is still not a success"$'\n'"$out"
+  assert_contains "$out" "held: sm1:" "the mate that was not restarted must be reported as held"
+  assert_not_contains "$out" "nudged: sm1" "--no-nudge must not report a nudge"
+  assert_contains "$out" "summary: 0 of 1 restarted, 0 nudged, 0 unreached, 1 held" "the summary must count the held mate"
+  assert_no_grep '^/exit$' "$dir/fake/literal" "a held mate must not be stopped"
+  assert_not_contains "$(cat "$dir/home/state/sm1.inbox"/*.msg)" "re-read your AGENTS.md" \
+    "a held mate must not be told firstmate was updated"
+
+  out=$(FM_TEST_PERSIST_WAIT=0 run_restart "$dir" --failover ghost); rc=$?
+  expect_code 3 "$rc" "a failover restart of an unknown mate is not a success"$'\n'"$out"
+  assert_contains "$out" "held: ghost:" "--failover must hold, not nudge, a mate it cannot restart"
+  pass "T1c --no-nudge and --failover hold a mate they do not restart without the re-read message"
+}
+
 # --- T2: persist THEN restart, in that order --------------------------------
 test_persist_precedes_restart() {
   local dir out rc doorbell_line exit_line
@@ -917,6 +938,7 @@ test_remote_restart_refuses_unpinned_pi_model
 
 test_persist_gates_and_asks_only_for_open_records
 test_failover_restarts_without_an_answer
+test_no_nudge_holds_without_the_reread_message
 test_persist_precedes_restart
 test_arrived_answer_precedes_deadline_check
 test_answer_between_resolution_and_timeout_wins

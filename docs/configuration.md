@@ -948,9 +948,11 @@ A provider error or an unconfirmed response refuses launch, and watcher recovery
 
 `config/secondmate-quota-chain` is the primary's local, gitignored, optional fallback chain for a live secondmate whose provider pool is exhausted.
 Each line has the keyed pin shape `<id> <harness> <model> <effort>`, and the lines for one id, in file order, are that mate's chain with the first line as its normal link.
-Blank lines and lines starting with `#` are ignored, and a malformed line fails the check rather than being selected around.
+Blank lines and lines starting with `#` are ignored.
+A malformed line stops failover for that id only, rather than being selected around, and is reported once as a check wake; other mates are unaffected.
 A mate with fewer than two links has no failover and its pane is never read.
-When a live mate's pane shows a provider quota error past the failover window, the watcher rewrites that mate's keyed pin in `config/secondmate-harness` to the next link and restarts it persist-first; after its quota stays clear for the reset period it is moved back to the first link through the ordinary persist-gated restart.
+When a live mate's newest pane output stays a provider quota error past the failover window, the watcher rewrites that mate's keyed pin in `config/secondmate-harness` to the next link and restarts it persist-first; after its quota stays clear for the reset period it is moved back to the first link through the ordinary persist-gated restart.
+A mate still wedged on its last link is reported once and moved back to the first link once that link's reset period has passed since it left it.
 The detection signatures, durable window record, timing knobs, and restart semantics are owned by [`bin/fm-quota-failover-lib.sh`](../bin/fm-quota-failover-lib.sh)'s header.
 `config/secondmate-quota-chain` is not inherited, for the same reason as `config/secondmate-harness`.
 

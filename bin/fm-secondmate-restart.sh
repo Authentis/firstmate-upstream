@@ -2,7 +2,7 @@
 # Restart second mates onto the current instruction surface and launch-time
 # wiring, persisting their open records first.
 #
-# Usage: fm-secondmate-restart.sh [--failover] <secondmate-id>... [--help]
+# Usage: fm-secondmate-restart.sh [--failover | --no-nudge] <secondmate-id>... [--help]
 #
 # This is the executable half of /updatefirstmate's reload step. A running agent
 # holds AGENTS.md and every skill it has loaded frozen from launch, and no
@@ -42,6 +42,13 @@
 # and waiting on it would leave it wedged. The request still goes out first and
 # an answer that lands still gates the restart; when none lands within the
 # bound, the restart proceeds and is reported as made without a persist answer.
+# --failover implies --no-nudge.
+#
+# --no-nudge is for a restart that is not an instruction update, such as the
+# quota library's return to a mate's first chain link: a mate this pass does
+# not restart is reported as "held: <id>: <reason>" and is sent nothing, since
+# the re-read message would claim an update that never happened. A held mate
+# was never stopped.
 #
 # A mate whose persist answer did not arrive or whose runtime cannot prove a
 # restart gets the ordinary re-read nudge and is reported as a nudge, never as a
@@ -70,8 +77,8 @@
 #   FM_SECONDMATE_PERSIST_WAIT  seconds to wait for one mate's persist answer (900)
 #   FM_SECONDMATE_PERSIST_POLL  seconds between checks of that answer (5)
 #
-# Exit status: 0 every named mate restarted; 3 at least one was nudged or left
-# unreached and every mate was still accounted for; 1 the input itself is
+# Exit status: 0 every named mate restarted; 3 at least one was nudged, held, or
+# left unreached and every mate was still accounted for; 1 the input itself is
 # unusable; 2 invalid use.
 set -u
 
@@ -79,7 +86,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 
 usage() {
-  sed -n '2,72{s/^# \{0,1\}//;p;}' "$0"
+  sed -n '2,79{s/^# \{0,1\}//;p;}' "$0"
 }
 
 case "${1:-}" in
@@ -87,11 +94,12 @@ case "${1:-}" in
   '') usage >&2; exit 2 ;;
 esac
 FAILOVER=0
-if [ "$1" = --failover ]; then
-  FAILOVER=1
-  shift
-  [ "$#" -gt 0 ] || { usage >&2; exit 2; }
-fi
+NO_NUDGE=0
+case "$1" in
+  --failover) FAILOVER=1 NO_NUDGE=1; shift ;;
+  --no-nudge) NO_NUDGE=1; shift ;;
+esac
+[ "$#" -gt 0 ] || { usage >&2; exit 2; }
 
 if [ -z "${FM_HOME:-}" ]; then
   echo "error: FM_HOME is not set; fm-secondmate-restart refuses to resolve second mates without an explicit firstmate home" >&2
@@ -146,6 +154,7 @@ RESTART_RESULT=()
 
 restarted_count=0
 nudged_count=0
+held_count=0
 unreached_count=0
 
 # The first line of a command's output that carries anything, flattened to one
@@ -157,8 +166,14 @@ first_reported_line() {  # <text>
 
 # Send the ordinary re-read steer to a mate this pass will not restart, and say
 # plainly which it was. A nudge is a partial reload and is never reported as more.
+# Under --no-nudge the mate is only reported as held.
 fall_back_to_nudge() {  # <id> <reason>
   local id=$1 reason=$2 out
+  if [ "$NO_NUDGE" = 1 ]; then
+    held_count=$((held_count + 1))
+    printf 'held: %s: %s\n' "$id" "$reason"
+    return
+  fi
   if out=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
     "$SCRIPT_DIR/fm-send.sh" "$id" "$FM_SECOND_MATE_NUDGE_MESSAGE" 2>&1); then
     nudged_count=$((nudged_count + 1))
@@ -401,7 +416,7 @@ done
 
 # --- summary ---------------------------------------------------------------
 
-printf 'summary: %d of %d restarted, %d nudged, %d unreached\n' \
-  "$restarted_count" "${#IDS[@]}" "$nudged_count" "$unreached_count"
-[ "$((nudged_count + unreached_count))" -eq 0 ] || exit 3
+printf 'summary: %d of %d restarted, %d nudged, %d unreached, %d held\n' \
+  "$restarted_count" "${#IDS[@]}" "$nudged_count" "$unreached_count" "$held_count"
+[ "$((nudged_count + unreached_count + held_count))" -eq 0 ] || exit 3
 exit 0

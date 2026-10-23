@@ -170,11 +170,13 @@
 #                          budget and is parked until a probe reads it live
 #                          again (FM_SECONDMATE_LIVENESS_MAX_ATTEMPTS and
 #                          FM_SECONDMATE_LIVENESS_WINDOW_SECS)
-#   check: secondmate <id> quota failover ... | returned to chain link 0 ...
+#   check: secondmate <id> quota ... | still shows a provider quota error ...
+#          | returned to chain link 0 ...
 #                          a live mate with a configured quota chain showed a
-#                          provider quota error past its window, or its quota
-#                          cleared long enough to return; the failover library
-#                          owns the contract (bin/fm-quota-failover-lib.sh)
+#                          provider quota error past its window, exhausted its
+#                          chain, has a malformed chain, or its quota cleared
+#                          long enough to return; the failover library owns the
+#                          contract (bin/fm-quota-failover-lib.sh)
 # For normal supervision, resume the session-start primary-harness protocol
 # after each printed reason. Direct duplicate invocations of this script still
 # no-op through the watcher singleton lock. A live holder whose beacon is stale
