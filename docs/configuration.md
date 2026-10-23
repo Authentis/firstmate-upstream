@@ -944,6 +944,16 @@ Changing a pin affects the next spawn or control-plane relaunch; [transactional 
 Pi and pi-signed secondmate launches also require a successful first model response through [`bin/fm-pi-first-call.sh`](../bin/fm-pi-first-call.sh)'s bounded readiness hook.
 A provider error or an unconfirmed response refuses launch, and watcher recovery queues a failure wake naming the model and error.
 
+### Quota failover chain
+
+`config/secondmate-quota-chain` is the primary's local, gitignored, optional fallback chain for a live secondmate whose provider pool is exhausted.
+Each line has the keyed pin shape `<id> <harness> <model> <effort>`, and the lines for one id, in file order, are that mate's chain with the first line as its normal link.
+Blank lines and lines starting with `#` are ignored, and a malformed line fails the check rather than being selected around.
+A mate with fewer than two links has no failover and its pane is never read.
+When a live mate's pane shows a provider quota error past the failover window, the watcher rewrites that mate's keyed pin in `config/secondmate-harness` to the next link and restarts it persist-first; after its quota stays clear for the reset period it is moved back to the first link through the ordinary persist-gated restart.
+The detection signatures, durable window record, timing knobs, and restart semantics are owned by [`bin/fm-quota-failover-lib.sh`](../bin/fm-quota-failover-lib.sh)'s header.
+`config/secondmate-quota-chain` is not inherited, for the same reason as `config/secondmate-harness`.
+
 ### Per-launch overrides and inherited defaults
 
 Pi and signed-Pi secondmates require a concrete model after profile resolution; an empty, `default`, or `-` model refuses launch or relaunch before the endpoint is changed.

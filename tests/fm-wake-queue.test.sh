@@ -3517,6 +3517,30 @@ SH
   pass "watch liveness: an unreachable remote secondmate is probed, preserved, and never failed over"
 }
 
+# A live mate wedged on a provider quota error is handed to the quota failover
+# library (bin/fm-quota-failover-lib.sh owns its contract and full pilot); this
+# pins only the watcher wiring: an alive probe reads the pane, a sustained
+# signature drives one failover attempt, and its outcome wakes as one check.
+test_secondmate_liveness_tick_hands_quota_wedged_mate_to_failover() {
+  local dir state pid out
+  dir=$(make_secondmate_liveness_case liveness-quota)
+  state="$dir/state"
+  printf 'sm1 claude model-one high\nsm1 codex model-two low\n' > "$dir/config/secondmate-quota-chain"
+  printf 'API Error: 429 Too Many Requests\n' > "$dir/pane"
+
+  run_liveness_leg "$dir" quota FM_FAKE_TMUX_CURRENT_COMMAND=claude FM_FAKE_TMUX_CAPTURE="$dir/pane" \
+    FM_QUOTA_FAILOVER_WINDOW_SECS=0 FM_QUOTA_FAILOVER_PERSIST_WAIT=0; pid=$LIVENESS_PID
+  wait_for_exit "$pid" 600 || fail "the watcher did not wake on a quota-wedged secondmate"
+  out="$dir/watch-quota.out"
+  [ "$(grep -c 'check: secondmate sm1 quota' "$out")" -eq 1 ] \
+    || fail "a quota-wedged secondmate did not produce exactly one quota check: $(cat "$out" "$dir/watch-quota.err")"
+  grep -F 'link 1' "$out" >/dev/null || fail "the quota check did not name the next chain link: $(cat "$out")"
+  grep -F 'secondmate-quota-sm1-' "$state/.wake-queue" >/dev/null \
+    || fail "the quota check row was not queued durably: $(cat "$state/.wake-queue")"
+  [ -f "$state/.quota-failover-sm1" ] || fail "the failover state was not recorded"
+  pass "watch liveness: a live mate showing a sustained quota error is handed to the failover"
+}
+
 # A remote round trip on the poll's path once held the liveness beacon for the
 # whole remote job deadline: the pending-reply observation and the secondmate
 # liveness probe each waited on a degraded host in turn, so the watcher neither
@@ -3728,4 +3752,5 @@ test_secondmate_liveness_tick_error_keeps_scanning_and_wakes
 test_secondmate_liveness_tick_unqueued_outcome_is_an_error_not_a_wake
 test_secondmate_liveness_tick_skips_mate_whose_lock_is_held
 test_secondmate_liveness_tick_preserves_unreachable_remote
+test_secondmate_liveness_tick_hands_quota_wedged_mate_to_failover
 test_slow_remote_round_trips_keep_the_beacon_fresh

@@ -170,6 +170,11 @@
 #                          budget and is parked until a probe reads it live
 #                          again (FM_SECONDMATE_LIVENESS_MAX_ATTEMPTS and
 #                          FM_SECONDMATE_LIVENESS_WINDOW_SECS)
+#   check: secondmate <id> quota failover ... | returned to chain link 0 ...
+#                          a live mate with a configured quota chain showed a
+#                          provider quota error past its window, or its quota
+#                          cleared long enough to return; the failover library
+#                          owns the contract (bin/fm-quota-failover-lib.sh)
 # For normal supervision, resume the session-start primary-harness protocol
 # after each printed reason. Direct duplicate invocations of this script still
 # no-op through the watcher singleton lock. A live holder whose beacon is stale
@@ -265,6 +270,8 @@ WATCH_HOME_EXISTED=0
 # and wake emission (secondmate_liveness_tick below).
 # shellcheck source=/dev/null # Analyzed separately as a canonical lint root.
 . "$SCRIPT_DIR/fm-secondmate-liveness-lib.sh"
+# shellcheck source=bin/fm-quota-failover-lib.sh
+. "$SCRIPT_DIR/fm-quota-failover-lib.sh"
 
 WATCH_LOCK="$STATE/.watch.lock"
 WATCH_PATH="$SCRIPT_DIR/fm-watch.sh"
@@ -1318,6 +1325,16 @@ secondmate_liveness_run() {
     [ -z "$reason" ] \
       || published="${published}wake"$'\t'"$id"$'\t'"$notify_key"$'\t'"$reason"$'\n'
     fm_secondmate_liveness_unlock "$id"
+    # A live mate can still be wedged on an exhausted provider pool; the
+    # failover library owns that check and restarts through the persist-first
+    # restart owner, so it runs after this mate's liveness lock is released.
+    if [ "$FM_SM_LIVE_STATUS" = alive ] && [ -z "$err" ]; then
+      if ! fm_quota_failover_tick "$meta" "$id"; then
+        err=$FM_QF_REPORT
+      elif [ -n "$FM_QF_REPORT" ]; then
+        published="${published}wake"$'\t'"$id"$'\t'"secondmate-quota-$id-$now"$'\t'"$FM_QF_REPORT"$'\n'
+      fi
+    fi
     if [ -n "$err" ]; then
       triage_log "secondmate $id liveness error: $err" || true
       published="${published}error"$'\t'"$id"$'\t'"$err"$'\n'

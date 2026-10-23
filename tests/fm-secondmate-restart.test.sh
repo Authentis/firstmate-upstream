@@ -292,6 +292,24 @@ test_persist_gates_and_asks_only_for_open_records() {
   pass "T1 persist is a gate, and asks for open records and task status only"
 }
 
+# --- T1b: --failover restarts a mate that cannot answer, after asking -------
+test_failover_restarts_without_an_answer() {
+  local dir out rc doorbell_line exit_line
+  dir=$(new_case failover)
+  add_local_mate "$dir" sm1
+  # No answer armed: a mate wedged on a provider quota error cannot answer.
+  out=$(FM_TEST_PERSIST_WAIT=0 run_restart "$dir" --failover sm1); rc=$?
+
+  expect_code 0 "$rc" "a failover restart proceeds without a persist answer"$'\n'"$out"
+  assert_contains "$out" "unpersisted: sm1: no persist answer" "the missing persist answer must be reported"
+  assert_contains "$out" "restarted: sm1 (claude)" "the wedged mate must be restarted"
+  doorbell_line=$(grep -n '^: Firstmate instruction waiting: ' "$dir/fake/literal" | head -1 | cut -d: -f1)
+  exit_line=$(grep -n '^/exit$' "$dir/fake/literal" | head -1 | cut -d: -f1)
+  [ -n "$doorbell_line" ] && [ -n "$exit_line" ] && [ "$doorbell_line" -lt "$exit_line" ] \
+    || fail "the failover restart must still ask for the persist before stopping the agent"
+  pass "T1b --failover asks to persist first, then restarts a mate that cannot answer"
+}
+
 # --- T2: persist THEN restart, in that order --------------------------------
 test_persist_precedes_restart() {
   local dir out rc doorbell_line exit_line
@@ -898,6 +916,7 @@ test_remote_restart_uses_id_specific_profile
 test_remote_restart_refuses_unpinned_pi_model
 
 test_persist_gates_and_asks_only_for_open_records
+test_failover_restarts_without_an_answer
 test_persist_precedes_restart
 test_arrived_answer_precedes_deadline_check
 test_answer_between_resolution_and_timeout_wins

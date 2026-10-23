@@ -2,7 +2,7 @@
 # Restart second mates onto the current instruction surface and launch-time
 # wiring, persisting their open records first.
 #
-# Usage: fm-secondmate-restart.sh <secondmate-id>... [--help]
+# Usage: fm-secondmate-restart.sh [--failover] <secondmate-id>... [--help]
 #
 # This is the executable half of /updatefirstmate's reload step. A running agent
 # holds AGENTS.md and every skill it has loaded frozen from launch, and no
@@ -35,6 +35,13 @@
 #      deliberately leaves that unanswered expectation open: it is a genuine
 #      open loop owned by the ordinary pending-reply recovery ladder, not state
 #      this restart pass may close.
+#
+# --failover is the provider-quota exception, used only by
+# bin/fm-quota-failover-lib.sh after a sustained quota error: that mate's
+# runtime answers every turn with the error, so it cannot write anything down
+# and waiting on it would leave it wedged. The request still goes out first and
+# an answer that lands still gates the restart; when none lands within the
+# bound, the restart proceeds and is reported as made without a persist answer.
 #
 # A mate whose persist answer did not arrive or whose runtime cannot prove a
 # restart gets the ordinary re-read nudge and is reported as a nudge, never as a
@@ -72,13 +79,19 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 
 usage() {
-  sed -n '2,65{s/^# \{0,1\}//;p;}' "$0"
+  sed -n '2,72{s/^# \{0,1\}//;p;}' "$0"
 }
 
 case "${1:-}" in
   -h|--help) usage; exit 0 ;;
   '') usage >&2; exit 2 ;;
 esac
+FAILOVER=0
+if [ "$1" = --failover ]; then
+  FAILOVER=1
+  shift
+  [ "$#" -gt 0 ] || { usage >&2; exit 2; }
+fi
 
 if [ -z "${FM_HOME:-}" ]; then
   echo "error: FM_HOME is not set; fm-secondmate-restart refuses to resolve second mates without an explicit firstmate home" >&2
@@ -363,6 +376,11 @@ while [ "$((pending_count + restart_active_count))" -gt 0 ]; do
       # A reply can land after the fleet-wide resolution pass. Recheck at the
       # timeout decision so an answer already on disk wins over the fallback.
       if fm_pending_reply_try_resolve "$STATE" "${CORR[i]}"; then
+        pending_count=$((pending_count - 1))
+        launch_restart "$i"
+      elif [ "$FAILOVER" = 1 ]; then
+        printf 'unpersisted: %s: no persist answer within %ss after a sustained provider quota error; restarting anyway\n' \
+          "${IDS[$i]}" "$PERSIST_WAIT"
         pending_count=$((pending_count - 1))
         launch_restart "$i"
       else
