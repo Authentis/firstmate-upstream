@@ -38,22 +38,29 @@
 #     more signature lines - not counting those a full window exposes at its
 #     top only because lines below shrank - or one whose lines ending at the
 #     newest signature line, bottom-aligned over the length both captures
-#     share, changed while that line stayed no farther from the bottom. A
-#     wedged agent printing the same error every turn therefore keeps
-#     counting even once that error fills the newest lines, including when
-#     captures alternate between its spinner and its error, while one static
-#     error line - a relayed crew error, or the old agent's last words - never
-#     counts twice, whether it sits unchanged, a spinner or status line below
-#     it redraws in place or appears and clears, or the agent's later output
-#     scrolls it upward. These recurrence semantics are final. Known
-#     limitations: a strictly periodic wedge - the same input every turn (such
-#     as only the fixed steering doorbell), a byte-identical error reply, and
-#     a constant footer - whose captures always land in the same phase of a
-#     turn shifts a full 12-line window by exactly whole periods, so
-#     consecutive captures are identical and never recur; and a static error
-#     line whose scrollback above is itself perfectly periodic reads as
-#     unmoved, so a line below it clearing can count once. Line snapshots
-#     cannot tell either case apart from its opposite. A local
+#     share, changed while that line stayed no farther from the bottom. What
+#     this provably catches: a new error printed in place of a spinner or
+#     status line of the same height, more signature lines under an unchanged
+#     window, and a wedge whose scrolling output above the error is not
+#     periodic - including the same error wording every turn under varying
+#     input. One static error line - a relayed crew error, or the old agent's
+#     last words - never counts twice, whether it sits unchanged, a spinner or
+#     status line below it redraws in place or appears and clears, or the
+#     agent's later output scrolls it upward. These recurrence semantics are
+#     final. Known limitations, all one aliasing class of line snapshots: a
+#     strictly periodic wedge - the same input every turn (such as only the
+#     fixed steering doorbell), a byte-identical error reply, and a constant
+#     footer - whose captures always land in the same phase of a turn shifts
+#     a full 12-line window by exactly whole periods, so consecutive captures
+#     are identical and never recur; a periodic wedge whose captures
+#     alternate between a spinner phase and an error phase of different
+#     heights reads like a transient line clearing below a static error, so
+#     it never recurs either; and a static error line whose scrollback above
+#     is itself perfectly periodic reads as unmoved, so a line below it
+#     clearing counts as a recurrence - and since one recurrence stays set
+#     for the episode, that alone can fail a healthy mate over once the
+#     window passes. Line snapshots cannot tell these apart from their
+#     opposites. A local
 #     mate in this wedge never consumes its inbox, so the watcher's secondmate
 #     wake-loop stall check and the steering doorbell's re-ring escalation
 #     still surface it. Neither covers a remote mate - the watcher skips
@@ -61,8 +68,9 @@
 #     so a remote mate in this wedge has only pending-reply recovery
 #     escalation for sends that expect a reply, operator-side liveness and
 #     context alarms outside this home, and periodic supervision review. The
-#     planned follow-up is a turn-counted or cursor/history-position signal on
-#     both capture paths.
+#     planned follow-up is real window-shift detection - a turn-counted or
+#     cursor/history-position signal on both capture paths - which covers
+#     every case in this class.
 #   - Window: the first sighting is recorded durably in
 #     state/.quota-failover-<id>, so the sustained window survives watcher
 #     restarts. A clear capture resets it.
