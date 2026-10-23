@@ -1,0 +1,162 @@
+
+=== LAB /private/tmp/fm-lab.NuavqA  mate=qf-lab-mate  window=20s persist_wait=5s [19:52:03]
+chain:
+  qf-lab-mate pi kimi-code/kimi-for-coding high
+  qf-lab-mate claude sonnet high
+  qf-lab-mate pi openai-codex/gpt-6.1-sol low
+pin: qf-lab-mate pi kimi-code/kimi-for-coding high
+~/.no-mistakes/evidence/01M5N1SRZGKH3FMMZ7PQ7A9XBY/pilot-run.sh: line 30: /private/tmp/fm-lab.NuavqA/state/.quota-failover-qf-lab-mate: No such file or directory
+state: 
+launches so far: 1
+pane_cmd=pi
+1792785117 pid=26301 [pi] [--model] [kimi-code/kimi-for-coding] [--thinking] [high]
+pane (newest non-blank lines):
+  | The default interactive shell is now zsh.
+  | To update your account to use zsh, please run `chsh -s /bin/zsh`.
+  | For more details, please visit https://support.apple.com/kb/HT208050.
+  | bash-3.2$ pi --model kimi-code/kimi-for-coding --thinking high
+  | fake agent pi ready (no provider contacted)
+  | ❯
+
+=== PHASE A - adversarial: one static relayed 429 line on a HEALTHY mate must never fail it over [19:52:03]
+tick 19:52:04 rc=0 report=<none>
+tick 19:52:09 rc=0 report=<none>
+tick 19:52:13 rc=0 report=<none>
+tick 19:52:18 rc=0 report=<none>
+tick 19:52:23 rc=0 report=<none>
+tick 19:52:28 rc=0 report=<none>
+tick 19:52:32 rc=0 report=<none>
+tick 19:52:37 rc=0 report=<none>
+pin: qf-lab-mate pi kimi-code/kimi-for-coding high
+state: link=0 first_seen=1792785124 recurred= clear_since= left0= episode= stale_until= 
+launches so far: 1
+pane_cmd=pi
+1792785117 pid=26301 [pi] [--model] [kimi-code/kimi-for-coding] [--thinking] [high]
+pane (newest non-blank lines):
+  | fake agent pi ready (no provider contacted)
+  | ❯ relay from crew: their build step logged Error: 429 Too Many Requests from an upstream mirror
+  |   ok: handled input at 1792785123
+  | ❯ healthy follow-up turn
+  |   ok: handled input at 1792785143
+  | ❯
+RESULT A: PASS - static 429 line held past the 20s window: pin unchanged, no restart
+tick 19:52:46 rc=0 report=<none>
+pin: qf-lab-mate pi kimi-code/kimi-for-coding high
+state: link=0 first_seen= recurred= clear_since=1792785166 left0= episode= stale_until= 
+launches so far: 1
+pane_cmd=pi
+1792785117 pid=26301 [pi] [--model] [kimi-code/kimi-for-coding] [--thinking] [high]
+pane (newest non-blank lines):
+  |   ok: handled input at 1792785164
+  | ❯ healthy turn 6
+  |   ok: handled input at 1792785165
+  | ❯ healthy turn 7
+  |   ok: handled input at 1792785165
+  | ❯
+
+=== PHASE B - sustained injected 429 (link 0 pool exhausted) past the window moves the pin to link 1 and restarts persist-first [19:52:46]
+tick 19:52:47 rc=0 report=<none>
+tick 19:52:51 rc=0 report=<none>
+tick 19:52:56 rc=0 report=<none>
+tick 19:53:00 rc=0 report=<none>
+tick 19:53:04 rc=0 report=<none>
+tick 19:53:36 rc=0 report=check: secondmate qf-lab-mate quota failover from chain link 0 to link 1 after a provider quota error persisted; restarted without a persist answer, so open work held only in its conversation may be lost
+pin: qf-lab-mate claude sonnet high
+state: link=1 first_seen= recurred= clear_since=1792785188 left0=1792785188 episode= stale_until=1792785208 
+launches so far: 2
+pane_cmd=claude
+1792785213 pid=62501 [claude] [--dangerously-skip-permissions] [--add-dir] [/private/tmp/fm-lab.NuavqA/state/qf-lab-mate.inbox] [--settings] [/private/tmp/fm-lab.NuavqA/state/qf-lab-mate.claude-settings.json] [--model] [sonnet] [--effort] [high] [: Firstmate operational input waiting: read '/private/tmp/fm-lab-sm.APcmHo/smhome/state/operational-inbox/1792785212-ac9515058b463ea0.msg' and handle its contents as Firstmate operational input.]
+pane (newest non-blank lines):
+  | bash-3.2$
+  | bash-3.2$ export GOTMPDIR=/tmp/fm-qf-lab-mate/gotmp
+  | bash-3.2$ export COMPACT_ADVISER_DISABLE=1
+  | bash-3.2$ . '/tmp/fm-qf-lab-mate+99d171070b46430bde21a1748a1aff1c277c31b9aa3ab18cec0528f851225d59/launch.s1792785209.52232.12679.sh'
+  | fake agent claude ready (no provider contacted)
+  | ❯
+persist request delivered to the wedged mate (from its own input log):
+  firstmate-marked inputs: 1
+  pending-reply record: 964a07faf67dd3e9
+RESULT B: PASS - pin moved to link 1 and the replacement agent runs claude/sonnet
+
+=== PHASE C - adversarial: a restart the control plane refuses before touching the agent restores the exact prior pin [19:53:37]
+tick 19:53:38 rc=0 report=<none>
+tick 19:53:42 rc=0 report=<none>
+tick 19:53:46 rc=0 report=<none>
+tick 19:53:51 rc=0 report=<none>
+tick 19:53:55 rc=0 report=<none>
+tick 19:54:15 rc=0 report=check: secondmate qf-lab-mate quota advance to chain link 2 did not complete; pin restored to link 1: held: qf-lab-mate: the restart was refused before its agent was touched: fm-gate-refuse: gate agent lifecycle permitted only against lab home /private/tmp/fm-lab.NuavqA
+pin: qf-lab-mate claude sonnet high
+state: link=1 first_seen=1792785239 recurred=1 clear_since= left0=1792785188 episode=refused stale_until= 
+launches so far: 2
+pane_cmd=claude
+1792785213 pid=62501 [claude] [--dangerously-skip-permissions] [--add-dir] [/private/tmp/fm-lab.NuavqA/state/qf-lab-mate.inbox] [--settings] [/private/tmp/fm-lab.NuavqA/state/qf-lab-mate.claude-settings.json] [--model] [sonnet] [--effort] [high] [: Firstmate operational input waiting: read '/private/tmp/fm-lab-sm.APcmHo/smhome/state/operational-inbox/1792785212-ac9515058b463ea0.msg' and handle its contents as Firstmate operational input.]
+pane (newest non-blank lines):
+  | ❯ check your steering inbox, doorbell 20
+  |   API Error: 429 Too Many Requests (fake pool exhausted at 1792785238)
+  | ❯ : Firstmate instruction waiting: list "$FM_TASK_INBOX"/*.msg in your 'qf-lab-mate.inbox' steering inbox, read and act on each in numeric order, then mv each i
+  | nto its handled/.
+  |   API Error: 429 Too Many Requests (fake pool exhausted at 1792785243)
+  | ❯
+RESULT C: PASS - refusal restored the exact prior pin, link stays 1, agent pid 62501 untouched
+control-plane journal after the refusal:
+  v1
+  task=qf-lab-mate
+  phase=complete
+  ts=2026-10-23T19:53:33Z
+  backend=tmux
+  endpoint=fmlab:fm-qf-lab-mate
+  worktree=/private/tmp/fm-lab-sm.APcmHo/smhome
+  kind=secondmate
+  from_harness=pi
+  from_model=kimi-code/kimi-for-coding
+  from_effort=high
+  to_harness=claude
+  to_model=sonnet
+  to_effort=high
+  worktree_head=660d9d8fe414de6f2d3064e74a5e6d61d09d8c93
+  worktree_dirty=yes
+  children=0
+  note=none
+  exit_result=stopped
+
+=== PHASE C2 - the refused episode retries next window and reports only once [19:54:15]
+tick 19:54:16 rc=0 report=<none>
+tick 19:54:38 rc=0 report=<none>
+tick 19:54:58 rc=0 report=<none>
+reports during the repeat window: 0; control journal ts before=2026-10-23T19:53:33Z after=2026-10-23T19:53:33Z
+pin: qf-lab-mate claude sonnet high
+state: link=1 first_seen=1792785282 recurred=1 clear_since= left0=1792785188 episode=refused stale_until= 
+launches so far: 2
+pane_cmd=claude
+1792785213 pid=62501 [claude] [--dangerously-skip-permissions] [--add-dir] [/private/tmp/fm-lab.NuavqA/state/qf-lab-mate.inbox] [--settings] [/private/tmp/fm-lab.NuavqA/state/qf-lab-mate.claude-settings.json] [--model] [sonnet] [--effort] [high] [: Firstmate operational input waiting: read '/private/tmp/fm-lab-sm.APcmHo/smhome/state/operational-inbox/1792785212-ac9515058b463ea0.msg' and handle its contents as Firstmate operational input.]
+pane (newest non-blank lines):
+  | ❯ check your steering inbox, doorbell 23
+  |   API Error: 429 Too Many Requests (fake pool exhausted at 1792785281)
+  | ❯ : Firstmate instruction waiting: list "$FM_TASK_INBOX"/*.msg in your 'qf-lab-mate.inbox' steering inbox, read and act on each in numeric order, then mv each i
+  | nto its handled/.
+  |   API Error: 429 Too Many Requests (fake pool exhausted at 1792785286)
+  | ❯
+RESULT C2: FAIL
+
+=== PHASE D - cause fixed: the next window walks the chain on to link 2 (codex pool via pi) [19:55:01]
+tick 19:55:27 rc=0 report=check: secondmate qf-lab-mate quota failover from chain link 1 to link 2 after a provider quota error persisted; restarted without a persist answer, so open work held only in its conversation may be lost
+pin: qf-lab-mate pi openai-codex/gpt-6.1-sol low
+state: link=2 first_seen= recurred= clear_since=1792785302 left0=1792785188 episode= stale_until=1792785322 
+launches so far: 5
+pane_cmd=pi
+1792785326 pid=25225 [/private/tmp/fm-lab.NuavqA/fakebin/pi] [--model] [openai-codex/gpt-6.1-sol] [--thinking] [low] [-e] [/private/tmp/fm-lab-sm.APcmHo/smhome/.pi/extensions/fm-primary-turnend-guard.ts] [-e] [/private/tmp/fm-lab-sm.APcmHo/smhome/.pi/extensions/fm-primary-pi-watch.ts] [-e] [/private/tmp/fm-lab.NuavqA/state/qf-lab-mate.pi-ext.ts] [-e] [/private/tmp/fm-lab.NuavqA/state/qf-lab-mate.pi-first-call.ts] [⁣FIRSTMATE_OP: v1 launch-brief: # secondmate brief (lab fixture)]
+pane (newest non-blank lines):
+  | bash-3.2$
+  | bash-3.2$ export GOTMPDIR=/tmp/fm-qf-lab-mate/gotmp
+  | bash-3.2$ export COMPACT_ADVISER_DISABLE=1
+  | bash-3.2$ . '/tmp/fm-qf-lab-mate+99d171070b46430bde21a1748a1aff1c277c31b9aa3ab18cec0528f851225d59/launch.s1792785321.14417.23372.sh'
+  | fake agent /private/tmp/fm-lab.NuavqA/fakebin/pi ready (no provider contacted)
+  | ❯
+RESULT D: PASS - chain walked kimi -> claude -> codex
+
+=== launch log (every fake agent incarnation, with its argv) [19:55:29]
+  1792785117 pid=26301 [pi] [--model] [kimi-code/kimi-for-coding] [--thinking] [high]
+  1792785213 pid=62501 [claude] [--dangerously-skip-permissions] [--add-dir] [/private/tmp/fm-lab.NuavqA/state/qf-lab-mate.inbox] [--settings] [/private/tmp/fm-lab.NuavqA/state/qf-lab-mate.claude-settings.json] [--model] [sonnet] [--effort] [high] [: Firstmate
+  1792785319 pid=16818 [/private/tmp/fm-lab.NuavqA/fakebin/pi] [--help]
+  1792785319 pid=16841 [/private/tmp/fm-lab.NuavqA/fakebin/pi] [--help]
+  1792785326 pid=25225 [/private/tmp/fm-lab.NuavqA/fakebin/pi] [--model] [openai-codex/gpt-6.1-sol] [--thinking] [low] [-e] [/private/tmp/fm-lab-sm.APcmHo/smhome/.pi/extensions/fm-primary-turnend-guard.ts] [-e] [/private/tmp/fm-lab-sm.APcmHo/smhome/.pi/extensi

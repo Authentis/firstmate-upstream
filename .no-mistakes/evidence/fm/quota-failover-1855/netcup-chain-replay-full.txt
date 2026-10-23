@@ -1,0 +1,66 @@
+== chain file ==
+# netcup secondmate chain (link 0 first)
+netcup pi kimi-code/kimi-for-coding high
+netcup claude claude-opus-5-5 high
+netcup pi openai-codex/gpt-6.1-sol low
+
+== S1: kimi 5-hour limit: every turn answers with a 429 (varying input), default 300s window ==
+[t=     0s] rc=0  pin="netcup pi kimi-code/kimi-for-coding high"  state: link=0 first_seen=0 recurred= clear_since= left0= episode= stale_until= 
+[t=    60s] rc=0  pin="netcup pi kimi-code/kimi-for-coding high"  state: link=0 first_seen=0 recurred=1 clear_since= left0= episode= stale_until= 
+[t=   120s] rc=0  pin="netcup pi kimi-code/kimi-for-coding high"  state: link=0 first_seen=0 recurred=1 clear_since= left0= episode= stale_until= 
+[t=   180s] rc=0  pin="netcup pi kimi-code/kimi-for-coding high"  state: link=0 first_seen=0 recurred=1 clear_since= left0= episode= stale_until= 
+[t=   240s] rc=0  pin="netcup pi kimi-code/kimi-for-coding high"  state: link=0 first_seen=0 recurred=1 clear_since= left0= episode= stale_until= 
+[t=   299s] rc=0  pin="netcup pi kimi-code/kimi-for-coding high"  state: link=0 first_seen=0 recurred=1 clear_since= left0= episode= stale_until= 
+[t=   300s] rc=0  pin="netcup claude claude-opus-5-5 high"  state: link=1 first_seen= recurred= clear_since=300 left0=300 episode= stale_until=600 
+           report: check: secondmate netcup quota failover from chain link 0 to link 1 after a provider quota error persisted
+           RESTART-OWNER CALLED: --failover netcup   (pin at call: netcup claude claude-opus-5-5 high)
+
+== S2: Claude link also exhausted -> next link ==
+[t=   310s] rc=0  pin="netcup claude claude-opus-5-5 high"  state: link=1 first_seen= recurred= clear_since=300 left0=300 episode= stale_until= 
+[t=   400s] rc=0  pin="netcup claude claude-opus-5-5 high"  state: link=1 first_seen=400 recurred= clear_since= left0=300 episode= stale_until= 
+[t=   500s] rc=0  pin="netcup claude claude-opus-5-5 high"  state: link=1 first_seen=400 recurred=1 clear_since= left0=300 episode= stale_until= 
+[t=   600s] rc=0  pin="netcup claude claude-opus-5-5 high"  state: link=1 first_seen=400 recurred=1 clear_since= left0=300 episode= stale_until= 
+[t=   700s] rc=0  pin="netcup pi openai-codex/gpt-6.1-sol low"  state: link=2 first_seen= recurred= clear_since=700 left0=300 episode= stale_until=1000 
+           report: check: secondmate netcup quota failover from chain link 1 to link 2 after a provider quota error persisted
+           RESTART-OWNER CALLED: --failover netcup   (pin at call: netcup pi openai-codex/gpt-6.1-sol low)
+
+== S3: last link healthy; quota stays clear for the 18000s reset period -> back to link 0 ==
+[t=   800s] rc=0  pin="netcup pi openai-codex/gpt-6.1-sol low"  state: link=2 first_seen= recurred= clear_since=700 left0=300 episode= stale_until= 
+[t= 10000s] rc=0  pin="netcup pi openai-codex/gpt-6.1-sol low"  state: link=2 first_seen= recurred= clear_since=700 left0=300 episode= stale_until= 
+[t= 18799s] rc=0  pin="netcup pi kimi-code/kimi-for-coding high"  state: link=0 first_seen= recurred= clear_since=18799 left0= episode= stale_until= 
+           report: check: secondmate netcup returned to chain link 0 after its quota cleared
+           RESTART-OWNER CALLED: --no-nudge netcup   (pin at call: netcup pi kimi-code/kimi-for-coding high)
+[t= 18800s] rc=0  pin="netcup pi kimi-code/kimi-for-coding high"  state: link=0 first_seen= recurred= clear_since=18799 left0= episode= stale_until= 
+
+== S4 (adversarial): one static relayed crew error line, unchanged for 20 minutes ==
+[t= 19000s] rc=0  pin="netcup pi kimi-code/kimi-for-coding high"  state: link=0 first_seen=19000 recurred= clear_since= left0= episode= stale_until= 
+[t= 19300s] rc=0  pin="netcup pi kimi-code/kimi-for-coding high"  state: link=0 first_seen=19000 recurred= clear_since= left0= episode= stale_until= 
+[t= 19600s] rc=0  pin="netcup pi kimi-code/kimi-for-coding high"  state: link=0 first_seen=19000 recurred= clear_since= left0= episode= stale_until= 
+[t= 19900s] rc=0  pin="netcup pi kimi-code/kimi-for-coding high"  state: link=0 first_seen=19000 recurred= clear_since= left0= episode= stale_until= 
+[t= 20200s] rc=0  pin="netcup pi kimi-code/kimi-for-coding high"  state: link=0 first_seen=19000 recurred= clear_since= left0= episode= stale_until= 
+
+== S5 (adversarial): restart refused before agent touched -> exact prior pin restored ==
+[t= 21000s] rc=0  pin="netcup pi kimi-code/kimi-for-coding high"  state: link=0 first_seen=21000 recurred=1 clear_since= left0= episode=refused stale_until= 
+           report: check: secondmate netcup quota advance to chain link 1 did not complete; pin restored to link 0: held: netcup: the restart was refused before its agent was touched: another lifecycle action is already running for task netcup
+           RESTART-OWNER CALLED: --failover netcup   (pin at call: netcup claude claude-opus-5-5 high)
+[t= 21100s] rc=0  pin="netcup pi kimi-code/kimi-for-coding high"  state: link=0 first_seen=21000 recurred=1 clear_since= left0= episode=refused stale_until= 
+[t= 21200s] rc=0  pin="netcup pi kimi-code/kimi-for-coding high"  state: link=0 first_seen=21000 recurred=1 clear_since= left0= episode=refused stale_until= 
+[t= 21301s] rc=0  pin="netcup pi kimi-code/kimi-for-coding high"  state: link=0 first_seen=21301 recurred=1 clear_since= left0= episode=refused stale_until= 
+           RESTART-OWNER CALLED: --failover netcup   (pin at call: netcup claude claude-opus-5-5 high)
+
+== S6 (adversarial, newest commit): target pin cannot be written (config dir read-only) -> no restart, state stays on link 0 ==
+[t= 21400s] rc=0  pin="netcup pi kimi-code/kimi-for-coding high"  state: link=0 first_seen= recurred= clear_since=21400 left0= episode= stale_until= 
+[t= 21500s] rc=0  pin="netcup pi kimi-code/kimi-for-coding high"  state: link=0 first_seen=21500 recurred= clear_since= left0= episode= stale_until= 
+[t= 21600s] rc=0  pin="netcup pi kimi-code/kimi-for-coding high"  state: link=0 first_seen=21500 recurred=1 clear_since= left0= episode= stale_until= 
+cp: /tmp/fm-qf-test-runner/home.oRL8UB/home/config/.secondmate-harness.93606: Permission denied
+[t= 21800s] rc=0  pin="netcup pi kimi-code/kimi-for-coding high"  state: link=0 first_seen=21800 recurred=1 clear_since= left0= episode=refused stale_until= 
+           report: check: secondmate netcup quota advance to chain link 1 did not complete; pin restored to link 0: the secondmate pin could not be rewritten
+   (config dir writable again)
+[t= 21900s] rc=0  pin="netcup pi kimi-code/kimi-for-coding high"  state: link=0 first_seen=21800 recurred=1 clear_since= left0= episode=refused stale_until= 
+[t= 22100s] rc=0  pin="netcup claude claude-opus-5-5 high"  state: link=1 first_seen= recurred= clear_since=22100 left0=22100 episode= stale_until=22400 
+           report: check: secondmate netcup quota failover from chain link 0 to link 1 after a provider quota error persisted
+           RESTART-OWNER CALLED: --failover netcup   (pin at call: netcup claude claude-opus-5-5 high)
+
+== final config/secondmate-harness ==
+netcup claude claude-opus-5-5 high
+other claude default high

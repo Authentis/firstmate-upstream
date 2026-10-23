@@ -1,0 +1,208 @@
+
+=== LAB /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-lab.xYaZkZ  mate=qf-lab-mate  window=20s persist_wait=5s [19:40:59]
+chain:
+  qf-lab-mate pi kimi-code/kimi-for-coding high
+  qf-lab-mate claude sonnet high
+  qf-lab-mate pi openai-codex/gpt-6.1-sol low
+pin: qf-lab-mate pi kimi-code/kimi-for-coding high
+~/.no-mistakes/evidence/01M5N1SRZGKH3FMMZ7PQ7A9XBY/pilot-run.sh: line 30: /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-lab.xYaZkZ/state/.quota-failover-qf-lab-mate: No such file or directory
+state: 
+launches so far: 2
+pane_cmd=pi
+1792784390 pid=33129 [pi] [--model] [kimi-code/kimi-for-coding] [--thinking] [high]
+pane (newest non-blank lines):
+  | bash-3.2$ clear; pi --model kimi-code/kimi-for-coding --thinking high
+  | fake agent pi ready (no provider contacted)
+  | ❯ : Firstmate instruction waiting: list "$FM_TASK_INBOX"/*.msg in your 'qf-lab-mate.inbox' steering inbox, read and act on each in numeric order, then mv each i
+  | nto its handled/.
+  |   ok: handled input at 1792784392
+  | ❯
+
+=== PHASE A - adversarial: one static relayed 429 line on a HEALTHY mate must never fail it over [19:40:59]
+tick 19:41:00 rc=0 report=<none>
+tick 19:41:05 rc=0 report=<none>
+tick 19:41:10 rc=0 report=<none>
+tick 19:41:14 rc=0 report=<none>
+tick 19:41:19 rc=0 report=<none>
+tick 19:41:24 rc=0 report=<none>
+tick 19:41:29 rc=0 report=<none>
+tick 19:41:33 rc=0 report=<none>
+pin: qf-lab-mate pi kimi-code/kimi-for-coding high
+state: link=0 first_seen=1792784460 recurred= clear_since= left0= episode= stale_until= 
+launches so far: 2
+pane_cmd=pi
+1792784390 pid=33129 [pi] [--model] [kimi-code/kimi-for-coding] [--thinking] [high]
+pane (newest non-blank lines):
+  |   ok: handled input at 1792784392
+  | ❯ relay from crew: their build step logged Error: 429 Too Many Requests from an upstream mirror
+  |   ok: handled input at 1792784459
+  | ❯ healthy follow-up turn
+  |   ok: handled input at 1792784479
+  | ❯
+RESULT A: PASS - static 429 line held past the 20s window: pin unchanged, no restart
+tick 19:41:43 rc=0 report=<none>
+pin: qf-lab-mate pi kimi-code/kimi-for-coding high
+state: link=0 first_seen= recurred= clear_since=1792784502 left0= episode= stale_until= 
+launches so far: 2
+pane_cmd=pi
+1792784390 pid=33129 [pi] [--model] [kimi-code/kimi-for-coding] [--thinking] [high]
+pane (newest non-blank lines):
+  |   ok: handled input at 1792784500
+  | ❯ healthy turn 6
+  |   ok: handled input at 1792784501
+  | ❯ healthy turn 7
+  |   ok: handled input at 1792784501
+  | ❯
+
+=== PHASE B - sustained injected 429 (link 0 pool exhausted) past the window moves the pin to link 1 and restarts persist-first [19:41:43]
+tick 19:41:44 rc=0 report=<none>
+tick 19:41:48 rc=0 report=<none>
+tick 19:41:52 rc=0 report=<none>
+tick 19:41:56 rc=0 report=<none>
+tick 19:42:00 rc=0 report=<none>
+tick 19:42:25 rc=0 report=check: secondmate qf-lab-mate quota advance to chain link 1 has an unknown restart outcome; pin kept on link 1: unreached: qf-lab-mate: the restart outcome is unknown: fm-gate-refuse: gate agent lifecycle permitted only against lab home /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-lab.xYaZkZ
+tick 19:42:30 rc=0 report=<none>
+tick 19:42:34 rc=0 report=<none>
+tick 19:42:38 rc=0 report=<none>
+tick 19:42:42 rc=0 report=<none>
+tick 19:42:46 rc=0 report=<none>
+tick 19:42:51 rc=0 report=<none>
+tick 19:42:55 rc=0 report=<none>
+tick 19:42:59 rc=0 report=<none>
+tick 19:43:03 rc=0 report=<none>
+tick 19:43:07 rc=0 report=<none>
+tick 19:43:11 rc=0 report=<none>
+pin: qf-lab-mate claude sonnet high
+state: link=1 first_seen= recurred= clear_since=1792784562 left0=1792784524 episode= stale_until= 
+launches so far: 2
+pane_cmd=bash
+1792784390 pid=33129 [pi] [--model] [kimi-code/kimi-for-coding] [--thinking] [high]
+pane (newest non-blank lines):
+  | bash: syntax error near unexpected token `('
+  | bash-3.2$ check your steering inbox (doorbell 24)
+  | bash: syntax error near unexpected token `('
+  | bash-3.2$ check your steering inbox (doorbell 25)
+  | bash: syntax error near unexpected token `('
+  | bash-3.2$
+persist request delivered to the wedged mate (from its own input log):
+  firstmate-marked inputs: 1
+  pending-reply record: 1b4ab321af5d9d22
+  pending-reply record: 6c2afeb65adbdb76
+  pending-reply record: e76e5a46fd51d224
+RESULT B: FAIL
+
+=== PHASE C - adversarial: a restart the control plane refuses before touching the agent restores the exact prior pin [19:43:16]
+tick 19:43:17 rc=0 report=<none>
+tick 19:43:21 rc=0 report=<none>
+tick 19:43:25 rc=0 report=<none>
+tick 19:43:29 rc=0 report=<none>
+tick 19:43:34 rc=0 report=<none>
+tick 19:43:38 rc=0 report=<none>
+tick 19:43:42 rc=0 report=<none>
+tick 19:43:46 rc=0 report=<none>
+tick 19:43:50 rc=0 report=<none>
+tick 19:43:54 rc=0 report=<none>
+tick 19:43:59 rc=0 report=<none>
+tick 19:44:03 rc=0 report=<none>
+tick 19:44:08 rc=0 report=<none>
+tick 19:44:12 rc=0 report=<none>
+tick 19:44:17 rc=0 report=<none>
+tick 19:44:21 rc=0 report=<none>
+tick 19:44:25 rc=0 report=<none>
+tick 19:44:30 rc=0 report=<none>
+tick 19:44:34 rc=0 report=<none>
+tick 19:44:38 rc=0 report=<none>
+tick 19:44:42 rc=0 report=<none>
+tick 19:44:46 rc=0 report=<none>
+pin: qf-lab-mate claude sonnet high
+state: link=1 first_seen= recurred= clear_since=1792784562 left0=1792784524 episode= stale_until= 
+launches so far: 2
+pane_cmd=bash
+1792784390 pid=33129 [pi] [--model] [kimi-code/kimi-for-coding] [--thinking] [high]
+pane (newest non-blank lines):
+  | bash: syntax error near unexpected token `('
+  | bash-3.2$ check your steering inbox (doorbell 46)
+  | bash: syntax error near unexpected token `('
+  | bash-3.2$ check your steering inbox (doorbell 47)
+  | bash: syntax error near unexpected token `('
+  | bash-3.2$
+RESULT C: FAIL
+control-plane journal after the refusal:
+  v1
+  task=qf-lab-mate
+  phase=failed:launching
+  ts=2026-10-23T19:42:25Z
+  backend=tmux
+  endpoint=fmlab:fm-qf-lab-mate
+  worktree=/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-lab.xYaZkZ/smhome
+  kind=secondmate
+  from_harness=pi
+  from_model=kimi-code/kimi-for-coding
+  from_effort=high
+  to_harness=claude
+  to_model=sonnet
+  to_effort=high
+  rollback=prior-record-kept
+
+=== PHASE C2 - the refused episode retries next window and reports only once [19:44:49]
+tick 19:44:50 rc=0 report=<none>
+tick 19:44:54 rc=0 report=<none>
+tick 19:44:59 rc=0 report=<none>
+tick 19:45:03 rc=0 report=<none>
+tick 19:45:07 rc=0 report=<none>
+tick 19:45:11 rc=0 report=<none>
+tick 19:45:15 rc=0 report=<none>
+tick 19:45:19 rc=0 report=<none>
+reports during the repeat window: 0
+pin: qf-lab-mate claude sonnet high
+state: link=1 first_seen= recurred= clear_since=1792784562 left0=1792784524 episode= stale_until= 
+launches so far: 2
+pane_cmd=bash
+1792784390 pid=33129 [pi] [--model] [kimi-code/kimi-for-coding] [--thinking] [high]
+pane (newest non-blank lines):
+  | bash: syntax error near unexpected token `('
+  | bash-3.2$ check your steering inbox (doorbell 54)
+  | bash: syntax error near unexpected token `('
+  | bash-3.2$ check your steering inbox (doorbell 55)
+  | bash: syntax error near unexpected token `('
+  | bash-3.2$
+
+=== PHASE D - cause fixed: the next window walks the chain on to link 2 (codex pool via pi) [19:45:22]
+tick 19:45:23 rc=0 report=<none>
+tick 19:45:27 rc=0 report=<none>
+tick 19:45:32 rc=0 report=<none>
+tick 19:45:36 rc=0 report=<none>
+tick 19:45:40 rc=0 report=<none>
+tick 19:45:44 rc=0 report=<none>
+tick 19:45:49 rc=0 report=<none>
+tick 19:45:54 rc=0 report=<none>
+tick 19:45:59 rc=0 report=<none>
+tick 19:46:03 rc=0 report=<none>
+tick 19:46:07 rc=0 report=<none>
+tick 19:46:11 rc=0 report=<none>
+tick 19:46:16 rc=0 report=<none>
+tick 19:46:20 rc=0 report=<none>
+tick 19:46:24 rc=0 report=<none>
+tick 19:46:28 rc=0 report=<none>
+tick 19:46:32 rc=0 report=<none>
+tick 19:46:37 rc=0 report=<none>
+tick 19:46:41 rc=0 report=<none>
+tick 19:46:45 rc=0 report=<none>
+tick 19:46:49 rc=0 report=<none>
+pin: qf-lab-mate claude sonnet high
+state: link=1 first_seen= recurred= clear_since=1792784562 left0=1792784524 episode= stale_until= 
+launches so far: 2
+pane_cmd=bash
+1792784390 pid=33129 [pi] [--model] [kimi-code/kimi-for-coding] [--thinking] [high]
+pane (newest non-blank lines):
+  | bash: syntax error near unexpected token `('
+  | bash-3.2$ check your steering inbox (doorbell 75)
+  | bash: syntax error near unexpected token `('
+  | bash-3.2$ check your steering inbox (doorbell 76)
+  | bash: syntax error near unexpected token `('
+  | bash-3.2$
+RESULT D: FAIL
+
+=== launch log (every fake agent incarnation, with its argv) [19:46:54]
+  1792784347 pid=73340 [pi] [--model] [kimi-code/kimi-for-coding] [--thinking] [high]
+  1792784390 pid=33129 [pi] [--model] [kimi-code/kimi-for-coding] [--thinking] [high]

@@ -1,0 +1,92 @@
+== lab ==
+lab root: /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fmqf-pilot.0itjAS (FM_HOME=/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fmqf-pilot.0itjAS/home, FM_STATE_OVERRIDE=/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fmqf-pilot.0itjAS/home/state, FM_CONFIG_OVERRIDE=/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fmqf-pilot.0itjAS/home/config)
+tmux: private server via TMUX_TMPDIR=/tmp/fml.9VModw, session fmlab, no user config
+mate: qfpilot7 (local, no remote_host), home /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fmqf-pilot.0itjAS/smhome
+lab PATH: /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fmqf-pilot.0itjAS/fakebin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin  (every agent name in /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fmqf-pilot.0itjAS/fakebin is the compiled stub)
+  pi -> /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fmqf-pilot.0itjAS/fakebin/pi
+  claude -> /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fmqf-pilot.0itjAS/fakebin/claude
+  codex -> /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fmqf-pilot.0itjAS/fakebin/codex
+  kimi -> /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fmqf-pilot.0itjAS/fakebin/kimi
+head under test: dd4abdb81f4dfb9eba946da5a7d9d6497c804bb9
+window=20s persist wait=5s
+--- config/secondmate-quota-chain
+# lab chain (link 0 first)
+qfpilot7 pi kimi-code/kimi-for-coding high
+qfpilot7 claude claude-opus-5-5 high
+qfpilot7 pi openai-codex/gpt-6.1-sol low
+--- config/secondmate-harness
+qfpilot7 pi kimi-code/kimi-for-coding high
+--- link-0 agent in the lab pane: pi
+      | t.0itjAS/smhome' && pi --model kimi-code/kimi-for-coding --thinking high
+      | [qflab stub pi pid=28928 up; argv: --model kimi-code/kimi-for-coding --thinking
+      | high]
+
+== A1 (adversarial): one static relayed 429 line, unchanged past the window -> no failover ==
+      | doorbell: check inbox (1)
+      |   ok (turn 1)
+      | relay from crew-3: API Error: 429 Too Many Requests
+      |   ok (turn 2)
+[19:23:03] tick rc=0 (0s) pin="qfpilot7 pi kimi-code/kimi-for-coding high" agent=pi
+      state: link=0 first_seen=1792783383 recurred= clear_since= left0= episode= stale_until= 
+[19:23:08] tick rc=0 (0s) pin="qfpilot7 pi kimi-code/kimi-for-coding high" agent=pi
+      state: link=0 first_seen=1792783383 recurred= clear_since= left0= episode= stale_until= 
+[19:23:12] tick rc=0 (0s) pin="qfpilot7 pi kimi-code/kimi-for-coding high" agent=pi
+      state: link=0 first_seen=1792783383 recurred= clear_since= left0= episode= stale_until= 
+[19:23:17] tick rc=0 (1s) pin="qfpilot7 pi kimi-code/kimi-for-coding high" agent=pi
+      state: link=0 first_seen=1792783383 recurred= clear_since= left0= episode= stale_until= 
+[19:23:21] tick rc=0 (0s) pin="qfpilot7 pi kimi-code/kimi-for-coding high" agent=pi
+      state: link=0 first_seen=1792783383 recurred= clear_since= left0= episode= stale_until= 
+[19:23:25] tick rc=0 (0s) pin="qfpilot7 pi kimi-code/kimi-for-coding high" agent=pi
+      state: link=0 first_seen=1792783383 recurred= clear_since= left0= episode= stale_until= 
+[19:23:30] tick rc=0 (1s) pin="qfpilot7 pi kimi-code/kimi-for-coding high" agent=pi
+      state: link=0 first_seen=1792783383 recurred= clear_since= left0= episode= stale_until= 
+[19:23:34] tick rc=0 (0s) pin="qfpilot7 pi kimi-code/kimi-for-coding high" agent=pi
+      state: link=0 first_seen=1792783383 recurred= clear_since= left0= episode= stale_until= 
+      |   ok (turn 1)
+      | relay from crew-3: API Error: 429 Too Many Requests
+      |   ok (turn 2)
+A1 RESULT: PASS - pin unchanged on link 0, no restart
+
+== A2 (pilot): the link-0 pool is exhausted; every turn answers 429, sustained past the window ==
+[19:23:47] tick rc=0 (11s) pin="qfpilot7 claude claude-opus-5-5 high" agent=pi
+      state: link=1 first_seen= recurred= clear_since=1792783416 left0=1792783416 episode= stale_until=1792783436 
+      report: check: secondmate qfpilot7 quota advance to chain link 1 has an unknown restart outcome; pin kept on link 1: unreached: qfpilot7: the restart outcome is unknown: fm-gate-refuse: gate agent lifecycle permitted only against lab home /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fmqf-pilot.0itjAS/home
+--- pane after the failover:
+      | relay from crew-3: API Error: 429 Too Many Requests
+      |   ok (turn 2)
+      | clear
+      |   API Error: 429 {"type":"error","error":{"type":"rate_limit_error","message":"u
+      | sage limit reached"}}
+      | doorbell: check inbox (2)
+      |   API Error: 429 {"type":"error","error":{"type":"rate_limit_error","message":"u
+      | sage limit reached"}}
+--- relaunch journal phase: failed:stopping
+--- meta harness/model/effort now: harness=pi model=kimi-code/kimi-for-coding effort=high 
+A2 RESULT: pin moved to link 1 (qfpilot7 claude claude-opus-5-5 high); agent now pi
+
+== A3 (adversarial): link 1 exhausts too, but the restart is refused before the agent is touched -> exact prior pin restored ==
+[19:23:50] tick rc=0 (0s) pin="qfpilot7 claude claude-opus-5-5 high" agent=pi
+      state: link=1 first_seen=1792783430 recurred= clear_since= left0=1792783416 episode= stale_until=1792783436 
+[19:23:56] tick rc=0 (1s) pin="qfpilot7 claude claude-opus-5-5 high" agent=pi
+      state: link=1 first_seen=1792783430 recurred=1 clear_since= left0=1792783416 episode= stale_until=1792783436 
+[19:24:01] tick rc=0 (0s) pin="qfpilot7 claude claude-opus-5-5 high" agent=pi
+      state: link=1 first_seen=1792783430 recurred=1 clear_since= left0=1792783416 episode= stale_until= 
+[19:24:07] tick rc=0 (0s) pin="qfpilot7 claude claude-opus-5-5 high" agent=pi
+      state: link=1 first_seen=1792783430 recurred=1 clear_since= left0=1792783416 episode= stale_until= 
+[19:24:20] tick rc=0 (8s) pin="qfpilot7 claude claude-opus-5-5 high" agent=pi
+      state: link=1 first_seen=1792783452 recurred=1 clear_since= left0=1792783416 episode=refused stale_until= 
+      report: check: secondmate qfpilot7 quota advance to chain link 2 did not complete; pin restored to link 1: held: qfpilot7: the restart was refused before its agent was touched: fm-gate-refuse: gate agent lifecycle permitted only against lab home /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fmqf-pilot.0itjAS/home
+--- pane after the refusal:
+      | sage limit reached"}}
+      | doorbell: check inbox (7)
+      |   API Error: 429 {"type":"error","error":{"type":"rate_limit_error","message":"u
+      | sage limit reached"}}
+A3 RESULT: PASS - refusal reported, pin restored byte-exact to 'qfpilot7 claude claude-opus-5-5 high', agent still pi
+--- final config/secondmate-harness
+qfpilot7 claude claude-opus-5-5 high
+--- final quota state: link=1 first_seen=1792783452 recurred=1 clear_since= left0=1792783416 episode=refused stale_until= 
+
+== cleanup ==
+killed the lab's private tmux server (/tmp/fml.9VModw)
+removed the lab tmux socket dir
+removed lab /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fmqf-pilot.0itjAS

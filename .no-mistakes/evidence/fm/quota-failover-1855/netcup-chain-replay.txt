@@ -1,0 +1,45 @@
+== chain file ==
+# netcup secondmate chain (link 0 first)
+netcup pi kimi-code/kimi-for-coding high
+netcup claude default high
+netcup pi openai-codex/gpt-6.1-sol low
+
+== S1: kimi 5-hour limit: every turn answers with a 429 (varying input), default 300s window ==
+[t=     0s] rc=0  pin="netcup pi kimi-code/kimi-for-coding high"  state: link=0 first_seen= recurred= clear_since= left0= episode=malformed stale_until= 
+           report: check: secondmate netcup quota failover chain in config/secondmate-quota-chain is malformed; no failover for it until its lines are fixed
+[t=    60s] rc=0  pin="netcup pi kimi-code/kimi-for-coding high"  state: link=0 first_seen= recurred= clear_since= left0= episode=malformed stale_until= 
+[t=   120s] rc=0  pin="netcup pi kimi-code/kimi-for-coding high"  state: link=0 first_seen= recurred= clear_since= left0= episode=malformed stale_until= 
+[t=   180s] rc=0  pin="netcup pi kimi-code/kimi-for-coding high"  state: link=0 first_seen= recurred= clear_since= left0= episode=malformed stale_until= 
+[t=   240s] rc=0  pin="netcup pi kimi-code/kimi-for-coding high"  state: link=0 first_seen= recurred= clear_since= left0= episode=malformed stale_until= 
+[t=   299s] rc=0  pin="netcup pi kimi-code/kimi-for-coding high"  state: link=0 first_seen= recurred= clear_since= left0= episode=malformed stale_until= 
+[t=   300s] rc=0  pin="netcup pi kimi-code/kimi-for-coding high"  state: link=0 first_seen= recurred= clear_since= left0= episode=malformed stale_until= 
+
+== S2: Claude link also exhausted -> next link ==
+[t=   310s] rc=0  pin="netcup pi kimi-code/kimi-for-coding high"  state: link=0 first_seen= recurred= clear_since= left0= episode=malformed stale_until= 
+[t=   400s] rc=0  pin="netcup pi kimi-code/kimi-for-coding high"  state: link=0 first_seen= recurred= clear_since= left0= episode=malformed stale_until= 
+[t=   500s] rc=0  pin="netcup pi kimi-code/kimi-for-coding high"  state: link=0 first_seen= recurred= clear_since= left0= episode=malformed stale_until= 
+[t=   600s] rc=0  pin="netcup pi kimi-code/kimi-for-coding high"  state: link=0 first_seen= recurred= clear_since= left0= episode=malformed stale_until= 
+[t=   700s] rc=0  pin="netcup pi kimi-code/kimi-for-coding high"  state: link=0 first_seen= recurred= clear_since= left0= episode=malformed stale_until= 
+
+== S3: last link healthy; quota stays clear for the 18000s reset period -> back to link 0 ==
+[t=   800s] rc=0  pin="netcup pi kimi-code/kimi-for-coding high"  state: link=0 first_seen= recurred= clear_since= left0= episode=malformed stale_until= 
+[t= 10000s] rc=0  pin="netcup pi kimi-code/kimi-for-coding high"  state: link=0 first_seen= recurred= clear_since= left0= episode=malformed stale_until= 
+[t= 18799s] rc=0  pin="netcup pi kimi-code/kimi-for-coding high"  state: link=0 first_seen= recurred= clear_since= left0= episode=malformed stale_until= 
+[t= 18800s] rc=0  pin="netcup pi kimi-code/kimi-for-coding high"  state: link=0 first_seen= recurred= clear_since= left0= episode=malformed stale_until= 
+
+== S4 (adversarial): one static relayed crew error line, unchanged for 20 minutes ==
+[t= 19000s] rc=0  pin="netcup pi kimi-code/kimi-for-coding high"  state: link=0 first_seen= recurred= clear_since= left0= episode=malformed stale_until= 
+[t= 19300s] rc=0  pin="netcup pi kimi-code/kimi-for-coding high"  state: link=0 first_seen= recurred= clear_since= left0= episode=malformed stale_until= 
+[t= 19600s] rc=0  pin="netcup pi kimi-code/kimi-for-coding high"  state: link=0 first_seen= recurred= clear_since= left0= episode=malformed stale_until= 
+[t= 19900s] rc=0  pin="netcup pi kimi-code/kimi-for-coding high"  state: link=0 first_seen= recurred= clear_since= left0= episode=malformed stale_until= 
+[t= 20200s] rc=0  pin="netcup pi kimi-code/kimi-for-coding high"  state: link=0 first_seen= recurred= clear_since= left0= episode=malformed stale_until= 
+
+== S5 (adversarial): restart refused before agent touched -> exact prior pin restored ==
+[t= 21000s] rc=0  pin="netcup pi kimi-code/kimi-for-coding high"  state: link=0 first_seen= recurred= clear_since= left0= episode=malformed stale_until= 
+[t= 21100s] rc=0  pin="netcup pi kimi-code/kimi-for-coding high"  state: link=0 first_seen= recurred= clear_since= left0= episode=malformed stale_until= 
+[t= 21200s] rc=0  pin="netcup pi kimi-code/kimi-for-coding high"  state: link=0 first_seen= recurred= clear_since= left0= episode=malformed stale_until= 
+[t= 21301s] rc=0  pin="netcup pi kimi-code/kimi-for-coding high"  state: link=0 first_seen= recurred= clear_since= left0= episode=malformed stale_until= 
+
+== final config/secondmate-harness ==
+netcup pi kimi-code/kimi-for-coding high
+other claude default high

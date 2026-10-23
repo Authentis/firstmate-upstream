@@ -1,0 +1,122 @@
+== lab ==
+lab root: /private/tmp/fmqf-pilot.r8Ldsw (FM_HOME=/private/tmp/fmqf-pilot.r8Ldsw/home, FM_STATE_OVERRIDE=/private/tmp/fmqf-pilot.r8Ldsw/home/state, FM_CONFIG_OVERRIDE=/private/tmp/fmqf-pilot.r8Ldsw/home/config)
+tmux: private server via TMUX_TMPDIR=/tmp/fml.MvTKr4, session fmlab, no user config
+mate: qfpilot7 (local, no remote_host), home /private/tmp/fmqf-pilot.r8Ldsw/smhome
+lab PATH: /private/tmp/fmqf-pilot.r8Ldsw/fakebin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin  (every agent name in /private/tmp/fmqf-pilot.r8Ldsw/fakebin is the compiled stub)
+  pi -> /private/tmp/fmqf-pilot.r8Ldsw/fakebin/pi
+  claude -> /private/tmp/fmqf-pilot.r8Ldsw/fakebin/claude
+  codex -> /private/tmp/fmqf-pilot.r8Ldsw/fakebin/codex
+  kimi -> /private/tmp/fmqf-pilot.r8Ldsw/fakebin/kimi
+head under test: dd4abdb81f4dfb9eba946da5a7d9d6497c804bb9
+window=20s persist wait=5s
+--- config/secondmate-quota-chain
+# lab chain (link 0 first)
+qfpilot7 pi kimi-code/kimi-for-coding high
+qfpilot7 claude claude-opus-5-5 high
+qfpilot7 pi openai-codex/gpt-6.1-sol low
+--- config/secondmate-harness
+qfpilot7 pi kimi-code/kimi-for-coding high
+--- link-0 agent in the lab pane: pi
+      | [qflab stub pi pid=59405 up; argv: --model kimi-code/kimi-for-coding --thinking high]
+      | ────────────────────────────────────────
+      | ────────────────────────────────────────
+
+== A1 (adversarial): one static relayed 429 line, unchanged past the window -> no failover ==
+      | > relay from crew-3: API Error: 429 Too Many Requests
+      |   ok (turn 2)
+      | ────────────────────────────────────────
+      | ────────────────────────────────────────
+[19:31:56] tick rc=0 (0s) pin="qfpilot7 pi kimi-code/kimi-for-coding high" agent=pi
+      state: link=0 first_seen=1792783916 recurred= clear_since= left0= episode= stale_until= 
+[19:32:00] tick rc=0 (0s) pin="qfpilot7 pi kimi-code/kimi-for-coding high" agent=pi
+      state: link=0 first_seen=1792783916 recurred= clear_since= left0= episode= stale_until= 
+[19:32:04] tick rc=0 (0s) pin="qfpilot7 pi kimi-code/kimi-for-coding high" agent=pi
+      state: link=0 first_seen=1792783916 recurred= clear_since= left0= episode= stale_until= 
+[19:32:09] tick rc=0 (0s) pin="qfpilot7 pi kimi-code/kimi-for-coding high" agent=pi
+      state: link=0 first_seen=1792783916 recurred= clear_since= left0= episode= stale_until= 
+[19:32:13] tick rc=0 (0s) pin="qfpilot7 pi kimi-code/kimi-for-coding high" agent=pi
+      state: link=0 first_seen=1792783916 recurred= clear_since= left0= episode= stale_until= 
+[19:32:17] tick rc=0 (0s) pin="qfpilot7 pi kimi-code/kimi-for-coding high" agent=pi
+      state: link=0 first_seen=1792783916 recurred= clear_since= left0= episode= stale_until= 
+[19:32:22] tick rc=0 (0s) pin="qfpilot7 pi kimi-code/kimi-for-coding high" agent=pi
+      state: link=0 first_seen=1792783916 recurred= clear_since= left0= episode= stale_until= 
+[19:32:26] tick rc=0 (0s) pin="qfpilot7 pi kimi-code/kimi-for-coding high" agent=pi
+      state: link=0 first_seen=1792783916 recurred= clear_since= left0= episode= stale_until= 
+      |   ok (turn 2)
+      | ────────────────────────────────────────
+      | ────────────────────────────────────────
+A1 RESULT: PASS - pin unchanged on link 0, no restart
+
+== A2 (pilot): the link-0 pool is exhausted; every turn answers 429, sustained past the window ==
+[19:32:47] tick rc=0 (20s) pin="qfpilot7 claude claude-opus-5-5 high" agent=claude
+      state: link=1 first_seen= recurred= clear_since=1792783947 left0=1792783947 episode= stale_until=1792783967 
+      report: check: secondmate qfpilot7 quota failover from chain link 0 to link 1 after a provider quota error persisted; restarted without a persist answer, so open work held only in its conversation may be lost
+--- pane after the failover:
+      | > /quit
+      | [qflab stub pi exiting]
+      | bash-5.3$ export GOTMPDIR=/tmp/fm-qfpilot7/gotmp
+      | bash-5.3$ export COMPACT_ADVISER_DISABLE=1
+      | bash-5.3$ . '/tmp/fm-qfpilot7+765d1d5cc1ad268d00ef3f7fef448b8c3a2f539f2239878c4ce01c568ad7cf6f/launch.s1792783963.26464.21983.sh'
+      | [qflab stub claude pid=36379 up; argv: --dangerously-skip-permissions --add-dir /private/tmp/fmqf-pilot.r8Ldsw/home/state/qfpilot7.inbox --settings /private/tmp/fmqf-pilot.r8Ldsw/home/state/qfpilot7.claude-se --model claude-opus-5-5]
+      | ────────────────────────────────────────
+      | ❯ 
+      | ────────────────────────────────────────
+--- relaunch journal (state/qfpilot7.control-relaunch):
+      v1
+      task=qfpilot7
+      phase=complete
+      ts=2026-10-23T19:32:46Z
+      backend=tmux
+      endpoint=fmlab:fm-qfpilot7
+      worktree=/private/tmp/fmqf-pilot.r8Ldsw/smhome
+      kind=secondmate
+      from_harness=pi
+      from_model=kimi-code/kimi-for-coding
+      from_effort=high
+      to_harness=claude
+      to_model=claude-opus-5-5
+      to_effort=high
+      worktree_head=9cef9aece133d0dae6f32477faa9ed1715448982
+      worktree_dirty=no
+      children=0
+      note=none
+      exit_result=stopped
+--- persist request recorded for the mate (state/pending-replies):
+      state/pending-replies/d5d89df95c2b82fd
+      text: persist the open work you are holding only in this conversation, following the /stow skill's "Open-record persistence" section and nothing else from that skill: file a task for each open record that exists only in this conversation, including any captain call you had formed but never registered, and correct any task whose status no longer reflects what you now know
+--- meta harness/model/effort now: harness=claude model=claude-opus-5-5 effort=high 
+A2 RESULT: FAIL - advanced=1 restarted=0 phase=complete pin='qfpilot7 claude claude-opus-5-5 high' agent=claude
+
+== A3 (adversarial): link 1 exhausts too, but the restart is refused before the agent is touched -> exact prior pin restored ==
+[19:32:52] tick rc=0 (1s) pin="qfpilot7 claude claude-opus-5-5 high" agent=claude
+      state: link=1 first_seen= recurred= clear_since= left0=1792783947 episode= stale_until= 
+[19:32:57] tick rc=0 (0s) pin="qfpilot7 claude claude-opus-5-5 high" agent=claude
+      state: link=1 first_seen=1792783977 recurred= clear_since= left0=1792783947 episode= stale_until= 
+[19:33:03] tick rc=0 (1s) pin="qfpilot7 claude claude-opus-5-5 high" agent=claude
+      state: link=1 first_seen=1792783977 recurred=1 clear_since= left0=1792783947 episode= stale_until= 
+[19:33:08] tick rc=0 (0s) pin="qfpilot7 claude claude-opus-5-5 high" agent=claude
+      state: link=1 first_seen=1792783977 recurred=1 clear_since= left0=1792783947 episode= stale_until= 
+[19:33:14] tick rc=0 (0s) pin="qfpilot7 claude claude-opus-5-5 high" agent=claude
+      state: link=1 first_seen=1792783977 recurred=1 clear_since= left0=1792783947 episode= stale_until= 
+[19:33:29] tick rc=0 (10s) pin="qfpilot7 claude claude-opus-5-5 high" agent=claude
+      state: link=1 first_seen=1792783999 recurred=1 clear_since= left0=1792783947 episode=refused stale_until= 
+      report: check: secondmate qfpilot7 quota advance to chain link 2 did not complete; pin restored to link 1: held: qfpilot7: the restart was refused before its agent was touched: fm-gate-refuse: gate agent lifecycle permitted only against lab home /private/tmp/fmqf-pilot.r8Ldsw/home
+--- pane after the refusal:
+      |   API Error: 429 {"type":"error","error":{"type":"rate_limit_error","message":"usage limit reached"}}
+      | ────────────────────────────────────────
+      | ❯ 
+      | ────────────────────────────────────────
+A3 RESULT: PASS - refusal reported, pin restored byte-exact to 'qfpilot7 claude claude-opus-5-5 high', agent still claude
+--- the control plane's own refusal text for that relaunch (direct re-run in the lab; refused before stop again):
+      error: secondmate qfpilot7's child record /private/tmp/fmqf-pilot.r8Ldsw/smhome/state/blocker.meta is not a readable regular file; refusing to relaunch
+--- pin after that re-run: qfpilot7 claude claude-opus-5-5 high; agent claude
+--- final config/secondmate-harness
+qfpilot7 claude claude-opus-5-5 high
+--- final quota state: link=1 first_seen=1792783999 recurred=1 clear_since= left0=1792783947 episode=refused stale_until= 
+
+== cleanup ==
+killed the lab's private tmux server (/tmp/fml.MvTKr4)
+removed the lab tmux socket dir
+removed lab /private/tmp/fmqf-pilot.r8Ldsw
+removed the lab task temp dir /tmp/fm-qfpilot7
+removed the lab task temp dir /tmp/fm-qfpilot7+765d1d5cc1ad268d00ef3f7fef448b8c3a2f539f2239878c4ce01c568ad7cf6f
