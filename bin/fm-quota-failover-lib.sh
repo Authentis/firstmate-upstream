@@ -90,9 +90,9 @@
 #     no relaunch ran, or a relaunch the control plane refused before stopping
 #     the agent) restores the exact prior pin line and link, except as
 #     Serialization below keeps the target, and re-arms, retrying each window
-#     and reporting once per refused episode; one whose outcome is unknown keeps the target pin, so
-#     liveness recovery relaunches onto that link rather than the exhausted
-#     one. A target pin that cannot be written runs no restart and leaves the
+#     and reporting once per refused episode; one whose outcome is unknown
+#     keeps the target pin, so liveness recovery relaunches onto that link
+#     rather than the exhausted one. A target pin that cannot be written runs no restart and leaves the
 #     mate on its current link.
 #   - Serialization: the pin is written while this library holds
 #     state/.control-<id>.lock, the lock bin/fm-control.sh takes for every
@@ -473,8 +473,9 @@ fm_quota_failover_restore() {  # <id> <prior-line> <target-profile> <control-loc
 # persist-first. <mode> failover lets the restart proceed when the wedged mate
 # cannot answer the persist request; <mode> ordinary keeps the ordinary gate.
 # A link that fails validation, a held control lock, or a restart refused
-# before the agent was touched restores the prior pin line and link; an
-# unknown outcome keeps the target and sets FM_QF_UNKNOWN=1. Sets FM_QF_OUT.
+# before the agent was touched restores the prior pin line and link unless
+# fm_quota_failover_restore keeps the target; an unknown outcome keeps the
+# target and sets FM_QF_UNKNOWN=1. Sets FM_QF_OUT.
 fm_quota_failover_apply() {  # <id> <chain-text> <target> <failover|ordinary> <now>
   local id=$1 chain=$2 target=$3 mode=$4 now=$5 profile prior wait control pinned=0 refused=0 rc=0
   local from=$FM_QF_LINK left0=$FM_QF_LEFT0 episode=$FM_QF_EPISODE recurred=$FM_QF_RECURRED
