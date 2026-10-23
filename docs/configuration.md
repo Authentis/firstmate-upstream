@@ -951,7 +951,7 @@ Each line has the keyed pin shape `<id> <harness> <model> <effort>`, and the lin
 Blank lines and lines starting with `#` are ignored.
 A malformed line stops failover for that id only, rather than being selected around, and is reported once as a check wake; other mates are unaffected.
 A mate with fewer than two links has no failover and its pane is never read.
-A link that a secondmate relaunch would refuse - a harness not verified to run a secondmate, or a model or effort that harness cannot take - is never pinned; the failover is reported as not completed and retried each window.
+A link that a secondmate relaunch would refuse - a harness not verified to run a secondmate, or a model or effort that harness cannot take - is never pinned; the failover is reported once as not completed and retried each window.
 When a live mate's newest pane output keeps showing new provider quota errors past the failover window, the watcher rewrites that mate's keyed pin in `config/secondmate-harness` to the next link and restarts it persist-first; the same error wording printed again every turn under varying input counts, while one error line that sits unchanged, has only a spinner, status, or transient line changing below it, or scrolls upward never counts as sustained.
 What the recurrence check provably catches is a new error printed in place of a spinner or status line of the same height, more signature lines under an unchanged window, and a wedge whose scrolling output above the error is not periodic, including the same error wording every turn under varying input.
 These recurrence semantics are final, with three known limitations that are one aliasing class of line snapshots.
