@@ -18,6 +18,10 @@ ok - a refused failover retries each window and reports once
 ok - a refused restart of a mate without a keyed pin leaves it without one
 ok - an unknown restart outcome keeps the pin on the target link instead of the exhausted one
 ok - a refusal caused by a concurrent relaunch onto the target link keeps the target pin
+ok - a refused relaunch of a remote mate keeps the target pin
+ok - a remote mate held before any relaunch ran restores the prior pin and link
+ok - a remote mate held on its way to the last link retries instead of stranding on the exhausted link
+ok - a held remote return keeps the mate on its link and retries after the next clear period
 ok - a refusal restores the prior pin only while holding the mate's control lock
 ok - a relaunch the control plane refused before stopping the agent restores the prior pin
 ok - a failover whose target pin could not be written keeps the state on the current link
@@ -30,4 +34,3 @@ ok - a pass skips a mate whose failover is held by another live pass
 ok - a mate without a chain of two links is never read or restarted
 ok - a malformed chain stops only that mate's failover and is reported once
 ok - a malformed line for another mate leaves this mate's chain working
-rc=0

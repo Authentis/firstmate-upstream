@@ -3,9 +3,9 @@
 # netcup-shaped quota chain, and the first incarnation (fake pi on link 0)
 # running on the lab's private tmux server.
 set -eu
-. ~/.no-mistakes/evidence/01M5N1SRZGKH3FMMZ7PQ7A9XBY/pilot-lab-env.sh
+. ~/.no-mistakes/evidence/01M5NA34SBKCZZAPDKCEWC1J2H/pilot-lab-env.sh
 mkdir -p "$L/src" "$L/fakebin" "$L/fake" "$L/tmux" "$HOME" "$L/projects/proj" "$L/data/$ID"
-cc -O1 -o "$L/src/fakeagent" ~/.no-mistakes/evidence/01M5N1SRZGKH3FMMZ7PQ7A9XBY/fakeagent.c
+cc -O1 -o "$L/src/fakeagent" ~/.no-mistakes/evidence/01M5NA34SBKCZZAPDKCEWC1J2H/fakeagent.c
 for h in pi claude codex kimi opencode grok; do cp "$L/src/fakeagent" "$L/fakebin/$h"; done
 git -C "$L/projects/proj" init -q -b main
 git -C "$L/projects/proj" -c user.name=lab -c user.email=lab@invalid commit -q --allow-empty -m init

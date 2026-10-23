@@ -5,7 +5,7 @@
 # bin/fm-secondmate-restart.sh --failover, which uses the REAL fm-send and
 # fm-control relaunch against a fake mate on the lab's private tmux server.
 set -u
-. ~/.no-mistakes/evidence/01M5N1SRZGKH3FMMZ7PQ7A9XBY/pilot-lab-env.sh
+. ~/.no-mistakes/evidence/01M5NA34SBKCZZAPDKCEWC1J2H/pilot-lab-env.sh
 cd "$WT"
 export FM_QUOTA_FAILOVER_WINDOW_SECS=20 FM_QUOTA_FAILOVER_PERSIST_WAIT=5
 T="$SES:fm-$ID"
@@ -118,6 +118,40 @@ done
 sleep 1; show
 [ "$(pin)" = "$ID pi openai-codex/gpt-6.1-sol low" ] && tail -1 "$FAKE_DIR/launches" | grep -q 'gpt-6.1-sol' \
   && echo "RESULT D: PASS - chain walked kimi -> claude -> codex" || echo "RESULT D: FAIL"
+
+say "PHASE E - return held in its persist phase (no relaunch ran) restores the exact pin and link, then retries after the next clear period"
+export FM_QUOTA_FAILOVER_RESET_SECS=15
+E_PIN=$(pin); E_PID=$(tail -1 "$FAKE_DIR/launches" | sed 's/.*pid=\([0-9]*\).*/\1/'); E_LAUNCHES=$(grep -c . "$FAKE_DIR/launches")
+echo "before: pin=[$E_PIN] pid=$E_PID launches=$E_LAUNCHES; link 2 pool is healthy, reset period shortened to ${FM_QUOTA_FAILOVER_RESET_SECS}s; the fake never answers the persist request"
+for i in $(seq 1 14); do turn "healthy turn on link 2 #$i"; done
+start=$(date +%s); LAST_REPORT=
+while [ $(( $(date +%s) - start )) -lt 75 ]; do
+  turn "healthy turn $N"
+  tick
+  case "$LAST_REPORT" in *"return to chain link 0"*|*"returned to chain link 0"*) break ;; esac
+  sleep 3
+done
+show
+E_PID2=$(tail -1 "$FAKE_DIR/launches" | sed 's/.*pid=\([0-9]*\).*/\1/')
+case "$LAST_REPORT" in *"did not complete; pin restored to link 2"*held:*) e_rep=1 ;; *) e_rep=0 ;; esac
+[ "$e_rep" = 1 ] && [ "$(pin)" = "$E_PIN" ] && grep -q '^link=2$' "$STATE/.quota-failover-$ID" \
+  && [ "$E_PID2" = "$E_PID" ] && [ "$(grep -c . "$FAKE_DIR/launches")" = "$E_LAUNCHES" ] \
+  && echo "RESULT E: PASS - held return restored the exact link-2 pin and link=2; agent pid $E_PID untouched, no relaunch" \
+  || echo "RESULT E: FAIL"
+
+say "PHASE E2 - the held return is retried after the next clear period, still without relaunching"
+start=$(date +%s); reports=0
+while [ $(( $(date +%s) - start )) -lt 45 ]; do
+  turn "healthy turn $N"
+  tick; case "$LAST_REPORT" in *"return to chain link 0"*) reports=$((reports + 1)) ;; esac
+  sleep 3
+done
+attempts=$(cat "$STATE"/pending-replies/* 2>/dev/null | sed -n 's/^created_epoch=//p' | awk -v s="$start" '$1 >= s' | sort -n | tr '\n' ' ')
+echo "return reports in the retry window: $reports; persist-request records created in it: ${attempts:-none}"; show
+[ -n "$attempts" ] && [ "$(pin)" = "$E_PIN" ] && grep -q '^link=2$' "$STATE/.quota-failover-$ID" \
+  && [ "$(grep -c . "$FAKE_DIR/launches")" = "$E_LAUNCHES" ] \
+  && echo "RESULT E2: PASS - the return was retried after a further clear period; pin and link stay on link 2 while unconfirmed" \
+  || echo "RESULT E2: FAIL"
 
 say "launch log (every fake agent incarnation, with its argv)"
 sed 's/^/  /' "$FAKE_DIR/launches" | cut -c1-260

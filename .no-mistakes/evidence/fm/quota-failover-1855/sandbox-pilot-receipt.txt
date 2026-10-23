@@ -1,26 +1,37 @@
-Sandbox fake-429 pilot receipt (test-2 ruling, firstmate inbox 022)
-head under test: dd4abdb81f4dfb9eba946da5a7d9d6497c804bb9 (unchanged; worktree clean)
-Harvested, not re-run: the previous test turn's pilot finished on this exact head before its budget cut.
+Sandbox fake-429 pilot receipt (test-2 ruling, firstmate inbox 021/022)
+head under test: c16652730ac95de97229fbfaa712b6b8338b4dd3 (worktree clean)
+Re-run on this head; the driver is the previous run's harvested pilot (01M5N1SRZGKH3FMMZ7PQ7A9XBY),
+retargeted to this run, plus new phases E/E2 for the persist-phase hold path changed in c1665273.
 
-Transcript: pilot-transcript.txt (19:56:29Z-19:59:54Z, about 3.5 minutes, inside the 15-minute timebox)
-Driver: pilot-lab-env.sh, pilot-seed.sh, pilot-run.sh, fakeagent.c; teardown: pilot-teardown.sh -> pilot-teardown.log
+Transcript: pilot-transcript.txt (21:36:55Z-21:41:02Z, about 4 minutes, inside the 15-minute timebox)
+Driver: pilot-lab-env.sh, pilot-seed.sh (pilot-seed.log), pilot-run.sh, fakeagent.c; teardown: pilot-teardown.sh -> pilot-teardown.log
 
 Sandbox conformance:
-- lab created with mktemp -d under /private/tmp; FM_HOME, FM_STATE_OVERRIDE and FM_CONFIG_OVERRIDE inside it; every inherited FM_* and HERDR_* variable unset first
+- lab made with mktemp -d under /private/tmp and marked by bin/fm-lab-home.sh create; FM_HOME, FM_STATE_OVERRIDE
+  and FM_CONFIG_OVERRIDE inside it; every inherited FM_* and HERDR_* variable unset first
 - invented mate id qf-lab-mate, local tmux backend, no remote_host, on a private tmux server (TMUX_TMPDIR inside the lab)
-- every agent binary on the lab-only PATH (pi, claude, codex, kimi, opencode, grok) is a compiled fake that never contacts a provider; no fm-on, ssh or remote host
-- drives the real bin/fm-quota-failover-lib.sh fm_quota_failover_tick (one fresh process per tick), which calls the real bin/fm-secondmate-restart.sh --failover and the real fm-control relaunch
-- window 20s and persist wait 5s (shortened knobs); chain shaped like netcup: pi kimi-code/kimi-for-coding high -> claude sonnet high -> pi openai-codex/gpt-6.1-sol low
-- teardown killed only the lab's private tmux server and removed the lab directories (pilot-teardown.log)
+- every agent binary on the lab-only PATH (pi, claude, codex, kimi, opencode, grok) is a compiled fake that never
+  contacts a provider (each launch is logged by the fake itself); no fm-on, ssh or remote host
+- drives the real bin/fm-quota-failover-lib.sh fm_quota_failover_tick (one fresh process per tick), which calls the
+  real bin/fm-secondmate-restart.sh --failover / --no-nudge and the real fm-control relaunch
+- window 20s, persist wait 5s, reset 15s in phase E only (shortened knobs); netcup-shaped chain:
+  pi kimi-code/kimi-for-coding high -> claude sonnet high -> pi openai-codex/gpt-6.1-sol low
+- teardown killed only the lab's private tmux server and removed the lab directories; no fake agent left running
 
 Results:
 A  PASS  a static relayed 429 line on a healthy mate held past the window: pin unchanged, no restart
-B  PASS  a sustained injected 429 past the window moved the pin to link 1; the persist request was delivered first (pending-reply record), then the real restart owner relaunched the mate as claude/sonnet
-C  PASS  a restart the control plane refused before touching the agent restored the exact prior pin; link stays 1 and the agent pid is unchanged
+B  PASS  a sustained injected 429 past the window moved the pin to link 1; persist request sent first, then the
+         real restart owner relaunched the mate as claude/sonnet
+C  PASS  a restart the control plane refused before touching the agent restored the exact prior pin; link stays 1,
+         agent pid unchanged
 C2 PASS  the refused failover retried each window without a second report
 D  PASS  with the refusal cause removed, the chain walked on to link 2 (kimi -> claude -> codex)
+E  PASS  (new) a return to link 0 held in its persist phase (mate never confirmed, no relaunch ran) restored the
+         exact link-2 pin and link=2; agent pid unchanged, no new launch
+E2 PASS  (new) the held return was retried after each further clear period (3 persist requests), pin and link stayed on link 2
 
-Not driven live (stop-order, inbox 020): any real or production mate; return to link 0 after the reset period
-(covered only by fixture tests); remote mates.
-
-Supporting fixture run on the same head: fm-quota-failover.test.log, 32/32 ok, rc=0.
+Not driven live: any real or production mate (stop-order, inbox 020); remote mates, including the remote
+keep-target-on-refusal / restore-on-persist-hold branch from 848f43d6 and c1665273 (needs ssh/fm-on, which is
+forbidden); a successful return to link 0 (the fake cannot answer the persist request through the pending-reply
+channel). These are covered only by fixture tests: fm-quota-failover.test.log.
+Supporting fixture run on the same head: fm-quota-failover.test.log, 36/36 ok, rc=0 (includes the four remote-mate refusal/persist-hold cases).
