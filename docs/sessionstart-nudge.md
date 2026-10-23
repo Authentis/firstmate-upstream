@@ -270,7 +270,12 @@ The extension maps Pi events onto wrapper sources:
 - It maps `session_start` reasons `startup`, `new`, `resume`, and `fork` onto wrapper sources.
 - It refines a Pi-reported `startup` to `resume` only when a continuation, resume-selection, or explicit-session flag accompanies a session header older than the current process.
 - It maps a fork flag to `fork`.
-- It handles `session_compact` as the compaction equivalent, queueing the capped re-emit with `deliverAs: "nextTurn"` so neither automatic nor manual compaction triggers a model call of its own.
+- It handles `session_compact` as the compaction equivalent, sending the capped re-emit with `triggerTurn: false`.
+  Manual compaction is idle, so Pi appends it at once.
+  Automatic compaction runs inside an agent run, so Pi holds it until the current turn's tool results land and the run's next model call sees it.
+  Neither path starts or steers a model call of its own.
+- Each compaction re-emit is cut at 40,000 characters plus a loud truncation notice, and the full digest is saved to `state/.reemit-latest.txt` for an on-demand read.
+  Size audit, 2026-10-23: the live `state/.reemit-latest.txt` was 85,247 bytes (85,227 characters, 482 lines), so each compaction now injects under half of it.
 - Pi's `reload` reason is deliberately unmapped, as it always was.
 
 Setup-created entries such as `--name` are not restoration evidence.

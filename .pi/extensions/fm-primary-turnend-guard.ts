@@ -578,9 +578,12 @@ export default function (pi: ExtensionAPI) {
     return message ? { message } : undefined;
   });
 
-  // Pi's compaction equivalent. An optionless sendMessage steers an active
-  // auto-compaction run into another model call and, when idle, starts a turn of
-  // its own, so the capped digest is queued with the next user prompt instead.
+  // Pi's compaction equivalent. An optionless sendMessage steers an active run
+  // into another model call; triggerTurn: false never adds one. Idle (manual)
+  // compaction appends the capped digest at once, and compaction inside a run
+  // holds it until the current turn's tool results land, so the run's next model
+  // call sees it. Unlike nextTurn, it is persisted where a later compaction can
+  // summarize it instead of queueing stale copies for the next user prompt.
   // Manual and automatic compaction share generation ownership and cancellation.
   pi.on?.("session_compact", async (_event, ctx) => {
     registerSessionstartExitListener();
@@ -589,7 +592,7 @@ export default function (pi: ExtensionAPI) {
     const message = await claimSessionstartMessage(generation, ctx);
     if (!message || !sessionstartGenerationIsLive(generation)) return;
     try {
-      pi.sendMessage(message, { deliverAs: "nextTurn" });
+      pi.sendMessage(message, { triggerTurn: false });
     } catch {
       generation.delivered = false;
     }

@@ -752,18 +752,20 @@ assert(truncatedResult?.message?.content.includes("TRUNCATION_PREFIX_14"), "trun
 assert(truncatedResult.message.content.includes("PI SESSION-START DELIVERY TRUNCATED"), "truncated digest was not loud");
 assert(!truncatedResult.message.content.includes("TRUNCATION_SUFFIX_14"), "truncated digest exceeded its bound");
 
-// Compaction keeps its supported asynchronous transport for retry-without-
-// preflight, but it shares the same generation cancellation and exactly-once claim.
+// Compaction sends its message directly rather than through before_agent_start,
+// but it shares the same generation cancellation and exactly-once claim.
 plan(15, "success");
-// Auto-compaction runs inside an active agent run and manual /compact runs idle;
-// both must queue for the next prompt, never steer or start a model call.
+// Auto-compaction runs inside an active agent run and manual /compact runs idle.
+// Pi's sendCustomMessage contract: triggerTurn: false without deliverAs appends
+// idle and defers to the turn's end while streaming, never steering or starting
+// a model call; deliverAs: "nextTurn" would hold it for the next user prompt.
 const compactContext = ctx("session-truncated");
 compactContext.isIdle = () => false;
 await handlers.get("session_compact")({ reason: "threshold" }, compactContext);
 assert(sent.length === 1 && sent[0].content.includes("GENERATION_DIGEST_15"),
   "compaction lost its existing persistent delivery");
-assert(sentOptions[0]?.deliverAs === "nextTurn" && !sentOptions[0].triggerTurn,
-  "auto-compaction re-emit was not a non-triggering nextTurn message");
+assert(sentOptions[0]?.triggerTurn === false && sentOptions[0].deliverAs === undefined,
+  "auto-compaction re-emit was not a non-triggering in-run message");
 assert((await handlers.get("before_agent_start")({ prompt: "post compact" }, compactContext)) === undefined,
   "compaction delivered the same context twice");
 
@@ -780,8 +782,8 @@ plan(17, "success");
 const manualContext = ctx("session-truncated");
 manualContext.isIdle = () => true;
 await handlers.get("session_compact")({ reason: "manual" }, manualContext);
-assert(sent.length === 2 && sentOptions[1]?.deliverAs === "nextTurn" && !sentOptions[1].triggerTurn,
-  "manual compaction re-emit was not a non-triggering nextTurn message");
+assert(sent.length === 2 && sentOptions[1]?.triggerTurn === false && sentOptions[1].deliverAs === undefined,
+  "manual compaction re-emit was not a non-triggering immediate message");
 await waitDead(compactPid, "shutdown left the compaction child alive");
 await waitDead(compactGrandchild, "shutdown left a compaction grandchild alive");
 JS
@@ -1028,8 +1030,8 @@ for (let round = 1; round <= 3; round++) {
   await handlers.get("session_compact")({}, ctx);
   if (sent.length !== round) throw new Error(`round ${round}: expected one nudge, saw ${sent.length}`);
   const options = sentOptions[round - 1];
-  if (options?.deliverAs !== "nextTurn" || options.triggerTurn) {
-    throw new Error(`round ${round}: compaction nudge must be non-triggering nextTurn, saw ${JSON.stringify(options)}`);
+  if (options?.triggerTurn !== false || options.deliverAs !== undefined) {
+    throw new Error(`round ${round}: compaction nudge must be non-triggering, saw ${JSON.stringify(options)}`);
   }
   const content = sent[round - 1].content;
   if (content.length > 45000) throw new Error(`round ${round}: nudge was ${content.length} characters`);

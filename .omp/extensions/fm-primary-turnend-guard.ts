@@ -571,9 +571,10 @@ export default function (pi: ExtensionAPI) {
     return message ? { message } : undefined;
   });
 
-  // omp's compaction equivalent, delivered the way Pi's is: manual compaction
-  // is idle and auto-compaction may retry without another before_agent_start,
-  // so the message is sent directly while sharing generation ownership.
+  // omp's compaction equivalent. Manual compaction is idle and auto-compaction
+  // may retry without another before_agent_start, so the message is sent
+  // directly while sharing generation ownership. Pi's adapter passes
+  // triggerTurn: false; omp's delivery options are not verified, so none are set.
   pi.on?.("session_compact", async (_event, ctx) => {
     registerSessionstartExitListener();
     const generation = createSessionstartGeneration("compact", sessionIdFromContext(ctx));
