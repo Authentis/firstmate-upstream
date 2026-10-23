@@ -54,6 +54,27 @@ case "${FM_TEST_RESTART:-ok}" in
     printf "held: %s: the restart was refused before its agent was touched: another lifecycle action is already running for task %s\n" "$id" "$id"
     printf 'summary: 0 of 1 restarted, 0 nudged, 0 unreached, 1 held\n'
     exit 3 ;;
+  concurrent)
+    # Another relaunch took the control lock after the pin moved, so it
+    # relaunched the mate onto that pin, and this restart was refused.
+    meta="$FM_STATE_OVERRIDE/$id.meta"
+    { grep -v -e '^harness=' -e '^model=' -e '^effort=' "$meta"
+      printf 'harness=%s\nmodel=%s\neffort=%s\n' $(grep "^$id " "$FM_CONFIG_OVERRIDE/secondmate-harness" | cut -d' ' -f2-); } > "$meta.new"
+    mv -f "$meta.new" "$meta"
+    printf "held: %s: the restart was refused before its agent was touched: another lifecycle action is already running for task %s\n" "$id" "$id"
+    printf 'summary: 0 of 1 restarted, 0 nudged, 0 unreached, 1 held\n'
+    exit 3 ;;
+  lockheld)
+    # Another lifecycle action takes the control lock as this restart is refused.
+    ( . "$FM_TEST_BIN/fm-wake-lib.sh"
+      fm_lock_try_acquire "$FM_STATE_OVERRIDE/.control-$id.lock" || exit 1
+      : > "$FM_STATE_OVERRIDE/../locked"
+      while [ ! -e "$FM_STATE_OVERRIDE/../release" ]; do sleep 0.1; done
+      fm_lock_release "$FM_STATE_OVERRIDE/.control-$id.lock" ) </dev/null >/dev/null 2>&1 &
+    for _ in $(seq 1 100); do [ -e "$FM_STATE_OVERRIDE/../locked" ] && break; sleep 0.05; done
+    printf "held: %s: the restart was refused before its agent was touched: another lifecycle action is already running for task %s\n" "$id" "$id"
+    printf 'summary: 0 of 1 restarted, 0 nudged, 0 unreached, 1 held\n'
+    exit 3 ;;
   unknown)
     printf "unreached: %s: the restart outcome is unknown: %s's agent was stopped but the replacement did not launch\n" "$id" "$id"
     printf 'summary: 0 of 1 restarted, 0 nudged, 1 unreached, 0 held\n'
@@ -113,7 +134,7 @@ again() {  # [text]
 # shellcheck disable=SC2016 # Expanded by the child shell, not here.
 tick() {  # <now>
   env -u FM_HOME PATH="$FAKEBIN:$PATH" STATE="$HOME_DIR/state" \
-    FM_CONFIG_OVERRIDE="$HOME_DIR/config" FM_TEST_ID="$ID" \
+    FM_CONFIG_OVERRIDE="$HOME_DIR/config" FM_TEST_ID="$ID" FM_TEST_BIN="$BIN" \
     FM_TEST_CALLS="$HOME_DIR/calls" FM_TEST_PANE="$HOME_DIR/pane" \
     FM_TEST_TMUX_LOG="$HOME_DIR/tmux.log" \
     FM_QUOTA_FAILOVER_WINDOW_SECS=60 FM_QUOTA_FAILOVER_RESET_SECS=600 \
@@ -452,6 +473,32 @@ assert_equals 1 "$(state_field link)" "an unknown restart outcome records the ta
 assert_equals 1060 "$(state_field left0)" "an unknown restart outcome still counts as leaving link 0"
 assert_contains "$out" "unknown restart outcome; pin kept on link 1: unreached: $ID:" "an unknown outcome is reported"
 pass "an unknown restart outcome keeps the pin on the target link instead of the exhausted one"
+
+# A relaunch of the mate started after the pin moved and before the quota
+# restart's own relaunch, so it runs the target link and this restart is refused.
+new_home concurrent
+pane '429 Too Many Requests'
+tick 1000 >/dev/null
+again
+out=$(FM_TEST_RESTART=concurrent tick 1060)
+assert_equals "$ID codex model-c low" "$(pin)" "a refusal must not restore the pin under a mate running the target link"
+assert_equals 1 "$(state_field link)" "the target link stays recorded"
+assert_contains "$out" "pin kept on link 1: unreached: $ID: a concurrent relaunch already runs the mate on the target link" \
+  "the kept pin is reported as an unknown outcome"
+pass "a refusal caused by a concurrent relaunch onto the target link keeps the target pin"
+
+# Another lifecycle action holds the control lock when the refusal would restore.
+new_home restorelock
+pane '429 Too Many Requests'
+tick 1000 >/dev/null
+again
+out=$(FM_TEST_RESTART=lockheld tick 1060)
+: > "$HOME_DIR/release"
+assert_equals "$ID codex model-c low" "$(pin)" "the pin is never restored without the control lock"
+assert_equals 1 "$(state_field link)" "the target link stays recorded when the restore cannot take the lock"
+assert_contains "$out" "another lifecycle action held the control lock, so the target pin was kept" \
+  "the skipped restore is reported"
+pass "a refusal restores the prior pin only while holding the mate's control lock"
 
 new_home refused
 pane '429 Too Many Requests'

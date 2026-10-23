@@ -98,8 +98,11 @@
 #     moves; a held lock refuses the failover as above. The lock is released
 #     before the restart owner runs, because the control plane takes it itself
 #     for the relaunch. A relaunch that starts in that gap runs onto the moved
-#     pin, and the quota restart's own relaunch is then refused and restores
-#     the prior pin under the mate that relaunch left running. Every rewrite
+#     pin, and the quota restart's own relaunch is then refused. The restore
+#     after a refusal retakes the control lock and keeps the target pin,
+#     reporting an unknown outcome, when that lock stays busy, when the mate's
+#     record already shows it running the target link, or when the write back
+#     fails, so the pin never reverts under a mate running the target. Every rewrite
 #     of config/secondmate-harness, for any mate, holds
 #     state/.quota-failover-pin.lock across its read-modify-rename, so
 #     overlapping passes cannot lose each other's pin updates.
@@ -424,6 +427,31 @@ fm_quota_failover_link_valid() {  # <id> <harness> <model> <effort>
     && "$FM_QF_LIB_DIR/fm-harness.sh" validate-native-effort "$2" "$3" "$4" 2>&1
 }
 
+# Put <prior-line> back as <id>'s pin under its control lock, so no relaunch
+# can be resolving the pin while it moves back. Fails, keeping the target pin,
+# when the lock stays busy, when a relaunch that started after the lock was
+# released already runs the mate on <target-profile>, or when the write fails;
+# FM_QF_RESTORE_WHY says which.
+fm_quota_failover_restore() {  # <id> <prior-line> <target-profile> <control-lock>
+  local id=$1 prior=$2 profile=$3 control=$4 meta running rc=0
+  FM_QF_RESTORE_WHY=''
+  if ! fm_lock_acquire_wait_max "$control" 30; then
+    FM_QF_RESTORE_WHY="another lifecycle action held the control lock, so the target pin was kept"
+    return 1
+  fi
+  meta="$STATE/$id.meta"
+  running="$(fm_meta_get "$meta" harness) $(fm_meta_get "$meta" model) $(fm_meta_get "$meta" effort)"
+  if [ "$running" = "$profile" ]; then
+    FM_QF_RESTORE_WHY="a concurrent relaunch already runs the mate on the target link, so the target pin was kept"
+    rc=1
+  elif ! fm_quota_failover_put_pin "$id" "$prior"; then
+    FM_QF_RESTORE_WHY="the prior pin could not be written back, so the target pin was kept"
+    rc=1
+  fi
+  fm_lock_release "$control" || true
+  return "$rc"
+}
+
 # Move <id> to chain link <target> (of the chain in <chain-text>) and restart it
 # persist-first. <mode> failover lets the restart proceed when the wedged mate
 # cannot answer the persist request; <mode> ordinary keeps the ordinary gate.
@@ -475,7 +503,12 @@ fm_quota_failover_apply() {  # <id> <chain-text> <target> <failover|ordinary> <n
       return "$rc"
     fi
   fi
-  [ "$pinned" = 0 ] || fm_quota_failover_put_pin "$id" "$prior" || true
+  if [ "$pinned" = 1 ] && ! fm_quota_failover_restore "$id" "$prior" "$profile" "$control"; then
+    FM_QF_UNKNOWN=1
+    FM_QF_OUT="unreached: $id: $FM_QF_RESTORE_WHY"$'\n'"$FM_QF_OUT"
+    FM_QF_CLEAR_SINCE=$now
+    return "$rc"
+  fi
   FM_QF_LINK=$from FM_QF_LEFT0=$left0 FM_QF_EPISODE=$episode FM_QF_RECURRED=$recurred
   FM_QF_FIRST_SEEN='' FM_QF_CLEAR_SINCE=''
   [ "$mode" != failover ] || FM_QF_FIRST_SEEN=$now
