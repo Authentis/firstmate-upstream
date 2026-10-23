@@ -224,6 +224,20 @@ tick 1400 >/dev/null
 assert_equals 0 "$(calls)" "one unchanged error line seen again past the window must not fail the mate over"
 pass "a single static quota error line, such as a relayed crew error, never advances the chain"
 
+# A spinner or status line redrawing in place below a static error is not a
+# new error.
+new_home staticredraw
+for t in 1000 1030 1060 1090 1120 1400; do
+  pane "relayed from crew-one: API Error: 429 Too Many Requests
+* Working ($((t - 997))s)
+? for shortcuts"
+  tick "$t" >/dev/null
+done
+assert_equals 1000 "$(state_field first_seen)" "the relayed error line is sighted once"
+assert_equals "" "$(state_field recurred)" "a redraw below a static error line never recurs"
+assert_equals 0 "$(calls)" "a static error line with only a ticking spinner below it must not fail the mate over"
+pass "a static quota error line with only an in-place redraw below it never advances the chain"
+
 # The lines around static errors scrolling - the line before one leaving the
 # newest lines, then an older error leaving them too - is not a new error.
 new_home staticscroll

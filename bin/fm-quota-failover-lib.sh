@@ -30,13 +30,14 @@
 #     endpoint's scrollback.
 #   - Recurrence: each capture showing a signature is kept in
 #     state/.quota-failover-<id>.seen. A sighting is a capture holding more
-#     signature lines than the previous one, or one whose newest lines changed
-#     while its newest signature line stayed no farther from the bottom. A
-#     wedged agent printing the same error every turn therefore keeps counting
-#     even once that error fills the newest lines, while one static error
-#     line - a relayed crew error, or the old agent's last words - never counts
-#     twice, whether it sits unchanged or the agent's later output scrolls it
-#     upward.
+#     signature lines than the previous one, or one whose lines up to and
+#     including the newest signature line changed while that line stayed no
+#     farther from the bottom; lines below it are ignored. A wedged agent
+#     printing the same error every turn therefore keeps counting even once
+#     that error fills the newest lines, while one static error line - a
+#     relayed crew error, or the old agent's last words - never counts twice,
+#     whether it sits unchanged, a spinner or status line below it redraws in
+#     place, or the agent's later output scrolls it upward.
 #   - Window: the first sighting is recorded durably in
 #     state/.quota-failover-<id>, so the sustained window survives watcher
 #     restarts. A clear capture resets it.
@@ -127,28 +128,31 @@ fm_quota_failover_covered() {  # <matches> <stale-file>
   printf '%s\n' "$1" | awk 'NR == FNR { n[$0]++; next } { if (--n[$0] < 0) bad = 1 } END { exit bad }' "$2" -
 }
 
-# Print "<signature lines> <lines after the newest signature line>" for <text>.
+# Print "<signature lines> <lines after the newest signature line> <its line
+# number>" for <text>.
 fm_quota_failover_shape() {  # <text>
   local total last count
   total=$(printf '%s\n' "$1" | grep -c '')
   count=$(printf '%s\n' "$1" | grep -Eic "${FM_QF_SIGNATURES[@]}")
   last=$(printf '%s\n' "$1" | grep -Ein "${FM_QF_SIGNATURES[@]}" | tail -n 1 | cut -d: -f1)
-  printf '%s %s\n' "${count:-0}" "$((total - ${last:-$total}))"
+  printf '%s %s %s\n' "${count:-0}" "$((total - ${last:-$total}))" "${last:-0}"
 }
 
 # Succeeds when <pane> shows a new quota error against the capture recorded in
 # <previous-file>: none was recorded, more signature lines are on screen, or
-# the newest lines changed while the newest signature line stayed no farther
-# from the bottom - a fresh error printed where the last one was, rather than
-# an old one scrolled upward by later output.
+# the lines up to and including the newest signature line changed while that
+# line stayed no farther from the bottom - a fresh error printed where the
+# last one was, rather than an old one scrolled upward by later output or one
+# whose only change is a redraw below it.
 fm_quota_failover_recurs() {  # <pane> <previous-file>
-  local previous count after previous_count previous_after
+  local previous count after last previous_count previous_after previous_last
   [ -f "$2" ] || return 0
   previous=$(cat "$2")
-  read -r count after <<< "$(fm_quota_failover_shape "$1")"
-  read -r previous_count previous_after <<< "$(fm_quota_failover_shape "$previous")"
+  read -r count after last <<< "$(fm_quota_failover_shape "$1")"
+  read -r previous_count previous_after previous_last <<< "$(fm_quota_failover_shape "$previous")"
   [ "$count" -gt "$previous_count" ] && return 0
-  [ "$1" != "$previous" ] && [ "$after" -le "$previous_after" ]
+  [ "$after" -le "$previous_after" ] || return 1
+  [ "$(printf '%s\n' "$1" | head -n "$last")" != "$(printf '%s\n' "$previous" | head -n "$previous_last")" ]
 }
 
 # Print the chain for <id>, one "<harness> <model> <effort>" line per link in
