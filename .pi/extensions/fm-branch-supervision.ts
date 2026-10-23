@@ -1697,7 +1697,8 @@ ${context.command}
     // getEntries() here loses the captain request that the next wake may answer.
     // Stage it verbatim and remember the future persisted index for turn_end's
     // duplicate suppression. Operational extension injections are not dialog.
-    const prompt = event.prompt;
+    // BeforeAgentStartEvent is a union: only the user-prompt variant has .prompt.
+    const prompt = "prompt" in event ? event.prompt : undefined;
     processingOpenedThisRun = queuedProcessingContent !== null && typeof prompt === "string" && prompt === queuedProcessingContent;
     // pi 1.2.0 builds before_agent_start as {...trigger, ...} and trigger
     // carries no .prompt on continuation turns: fall back to the trigger

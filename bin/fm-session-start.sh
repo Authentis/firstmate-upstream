@@ -176,6 +176,39 @@
 # status log path, and AGENTS.md section 8 treats a status line as a wake EVENT
 # rather than current state - bin/fm-crew-state.sh owns current state.
 #
+# CONTEXT RE-EMIT STATE SUMMARY: a locked --reemit replaces the FLEET STATE
+# record dump (every meta line, every status tail, the whole backlog listing)
+# with current STATE, because a compacted session needs what is open now, not
+# a replay of the log - one observed re-emit spent 66KB there.
+#   - OPEN ITEMS is mandatory and never cut: one entry per state/*.meta with
+#     its kind, mode, yolo, and endpoint liveness; for a ship or scout its
+#     branch, the exact worktree HEAD (a bounded local git read), and its
+#     recorded pr=/pr_head= with a PR state read from local merge evidence only
+#     (the merge-notified marker or retirement receipt bin/fm-pr-lib.sh owns,
+#     else whether its merge poll is armed; no forge call); the latest status
+#     event with its identical repeats collapsed to a count (bin/fm-classify-
+#     lib.sh's retry identity) and the other events in the classifier's event
+#     window folded into one earlier-event count; its open decision keys from
+#     the same incremental fold the drain just refreshed, the newest four by
+#     name and the rest as a count (OPEN DECISIONS in the wake queue and the
+#     status log carry every key and note); and every receipt path its open
+#     decisions, latest event, last FM_SESSION_START_STATUS_TAIL lines, and
+#     data/<id>/report.md cite, uncapped so each path stays exact.
+#   - Resolved and superseded status history is dropped, and status logs whose
+#     task record is gone (cleaned-up work) collapse to a count and their ids.
+#   - FM_SESSION_START_REEMIT_STATE_BYTES (default 15000) bounds the whole
+#     summary in bytes, its lede and its closing tally included, and the tally
+#     counts its own line. The lede, OPEN ITEMS, the backlog counts, every cut
+#     disclosure, and the tally are mandatory; the held, blocked, untracked
+#     in-flight, and ready backlog rows, then the closed-log ids, print in that
+#     order only while the exact whole still fits, and every cut is disclosed
+#     with its count and command. So the summary overruns its budget only when
+#     its mandatory lines alone do, and then only they print and the tally says
+#     so.
+# The wake queue, the supervision block, any AGENTS.md refresh, and CONTEXT
+# keep their own owners and bounds. A read-only re-emit drained nothing, so it
+# keeps the full dump instead of a fold no lock-holding drain refreshed.
+#
 # RUNTIME BOUND: the digest is now executed through a native session-open
 # adapter (see bin/fm-sessionstart-run.sh), which blocks either hook-driven
 # session initialization or Pi's first provider preflight while it runs, so an
@@ -213,7 +246,8 @@
 #             sync, same-home backlog reconciliation, secondmate convergence and
 #             liveness, pending remote handoff retry, X-mode
 #             artifact writes) - and
-#             re-emit the rest. Wake-queue presentation is NOT skipped: queued
+#             re-emit the rest, with FLEET STATE as the capped state summary
+#             described above. Wake-queue presentation is NOT skipped: queued
 #             records are this turn's work queue, they arrived after startup,
 #             and a session that owns the lock is exactly the session that must
 #             handle and acknowledge them. Lock acquisition still runs, because
@@ -403,6 +437,10 @@ PRIMARY_HARNESS=$("$SCRIPT_DIR/fm-harness.sh" 2>/dev/null || printf unknown)
 . "$SCRIPT_DIR/fm-line-cap-lib.sh"
 # shellcheck source=bin/fm-hold-reason-lib.sh
 . "$SCRIPT_DIR/fm-hold-reason-lib.sh"
+# shellcheck source=bin/fm-classify-lib.sh
+. "$SCRIPT_DIR/fm-classify-lib.sh"
+# shellcheck source=bin/fm-pr-lib.sh
+. "$SCRIPT_DIR/fm-pr-lib.sh"
 
 # One tasks-axi compatibility verdict per session start. The probe costs three
 # tasks-axi subprocesses and this digest needs the same answer twice - here for
@@ -417,6 +455,11 @@ STATUS_TAIL=${FM_SESSION_START_STATUS_TAIL:-5}
 case "$STATUS_TAIL" in ''|*[!0-9]*) STATUS_TAIL=5 ;; esac
 QUEUED_LIMIT=${FM_SESSION_START_QUEUED_LIMIT:-20}
 case "$QUEUED_LIMIT" in ''|*[!0-9]*|0) QUEUED_LIMIT=20 ;; esac
+# The whole re-emit state summary's byte budget; only its mandatory lines
+# print past it.
+REEMIT_STATE_BYTES=${FM_SESSION_START_REEMIT_STATE_BYTES:-15000}
+case "$REEMIT_STATE_BYTES" in ''|*[!0-9]*) REEMIT_STATE_BYTES=15000 ;; esac
+[ "$REEMIT_STATE_BYTES" -gt 0 ] 2>/dev/null || REEMIT_STATE_BYTES=15000
 # One per-task endpoint read may never outlive this bound: a hung backend CLI
 # becomes that task's endpoint: error line instead of the digest's whole
 # runtime budget.
@@ -600,6 +643,645 @@ print_status_tail() {
   while IFS= read -r line || [ -n "$line" ]; do
     fm_cap_line "$line"
   done < <(tail -n "$STATUS_TAIL" "$status")
+}
+
+# endpoint_verdict <meta> <id>: one bounded endpoint-liveness read, shared by
+# the full record dump and the re-emit state summary. Sets ENDPOINT_VERDICT
+# (alive, dead, error, or unknown when no window is recorded), ENDPOINT_BACKEND,
+# and ENDPOINT_WINDOW.
+endpoint_verdict() {
+  local meta=$1 id=$2 target endpoint_rc=0
+  ENDPOINT_WINDOW=$(fm_meta_get "$meta" window)
+  ENDPOINT_BACKEND=
+  if [ -z "$ENDPOINT_WINDOW" ]; then
+    ENDPOINT_VERDICT=unknown
+    return 0
+  fi
+  target=$(fm_backend_target_of_meta "$meta")
+  ENDPOINT_BACKEND=$(fm_backend_of_meta "$meta")
+  fm_session_start_endpoint_read "$ENDPOINT_BACKEND" "${target:-$ENDPOINT_WINDOW}" "fm-$id" || endpoint_rc=$?
+  # Only the timeout owner's own statuses mean the read itself failed: 124 is
+  # the bound firing and >=128 is a signal death. Every other nonzero status
+  # is the probe's own verdict that the endpoint is gone.
+  if [ "$endpoint_rc" -eq 0 ]; then
+    ENDPOINT_VERDICT=alive
+  elif [ "$endpoint_rc" -eq 124 ] || [ "$endpoint_rc" -ge 128 ]; then
+    ENDPOINT_VERDICT=error
+  else
+    ENDPOINT_VERDICT=dead
+  fi
+}
+
+endpoint_verdict_line() {  # the record dump's endpoint line for the last endpoint_verdict
+  case "$ENDPOINT_VERDICT" in
+    unknown) printf 'endpoint: unknown (no window recorded)\n' ;;
+    error)
+      printf 'endpoint: error (backend=%s window=%s - the endpoint read died or hit its %ss bound; the digest continued past it)\n' \
+        "$ENDPOINT_BACKEND" "$ENDPOINT_WINDOW" "$ENDPOINT_TIMEOUT"
+      ;;
+    *) printf 'endpoint: %s (backend=%s window=%s)\n' "$ENDPOINT_VERDICT" "$ENDPOINT_BACKEND" "$ENDPOINT_WINDOW" ;;
+  esac
+}
+
+# print_fleet_records_full: the startup record dump - the compact backlog
+# listing, every state/*.meta with its endpoint line and status tail, and the
+# orphan status logs.
+print_fleet_records_full() {
+  local meta id kind status record found=0
+  print_backlog_compact "$DATA/backlog.md" "data/backlog.md"
+
+  subsection "Work under way (state/*.meta)"
+  # A home can hold hundreds of finished ship records. Full detail is kept for
+  # secondmates, records with a status file, and any endpoint that is not
+  # provably dead; a dead-endpoint record with no status file is only counted and
+  # named. A context re-emit that reaches this dump is additionally bounded by
+  # FM_SESSION_START_REEMIT_WORK_MAX_BYTES so the re-injected message stays small.
+  local work_max_bytes=${FM_SESSION_START_REEMIT_WORK_MAX_BYTES:-40000}
+  local work_ids_max=${FM_SESSION_START_COLLAPSED_IDS_MAX:-40}
+  local work_bytes=0 collapsed_count=0 collapsed_ids='' omitted_count=0 omitted_ids=''
+  for meta in "$STATE"/*.meta; do
+    [ -f "$meta" ] || continue
+    found=1
+    id=$(basename "$meta" .meta)
+    kind=$(fm_meta_get "$meta" kind)
+    status="$STATE/$id.status"
+    endpoint_verdict "$meta" "$id"
+    if [ "$kind" != secondmate ] && [ ! -f "$status" ] && [ "$ENDPOINT_VERDICT" = dead ]; then
+      collapsed_count=$((collapsed_count + 1))
+      [ "$collapsed_count" -gt "$work_ids_max" ] || collapsed_ids="$collapsed_ids $id"
+      continue
+    fi
+    record=$(
+      printf '\n--- %s ---\n' "$id"
+      cat "$meta"
+      endpoint_verdict_line
+      if [ -f "$status" ]; then
+        print_status_tail "$status"
+      else
+        printf 'status tail: (no status file yet: %s)\n' "$status"
+      fi
+    )
+    if [ "$REEMIT" -eq 1 ] && [ "$kind" != secondmate ] \
+      && [ $((work_bytes + ${#record})) -gt "$work_max_bytes" ]; then
+      omitted_count=$((omitted_count + 1))
+      [ "$omitted_count" -gt "$work_ids_max" ] || omitted_ids="$omitted_ids $id"
+      continue
+    fi
+    work_bytes=$((work_bytes + ${#record}))
+    printf '%s\n' "$record"
+  done
+  [ "$found" -eq 1 ] || printf '(none)\n'
+  if [ "$collapsed_count" -gt 0 ]; then
+    printf '\n%s record(s) with a dead endpoint and no status file collapsed (finished or never started):%s' \
+      "$collapsed_count" "$collapsed_ids"
+    [ "$collapsed_count" -le "$work_ids_max" ] || printf ' ... (+%s more)' $((collapsed_count - work_ids_max))
+    printf '\nRead one on demand: cat %s/<id>.meta\n' "$STATE"
+  fi
+  if [ "$omitted_count" -gt 0 ]; then
+    printf '\n●  CONTEXT RE-EMIT TRUNCATED - %s more record(s) omitted to keep this section under %s bytes:%s' \
+      "$omitted_count" "$work_max_bytes" "$omitted_ids"
+    [ "$omitted_count" -le "$work_ids_max" ] || printf ' ... (+%s more)' $((omitted_count - work_ids_max))
+    printf '\n●  Read on demand: bin/fm-crew-state.sh, or cat %s/<id>.meta and %s/<id>.status.\n' "$STATE" "$STATE"
+  fi
+
+  subsection "Orphan status logs (state/*.status without matching .meta)"
+  found=0
+  for status in "$STATE"/*.status; do
+    [ -f "$status" ] || continue
+    id=$(basename "$status" .status)
+    [ -f "$STATE/$id.meta" ] && continue
+    found=1
+    printf '\n--- %s ---\n' "$id"
+    print_status_tail "$status"
+  done
+  [ "$found" -eq 1 ] || printf '(none)\n'
+}
+
+# --- context re-emit state summary --------------------------------------------
+# This file's header ("CONTEXT RE-EMIT STATE SUMMARY") owns what it keeps and
+# drops. Every printed line is charged to REEMIT_STATE_USED in bytes. The
+# optional rows after OPEN ITEMS are gathered into groups before anything after
+# OPEN ITEMS prints, so each is admitted only when the exact size of the whole
+# summary with it, the closing tally included, stays within the budget.
+REEMIT_STATE_USED=0
+REEMIT_STATE_DIR=state
+REEMIT_RECEIPTS=
+REEMIT_OPEN_KEY_LIMIT=4
+# Each summarized event or backlog row keeps its lede within this many
+# characters; the full log or listing command reaches the rest.
+REEMIT_LINE_CAP=160
+# The optional groups, in print and admission order: group g owns
+# REEMIT_G_TOTAL[g] rows of REEMIT_ROWS from REEMIT_G_FIRST[g], of which the
+# first REEMIT_G_SHOWN[g] print, and REEMIT_ROW_CUM[k] is the byte cost of every
+# row before row k.
+REEMIT_G_COUNT=0
+REEMIT_G_KIND=()
+REEMIT_G_LABEL=()
+REEMIT_G_COMMAND=()
+REEMIT_G_FIRST=()
+REEMIT_G_TOTAL=()
+REEMIT_G_SHOWN=()
+REEMIT_ROWS=()
+REEMIT_ROW_CUM=(0)
+REEMIT_BACKLOG_LINES=()
+REEMIT_IDS_LEAD='  ids:'
+
+reemit_bytes() {  # <text>: its length in bytes, in REEMIT_BYTES
+  local LC_ALL=C
+  REEMIT_BYTES=${#1}
+}
+
+reemit_state_put() {  # <line>: print one line and charge it to the budget
+  local LC_ALL=C
+  printf '%s\n' "$1"
+  REEMIT_STATE_USED=$((REEMIT_STATE_USED + ${#1} + 1))
+}
+
+reemit_state_subsection() {  # <label>
+  reemit_state_put ''
+  reemit_state_put "$1"
+  reemit_state_put "$SUBRULE"
+}
+
+# reemit_receipts_add <text>: append every file path <text> cites to the
+# newline-separated REEMIT_RECEIPTS, keeping the first citation of each. A path
+# is an absolute path with at least two components, or one under data/ or
+# state/; URLs are PR identities, not receipts. A path inside this home is
+# kept relative to it, the spelling the summary's lede names, so one receipt
+# cited both ways is listed once.
+reemit_receipts_add() {
+  local word
+  local -a words=()
+  read -r -a words <<<"$1" || true
+  for word in "${words[@]+"${words[@]}"}"; do
+    case "$word" in *://*) continue ;; esac
+    while :; do
+      case "$word" in [\(\"\'\`\<\[]*) word=${word#?} ;; *) break ;; esac
+    done
+    case "$word" in [A-Za-z_]*=/*) word=${word#*=} ;; esac
+    while :; do
+      case "$word" in *[.,\;:\)\"\'\`\>\]]) word=${word%?} ;; *) break ;; esac
+    done
+    case "$word" in /?*/?*|data/?*|state/?*) ;; *) continue ;; esac
+    case "$word" in "$FM_HOME"/?*) word=${word#"$FM_HOME"/} ;; esac
+    case $'\n'"$REEMIT_RECEIPTS" in *$'\n'"$word"$'\n'*) continue ;; esac
+    REEMIT_RECEIPTS="$REEMIT_RECEIPTS$word"$'\n'
+  done
+}
+
+reemit_worktree_head() {  # <meta>: the exact worktree HEAD, or why it is unknown
+  local meta=$1 wt remote head
+  wt=$(fm_meta_get "$meta" worktree)
+  remote=$(fm_meta_get "$meta" remote_host)
+  if [ -n "$remote" ]; then
+    printf 'unknown(worktree on %s)' "$remote"
+  elif [ -z "$wt" ]; then
+    printf 'unknown(no worktree recorded)'
+  elif [ ! -d "$wt" ]; then
+    printf 'unknown(worktree missing)'
+  elif head=$(fm_run_timed "$ENDPOINT_TIMEOUT" git -C "$wt" rev-parse --verify --quiet 'HEAD^{commit}' 2>/dev/null) \
+    && fm_pr_head_valid "$head"; then
+    printf '%s' "$head"
+  else
+    printf 'unknown(worktree HEAD unreadable)'
+  fi
+}
+
+# reemit_pr_state <meta> <id>: the recorded PR's state from local merge evidence
+# only - the same records bin/fm-afk-return.sh and bin/fm-crew-state.sh accept -
+# never a forge read.
+reemit_pr_state() {
+  local meta=$1 id=$2
+  if fm_pr_metadata_identity_parse "$meta" \
+    && fm_pr_poll_merge_already_notified "$STATE" "$id" \
+      "$FM_PR_META_PROVIDER" "$FM_PR_META_HOST" "$FM_PR_META_PATH" "$FM_PR_META_NUMBER"; then
+    printf 'merged(merge record)'
+  elif fm_pr_poll_retirement_receipt_valid "$STATE" "$id"; then
+    printf 'merged(retirement receipt)'
+  elif [ -f "$STATE/$id.pr-poll" ] && [ -f "$STATE/$id.check.sh" ]; then
+    printf 'watching(merge poll armed, no merge recorded)'
+  else
+    printf 'unwatched(no merge poll or merge record)'
+  fi
+}
+
+# reemit_status_state <status-file>: the latest event with its identical
+# repeats collapsed to a count and the other events in the classifier's event
+# window collapsed to one earlier-event count, the task's open decision keys,
+# and the receipts those lines cite.
+reemit_status_state() {
+  local status=$1 latest want line untimed verb repeats=0 earlier=0 label
+  local open row key rest i shown=0 keys='' entry
+  local -a lines=() rows=()
+  latest=$(last_status_line "$status")
+  _fm_status_untimed "$latest" want
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in *[![:space:]]*) ;; *) continue ;; esac
+    _fm_status_untimed "$line" untimed
+    if [ "$untimed" = "$want" ]; then
+      repeats=$((repeats + 1))
+      continue
+    fi
+    case "$line" in *:*) status_line_verb "$line" verb ;; *) continue ;; esac
+    _fm_status_verb_recognized "$verb" && earlier=$((earlier + 1))
+  done < <(tail -n "$FM_CLASSIFY_EVENT_WINDOW_LINES" "$status" 2>/dev/null)
+
+  if [ -z "$latest" ]; then
+    reemit_state_put "  latest event: (empty status log)"
+  else
+    label="latest event"
+    [ "$repeats" -le 1 ] || label="$label x$repeats"
+    [ "$earlier" -eq 0 ] || label="$label (+$earlier earlier)"
+    fm_cap_line_var "$latest" "$REEMIT_LINE_CAP"
+    reemit_state_put "  $label: $FM_LINE_CAP_LINE"
+  fi
+
+  open=$(status_open_decisions_incremental "$status") || open=
+  while IFS= read -r row; do
+    [ -n "$row" ] && rows[${#rows[@]}]=$row
+  done <<EOF
+$open
+EOF
+  # Newest first: the fold lists the most recently opened decision last.
+  i=${#rows[@]}
+  while [ "$i" -gt 0 ]; do
+    i=$((i - 1))
+    row=${rows[i]}
+    key=${row%%$'\t'*}
+    rest=${row#*$'\t'}
+    if [ "$shown" -lt "$REEMIT_OPEN_KEY_LIMIT" ]; then
+      keys="$keys${keys:+, }$key(${rest%%$'\t'*})"
+      shown=$((shown + 1))
+    fi
+    reemit_receipts_add "${rest#*$'\t'}"
+  done
+  if [ "${#rows[@]}" -gt 0 ]; then
+    entry="  open decisions (${#rows[@]}): $keys"
+    [ "${#rows[@]}" -le "$shown" ] || entry="$entry, +$((${#rows[@]} - shown)) more"
+    reemit_state_put "$entry"
+  fi
+
+  # After the open decisions' receipts, newest first: the latest event, then
+  # the recent tail.
+  reemit_receipts_add "$latest"
+  while IFS= read -r line || [ -n "$line" ]; do
+    lines[${#lines[@]}]=$line
+  done < <(tail -n "$STATUS_TAIL" "$status" 2>/dev/null)
+  i=${#lines[@]}
+  while [ "$i" -gt 0 ]; do
+    i=$((i - 1))
+    reemit_receipts_add "${lines[i]}"
+  done
+}
+
+reemit_state_task_entry() {  # <meta>
+  local meta=$1 id kind mode yolo branch head pr pr_head line status path listed=''
+  id=$(basename "$meta" .meta)
+  kind=$(fm_meta_get "$meta" kind)
+  [ -n "$kind" ] || kind=ship
+  mode=$(fm_meta_get "$meta" mode)
+  [ "$mode" != "$kind" ] || mode=
+  yolo=$(fm_meta_get "$meta" yolo)
+  endpoint_verdict "$meta" "$id"
+  line="- $id [$kind${mode:+ $mode}${yolo:+ yolo=$yolo}] endpoint=$ENDPOINT_VERDICT"
+  # A dead endpoint has no window worth opening, so only a live or unread one
+  # names it.
+  case "$ENDPOINT_VERDICT" in
+    unknown) line="$line(no window recorded)" ;;
+    error) line="$line($ENDPOINT_BACKEND $ENDPOINT_WINDOW: the read died or hit its ${ENDPOINT_TIMEOUT}s bound)" ;;
+    alive) line="$line($ENDPOINT_BACKEND $ENDPOINT_WINDOW)" ;;
+  esac
+  reemit_state_put "$line"
+  if [ "$kind" != secondmate ]; then
+    branch=$(fm_meta_get "$meta" branch)
+    head=$(reemit_worktree_head "$meta")
+    pr=$(fm_meta_get "$meta" pr)
+    line="  branch=${branch:-none} head=$head"
+    if [ -n "$pr" ]; then
+      pr_head=$(fm_meta_get "$meta" pr_head)
+      [ "$pr_head" != "$head" ] || pr_head='head'
+      line="$line pr=$pr pr_head=${pr_head:-none} pr_state=$(reemit_pr_state "$meta" "$id")"
+    else
+      line="$line pr=none"
+    fi
+    reemit_state_put "$line"
+  fi
+
+  REEMIT_RECEIPTS=
+  [ ! -f "$DATA/$id/report.md" ] || reemit_receipts_add "$DATA/$id/report.md"
+  status="$STATE/$id.status"
+  if [ -f "$status" ]; then
+    reemit_status_state "$status"
+  else
+    reemit_state_put "  latest event: (no status file yet)"
+  fi
+  while IFS= read -r path; do
+    [ -n "$path" ] || continue
+    listed="$listed $path"
+  done <<EOF
+$REEMIT_RECEIPTS
+EOF
+  [ -z "$listed" ] || reemit_state_put "  receipts:$listed"
+}
+
+# reemit_group_open <kind> <label> <command>: start gathering one optional
+# group. Kind `rows` is a titled listing with one row per line, `lines` the
+# untitled manual backlog listing, and `ids` the closed-log ids, which share
+# one line.
+reemit_group_open() {
+  REEMIT_G_KIND[REEMIT_G_COUNT]=$1
+  REEMIT_G_LABEL[REEMIT_G_COUNT]=$2
+  REEMIT_G_COMMAND[REEMIT_G_COUNT]=$3
+  REEMIT_G_FIRST[REEMIT_G_COUNT]=${#REEMIT_ROWS[@]}
+  REEMIT_G_TOTAL[REEMIT_G_COUNT]=0
+  REEMIT_G_SHOWN[REEMIT_G_COUNT]=0
+}
+
+# reemit_group_row <text>: add one row to the group being gathered. Its cost is
+# its bytes plus one, its own newline or, for an id, its leading space.
+reemit_group_row() {
+  local n=${#REEMIT_ROWS[@]}
+  reemit_bytes "$1"
+  REEMIT_ROWS[n]=$1
+  REEMIT_ROW_CUM[n + 1]=$((REEMIT_ROW_CUM[n] + REEMIT_BYTES + 1))
+  REEMIT_G_TOTAL[REEMIT_G_COUNT]=$((REEMIT_G_TOTAL[REEMIT_G_COUNT] + 1))
+}
+
+reemit_group_close() {  # keep the gathered group only when it has rows
+  [ "${REEMIT_G_TOTAL[REEMIT_G_COUNT]}" -eq 0 ] || REEMIT_G_COUNT=$((REEMIT_G_COUNT + 1))
+}
+
+# reemit_group_frame <g> <shown>: the heading and the disclosure group g prints
+# around its first <shown> rows, each empty when it prints none, and the exact
+# bytes the whole group then prints, in REEMIT_GROUP_HEAD, REEMIT_GROUP_TAIL,
+# and REEMIT_GROUP_BYTES.
+reemit_group_frame() {
+  local g=$1 shown=$2 label command total first
+  label=${REEMIT_G_LABEL[g]}
+  command=${REEMIT_G_COMMAND[g]}
+  total=${REEMIT_G_TOTAL[g]}
+  first=${REEMIT_G_FIRST[g]}
+  REEMIT_GROUP_BYTES=$((REEMIT_ROW_CUM[first + shown] - REEMIT_ROW_CUM[first]))
+  REEMIT_GROUP_HEAD=
+  REEMIT_GROUP_TAIL=
+  case "${REEMIT_G_KIND[g]}" in
+    rows)
+      if [ "$shown" -eq 0 ]; then
+        REEMIT_GROUP_TAIL="$label: $total row(s) omitted by the state budget - $command"
+      else
+        REEMIT_GROUP_HEAD="$label ($total):"
+        [ "$shown" -eq "$total" ] \
+          || REEMIT_GROUP_TAIL="  (+$((total - shown)) more omitted by the state budget - $command)"
+      fi
+      ;;
+    lines)
+      [ "$shown" -eq "$total" ] \
+        || REEMIT_GROUP_TAIL="(+$((total - shown)) $label omitted by the state budget - $command)"
+      ;;
+    ids)
+      REEMIT_GROUP_HEAD="$label: $total"
+      if [ "$shown" -gt 0 ]; then
+        reemit_bytes "$REEMIT_IDS_LEAD"
+        REEMIT_GROUP_BYTES=$((REEMIT_GROUP_BYTES + REEMIT_BYTES + 1))
+      fi
+      [ "$shown" -eq "$total" ] \
+        || REEMIT_GROUP_TAIL="  (+$((total - shown)) more ids omitted by the state budget - $command)"
+      ;;
+  esac
+  if [ -n "$REEMIT_GROUP_HEAD" ]; then
+    reemit_bytes "$REEMIT_GROUP_HEAD"
+    REEMIT_GROUP_BYTES=$((REEMIT_GROUP_BYTES + REEMIT_BYTES + 1))
+  fi
+  if [ -n "$REEMIT_GROUP_TAIL" ]; then
+    reemit_bytes "$REEMIT_GROUP_TAIL"
+    REEMIT_GROUP_BYTES=$((REEMIT_GROUP_BYTES + REEMIT_BYTES + 1))
+  fi
+}
+
+reemit_group_print() {  # <g>: print group g with its admitted rows
+  local g=$1 shown first i=0 ids=''
+  shown=${REEMIT_G_SHOWN[g]}
+  first=${REEMIT_G_FIRST[g]}
+  reemit_group_frame "$g" "$shown"
+  [ -z "$REEMIT_GROUP_HEAD" ] || reemit_state_put "$REEMIT_GROUP_HEAD"
+  while [ "$i" -lt "$shown" ]; do
+    if [ "${REEMIT_G_KIND[g]}" = ids ]; then
+      ids="$ids ${REEMIT_ROWS[first + i]}"
+    else
+      reemit_state_put "${REEMIT_ROWS[first + i]}"
+    fi
+    i=$((i + 1))
+  done
+  [ -z "$ids" ] || reemit_state_put "$REEMIT_IDS_LEAD$ids"
+  [ -z "$REEMIT_GROUP_TAIL" ] || reemit_state_put "$REEMIT_GROUP_TAIL"
+}
+
+# reemit_state_admit <bytes>: choose, group by group in order, the most rows
+# each group can print while the whole summary - <bytes> of mandatory lines,
+# every earlier group as chosen, and every later group at its disclosure
+# alone - stays within the budget. Each row past the first that still leaves
+# rows cut costs strictly more bytes, so that scan stops at the first misfit;
+# printing every row drops the disclosure, so that is tried on its own first.
+reemit_state_admit() {
+  local total=$1 g=0 base shown
+  local -a bytes=()
+  while [ "$g" -lt "$REEMIT_G_COUNT" ]; do
+    reemit_group_frame "$g" 0
+    bytes[g]=$REEMIT_GROUP_BYTES
+    total=$((total + REEMIT_GROUP_BYTES))
+    g=$((g + 1))
+  done
+  g=0
+  while [ "$g" -lt "$REEMIT_G_COUNT" ]; do
+    base=$((total - bytes[g]))
+    reemit_group_frame "$g" "${REEMIT_G_TOTAL[g]}"
+    if [ $((base + REEMIT_GROUP_BYTES)) -le "$REEMIT_STATE_BYTES" ]; then
+      REEMIT_G_SHOWN[g]=${REEMIT_G_TOTAL[g]}
+      bytes[g]=$REEMIT_GROUP_BYTES
+    else
+      shown=1
+      while [ "$shown" -lt "${REEMIT_G_TOTAL[g]}" ]; do
+        reemit_group_frame "$g" "$shown"
+        [ $((base + REEMIT_GROUP_BYTES)) -le "$REEMIT_STATE_BYTES" ] || break
+        REEMIT_G_SHOWN[g]=$shown
+        bytes[g]=$REEMIT_GROUP_BYTES
+        shown=$((shown + 1))
+      done
+    fi
+    total=$((base + bytes[g]))
+    g=$((g + 1))
+  done
+}
+
+# reemit_tally_text <total> <open-bytes>: the closing tally for a summary of
+# <total> bytes, in REEMIT_TALLY with its byte length in REEMIT_BYTES.
+reemit_tally_text() {
+  if [ "$1" -le "$REEMIT_STATE_BYTES" ]; then
+    REEMIT_TALLY="STATE SUMMARY: $1 of $REEMIT_STATE_BYTES bytes, this line included."
+  else
+    REEMIT_TALLY="STATE SUMMARY: $1 bytes with this line, over the $REEMIT_STATE_BYTES-byte budget, so only its mandatory lines printed: the lede, OPEN ITEMS ($2 bytes), the counts, the cut disclosures, and this tally."
+  fi
+  reemit_bytes "$REEMIT_TALLY"
+}
+
+# reemit_state_tally <bytes-before> <open-bytes>: the closing tally whose count
+# includes the tally line itself - the least total that equals the bytes before
+# it plus its own line.
+reemit_state_tally() {
+  local before=$1 total=$1 next
+  while :; do
+    reemit_tally_text "$total" "$2"
+    next=$((before + REEMIT_BYTES + 1))
+    [ "$next" -ne "$total" ] || return 0
+    total=$next
+  done
+}
+
+# reemit_gather_rows <label> <listing> <command> [untracked]: the indented rows
+# of one tasks-axi listing, each capped, as one optional group. With
+# `untracked`, rows whose task already has a state/*.meta entry above are
+# skipped, because OPEN ITEMS already carries them.
+reemit_gather_rows() {
+  local label=$1 listing=$2 command=$3 filter=${4:-} line id in_rows=0
+  reemit_group_open rows "$label" "$command"
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      help\[*) break ;;
+      tasks\[*|ready\[*) in_rows=1; continue ;;
+      [[:space:]]*) [ "$in_rows" -eq 1 ] || continue ;;
+      *) in_rows=0; continue ;;
+    esac
+    if [ "$filter" = untracked ]; then
+      id=${line#"${line%%[![:space:]]*}"}
+      id=${id%%,*}
+      [ ! -f "$STATE/$id.meta" ] || continue
+    fi
+    fm_cap_line_var "$line" "$REEMIT_LINE_CAP"
+    reemit_group_row "$FM_LINE_CAP_LINE"
+  done <<EOF
+$listing
+EOF
+  reemit_group_close
+}
+
+reemit_axi_count() {  # <listing>: the tool's own "count: N" line
+  local line
+  while IFS= read -r line; do
+    case "$line" in "count: "*) printf '%s' "${line#count: }"; return 0 ;; esac
+  done <<EOF
+$1
+EOF
+  printf '?'
+}
+
+# reemit_gather_backlog: the backlog heading and counts, which always print,
+# into REEMIT_BACKLOG_LINES, and its rows as optional groups.
+reemit_gather_backlog() {
+  local path="$DATA/backlog.md" in_flight held blocked ready listing line
+  REEMIT_BACKLOG_LINES=('' "Backlog (data/backlog.md; done rows omitted; full bodies: bin/fm-tasks-axi.sh show <id> --full)" "$SUBRULE")
+  if [ ! -f "$path" ]; then
+    REEMIT_BACKLOG_LINES[${#REEMIT_BACKLOG_LINES[@]}]='ABSENT'
+    return 0
+  fi
+  if [ ! -s "$path" ]; then
+    REEMIT_BACKLOG_LINES[${#REEMIT_BACKLOG_LINES[@]}]='(present, empty)'
+    return 0
+  fi
+  if fm_tasks_axi_backend_available "$CONFIG" \
+    && in_flight=$(tasks-axi list --file "$path" --state in_flight --fields "$BACKLOG_FIELDS" 2>/dev/null) \
+    && held=$(tasks-axi list --file "$path" --state held --fields "$BACKLOG_FIELDS" 2>/dev/null) \
+    && blocked=$(tasks-axi list --file "$path" --state queued --blocked --fields "$BACKLOG_FIELDS" 2>/dev/null) \
+    && ready=$(tasks-axi ready --file "$path" 2>/dev/null); then
+    in_flight=$(printf '%s\n' "$in_flight" | fm_hold_reason_decode_stream)
+    held=$(printf '%s\n' "$held" | fm_hold_reason_decode_stream)
+    blocked=$(printf '%s\n' "$blocked" | fm_hold_reason_decode_stream)
+    REEMIT_BACKLOG_LINES[${#REEMIT_BACKLOG_LINES[@]}]="counts: $(reemit_axi_count "$in_flight") in flight, $(reemit_axi_count "$held") held, $(reemit_axi_count "$blocked") blocked queued, $(reemit_axi_count "$ready") ready queued"
+    reemit_gather_rows "held" "$held" "bin/fm-tasks-axi.sh list --state held"
+    reemit_gather_rows "blocked queued" "$blocked" "bin/fm-tasks-axi.sh list --state queued --blocked"
+    reemit_gather_rows "in flight with no task record" "$in_flight" "bin/fm-tasks-axi.sh list --state in_flight" untracked
+    reemit_gather_rows "ready queued" "$ready" "bin/fm-tasks-axi.sh ready"
+    return 0
+  fi
+  # The title-line renderer, budgeted line by line; it needs no task model.
+  if fm_backlog_backend_manual "$CONFIG"; then
+    listing=$(print_backlog_manual_compact "$path" "manual backend")
+  else
+    listing=$(print_backlog_manual_compact "$path" "tasks-axi unavailable, incompatible, or failed")
+  fi
+  reemit_group_open lines "backlog listing line(s)" "data/backlog.md"
+  while IFS= read -r line || [ -n "$line" ]; do
+    fm_cap_line_var "$line" "$REEMIT_LINE_CAP"
+    reemit_group_row "$FM_LINE_CAP_LINE"
+  done <<EOF
+$listing
+EOF
+  reemit_group_close
+}
+
+# Status logs whose task record is gone: cleaned-up work, counted and named
+# but never replayed.
+reemit_gather_closed_logs() {
+  local status id
+  reemit_group_open ids "closed task logs ($REEMIT_STATE_DIR/*.status with no task record, not replayed)" \
+    "ls $REEMIT_STATE_DIR/*.status"
+  for status in "$STATE"/*.status; do
+    [ -f "$status" ] || continue
+    id=$(basename "$status" .status)
+    [ -f "$STATE/$id.meta" ] && continue
+    reemit_group_row "$id"
+  done
+  reemit_group_close
+}
+
+print_reemit_state_summary() {
+  local meta found=0 open_start open_bytes line mandatory g=0
+  REEMIT_STATE_USED=0
+  REEMIT_G_COUNT=0
+  REEMIT_ROWS=()
+  REEMIT_ROW_CUM=(0)
+  REEMIT_STATE_DIR=$STATE
+  case "$STATE" in "$FM_HOME"/?*) REEMIT_STATE_DIR=${STATE#"$FM_HOME"/} ;; esac
+  reemit_state_put "Context re-emit: CURRENT STATE, not the log. Repeated status events are collapsed to counts,"
+  reemit_state_put "superseded and resolved history is dropped, and cleaned-up tasks are counted, not replayed."
+  reemit_state_put "Status lines are wake EVENTS: bin/fm-crew-state.sh <id> owns current state, $REEMIT_STATE_DIR/<id>.status"
+  reemit_state_put "holds each full log, and OPEN DECISIONS in the WAKE QUEUE above carries decision notes."
+  reemit_state_put "Relative paths are under $FM_HOME; pr_state reads local merge evidence only, never the"
+  reemit_state_put "forge, and pr_head=head means the PR records the exact worktree head shown beside it."
+  reemit_state_put "Budget: $REEMIT_STATE_BYTES bytes for this whole summary, lede and tally included; the mandatory lede,"
+  reemit_state_put "OPEN ITEMS, counts, cut disclosures, and tally always print, and other rows only while the whole fits."
+
+  open_start=$REEMIT_STATE_USED
+  reemit_state_subsection "OPEN ITEMS (mandatory: every state/*.meta record, never cut by the budget)"
+  for meta in "$STATE"/*.meta; do
+    [ -f "$meta" ] || continue
+    found=1
+    reemit_state_task_entry "$meta"
+  done
+  [ "$found" -eq 1 ] || reemit_state_put '(none)'
+  open_bytes=$((REEMIT_STATE_USED - open_start))
+
+  reemit_gather_backlog
+  reemit_gather_closed_logs
+  # The mandatory bytes still to come: the backlog heading and counts, the
+  # blank line, and the tally at its longest within-budget spelling.
+  mandatory=$REEMIT_STATE_USED
+  for line in "${REEMIT_BACKLOG_LINES[@]}"; do
+    reemit_bytes "$line"
+    mandatory=$((mandatory + REEMIT_BYTES + 1))
+  done
+  reemit_tally_text "$REEMIT_STATE_BYTES" "$open_bytes"
+  reemit_state_admit $((mandatory + 1 + REEMIT_BYTES + 1))
+
+  for line in "${REEMIT_BACKLOG_LINES[@]}"; do
+    reemit_state_put "$line"
+  done
+  while [ "$g" -lt "$REEMIT_G_COUNT" ]; do
+    reemit_group_print "$g"
+    g=$((g + 1))
+  done
+  reemit_state_put ''
+  reemit_state_tally "$REEMIT_STATE_USED" "$open_bytes"
+  reemit_state_put "$REEMIT_TALLY"
 }
 
 # fm_session_start_endpoint_read <backend> <target> [expected-label]: ONE
@@ -900,12 +1582,25 @@ fi
 # a stage that never ran, which the truncation banner names by stage.
 stage read-once
 section "READ-ONCE CONTRACT"
-cat <<'EOF'
+if [ "$REEMIT" -eq 1 ] && [ "$READ_ONLY" -eq 0 ]; then
+  cat <<'EOF'
+Everything below is printed for this context re-emit, with FLEET STATE as current
+state instead of the record dump: each state/*.meta reduced to its endpoint,
+heads, and PR state, each state/*.status to its latest event, counts, open
+decision keys, and receipt paths, and data/backlog.md to group counts plus the
+rows the state budget fits. data/projects.md, data/secondmates.md,
+data/captain.md, data/captain-shared.md, and data/learnings.md print in full.
+EOF
+else
+  cat <<'EOF'
 Everything below is printed in full for this session start: every state/*.meta
 (dead-endpoint records with no status file are collapsed to a count and ids),
 a compact data/backlog.md listing, a bounded tail of every state/*.status,
 data/projects.md, data/secondmates.md, data/captain.md, data/captain-shared.md,
 and data/learnings.md.
+EOF
+fi
+cat <<'EOF'
 Do NOT re-read any of them after reading this digest, and do NOT bulk-read
 data/backlog.md or state/*.status: re-reading everything defeats the entire
 point of this command.
@@ -917,7 +1612,8 @@ Go to a source directly only when:
     status line was capped and its tail matters (each task's full log path is
     printed with its tail),
   - a full task body is needed (bin/fm-tasks-axi.sh show <id> --full, or data/backlog.md),
-  - the backlog listing disclosed omitted queued items and this turn needs them,
+  - a listing disclosed omitted items (queued rows, or what a re-emit's state
+    budget cut) and this turn needs them,
   - the NETWORK CHECKS section reported its checks still IN PROGRESS and this
     turn needs their verdict (bin/fm-startup-network.sh report),
   - or a STARTUP TRUNCATED banner named the stage that would have printed it, in
@@ -931,102 +1627,13 @@ EOF
 # truncated tail must never take.
 stage fleet-state
 section "FLEET STATE"
-print_backlog_compact "$DATA/backlog.md" "data/backlog.md"
-
-subsection "Work under way (state/*.meta)"
-# A home can hold hundreds of finished ship records. Full detail is kept for
-# secondmates, records with a status file, and any endpoint that is not
-# provably dead; a dead-endpoint record with no status file is only counted and
-# named. A context re-emit is additionally bounded by
-# FM_SESSION_START_REEMIT_WORK_MAX_BYTES so the re-injected message stays small.
-WORK_MAX_BYTES=${FM_SESSION_START_REEMIT_WORK_MAX_BYTES:-40000}
-WORK_IDS_MAX=${FM_SESSION_START_COLLAPSED_IDS_MAX:-40}
-META_FOUND=0
-WORK_BYTES=0
-COLLAPSED_COUNT=0
-COLLAPSED_IDS=
-OMITTED_COUNT=0
-OMITTED_IDS=
-for meta in "$STATE"/*.meta; do
-  [ -f "$meta" ] || continue
-  META_FOUND=1
-  id=$(basename "$meta" .meta)
-  kind=$(fm_meta_get "$meta" kind)
-  status="$STATE/$id.status"
-
-  window=$(fm_meta_get "$meta" window)
-  target=$(fm_backend_target_of_meta "$meta")
-  endpoint_dead=0
-  if [ -n "$window" ]; then
-    backend=$(fm_backend_of_meta "$meta")
-    endpoint_rc=0
-    fm_session_start_endpoint_read "$backend" "${target:-$window}" "fm-$id" || endpoint_rc=$?
-    # Only the timeout owner's own statuses mean the read itself failed: 124 is
-    # the bound firing and >=128 is a signal death. Every other nonzero status
-    # is the probe's own verdict that the endpoint is gone.
-    if [ "$endpoint_rc" -eq 0 ]; then
-      endpoint_line=$(printf 'endpoint: alive (backend=%s window=%s)' "$backend" "$window")
-    elif [ "$endpoint_rc" -eq 124 ] || [ "$endpoint_rc" -ge 128 ]; then
-      endpoint_line=$(printf 'endpoint: error (backend=%s window=%s - the endpoint read died or hit its %ss bound; the digest continued past it)' \
-        "$backend" "$window" "$ENDPOINT_TIMEOUT")
-    else
-      endpoint_line=$(printf 'endpoint: dead (backend=%s window=%s)' "$backend" "$window")
-      endpoint_dead=1
-    fi
-  else
-    endpoint_line='endpoint: unknown (no window recorded)'
-  fi
-
-  if [ "$kind" != secondmate ] && [ ! -f "$status" ] && [ "$endpoint_dead" -eq 1 ]; then
-    COLLAPSED_COUNT=$((COLLAPSED_COUNT + 1))
-    [ "$COLLAPSED_COUNT" -gt "$WORK_IDS_MAX" ] || COLLAPSED_IDS="$COLLAPSED_IDS $id"
-    continue
-  fi
-
-  record=$(
-    printf '\n--- %s ---\n' "$id"
-    cat "$meta"
-    printf '%s\n' "$endpoint_line"
-    if [ -f "$status" ]; then
-      print_status_tail "$status"
-    else
-      printf 'status tail: (no status file yet: %s)\n' "$status"
-    fi
-  )
-  if [ "$REEMIT" -eq 1 ] && [ "$kind" != secondmate ] \
-    && [ $((WORK_BYTES + ${#record})) -gt "$WORK_MAX_BYTES" ]; then
-    OMITTED_COUNT=$((OMITTED_COUNT + 1))
-    [ "$OMITTED_COUNT" -gt "$WORK_IDS_MAX" ] || OMITTED_IDS="$OMITTED_IDS $id"
-    continue
-  fi
-  WORK_BYTES=$((WORK_BYTES + ${#record}))
-  printf '%s\n' "$record"
-done
-[ "$META_FOUND" -eq 1 ] || printf '(none)\n'
-if [ "$COLLAPSED_COUNT" -gt 0 ]; then
-  printf '\n%s record(s) with a dead endpoint and no status file collapsed (finished or never started):%s' \
-    "$COLLAPSED_COUNT" "$COLLAPSED_IDS"
-  [ "$COLLAPSED_COUNT" -le "$WORK_IDS_MAX" ] || printf ' ... (+%s more)' $((COLLAPSED_COUNT - WORK_IDS_MAX))
-  printf '\nRead one on demand: cat %s/<id>.meta\n' "$STATE"
+# A locked context re-emit prints current state; every other run prints the
+# full record dump (see this file's CONTEXT RE-EMIT STATE SUMMARY note).
+if [ "$REEMIT" -eq 1 ] && [ "$READ_ONLY" -eq 0 ]; then
+  print_reemit_state_summary
+else
+  print_fleet_records_full
 fi
-if [ "$OMITTED_COUNT" -gt 0 ]; then
-  printf '\n●  CONTEXT RE-EMIT TRUNCATED - %s more record(s) omitted to keep this section under %s bytes:%s' \
-    "$OMITTED_COUNT" "$WORK_MAX_BYTES" "$OMITTED_IDS"
-  [ "$OMITTED_COUNT" -le "$WORK_IDS_MAX" ] || printf ' ... (+%s more)' $((OMITTED_COUNT - WORK_IDS_MAX))
-  printf '\n●  Read on demand: bin/fm-crew-state.sh, or cat %s/<id>.meta and %s/<id>.status.\n' "$STATE" "$STATE"
-fi
-
-subsection "Orphan status logs (state/*.status without matching .meta)"
-ORPHAN_STATUS_FOUND=0
-for status in "$STATE"/*.status; do
-  [ -f "$status" ] || continue
-  id=$(basename "$status" .status)
-  [ -f "$STATE/$id.meta" ] && continue
-  ORPHAN_STATUS_FOUND=1
-  printf '\n--- %s ---\n' "$id"
-  print_status_tail "$status"
-done
-[ "$ORPHAN_STATUS_FOUND" -eq 1 ] || printf '(none)\n'
 
 subsection "AFK"
 # The away posture is the record (bin/fm-afk-contract.sh); the legacy flag

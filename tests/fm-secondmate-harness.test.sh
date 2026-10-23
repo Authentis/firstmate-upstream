@@ -319,6 +319,7 @@ test_propagate_lib() {
   printf 'manual\n' > "$src/backlog-backend"
   printf 'tmux\n' > "$src/backend"
   : > "$src/herdr-presentation-spaces"
+  printf 'on\n' > "$src/herdr-project-groups"
   : > "$src/trace-context"
   stdout="$d/clean-copy.out"
   stderr="$d/clean-copy.err"
@@ -330,6 +331,7 @@ test_propagate_lib() {
   [ "$(cat "$dest/backlog-backend")" = manual ] || fail "backlog-backend not propagated"
   [ "$(cat "$dest/backend")" = tmux ] || fail "backend not propagated"
   [ -f "$dest/herdr-presentation-spaces" ] || fail "herdr-presentation-spaces not propagated"
+  [ "$(cat "$dest/herdr-project-groups")" = on ] || fail "herdr-project-groups not propagated"
   printf 'herdr\n' > "$dest/backend"
   propagate_inheritable_config "$src" "$dest"
   [ "$(cat "$dest/backend")" = tmux ] || fail "primary backend did not overwrite a divergent destination"
@@ -370,13 +372,14 @@ test_propagate_lib() {
   # 4. removing the source mirrors absence downstream (primary-authoritative)
   printf 'herdr\n' > "$dest/backend"
   rm -f "$src/crew-dispatch.json" "$src/crew-harness" "$src/backlog-backend" \
-    "$src/backend" "$src/herdr-presentation-spaces" "$src/trace-context"
+    "$src/backend" "$src/herdr-presentation-spaces" "$src/herdr-project-groups" "$src/trace-context"
   propagate_inheritable_config "$src" "$dest"
   [ -e "$dest/crew-dispatch.json" ] && fail "dispatch profile absence not mirrored downstream"
   [ -e "$dest/crew-harness" ] && fail "absence not mirrored downstream"
   [ -e "$dest/backlog-backend" ] && fail "backlog-backend absence not mirrored downstream"
   [ -e "$dest/backend" ] && fail "backend absence not mirrored downstream"
   [ -e "$dest/herdr-presentation-spaces" ] && fail "herdr-presentation-spaces absence not mirrored downstream"
+  [ -e "$dest/herdr-project-groups" ] && fail "herdr-project-groups absence not mirrored downstream"
   [ -e "$dest/trace-context" ] && fail "trace-context absence not mirrored downstream"
 
   rm -f "$dest/crew-harness"
@@ -1656,6 +1659,42 @@ sm_presentation_verdict() {  # <config-dir> -> on|off
   ' "$ROOT" "$1" 2>/dev/null
 }
 
+test_remote_receiver_accepts_herdr_project_groups() {
+  local d home body hash err
+  d="$TMP_ROOT/remote-herdr-groups"
+  home="$d/home"
+  mkdir -p "$home/config"
+  err="$d/err"
+  body='on'
+  hash=$(printf '%s\n' "$body" | shasum -a 256 | awk '{print $1}')
+  printf '%s\n' "$body" | FM_HOME="$home" bash "$ROOT/bin/fm-remote-inherit.sh" put config/herdr-project-groups 3 "$hash" 1 2>"$err" \
+    || fail "receiver refused config/herdr-project-groups put: $(cat "$err")"
+  [ "$(cat "$home/config/herdr-project-groups")" = on ] || fail "receiver did not write herdr-project-groups"
+  FM_HOME="$home" bash "$ROOT/bin/fm-remote-inherit.sh" absent config/herdr-project-groups 0 \
+    e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 2 2>"$err" \
+    || fail "receiver refused config/herdr-project-groups absent: $(cat "$err")"
+  [ -e "$home/config/herdr-project-groups" ] && fail "receiver did not remove herdr-project-groups"
+  pass "B12d remote receiver accepts put and absent for config/herdr-project-groups"
+}
+
+test_remote_receiver_accepts_firstmate_role() {
+  local d home body hash err
+  d="$TMP_ROOT/remote-firstmate-role"
+  home="$d/home"
+  mkdir -p "$home/config"
+  err="$d/err"
+  body='maintainer'
+  hash=$(printf '%s\n' "$body" | shasum -a 256 | awk '{print $1}')
+  printf '%s\n' "$body" | FM_HOME="$home" bash "$ROOT/bin/fm-remote-inherit.sh" put config/firstmate-role 11 "$hash" 1 2>"$err" \
+    || fail "receiver refused config/firstmate-role put: $(cat "$err")"
+  [ "$(cat "$home/config/firstmate-role")" = maintainer ] || fail "receiver did not write firstmate-role"
+  FM_HOME="$home" bash "$ROOT/bin/fm-remote-inherit.sh" absent config/firstmate-role 0 \
+    e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 2 2>"$err" \
+    || fail "receiver refused config/firstmate-role absent: $(cat "$err")"
+  [ -e "$home/config/firstmate-role" ] && fail "receiver did not remove firstmate-role"
+  pass "B12e remote receiver accepts put and absent for config/firstmate-role"
+}
+
 test_presentation_inheritance_default_on_and_opt_out() {
   local w head out err status verdict
   w=$(new_world presentation-inherit)
@@ -2643,7 +2682,7 @@ test_config_reread_bootstrap_path_and_spawn_flexibility() {
   fm_config_reread_mark_pending "$stale" "$stale.pending" \
     || fail "could not create spawn stale reread marker"
   launchlog="$w/spawn-flex.launch.log"
-  spawn_secondmate_capture "$w" sm-flex "$sm" "$launchlog" --harness pi >/dev/null 2>&1
+  spawn_secondmate_capture "$w" sm-flex "$sm" "$launchlog" --harness pi --model openai/gpt-6.1-sol >/dev/null 2>&1
   assert_no_reread_pending "$sm"
   assert_no_reread_instructions "$sm"
   launch=$(cat "$launchlog")
@@ -2970,6 +3009,8 @@ test_spawn_secondmate_claude_permission_mode_auto
 test_spawn_secondmate_claude_grants_parent_inbox_dir
 test_claude_permission_mode_inheritance_present_and_absent
 test_presentation_inheritance_default_on_and_opt_out
+test_remote_receiver_accepts_herdr_project_groups
+test_remote_receiver_accepts_firstmate_role
 test_bootstrap_sweep_surfaces_config_propagation_failure
 test_bootstrap_rereads_after_partial_propagation
 test_config_push_propagates_reports_without_ff_or_nudge

@@ -682,11 +682,12 @@ The flag is a home-local supervision-noise preference and is not inherited by se
 ## Wake fold (config/wake-fold)
 
 The wake fold is on by default and spends a supervisor turn only on wakes that carry something new.
-With the local, gitignored `config/wake-fold` absent or containing `on`, the watcher queues three kinds of routine wake durably without waking the supervisor:
+With the local, gitignored `config/wake-fold` absent or containing `on`, the watcher queues two kinds of routine wake durably without waking the supervisor:
 
-- A secondmate home's signal on its own outbound parent channel, whose lines are that home's reports to its parent.
 - A registered custom check printing text identical to one of its recent deliveries.
 - A watcher re-arm whose whole queue is those folded rows.
+
+A remote secondmate home's own outbound parent channel never reaches the fold: the watcher's signal scan excludes it, so its reports neither wake nor queue (`secondmate-parent-channel.md`).
 
 Folded rows ride along on the next real wake's drain.
 Once the oldest has waited `FM_WAKE_FOLD_DIGEST_SECS` (default `900`), the watcher acknowledges them itself with no model turn (see [Pre-wake classification](#pre-wake-classification-configwake-classify)).
@@ -2596,6 +2597,7 @@ FM_ZELLIJ_SESSION=firstmate  # zellij-only: named session for normal backend ops
 CMUX_SOCKET_PASSWORD=   # cmux-only: socket password fallback when config/cmux-socket-password is absent (docs/cmux-backend.md)
 FM_SESSION_START_STATUS_TAIL=5   # state/*.status lines printed per task in the session-start digest; each line is capped by bin/fm-line-cap-lib.sh
 FM_SESSION_START_QUEUED_LIMIT=20   # plain queued backlog rows in the session-start digest; in-flight, held, and blocked rows are never bounded and done rows are never listed
+FM_SESSION_START_REEMIT_STATE_BYTES=15000   # byte budget of the state summary a locked context re-emit prints as FLEET STATE (bin/fm-session-start.sh), its lede and tally included; only its mandatory lines (lede, open items, counts, cut disclosures, tally) print past it, and nonpositive or invalid values fall back to 15000
 FM_SESSION_START_ENDPOINT_TIMEOUT=10   # seconds bounding each per-task endpoint liveness read in the session-start digest (bin/fm-session-start.sh); nonpositive or invalid values fall back to 10; a read that hits the bound or dies becomes that task's own `endpoint: error` line and the digest continues
 FM_BACKLOG_ROW_TIMEOUT_SECS=10   # seconds bounding each backlog row read (bin/fm-backlog-transition-lib.sh); nonpositive or invalid values fall back to 10; the first bound hit latches the sweep so later reads return immediately, each still naming its own item
 FM_BOOTSTRAP_DETECT_ONLY=0   # internal/read-only session-start mode: skip bootstrap's mutating sweeps and print advisory TANGLE wording
@@ -2642,7 +2644,9 @@ FM_CODEX_WATCH_CHECKPOINT=180   # seconds per foreground watcher checkpoint in C
 FM_CODEX_WATCH_CHECKPOINT_AWAY=3600  # requested away checkpoint bound on a home that runs the supervision host; longer of this and attended bound, capped at 27000
 FM_CREW_STATE_NM_TIMEOUT=10   # seconds allowed per no-mistakes query inside fm-crew-state.sh, and per state-database run-inventory read behind a capped AXI overview
 FM_NM_LOWLOAD=1              # 0 is the kill switch for the heartbeat-load reductions: no-mistakes calls stop setting NO_MISTAKES_NO_UPDATE_CHECK=1, fm-crew-state.sh stops caching run-inventory reads and stops skipping landed lanes (owner: bin/fm-nm-run-lib.sh)
+FM_NM_STATUS_SLOTS=4         # most no-mistakes run-inventory reads running at once across all lanes; FM_NM_STATUS_WAIT=30 seconds a read waits for a slot before reading unknown (owner: bin/fm-nm-run-lib.sh)
 FM_NM_CACHE_TTL=120          # seconds fm-crew-state.sh reuses a successful `axi`/`axi status`/`runs` read (one writer under a per-key flock; cache in state/nm-cache; 0 disables)
+FM_PR_READ_TTL=300           # seconds between GitHub provider reads of one PR's state through bin/fm-pr-read.sh, shared machine-wide with backoff on rate limit; cache in FM_PR_READ_CACHE_DIR, default under TMPDIR per user (owner: bin/fm-pr-lib.sh)
 FM_TEARDOWN_NM_TIMEOUT=10    # seconds allowed per no-mistakes query or abort inside fm-teardown.sh
 FM_CREW_STATE_RUNS_LIMIT=200  # plain runs-ledger rows scanned for fallback attribution; does not change the CLI's AXI overview window (selection owner: bin/fm-nm-run-lib.sh)
 FM_TEARDOWN_NM_RUNS_LIMIT=200  # recent no-mistakes run rows scanned to prove an unresolved-head parked run belongs to teardown's task

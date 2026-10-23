@@ -638,6 +638,26 @@ skip-runner: pi-signed is not installed, so its pin check was not exercised
 
 The guard submits no prompt and spends no tokens, so it runs by default wherever a runner is installed; rerun it after every Claude or Pi upgrade.
 
+## Pre-launch model catalog check
+
+`bin/fm-model-catalog-lib.sh` judges a Pi, Pi-signed, or OpenCode `--model` from the vendor listing: the provider and model columns of `pi --list-models`, which lists only authenticated providers, and the `<provider>/<model>` lines of `opencode models`.
+Its Pi rule mirrors Pi 1.2.0's `core/model-resolver.js`, which also refuses a bare id listed under more than one authenticated provider with `Model "<id>" is ambiguous across providers`.
+`tests/fm-model-catalog-live-e2e.test.sh` reads each installed listing, proves its first listed id is accepted and that a fabricated provider-qualified id and a fabricated bare id are both refused.
+
+Verified 2026-10-16 on pi 1.2.0 and opencode 1.19.0 on Linux (bosgame); pi-signed was not installed.
+
+```sh
+bash tests/fm-model-catalog-live-e2e.test.sh
+```
+
+```
+ok - pi 1.2.0: listed 'bai/deepseek-v4-flash' launches; fabricated ids refuse
+ok - opencode 1.19.0: listed 'opencode/big-pickle' launches; fabricated ids refuse
+skip: absent harness: pi-signed
+```
+
+The guard submits no prompt and spends no tokens, so it runs by default wherever a harness is installed; rerun it after every Pi or OpenCode upgrade.
+
 ## Secondmate busy contract
 
 Verified 2026-09-22 on this host with Claude Code 2.1.278, OpenCode 1.18.31, Pi 0.86.1, and Grok 1.0.40.

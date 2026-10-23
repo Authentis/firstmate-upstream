@@ -144,7 +144,10 @@
 #      call is not daemon death, so that claim is answered by steering the crew
 #      to reattach, not by escalating.
 #   4. No current run for this crew (pre-validation, uninitialized repository,
-#      proven historical head, or kind=scout): fall back to the recorded
+#      proven historical head, or kind=scout): a failed verdict that
+#      `fm-control.sh launch-check` recorded in state/<id>.launch-check for
+#      the current spawn_gen reports failed, ahead of the launch's busy seed;
+#      otherwise fall back to the recorded
 #      backend's pane busy state, then the resolved status declaration
 #      when its verb maps to a recognized run-state. Decision-only events such as
 #      `resolved` never become current state or detail.
@@ -353,9 +356,11 @@ nm_run() {  # <args...>
 }
 # The run-inventory reads (`axi`, `axi status [--run]`, `runs`) share the ~2 min
 # cache in bin/fm-nm-run-lib.sh once FM_NM_CACHE_DIR names it; FM_NM_LOWLOAD=0
-# bypasses it.
+# bypasses it. The invocation id lets this run's reads fill one cache
+# generation together.
 FM_NM_CACHE_DIR=${FM_NM_CACHE_DIR:-$STATE/nm-cache}
-export FM_NM_CACHE_DIR
+FM_NM_CACHE_INVOCATION=$$.$(date +%s)
+export FM_NM_CACHE_DIR FM_NM_CACHE_INVOCATION
 
 # Scalar value of a TOON key in the captured run output ($RUN_OUT).
 RUN_OUT=""
@@ -363,68 +368,17 @@ nm_field() {  # <key>
   fm_nm_field "$RUN_OUT" "$1"
 }
 
-pr_read_record_bounded() {  # <owner> <repo> <number>
+# One bounded forge read: <reader> is the fm-pr-lib.sh function for the
+# provider, run in a child shell so a hung CLI cannot stall this helper.
+forge_read_record_bounded() {  # <reader> <reader-args...>
   local record state merged
   # shellcheck disable=SC2016  # The inner script expands after bash -c receives positional args.
   if ! record=$(fm_run_timed 5 bash -c '
     . "$1"
-    fm_pr_github_read_record "$2" "$3" "$4" || exit 1
+    shift
+    "$@" || exit 1
     printf "state=%s\nmerged=%s\n" "$FM_PR_RECORD_STATE" "$FM_PR_RECORD_MERGED"
-  ' _ "$SCRIPT_DIR/fm-pr-lib.sh" "$1" "$2" "$3" 2>/dev/null); then
-    return 1
-  fi
-  state=$(printf '%s\n' "$record" | sed -n 's/^state=//p' | head -1)
-  merged=$(printf '%s\n' "$record" | sed -n 's/^merged=//p' | head -1)
-  [ -n "$state" ] || return 1
-  [ "$merged" = true ] || [ "$merged" = false ] || return 1
-  FM_PR_RECORD_STATE=$state
-  FM_PR_RECORD_MERGED=$merged
-}
-
-mr_read_record_bounded() {  # <host> <path> <number>
-  local record state merged
-  # shellcheck disable=SC2016  # The inner script expands after bash -c receives positional args.
-  if ! record=$(fm_run_timed 5 bash -c '
-    . "$1"
-    fm_pr_gitlab_read_record "$2" "$3" "$4" || exit 1
-    printf "state=%s\nmerged=%s\n" "$FM_PR_RECORD_STATE" "$FM_PR_RECORD_MERGED"
-  ' _ "$SCRIPT_DIR/fm-pr-lib.sh" "$1" "$2" "$3" 2>/dev/null); then
-    return 1
-  fi
-  state=$(printf '%s\n' "$record" | sed -n 's/^state=//p' | head -1)
-  merged=$(printf '%s\n' "$record" | sed -n 's/^merged=//p' | head -1)
-  [ -n "$state" ] || return 1
-  [ "$merged" = true ] || [ "$merged" = false ] || return 1
-  FM_PR_RECORD_STATE=$state
-  FM_PR_RECORD_MERGED=$merged
-}
-
-forgejo_read_record_bounded() {  # <host> <path> <number>
-  local record state merged
-  # shellcheck disable=SC2016  # The inner script expands after bash -c receives positional args.
-  if ! record=$(fm_run_timed 5 bash -c '
-    . "$1"
-    fm_pr_forgejo_read_record "$2" "$3" "$4" || exit 1
-    printf "state=%s\nmerged=%s\n" "$FM_PR_RECORD_STATE" "$FM_PR_RECORD_MERGED"
-  ' _ "$SCRIPT_DIR/fm-pr-lib.sh" "$1" "$2" "$3" 2>/dev/null); then
-    return 1
-  fi
-  state=$(printf '%s\n' "$record" | sed -n 's/^state=//p' | head -1)
-  merged=$(printf '%s\n' "$record" | sed -n 's/^merged=//p' | head -1)
-  [ -n "$state" ] || return 1
-  [ "$merged" = true ] || [ "$merged" = false ] || return 1
-  FM_PR_RECORD_STATE=$state
-  FM_PR_RECORD_MERGED=$merged
-}
-
-change_read_record_bounded() {  # <host> <number>
-  local record state merged
-  # shellcheck disable=SC2016  # The inner script expands after bash -c receives positional args.
-  if ! record=$(fm_run_timed 5 bash -c '
-    . "$1"
-    fm_pr_gerrit_read_record "$2" "$3" || exit 1
-    printf "state=%s\nmerged=%s\n" "$FM_PR_RECORD_STATE" "$FM_PR_RECORD_MERGED"
-  ' _ "$SCRIPT_DIR/fm-pr-lib.sh" "$1" "$2" 2>/dev/null); then
+  ' _ "$SCRIPT_DIR/fm-pr-lib.sh" "$@" 2>/dev/null); then
     return 1
   fi
   state=$(printf '%s\n' "$record" | sed -n 's/^state=//p' | head -1)
@@ -472,7 +426,7 @@ passed_pr_detail() {
     github)
       owner=${path%%/*}
       repo=${path#*/}
-      if ! pr_read_record_bounded "$owner" "$repo" "$number"; then
+      if ! forge_read_record_bounded fm_pr_github_read_record "$owner" "$repo" "$number"; then
         printf 'run passed: PR state unknown (unreadable)'
         return
       fi
@@ -488,7 +442,7 @@ passed_pr_detail() {
       esac
       ;;
     gitlab)
-      if ! mr_read_record_bounded "$host" "$path" "$number"; then
+      if ! forge_read_record_bounded fm_pr_gitlab_read_record "$host" "$path" "$number"; then
         printf 'run passed: PR state unknown (unreadable)'
         return
       fi
@@ -504,7 +458,7 @@ passed_pr_detail() {
       esac
       ;;
     forgejo)
-      if ! forgejo_read_record_bounded "$host" "$path" "$number"; then
+      if ! forge_read_record_bounded fm_pr_forgejo_read_record "$host" "$path" "$number"; then
         printf 'run passed: PR state unknown (unreadable)'
         return
       fi
@@ -522,7 +476,7 @@ passed_pr_detail() {
       esac
       ;;
     gerrit)
-      if ! change_read_record_bounded "$host" "$number"; then
+      if ! forge_read_record_bounded fm_pr_gerrit_read_record "$host" "$number"; then
         printf 'run passed: PR state unknown (unreadable)'
         return
       fi
@@ -1280,6 +1234,12 @@ fi
 # both classifier-backed backends (tmux and herdr) - and every death-class
 # verdict reports unknown rather than trusting a possibly-stale status log as
 # the current state.
+LAUNCH_CHECK_MARK="$STATE/$ID.launch-check"
+if [ -f "$LAUNCH_CHECK_MARK" ] && [ -n "$(meta_value spawn_gen)" ] \
+  && [ "$(grep '^spawn_first=' "$LAUNCH_CHECK_MARK" 2>/dev/null | tail -1 | cut -d= -f2-)" = "$(meta_value spawn_first)" ] \
+  && [ "$(grep '^verdict=' "$LAUNCH_CHECK_MARK" 2>/dev/null | tail -1 | cut -d= -f2-)" = "failed $(meta_value spawn_gen)" ]; then
+  emit failed status-log "launch check failed this launch (state/$ID.launch-check); not building"
+fi
 [ -n "$BACKEND_TARGET" ] || emit unknown none "no backend target recorded"
 if ! pane_readable "$BACKEND_TARGET"; then
   # A failed probe is not itself evidence the pane is gone: the herdr CLI can

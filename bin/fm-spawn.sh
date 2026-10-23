@@ -102,6 +102,9 @@
 #   build agent's variant, keyed to the resolved model, inside the
 #   OPENCODE_CONFIG_CONTENT JSON its launch already carries (config schema
 #   verified on opencode 1.18.32); without a model the axis is recorded but omitted.
+#   A Pi, Pi-signed, or OpenCode --model is checked against that harness's own
+#   catalog before any endpoint or worktree exists; bin/fm-model-catalog-lib.sh
+#   owns the rule, and a refused id never reaches a pane.
 #   --backend <name> is the explicit runtime session-provider backend for this
 #   exact task only (docs/configuration.md "Runtime backend" owns when that flag
 #   is authorized). Without it, the script resolves FM_BACKEND, then
@@ -791,6 +794,8 @@ fm_backlog_directory_present "$STATE" "state directory" || {
 . "$SCRIPT_DIR/fm-project-capacity-lib.sh"
 # shellcheck source=bin/fm-worker-account-lib.sh
 . "$SCRIPT_DIR/fm-worker-account-lib.sh"
+# shellcheck source=bin/fm-model-catalog-lib.sh
+. "$SCRIPT_DIR/fm-model-catalog-lib.sh"
 # Fail closed before any fleet mutation: a no-mistakes gate agent must never spawn
 # a direct report (see bin/fm-gate-refuse-lib.sh).
 fm_refuse_if_gate_agent
@@ -2731,6 +2736,15 @@ if [ "$KIND" != secondmate ]; then
   EXCLUDE_TOOLS=$(fm_exclude_tools_check "$HARNESS" "$RAW_LAUNCH" "$CONFIG") || exit 1
 fi
 
+# A relaunch whose fm-control transaction (state/<id>.control-relaunch, bound by
+# this launch's relaunch_tx under the control lock) already verified this exact
+# harness and model before stopping the old agent does not list its catalog again.
+spawn_catalog_verified_by_control() {
+  local journal="$STATE/$ID.control-relaunch"
+  [ "$SPAWN_CONTROL_PARENT" = 1 ] && [ -n "${FM_CONTROL_RELAUNCH_TX:-}" ] && [ -f "$journal" ] || return 1
+  [ "$(grep '^relaunch_tx=' "$journal" 2>/dev/null | tail -1 | cut -d= -f2-)" = "$FM_CONTROL_RELAUNCH_TX" ] || return 1
+  [ "$(grep '^catalog_verified=' "$journal" 2>/dev/null | tail -1 | cut -d= -f2-)" = "$HARNESS/$MODEL" ]
+}
 case "$HARNESS" in
 devin)
   DEVIN_BIN=$(command -v devin) || {
@@ -2775,7 +2789,7 @@ cursor)
   # missing install a loud spawn refusal instead of a pane that dies with a
   # command-not-found the supervisor would read as a wedged worker.
   CURSOR_BIN=$(fm_cursor_resolve_binary) || exit 1
-  if [ -n "$MODEL" ] && [ "$MODEL" != default ]; then
+  if [ -n "$MODEL" ] && [ "$MODEL" != default ] && ! spawn_catalog_verified_by_control; then
     if CURSOR_MODELS=$(fm_cursor_list_models "$CURSOR_BIN"); then
       if ! printf '%s\n' "$CURSOR_MODELS" | fm_cursor_catalog_has_model "$MODEL"; then
         echo "error: Cursor model '$MODEL' is not available from '$CURSOR_BIN --list-models'; choose an id listed by that command or omit --model" >&2
@@ -2854,6 +2868,31 @@ WORKER_ACCOUNT_DECLARED=${WORKER_ACCOUNT%%$'\t'*}
 WORKER_ACCOUNT_ROOT=${WORKER_ACCOUNT#*$'\t'}
 WORKER_ACCOUNT_PROVIDER=${WORKER_ACCOUNT_ROOT#*$'\t'}
 WORKER_ACCOUNT_ROOT=${WORKER_ACCOUNT_ROOT%%$'\t'*}
+# Pi and OpenCode catalog check (bin/fm-model-catalog-lib.sh owns the rule) for
+# a ship or scout, after the account pin so a pinned Pi lists the authentication
+# it will use. A relaunch verified by its fm-control transaction
+# (spawn_catalog_verified_by_control) does not list again.
+if [ "$RAW_LAUNCH" = 0 ] && { [ "$KIND" = ship ] || [ "$KIND" = scout ]; } \
+  && ! spawn_catalog_verified_by_control; then
+  case "$HARNESS" in
+  pi | pi-signed)
+    pi_agent_dir=
+    [ -z "$WORKER_ACCOUNT" ] || pi_agent_dir=$WORKER_ACCOUNT_ROOT
+    pi_launch_provider=
+    [ "$EFFORT" != ultra ] || pi_launch_provider=codex-native
+    fm_model_catalog_validate "$HARNESS" "$PI_BIN" "$MODEL" "$pi_agent_dir" "$pi_launch_provider" || exit 1
+    ;;
+  opencode)
+    if [ -n "$MODEL" ] && [ "$MODEL" != default ]; then
+      opencode_bin=$(command -v opencode) || {
+        echo "error: the opencode executable is not on PATH, so model '$MODEL' cannot be verified" >&2
+        exit 1
+      }
+      fm_model_catalog_validate opencode "$opencode_bin" "$MODEL" || exit 1
+    fi
+    ;;
+  esac
+fi
 if [ -n "$WORKER_ACCOUNT" ] && [ "$HARNESS" = claude ]; then
   if [ -n "$WORKER_ACCOUNT_ROOT" ]; then
     export CLAUDE_CONFIG_DIR=$WORKER_ACCOUNT_ROOT
@@ -4730,7 +4769,7 @@ kimi_wait_for_delivery() {
 }
 
 kimi_spawn_fail() { # <detail>
-  printf '%s\n' "$(status_stamp_line "failed: $1")" >>"$STATE/$ID.status"
+  printf '%s\n' "$(status_stamp_line "failed: launch: $1")" >>"$STATE/$ID.status"
   echo "error: $1; inspect window $T" >&2
 }
 
@@ -4798,7 +4837,7 @@ rovo_wait_for_delivery() {
 }
 
 rovo_spawn_fail() { # <detail>
-  printf '%s\n' "$(status_stamp_line "failed: $1")" >>"$STATE/$ID.status"
+  printf '%s\n' "$(status_stamp_line "failed: launch: $1")" >>"$STATE/$ID.status"
   echo "error: $1; inspect window $T" >&2
   rovo_endpoint_cleanup
 }
@@ -4871,7 +4910,7 @@ agy_wait_for_working() {
 }
 
 agy_spawn_fail() {  # <detail>
-  printf '%s\n' "$(status_stamp_line "failed: $1")" >>"$STATE/$ID.status"
+  printf '%s\n' "$(status_stamp_line "failed: launch: $1")" >>"$STATE/$ID.status"
   echo "error: $1; inspect window $T" >&2
   rovo_endpoint_cleanup
 }
