@@ -37,7 +37,17 @@
 #     that error fills the newest lines, while one static error line - a
 #     relayed crew error, or the old agent's last words - never counts twice,
 #     whether it sits unchanged, a spinner or status line below it redraws in
-#     place, or the agent's later output scrolls it upward.
+#     place, or the agent's later output scrolls it upward. These recurrence
+#     semantics are final. Known limitation: a strictly periodic wedge - the
+#     same input every turn (such as only the fixed steering doorbell), a
+#     byte-identical error reply, and a constant footer - shifts a full
+#     12-line window by exactly one period, so consecutive captures are
+#     identical and never recur. Line snapshots cannot tell that apart from a
+#     static error line with an in-place redraw, which must not count. Such a
+#     mate is still caught by the watcher's secondmate wake-loop stall check
+#     and the steering doorbell's re-ring escalation, since it never consumes
+#     its inbox. The planned follow-up is a turn-counted or
+#     cursor/history-position signal on both capture paths.
 #   - Window: the first sighting is recorded durably in
 #     state/.quota-failover-<id>, so the sustained window survives watcher
 #     restarts. A clear capture resets it.

@@ -952,6 +952,9 @@ Blank lines and lines starting with `#` are ignored.
 A malformed line stops failover for that id only, rather than being selected around, and is reported once as a check wake; other mates are unaffected.
 A mate with fewer than two links has no failover and its pane is never read.
 When a live mate's newest pane output keeps showing new provider quota errors past the failover window, the watcher rewrites that mate's keyed pin in `config/secondmate-harness` to the next link and restarts it persist-first; the same error printed again every turn counts, while one error line that sits unchanged, has only a spinner or status line redrawing below it, or scrolls upward never counts as sustained.
+These recurrence semantics are final, with one known limitation: a strictly periodic wedge - the same input every turn (for example only the fixed steering doorbell), a byte-identical error reply, and a constant footer - shifts the 12-line window by exactly one period, so consecutive captures are identical and the error never counts as recurring.
+Line snapshots cannot distinguish that case from a static error line with an in-place redraw below it, which must not count.
+Such a mate never consumes its inbox, so the watcher's secondmate wake-loop stall check and the steering doorbell's re-ring escalation still surface it; a turn-counted or cursor/history-position signal on both the local and remote capture paths is the planned follow-up.
 After its quota stays clear for the reset period it is moved back to the first link through the persist-gated restart.
 A mate still wedged on its last link is reported once and moved back to the first link once that link's reset period has passed since it left it.
 The detection signatures, durable window record, timing knobs, and restart semantics are owned by [`bin/fm-quota-failover-lib.sh`](../bin/fm-quota-failover-lib.sh)'s header.
