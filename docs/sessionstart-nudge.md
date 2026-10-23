@@ -270,7 +270,13 @@ The extension maps Pi events onto wrapper sources:
 - It maps `session_start` reasons `startup`, `new`, `resume`, and `fork` onto wrapper sources.
 - It refines a Pi-reported `startup` to `resume` only when a continuation, resume-selection, or explicit-session flag accompanies a session header older than the current process.
 - It maps a fork flag to `fork`.
-- It handles `session_compact` as the compaction equivalent.
+- It handles `session_compact` as the compaction equivalent, sending the capped re-emit with `triggerTurn: false`.
+  Manual compaction is idle, so Pi appends it at once.
+  Automatic compaction runs inside an agent run, so Pi holds it until the end of the turn in progress.
+  The first model call after a mid-run compaction can miss it; a later call in that run sees it, or the next user prompt if the run ends first.
+  Neither path starts or steers a model call of its own.
+- Each compaction re-emit is cut at 40,000 characters plus a loud truncation notice, and the full digest is saved to `state/.reemit-latest.txt` for an on-demand read.
+  Size audit, 2026-10-23: the live `state/.reemit-latest.txt` was 85,247 bytes (85,227 characters, 482 lines), so each compaction now injects under half of it.
 - Pi's `reload` reason is deliberately unmapped, as it always was.
 
 Setup-created entries such as `--name` are not restoration evidence.
@@ -298,7 +304,7 @@ So native and manual startup never run concurrently.
 An intentional gate or non-primary stand-down returns no message.
 Context-preserving sources retain their existing silent result when the current process already holds the lock.
 
-Manual and automatic compaction retain the existing persistent delivery path, because an automatic retry may have no new `before_agent_start`.
+Manual and automatic compaction send their message directly rather than through `before_agent_start`, because an automatic retry may have no new `before_agent_start`; the `session_compact` entry above owns its delivery timing.
 That path still shares the same generation cancellation and exactly-once claim.
 
 The extension encodes an unencoded digest or fallback as `session-start` operational input and leaves an already-encoded nudge alone.
