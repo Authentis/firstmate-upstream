@@ -238,6 +238,30 @@ assert_equals "" "$(state_field recurred)" "a redraw below a static error line n
 assert_equals 0 "$(calls)" "a static error line with only a ticking spinner below it must not fail the mate over"
 pass "a static quota error line with only an in-place redraw below it never advances the chain"
 
+# A periodic doorbell wedge seen alternately mid-turn (spinner) and after the
+# turn (error) still recurs: the new error replaces the spinner in place.
+new_home phases
+: > "$HOME_DIR/history"
+for n in 1 2 3 4 5 6; do
+  printf '> check inbox\nreading inbox\nError: 429 Too Many Requests\n' >> "$HOME_DIR/history"
+done
+spinner_phase() {
+  { cat "$HOME_DIR/history"; printf '> check inbox\nreading inbox\n* Working\n'; } > "$HOME_DIR/pane"
+}
+error_phase() {
+  printf '> check inbox\nreading inbox\nError: 429 Too Many Requests\n' >> "$HOME_DIR/history"
+  cat "$HOME_DIR/history" > "$HOME_DIR/pane"
+}
+cat "$HOME_DIR/history" > "$HOME_DIR/pane"
+tick 1000 >/dev/null
+assert_equals 1000 "$(state_field first_seen)" "the periodic wedge is sighted"
+spinner_phase; tick 1020 >/dev/null
+error_phase; tick 1040 >/dev/null
+assert_equals 1 "$(state_field recurred)" "an error replacing the spinner in place recurs"
+spinner_phase; tick 1060 >/dev/null
+assert_equals 1 "$(calls)" "a periodic wedge alternating between spinner and error fails over"
+pass "a periodic wedge captured alternately mid-turn and after the error still fails over"
+
 # A transient line below a static error that appears and clears moves the full
 # window's top edge; neither the shifted lines above the error nor an older
 # error exposed at the top is a new error.

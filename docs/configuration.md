@@ -952,8 +952,11 @@ Blank lines and lines starting with `#` are ignored.
 A malformed line stops failover for that id only, rather than being selected around, and is reported once as a check wake; other mates are unaffected.
 A mate with fewer than two links has no failover and its pane is never read.
 When a live mate's newest pane output keeps showing new provider quota errors past the failover window, the watcher rewrites that mate's keyed pin in `config/secondmate-harness` to the next link and restarts it persist-first; the same error printed again every turn counts, while one error line that sits unchanged, has only a spinner, status, or transient line changing below it, or scrolls upward never counts as sustained.
-These recurrence semantics are final, with one known limitation: a strictly periodic wedge - the same input every turn (for example only the fixed steering doorbell), a byte-identical error reply, and a constant footer - shifts the 12-line window by exactly one period, so consecutive captures are identical and the error never counts as recurring.
-Line snapshots cannot distinguish that case from a static error line with an in-place redraw below it, which must not count.
+A new error that replaces a spinner or status line in place also counts, so a wedge whose captures alternate between its spinner and its error is caught.
+These recurrence semantics are final, with two known limitations.
+A strictly periodic wedge - the same input every turn (for example only the fixed steering doorbell), a byte-identical error reply, and a constant footer - whose captures always land in the same phase of a turn shifts the 12-line window by exactly whole periods, so consecutive captures are identical and the error never counts as recurring.
+A static error line whose scrollback above it is itself perfectly periodic reads as an unmoved window, so a line below it clearing can count once as a recurrence.
+Line snapshots cannot distinguish either case from its opposite.
 A local mate in this wedge never consumes its inbox, so the watcher's secondmate wake-loop stall check and the steering doorbell's re-ring escalation still surface it.
 Neither covers a remote mate: the watcher skips `remote_host` metas for the wake-loop stall check and the remote steer leg has no watcher ladder, so a remote mate in this wedge has only pending-reply recovery escalation for sends that expect a reply, operator-side liveness and context alarms outside this home, and periodic supervision review.
 A turn-counted or cursor/history-position signal on both the local and remote capture paths is the planned follow-up.

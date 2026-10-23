@@ -29,25 +29,31 @@
 #     one window unless they repeat, because the replacement shares the old
 #     endpoint's scrollback.
 #   - Recurrence: each capture showing a signature is kept in
-#     state/.quota-failover-<id>.seen. A sighting is a capture holding more
-#     signature lines than the previous one, or one whose lines ending at the
-#     newest signature line - bottom-aligned, over the length both captures
-#     share - changed while that line stayed no farther from the bottom. Lines
-#     below it are ignored, including their height: signature lines exposed at
-#     the top of a full window only because lines below shrank are not
-#     counted. A wedged agent
-#     printing the same error every turn therefore keeps counting even once
-#     that error fills the newest lines, while one static error line - a
-#     relayed crew error, or the old agent's last words - never counts twice,
-#     whether it sits unchanged, a spinner or status line below it redraws in
-#     place or appears and clears, or the agent's later output scrolls it
-#     upward. These recurrence
-#     semantics are final. Known limitation: a strictly periodic wedge - the
-#     same input every turn (such as only the fixed steering doorbell), a
-#     byte-identical error reply, and a constant footer - shifts a full
-#     12-line window by exactly one period, so consecutive captures are
-#     identical and never recur. Line snapshots cannot tell that apart from a
-#     static error line with an in-place redraw, which must not count. A local
+#     state/.quota-failover-<id>.seen and the next capture is aligned with it.
+#     When the lines above the newest signature line are unchanged, the window
+#     did not move: a sighting is a capture holding more signature lines (a
+#     new error printed in place of a spinner or status line), or one whose
+#     newest signature line changed while it stayed no farther from the
+#     bottom. Otherwise the window moved, and a sighting is a capture holding
+#     more signature lines - not counting those a full window exposes at its
+#     top only because lines below shrank - or one whose lines ending at the
+#     newest signature line, bottom-aligned over the length both captures
+#     share, changed while that line stayed no farther from the bottom. A
+#     wedged agent printing the same error every turn therefore keeps
+#     counting even once that error fills the newest lines, including when
+#     captures alternate between its spinner and its error, while one static
+#     error line - a relayed crew error, or the old agent's last words - never
+#     counts twice, whether it sits unchanged, a spinner or status line below
+#     it redraws in place or appears and clears, or the agent's later output
+#     scrolls it upward. These recurrence semantics are final. Known
+#     limitations: a strictly periodic wedge - the same input every turn (such
+#     as only the fixed steering doorbell), a byte-identical error reply, and
+#     a constant footer - whose captures always land in the same phase of a
+#     turn shifts a full 12-line window by exactly whole periods, so
+#     consecutive captures are identical and never recur; and a static error
+#     line whose scrollback above is itself perfectly periodic reads as
+#     unmoved, so a line below it clearing can count once. Line snapshots
+#     cannot tell either case apart from its opposite. A local
 #     mate in this wedge never consumes its inbox, so the watcher's secondmate
 #     wake-loop stall check and the steering doorbell's re-ring escalation
 #     still surface it. Neither covers a remote mate - the watcher skips
@@ -160,18 +166,27 @@ fm_quota_failover_shape() {  # <text>
 
 # Succeeds when <pane> shows a new quota error against the capture recorded in
 # <previous-file>: none was recorded, more signature lines are on screen, or
-# the lines ending at the newest signature line, bottom-aligned over the
-# length both captures share, changed while that line stayed no farther from
-# the bottom - a fresh error printed where the last one was, rather than an
-# old one scrolled upward by later output or one whose only change is below
-# it. Lines a full window exposes at its top only because lines below it
-# shrank are not counted.
+# the lines ending at the newest signature line changed while that line
+# stayed no farther from the bottom - a fresh error printed where the last one
+# was, rather than an old one scrolled upward by later output or one whose
+# only change is below it. When the lines above the newest signature line are
+# unchanged the window did not move and is compared as is; otherwise the
+# regions ending at the newest signature line are bottom-aligned, and lines a
+# full window exposes at its top only because lines below it shrank are not
+# counted.
 fm_quota_failover_recurs() {  # <pane> <previous-file>
   local previous count after last previous_count previous_after previous_last common
   [ -f "$2" ] || return 0
   previous=$(cat "$2")
   read -r count after last <<< "$(fm_quota_failover_shape "$1")"
   read -r previous_count previous_after previous_last <<< "$(fm_quota_failover_shape "$previous")"
+  if [ "$(printf '%s\n' "$1" | awk -v n="$((last - 1))" 'NR <= n')" \
+    = "$(printf '%s\n' "$previous" | awk -v n="$((last - 1))" 'NR <= n')" ]; then
+    [ "$count" -gt "$previous_count" ] && return 0
+    [ "$after" -le "$previous_after" ] || return 1
+    [ "$(printf '%s\n' "$1" | head -n "$last")" != "$(printf '%s\n' "$previous" | head -n "$previous_last")" ]
+    return
+  fi
   if [ "$after" -lt "$previous_after" ] && [ "$(printf '%s\n' "$1" | grep -c '')" -ge "$FM_QF_LINES" ]; then
     count=$(printf '%s\n' "$1" | tail -n +"$((previous_after - after + 1))" | grep -Eic "${FM_QF_SIGNATURES[@]}")
   fi
