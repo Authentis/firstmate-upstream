@@ -502,12 +502,74 @@ printf 'remote_host=host.invalid\n' >> "$HOME_DIR/state/$ID.meta"
 pane '429 Too Many Requests'
 tick 1000 >/dev/null
 again
-out=$(FM_TEST_RESTART=held tick 1060)
-assert_equals "$ID codex model-c low" "$(pin)" "a remote mate's refusal must not restore the pin"
+out=$(FM_TEST_RESTART=refused tick 1060)
+assert_equals "$ID codex model-c low" "$(pin)" "a remote mate's refused relaunch must not restore the pin"
 assert_equals 1 "$(state_field link)" "the target link stays recorded for a remote mate"
 assert_contains "$out" "pin kept on link 1: unreached: $ID: a remote relaunch does not take the control lock" \
   "the kept remote pin is reported as an unknown outcome"
-pass "a refusal of a remote mate keeps the target pin"
+pass "a refused relaunch of a remote mate keeps the target pin"
+
+# A remote mate held before any relaunch ran still runs the prior link.
+new_home remoteheld
+printf 'remote_host=host.invalid\n' >> "$HOME_DIR/state/$ID.meta"
+pane '429 Too Many Requests'
+tick 1000 >/dev/null
+again
+out=$(FM_TEST_RESTART=held tick 1060)
+assert_equals "$ID claude model-a high" "$(pin)" "a remote mate held before its relaunch gets its prior pin back"
+assert_equals 0 "$(state_field link)" "a remote mate held before its relaunch keeps the previous link"
+assert_contains "$out" "did not complete; pin restored to link 0: held: $ID:" "the remote hold is reported as a restored refusal"
+pass "a remote mate held before any relaunch ran restores the prior pin and link"
+
+# The same hold on the way to the last link must not record that link while
+# the mate still runs its exhausted one, or every later window would find the
+# chain exhausted and restart nothing until link 0's reset period.
+new_home remotelast
+printf 'remote_host=host.invalid\n' >> "$HOME_DIR/state/$ID.meta"
+pane '429 Too Many Requests'
+tick 1000 >/dev/null
+again
+tick 1060 >/dev/null
+assert_equals 1 "$(state_field link)" "the remote mate first fails over to link 1"
+pane 'all quiet'
+tick 1210 >/dev/null
+pane 'Error: exceeded_current_quota'
+tick 1220 >/dev/null
+again 'Error: exceeded_current_quota'
+out=$(FM_TEST_RESTART=held tick 1280)
+assert_equals 2 "$(calls)" "the failover to the last link was attempted"
+assert_equals "$ID codex model-c low" "$(pin)" "a remote hold on the way to the last link restores link 1's pin"
+assert_equals 1 "$(state_field link)" "a remote hold on the way to the last link keeps link 1 recorded"
+assert_contains "$out" "did not complete; pin restored to link 1: held: $ID:" "the remote hold is reported as a restored refusal"
+again 'Error: exceeded_current_quota'
+out=$(tick 1340)
+assert_equals 3 "$(calls)" "the held failover to the last link is retried the next window"
+assert_equals "$ID opencode model-d medium" "$(pin)" "the retried failover reaches the last link"
+assert_equals 2 "$(state_field link)" "the last link is recorded once the mate was relaunched onto it"
+assert_not_contains "$out" "last chain link" "the retry is a failover, not an exhausted chain"
+pass "a remote mate held on its way to the last link retries instead of stranding on the exhausted link"
+
+# A remote return that cannot confirm its open work keeps the mate where it
+# is and retries after the next clear period.
+new_home remotereturn
+printf 'remote_host=host.invalid\n' >> "$HOME_DIR/state/$ID.meta"
+pane '429 Too Many Requests'
+tick 1000 >/dev/null
+again
+tick 1060 >/dev/null
+pane 'all quiet'
+tick 1100 >/dev/null
+FM_TEST_RESTART=held tick 1660 >/dev/null
+assert_equals 2 "$(calls)" "the return was attempted"
+assert_equals "$ID codex model-c low" "$(pin)" "a held remote return restores link 1's pin"
+assert_equals 1 "$(state_field link)" "a held remote return keeps link 1 recorded"
+tick 2259 >/dev/null
+assert_equals 2 "$(calls)" "a held return waits a full clear period before retrying"
+out=$(tick 2260)
+assert_equals 3 "$(calls)" "a held remote return is retried after the next clear period"
+assert_equals 0 "$(state_field link)" "the retried return reaches link 0"
+assert_contains "$out" "returned to chain link 0" "the retried return is reported"
+pass "a held remote return keeps the mate on its link and retries after the next clear period"
 
 # Another lifecycle action holds the control lock when the refusal would restore.
 new_home restorelock

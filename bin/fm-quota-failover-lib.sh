@@ -85,11 +85,12 @@
 #     (bin/fm-control-lib.sh), then bin/fm-harness.sh validate-secondmate-model
 #     and validate-native-effort - and a link that fails is never pinned. The
 #     target link is recorded before the pin moves. A restart refused before
-#     the agent was touched (the restart owner's "held:" line, including a
-#     relaunch the control plane refused before stopping the agent) restores
-#     the exact prior pin line, except as Serialization below keeps the
-#     target, and re-arms, retrying each window and reporting once per
-#     refused episode; one whose outcome is unknown keeps the target pin, so
+#     the agent was touched (the restart owner's "held:" line: a persist
+#     request it could not deliver, or a return's request left unanswered, so
+#     no relaunch ran, or a relaunch the control plane refused before stopping
+#     the agent) restores the exact prior pin line and link, except as
+#     Serialization below keeps the target, and re-arms, retrying each window
+#     and reporting once per refused episode; one whose outcome is unknown keeps the target pin, so
 #     liveness recovery relaunches onto that link rather than the exhausted
 #     one. A target pin that cannot be written runs no restart and leaves the
 #     mate on its current link.
@@ -109,10 +110,12 @@
 #     after a refusal retakes the control lock and keeps the target pin,
 #     reporting an unknown outcome, when that lock stays busy, when the mate's
 #     record already shows it running the target link, when the mate is
-#     remote (its relaunches never take that lock, so a concurrent one may
-#     already have consumed the target pin), or when the write back fails, so
-#     the pin never reverts under a mate running the target. Every
-#     rewrite of config/secondmate-harness, for any mate, holds
+#     remote and its own relaunch was refused (its relaunches never take that
+#     lock, so a concurrent one may already have consumed the target pin), or
+#     when the write back fails, so the pin never reverts under a mate running
+#     the target. A remote mate held before any relaunch ran still runs the
+#     prior link, so it gets its prior pin and link back like a local mate.
+#     Every rewrite of config/secondmate-harness, for any mate, holds
 #     state/.quota-failover-pin.lock across its read-modify-rename, so
 #     overlapping passes cannot lose each other's pin updates.
 #   - Exhausted: on the last link a sustained signature is reported once per
@@ -122,8 +125,9 @@
 #   - Return: a mate on a later link whose captures stay free of every
 #     signature for FM_QUOTA_FAILOVER_RESET_SECS (18000, one common provider
 #     window) is moved back to link 0 through the persist-gated restart, so a
-#     mate that cannot confirm its open work within the persist wait keeps
-#     running where it is and retries after the next clear period.
+#     mate that cannot confirm its open work within the persist wait, local
+#     or remote, keeps running where it is with its pin and link restored and
+#     retries after the next clear period.
 # Every restart here passes --no-nudge or --failover, so a mate that is not
 # restarted is never sent the instruction-update re-read message, and the id
 # it names is taken exactly as registered.
@@ -439,10 +443,11 @@ fm_quota_failover_link_valid() {  # <id> <harness> <model> <effort>
 # Put <prior-line> back as <id>'s pin under its control lock, so no relaunch
 # can be resolving the pin while it moves back. Fails, keeping the target pin,
 # when the lock stays busy, when a relaunch that started after the lock was
-# released already runs the mate on <target-profile>, when the mate is remote,
-# or when the write fails; FM_QF_RESTORE_WHY says which.
-fm_quota_failover_restore() {  # <id> <prior-line> <target-profile> <control-lock>
-  local id=$1 prior=$2 profile=$3 control=$4 meta running rc=0
+# released already runs the mate on <target-profile>, when the mate is remote
+# and its own relaunch was refused (<relaunch-refused> is 1), or when the write
+# fails; FM_QF_RESTORE_WHY says which.
+fm_quota_failover_restore() {  # <id> <prior-line> <target-profile> <control-lock> <relaunch-refused>
+  local id=$1 prior=$2 profile=$3 control=$4 refused=$5 meta running rc=0
   FM_QF_RESTORE_WHY=''
   if ! fm_lock_acquire_wait_max "$control" 30; then
     FM_QF_RESTORE_WHY="another lifecycle action held the control lock, so the target pin was kept"
@@ -453,7 +458,7 @@ fm_quota_failover_restore() {  # <id> <prior-line> <target-profile> <control-loc
   if [ "$running" = "$profile" ]; then
     FM_QF_RESTORE_WHY="a concurrent relaunch already runs the mate on the target link, so the target pin was kept"
     rc=1
-  elif [ -n "$(fm_meta_get "$meta" remote_host)" ]; then
+  elif [ "$refused" = 1 ] && [ -n "$(fm_meta_get "$meta" remote_host)" ]; then
     FM_QF_RESTORE_WHY="a remote relaunch does not take the control lock and may already run the target link, so the target pin was kept"
     rc=1
   elif ! fm_quota_failover_put_pin "$id" "$prior"; then
@@ -471,7 +476,7 @@ fm_quota_failover_restore() {  # <id> <prior-line> <target-profile> <control-loc
 # before the agent was touched restores the prior pin line and link; an
 # unknown outcome keeps the target and sets FM_QF_UNKNOWN=1. Sets FM_QF_OUT.
 fm_quota_failover_apply() {  # <id> <chain-text> <target> <failover|ordinary> <now>
-  local id=$1 chain=$2 target=$3 mode=$4 now=$5 profile prior wait control pinned=0 rc=0
+  local id=$1 chain=$2 target=$3 mode=$4 now=$5 profile prior wait control pinned=0 refused=0 rc=0
   local from=$FM_QF_LINK left0=$FM_QF_LEFT0 episode=$FM_QF_EPISODE recurred=$FM_QF_RECURRED
   local -a args=(--no-nudge "$id")
   local -a link
@@ -514,7 +519,8 @@ fm_quota_failover_apply() {  # <id> <chain-text> <target> <failover|ordinary> <n
       return "$rc"
     fi
   fi
-  if [ "$pinned" = 1 ] && ! fm_quota_failover_restore "$id" "$prior" "$profile" "$control"; then
+  printf '%s\n' "$FM_QF_OUT" | grep -qF "held: $id: the restart was refused before its agent was touched" && refused=1
+  if [ "$pinned" = 1 ] && ! fm_quota_failover_restore "$id" "$prior" "$profile" "$control" "$refused"; then
     FM_QF_UNKNOWN=1
     FM_QF_OUT="unreached: $id: $FM_QF_RESTORE_WHY"$'\n'"$FM_QF_OUT"
     FM_QF_CLEAR_SINCE=$now
