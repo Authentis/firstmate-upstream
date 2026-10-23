@@ -28,12 +28,15 @@
 #     relaunch are recorded in state/.quota-failover-<id>.stale and ignored for
 #     one window unless they repeat, because the replacement shares the old
 #     endpoint's scrollback.
-#   - Recurrence: each capture's signature lines are kept in
-#     state/.quota-failover-<id>.seen. A sighting is a capture holding a
-#     signature line, counted with repeats, that the previous capture did not,
-#     so one static error line - a relayed crew error, or the old agent's last
-#     words - never counts twice however the lines around it scroll, while
-#     each new error the wedged agent prints does.
+#   - Recurrence: each capture showing a signature is kept in
+#     state/.quota-failover-<id>.seen. A sighting is a capture holding more
+#     signature lines than the previous one, or one whose newest lines changed
+#     while its newest signature line stayed no farther from the bottom. A
+#     wedged agent printing the same error every turn therefore keeps counting
+#     even once that error fills the newest lines, while one static error
+#     line - a relayed crew error, or the old agent's last words - never counts
+#     twice, whether it sits unchanged or the agent's later output scrolls it
+#     upward.
 #   - Window: the first sighting is recorded durably in
 #     state/.quota-failover-<id>, so the sustained window survives watcher
 #     restarts. A clear capture resets it.
@@ -115,12 +118,37 @@ fm_quota_failover_signature() {  # <text>
   fm_quota_failover_matches "$1" >/dev/null
 }
 
-# Succeeds when every signature line in <matches>, counting repeats, is
-# already recorded in <record>: the stale lines left on screen at a relaunch,
-# or the previous capture's lines. Such lines prove no new error.
-fm_quota_failover_covered() {  # <matches> <record>
+# A relaunch reuses the same endpoint, so the replaced agent's error text can
+# stay in the captured scrollback. Succeeds when every signature line in
+# <matches> (counting repeats) was already recorded in <stale-file> at the
+# relaunch, so those lines prove nothing about the new link.
+fm_quota_failover_covered() {  # <matches> <stale-file>
   [ -s "$2" ] || return 1
   printf '%s\n' "$1" | awk 'NR == FNR { n[$0]++; next } { if (--n[$0] < 0) bad = 1 } END { exit bad }' "$2" -
+}
+
+# Print "<signature lines> <lines after the newest signature line>" for <text>.
+fm_quota_failover_shape() {  # <text>
+  local total last count
+  total=$(printf '%s\n' "$1" | grep -c '')
+  count=$(printf '%s\n' "$1" | grep -Eic "${FM_QF_SIGNATURES[@]}")
+  last=$(printf '%s\n' "$1" | grep -Ein "${FM_QF_SIGNATURES[@]}" | tail -n 1 | cut -d: -f1)
+  printf '%s %s\n' "${count:-0}" "$((total - ${last:-$total}))"
+}
+
+# Succeeds when <pane> shows a new quota error against the capture recorded in
+# <previous-file>: none was recorded, more signature lines are on screen, or
+# the newest lines changed while the newest signature line stayed no farther
+# from the bottom - a fresh error printed where the last one was, rather than
+# an old one scrolled upward by later output.
+fm_quota_failover_recurs() {  # <pane> <previous-file>
+  local previous count after previous_count previous_after
+  [ -f "$2" ] || return 0
+  previous=$(cat "$2")
+  read -r count after <<< "$(fm_quota_failover_shape "$1")"
+  read -r previous_count previous_after <<< "$(fm_quota_failover_shape "$previous")"
+  [ "$count" -gt "$previous_count" ] && return 0
+  [ "$1" != "$previous" ] && [ "$after" -le "$previous_after" ]
 }
 
 # Print the chain for <id>, one "<harness> <model> <effort>" line per link in
@@ -381,8 +409,8 @@ fm_quota_failover_check() {  # <meta> <id> <now> <chain-text> <malformed:0|1>
   fi
   seen="$(fm_quota_failover_state_file "$id").seen"
   if [ "$quota" = 1 ]; then
-    fm_quota_failover_covered "$matches" "$seen" || changed=1
-    printf '%s\n' "$matches" > "$seen" \
+    ! fm_quota_failover_recurs "$pane" "$seen" || changed=1
+    printf '%s\n' "$pane" > "$seen" \
       || { FM_QF_REPORT="quota failover state for $id could not be saved"; return 1; }
   else
     rm -f -- "$seen"

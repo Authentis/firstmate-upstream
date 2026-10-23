@@ -951,7 +951,7 @@ Each line has the keyed pin shape `<id> <harness> <model> <effort>`, and the lin
 Blank lines and lines starting with `#` are ignored.
 A malformed line stops failover for that id only, rather than being selected around, and is reported once as a check wake; other mates are unaffected.
 A mate with fewer than two links has no failover and its pane is never read.
-When a live mate's newest pane output keeps showing new provider quota errors past the failover window, the watcher rewrites that mate's keyed pin in `config/secondmate-harness` to the next link and restarts it persist-first; one unchanged error line never counts as sustained.
+When a live mate's newest pane output keeps showing new provider quota errors past the failover window, the watcher rewrites that mate's keyed pin in `config/secondmate-harness` to the next link and restarts it persist-first; the same error printed again every turn counts, while one error line that sits unchanged or scrolls upward never counts as sustained.
 After its quota stays clear for the reset period it is moved back to the first link through the persist-gated restart.
 A mate still wedged on its last link is reported once and moved back to the first link once that link's reset period has passed since it left it.
 The detection signatures, durable window record, timing knobs, and restart semantics are owned by [`bin/fm-quota-failover-lib.sh`](../bin/fm-quota-failover-lib.sh)'s header.

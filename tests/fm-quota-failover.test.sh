@@ -87,7 +87,7 @@ pane() {  # <text>
 
 # The wedged agent answers one more turn with a quota error.
 again() {  # [text]
-  printf '%s\n' "${1:-429 Too Many Requests}" >> "$HOME_DIR/pane"
+  printf '> turn %s\n%s\n' "$(grep -c '' "$HOME_DIR/pane")" "${1:-429 Too Many Requests}" >> "$HOME_DIR/pane"
 }
 
 # One check in a FRESH process, as each watcher pass is: nothing carries over
@@ -245,6 +245,33 @@ assert_equals "" "$(state_field recurred)" "scrolling static error lines never r
 assert_equals 0 "$(calls)" "static error lines scrolled to the top of the newest lines must not fail the mate over"
 pass "static quota error lines scrolling within the newest lines never advance the chain"
 
+# --- the wedge: the same error every turn through a full window --------------
+
+# Each turn adds the wake that reached the agent and the identical error it
+# answered with, above a fixed footer, as a harness TUI does.
+turn() {  # <n>
+  printf '> wake %s\nAPI Error: 429 Too Many Requests\n' "$1" >> "$HOME_DIR/history"
+  { cat "$HOME_DIR/history"; printf -- '-----\n? for shortcuts\n'; } > "$HOME_DIR/pane"
+}
+newest_errors() { grep -v '^[[:space:]]*$' "$HOME_DIR/pane" | tail -n 12 | grep -c 'API Error: 429'; }
+
+new_home steady
+: > "$HOME_DIR/history"
+for n in 1 2 3 4 5 6 7 8; do turn "$n"; done
+assert_equals 5 "$(newest_errors)" "the fixture starts with the newest lines already full of the error"
+tick 1000 >/dev/null
+assert_equals 1000 "$(state_field first_seen)" "a wedge already under way is sighted"
+turn 9; tick 1020 >/dev/null
+turn 10; tick 1040 >/dev/null
+turn 11; tick 1059 >/dev/null
+assert_equals 0 "$(calls)" "the wedge does not advance inside the window"
+turn 12
+assert_equals 5 "$(newest_errors)" "the newest lines stay full of the same error across the window"
+out=$(tick 1060)
+assert_equals 1 "$(calls)" "the same error every turn through a full window advances the chain"
+assert_contains "$out" "quota failover from chain link 0 to link 1" "the wedge failover is reported"
+pass "a wedged agent repeating one identical error through a full window still fails over"
+
 # --- return to the first link after the pool resets --------------------------
 
 new_home return
@@ -352,6 +379,9 @@ pass "an unknown restart outcome keeps the pin on the target link instead of the
 new_home unpersisted
 pane '429 Too Many Requests'
 tick 1000 >/dev/null
+for t in 1010 1020 1030 1040 1050 1059; do again; tick "$t" >/dev/null; done
+assert_equals 0 "$(calls)" "turns inside the window restart nothing"
+again
 again
 out=$(FM_TEST_RESTART=unpersisted tick 1060)
 assert_contains "$out" "quota failover from chain link 0 to link 1" "the restart is reported"

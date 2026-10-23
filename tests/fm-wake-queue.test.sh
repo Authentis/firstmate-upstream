@@ -3547,7 +3547,7 @@ SH
     n=0
     while [ -d "$dir" ]; do
       n=$((n + 1))
-      printf '> turn %s\nAPI Error: 429 Too Many Requests (request req-%s)\n' "$n" "$n" >> "$dir/pane"
+      printf '> turn %s\nAPI Error: 429 Too Many Requests\n' "$n" >> "$dir/pane"
       sleep 0.5
     done
   ) &
