@@ -30,24 +30,33 @@
 #     endpoint's scrollback.
 #   - Recurrence: each capture showing a signature is kept in
 #     state/.quota-failover-<id>.seen. A sighting is a capture holding more
-#     signature lines than the previous one, or one whose lines up to and
-#     including the newest signature line changed while that line stayed no
-#     farther from the bottom; lines below it are ignored. A wedged agent
+#     signature lines than the previous one, or one whose lines ending at the
+#     newest signature line - bottom-aligned, over the length both captures
+#     share - changed while that line stayed no farther from the bottom. Lines
+#     below it are ignored, including their height: signature lines exposed at
+#     the top of a full window only because lines below shrank are not
+#     counted. A wedged agent
 #     printing the same error every turn therefore keeps counting even once
 #     that error fills the newest lines, while one static error line - a
 #     relayed crew error, or the old agent's last words - never counts twice,
 #     whether it sits unchanged, a spinner or status line below it redraws in
-#     place, or the agent's later output scrolls it upward. These recurrence
+#     place or appears and clears, or the agent's later output scrolls it
+#     upward. These recurrence
 #     semantics are final. Known limitation: a strictly periodic wedge - the
 #     same input every turn (such as only the fixed steering doorbell), a
 #     byte-identical error reply, and a constant footer - shifts a full
 #     12-line window by exactly one period, so consecutive captures are
 #     identical and never recur. Line snapshots cannot tell that apart from a
-#     static error line with an in-place redraw, which must not count. Such a
-#     mate is still caught by the watcher's secondmate wake-loop stall check
-#     and the steering doorbell's re-ring escalation, since it never consumes
-#     its inbox. The planned follow-up is a turn-counted or
-#     cursor/history-position signal on both capture paths.
+#     static error line with an in-place redraw, which must not count. A local
+#     mate in this wedge never consumes its inbox, so the watcher's secondmate
+#     wake-loop stall check and the steering doorbell's re-ring escalation
+#     still surface it. Neither covers a remote mate - the watcher skips
+#     remote_host metas there and the remote steer leg has no watcher ladder -
+#     so a remote mate in this wedge has only pending-reply recovery
+#     escalation for sends that expect a reply, operator-side liveness and
+#     context alarms outside this home, and periodic supervision review. The
+#     planned follow-up is a turn-counted or cursor/history-position signal on
+#     both capture paths.
 #   - Window: the first sighting is recorded durably in
 #     state/.quota-failover-<id>, so the sustained window survives watcher
 #     restarts. A clear capture resets it.
@@ -120,6 +129,7 @@ FM_QF_SIGNATURES=(
   -e '(hit|reached|exceeded)[[:space:]]+(your|the)[[:space:]]+usage[ _-]limit'
   -e 'usage[ _-]limit[ _-](reached|exceeded|hit)'
 )
+FM_QF_LINES=12
 fm_quota_failover_matches() {  # <text>
   printf '%s\n' "$1" | grep -Ei "${FM_QF_SIGNATURES[@]}"
 }
@@ -150,19 +160,27 @@ fm_quota_failover_shape() {  # <text>
 
 # Succeeds when <pane> shows a new quota error against the capture recorded in
 # <previous-file>: none was recorded, more signature lines are on screen, or
-# the lines up to and including the newest signature line changed while that
-# line stayed no farther from the bottom - a fresh error printed where the
-# last one was, rather than an old one scrolled upward by later output or one
-# whose only change is a redraw below it.
+# the lines ending at the newest signature line, bottom-aligned over the
+# length both captures share, changed while that line stayed no farther from
+# the bottom - a fresh error printed where the last one was, rather than an
+# old one scrolled upward by later output or one whose only change is below
+# it. Lines a full window exposes at its top only because lines below it
+# shrank are not counted.
 fm_quota_failover_recurs() {  # <pane> <previous-file>
-  local previous count after last previous_count previous_after previous_last
+  local previous count after last previous_count previous_after previous_last common
   [ -f "$2" ] || return 0
   previous=$(cat "$2")
   read -r count after last <<< "$(fm_quota_failover_shape "$1")"
   read -r previous_count previous_after previous_last <<< "$(fm_quota_failover_shape "$previous")"
+  if [ "$after" -lt "$previous_after" ] && [ "$(printf '%s\n' "$1" | grep -c '')" -ge "$FM_QF_LINES" ]; then
+    count=$(printf '%s\n' "$1" | tail -n +"$((previous_after - after + 1))" | grep -Eic "${FM_QF_SIGNATURES[@]}")
+  fi
   [ "$count" -gt "$previous_count" ] && return 0
   [ "$after" -le "$previous_after" ] || return 1
-  [ "$(printf '%s\n' "$1" | head -n "$last")" != "$(printf '%s\n' "$previous" | head -n "$previous_last")" ]
+  common=$last
+  [ "$previous_last" -ge "$common" ] || common=$previous_last
+  [ "$(printf '%s\n' "$1" | head -n "$last" | tail -n "$common")" \
+    != "$(printf '%s\n' "$previous" | head -n "$previous_last" | tail -n "$common")" ]
 }
 
 # Print the chain for <id>, one "<harness> <model> <effort>" line per link in
@@ -316,7 +334,7 @@ fm_quota_failover_decide() {  # <links> <quota:0|1> <changed:0|1> <now>
 
 # Print the recorded endpoint's newest non-blank pane lines, local or remote.
 fm_quota_failover_capture() {  # <meta> <id>
-  local meta=$1 id=$2 lines=12 backend target pane
+  local meta=$1 id=$2 lines=$FM_QF_LINES backend target pane
   if [ -n "$(fm_meta_get "$meta" remote_host)" ]; then
     pane=$("$FM_QF_LIB_DIR/fm-on.sh" "$id" fm-remote-secondmate-control.sh capture "$id" "$lines" < /dev/null 2>/dev/null) || return 1
   else

@@ -238,6 +238,28 @@ assert_equals "" "$(state_field recurred)" "a redraw below a static error line n
 assert_equals 0 "$(calls)" "a static error line with only a ticking spinner below it must not fail the mate over"
 pass "a static quota error line with only an in-place redraw below it never advances the chain"
 
+# A transient line below a static error that appears and clears moves the full
+# window's top edge; neither the shifted lines above the error nor an older
+# error exposed at the top is a new error.
+for variant in plain older; do
+  new_home "transient-$variant"
+  old=$(printf 'old line %s\n' 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20)
+  [ "$variant" = plain ] || old="$old
+Error: exceeded_current_quota
+$(printf 'reply line %s\n' 1 2 3 4 5 6 7 8 9)"
+  quiet="$old
+relayed from crew-one: API Error: 429 Too Many Requests
+? for shortcuts"
+  for t in 1000 1030 1060 1090 1120 1400; do
+    case "$t" in 1030|1090) pane "$quiet
+* Working" ;; *) pane "$quiet" ;; esac
+    tick "$t" >/dev/null
+  done
+  assert_equals "" "$(state_field recurred)" "a transient line below a static error never recurs ($variant)"
+  assert_equals 0 "$(calls)" "a transient line below a static error must not fail the mate over ($variant)"
+done
+pass "a static quota error line with a transient line appearing and clearing below it never advances the chain"
+
 # The lines around static errors scrolling - the line before one leaving the
 # newest lines, then an older error leaving them too - is not a new error.
 new_home staticscroll
