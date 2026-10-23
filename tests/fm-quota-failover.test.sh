@@ -511,6 +511,21 @@ assert_contains "$out" "did not complete; pin restored to link 0: held: $ID: the
   "a relaunch refused before the stop is reported as a restored refusal"
 pass "a relaunch the control plane refused before stopping the agent restores the prior pin"
 
+# The pin file cannot be rewritten, so the pin never moves off link 0.
+new_home pinunwritable
+pane '429 Too Many Requests'
+tick 1000 >/dev/null
+again
+chmod 555 "$HOME_DIR/config"
+out=$(tick 1060 2>/dev/null)
+chmod 755 "$HOME_DIR/config"
+assert_equals 0 "$(calls)" "a failover whose pin was never written restarts nothing"
+assert_equals "$ID claude model-a high" "$(pin)" "the unwritten pin stays on link 0"
+assert_equals 0 "$(state_field link)" "the state keeps link 0 when the target pin was never written"
+assert_contains "$out" "did not complete; pin restored to link 0: the secondmate pin could not be rewritten" \
+  "the failed pin write is reported as a refusal, not an unknown outcome"
+pass "a failover whose target pin could not be written keeps the state on the current link"
+
 # A link a secondmate relaunch would refuse is never pinned or restarted onto.
 for bad in 'muse model-c low' 'no-such-harness model-c low' 'codex model-c ultra'; do
   new_home "badlink-${bad%% *}"

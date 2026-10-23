@@ -93,9 +93,14 @@
 #     exhausted one.
 #   - Serialization: the pin is written while this library holds
 #     state/.control-<id>.lock, the lock bin/fm-control.sh takes for every
-#     relaunch - /updatefirstmate's restart and a manual relaunch of the same
-#     mate included - so no relaunch can be resolving the mate's pin while it
-#     moves; a held lock refuses the failover as above. The lock is released
+#     local relaunch - /updatefirstmate's restart and a manual relaunch of the
+#     same mate included - so no local relaunch can be resolving the mate's
+#     pin while it moves; a held lock refuses the failover as above. A remote
+#     mate's relaunch (bin/fm-remote-secondmate-relaunch.sh) resolves the
+#     parent's pin without that lock, and only the remote host's control plane
+#     locks; an overlapping remote relaunch that ran on the old pin makes the
+#     quota restart's own relaunch fail as an unknown outcome, so the target
+#     pin is kept and a later window advances again. The lock is released
 #     before the restart owner runs, because the control plane takes it itself
 #     for the relaunch. A relaunch that starts in that gap runs onto the moved
 #     pin, and the quota restart's own relaunch is then refused. The restore
@@ -484,12 +489,11 @@ fm_quota_failover_apply() {  # <id> <chain-text> <target> <failover|ordinary> <n
     if ! fm_quota_failover_save "$id"; then
       FM_QF_OUT="the in-progress failover target could not be recorded"
       rc=1
+    elif ! fm_quota_failover_put_pin "$id" "$id $profile"; then
+      FM_QF_OUT="the secondmate pin could not be rewritten"
+      rc=1
     else
       pinned=1
-      if ! fm_quota_failover_put_pin "$id" "$id $profile"; then
-        FM_QF_OUT="the secondmate pin could not be rewritten"
-        rc=1
-      fi
     fi
     fm_lock_release "$control" || true
   fi
