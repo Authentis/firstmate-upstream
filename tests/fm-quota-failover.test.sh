@@ -86,6 +86,13 @@ case "${FM_TEST_RESTART:-ok}" in
 esac
 SH
 chmod +x "$BIN/fm-secondmate-restart.sh"
+# A remote mate's pane capture goes through fm-on.sh; the stub prints the pane.
+rm -f "$BIN/fm-on.sh"
+cat > "$BIN/fm-on.sh" <<'SH'
+#!/usr/bin/env bash
+cat "$FM_TEST_PANE"
+SH
+chmod +x "$BIN/fm-on.sh"
 
 FAKEBIN="$TMP_ROOT/fakebin"
 mkdir -p "$FAKEBIN"
@@ -486,6 +493,21 @@ assert_equals 1 "$(state_field link)" "the target link stays recorded"
 assert_contains "$out" "pin kept on link 1: unreached: $ID: a concurrent relaunch already runs the mate on the target link" \
   "the kept pin is reported as an unknown outcome"
 pass "a refusal caused by a concurrent relaunch onto the target link keeps the target pin"
+
+# A remote mate's relaunch never takes this home's control lock, so one may
+# already have consumed the target pin while this home's record still shows
+# the previous link.
+new_home remote
+printf 'remote_host=host.invalid\n' >> "$HOME_DIR/state/$ID.meta"
+pane '429 Too Many Requests'
+tick 1000 >/dev/null
+again
+out=$(FM_TEST_RESTART=held tick 1060)
+assert_equals "$ID codex model-c low" "$(pin)" "a remote mate's refusal must not restore the pin"
+assert_equals 1 "$(state_field link)" "the target link stays recorded for a remote mate"
+assert_contains "$out" "pin kept on link 1: unreached: $ID: a remote relaunch does not take the control lock" \
+  "the kept remote pin is reported as an unknown outcome"
+pass "a refusal of a remote mate keeps the target pin"
 
 # Another lifecycle action holds the control lock when the refusal would restore.
 new_home restorelock

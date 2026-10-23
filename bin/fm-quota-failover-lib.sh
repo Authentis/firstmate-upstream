@@ -108,8 +108,10 @@
 #     pin, and the quota restart's own relaunch is then refused. The restore
 #     after a refusal retakes the control lock and keeps the target pin,
 #     reporting an unknown outcome, when that lock stays busy, when the mate's
-#     record already shows it running the target link, or when the write back
-#     fails, so the pin never reverts under a mate running the target. Every
+#     record already shows it running the target link, when the mate is
+#     remote (its relaunches never take that lock, so a concurrent one may
+#     already have consumed the target pin), or when the write back fails, so
+#     the pin never reverts under a mate running the target. Every
 #     rewrite of config/secondmate-harness, for any mate, holds
 #     state/.quota-failover-pin.lock across its read-modify-rename, so
 #     overlapping passes cannot lose each other's pin updates.
@@ -437,8 +439,8 @@ fm_quota_failover_link_valid() {  # <id> <harness> <model> <effort>
 # Put <prior-line> back as <id>'s pin under its control lock, so no relaunch
 # can be resolving the pin while it moves back. Fails, keeping the target pin,
 # when the lock stays busy, when a relaunch that started after the lock was
-# released already runs the mate on <target-profile>, or when the write fails;
-# FM_QF_RESTORE_WHY says which.
+# released already runs the mate on <target-profile>, when the mate is remote,
+# or when the write fails; FM_QF_RESTORE_WHY says which.
 fm_quota_failover_restore() {  # <id> <prior-line> <target-profile> <control-lock>
   local id=$1 prior=$2 profile=$3 control=$4 meta running rc=0
   FM_QF_RESTORE_WHY=''
@@ -450,6 +452,9 @@ fm_quota_failover_restore() {  # <id> <prior-line> <target-profile> <control-loc
   running="$(fm_meta_get "$meta" harness) $(fm_meta_get "$meta" model) $(fm_meta_get "$meta" effort)"
   if [ "$running" = "$profile" ]; then
     FM_QF_RESTORE_WHY="a concurrent relaunch already runs the mate on the target link, so the target pin was kept"
+    rc=1
+  elif [ -n "$(fm_meta_get "$meta" remote_host)" ]; then
+    FM_QF_RESTORE_WHY="a remote relaunch does not take the control lock and may already run the target link, so the target pin was kept"
     rc=1
   elif ! fm_quota_failover_put_pin "$id" "$prior"; then
     FM_QF_RESTORE_WHY="the prior pin could not be written back, so the target pin was kept"
