@@ -48,7 +48,12 @@
 # quota library's return to a mate's first chain link: a mate this pass does
 # not restart is reported as "held: <id>: <reason>" and is sent nothing, since
 # the re-read message would claim an update that never happened. A held mate
-# was never stopped.
+# was never stopped: that includes a relaunch the control plane refused before
+# touching the agent - one that never opened its relaunch journal
+# (state/<id>.control-relaunch) or rolled it back from a pre-stop phase, or a
+# remote host's report of that rollback. Under --failover or --no-nudge every
+# id is taken exactly as registered, with no fm- selector stripping, so a mate
+# whose own id begins with fm- is never mistaken for another.
 #
 # A mate whose persist answer did not arrive or whose runtime cannot prove a
 # restart gets the ordinary re-read nudge and is reported as a nudge, never as a
@@ -86,7 +91,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 
 usage() {
-  sed -n '2,79{s/^# \{0,1\}//;p;}' "$0"
+  sed -n '2,84{s/^# \{0,1\}//;p;}' "$0"
 }
 
 case "${1:-}" in
@@ -127,8 +132,10 @@ for arg in "$@"; do
     -*) echo "error: unexpected argument '$arg'" >&2; usage >&2; exit 2 ;;
   esac
   # /updatefirstmate's action line names each mate by its fm-<id> selector; the
-  # bare id is equally acceptable so a hand-run stays natural.
-  id=${arg#fm-}
+  # bare id is equally acceptable so a hand-run stays natural. The quota
+  # library's modes name the exact registered id.
+  id=$arg
+  [ "$NO_NUDGE" = 1 ] || id=${arg#fm-}
   case "$id" in ''|*[!A-Za-z0-9._-]*) echo "error: invalid second mate id: $arg" >&2; exit 2 ;; esac
   case " ${IDS[*]:-} " in
     *" $id "*) continue ;;
@@ -190,9 +197,29 @@ report_unreached() {  # <id> <reason>
   printf 'unreached: %s: %s\n' "$1" "$2"
 }
 
+# Succeeds when a failed relaunch of mate <array-index> provably never touched
+# its agent: the local control plane left its relaunch journal as it was
+# (<journal-before>) or rolled it back from a pre-stop phase, or the remote
+# host's output (<output>) reports that rollback.
+relaunch_refused_before_stop() {  # <array-index> <journal-before> <output>
+  local id=${IDS[$1]} journal after=''
+  if [ "${PLACEMENT[$1]}" = remote ]; then
+    printf '%s\n' "$3" | grep -qF "relaunch of $id was refused before its agent was touched; nothing changed"
+    return
+  fi
+  journal="$STATE/$id.control-relaunch"
+  [ ! -f "$journal" ] || after=$(cat "$journal")
+  [ "$after" != "$2" ] || return 0
+  case "$(printf '%s\n' "$after" | sed -n 's/^phase=//p' | tail -1)" in
+    failed:checkpoint|failed:noted) return 0 ;;
+  esac
+  return 1
+}
+
 restart_mate() {  # <array-index>
-  local i=$1 id restart_out restart_rc restart_reason ran_on
+  local i=$1 id restart_out restart_rc restart_reason ran_on journal_before=''
   id=${IDS[$i]}
+  [ ! -f "$STATE/$id.control-relaunch" ] || journal_before=$(cat "$STATE/$id.control-relaunch")
   if [ "${PLACEMENT[i]}" = remote ]; then
     restart_out=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
       "$SCRIPT_DIR/fm-remote-secondmate-relaunch.sh" \
@@ -216,6 +243,10 @@ restart_mate() {  # <array-index>
 
   restart_reason=$(first_reported_line "$restart_out")
   [ -n "$restart_reason" ] || restart_reason="the restart failed without a reported reason"
+  if [ "$NO_NUDGE" = 1 ] && relaunch_refused_before_stop "$i" "$journal_before" "$restart_out"; then
+    printf 'held: %s: the restart was refused before its agent was touched: %s\n' "$id" "$restart_reason"
+    return
+  fi
   report_unreached "$id" "the restart outcome is unknown: $restart_reason"
 }
 
@@ -263,6 +294,7 @@ harvest_restarts() {
     case "$out" in
       restarted:*) restarted_count=$((restarted_count + 1)) ;;
       nudged:*) nudged_count=$((nudged_count + 1)) ;;
+      held:*) held_count=$((held_count + 1)) ;;
       *) unreached_count=$((unreached_count + 1)) ;;
     esac
     PLAN[i]="done"

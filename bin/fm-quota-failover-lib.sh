@@ -21,7 +21,9 @@
 # a check, and every other mate is unaffected.
 #
 # Behavior, per mate with a chain:
-#   - Detection: the newest 12 non-blank pane lines are matched against the
+#   - Detection: the newest 12 non-blank pane lines, trimmed from a capture of
+#     FM_QF_CAPTURE_ROWS (100) raw rows so blank rows on a row-bounded backend
+#     or the remote path cannot shrink the window, are matched against the
 #     provider-quota signatures (fm_quota_failover_matches), each anchored to
 #     error context, so a quota error counts only while it is the agent's
 #     latest output, not while it merely sits in scrollback. Signature lines on screen right after a
@@ -78,11 +80,29 @@
 #     (300) ago and sighted again since rewrites the mate's keyed pin in
 #     config/secondmate-harness to the next link and restarts the mate through
 #     bin/fm-secondmate-restart.sh --failover, the persist-first restart owner. No separate restart path
-#     exists here. The target link is recorded before the pin moves. A restart
-#     refused before the agent was touched restores the exact prior pin line
-#     and re-arms, retrying each window and reporting once per refused
-#     episode; one whose outcome is unknown keeps the target pin, so
-#     liveness recovery relaunches onto that link rather than the exhausted one.
+#     exists here. The target link is first checked the way a secondmate
+#     relaunch checks it - a harness verified for the secondmate kind
+#     (bin/fm-control-lib.sh), then bin/fm-harness.sh validate-secondmate-model
+#     and validate-native-effort - and a link that fails is never pinned. The
+#     target link is recorded before the pin moves. A restart refused before
+#     the agent was touched (the restart owner's "held:" line, including a
+#     relaunch the control plane refused before stopping the agent) restores
+#     the exact prior pin line and re-arms, retrying each window and reporting
+#     once per refused episode; one whose outcome is unknown keeps the target
+#     pin, so liveness recovery relaunches onto that link rather than the
+#     exhausted one.
+#   - Serialization: the pin is written while this library holds
+#     state/.control-<id>.lock, the lock bin/fm-control.sh takes for every
+#     relaunch - /updatefirstmate's restart and a manual relaunch of the same
+#     mate included - so no relaunch can be resolving the mate's pin while it
+#     moves; a held lock refuses the failover as above. The lock is released
+#     before the restart owner runs, because the control plane takes it itself
+#     for the relaunch. A relaunch that starts in that gap runs onto the moved
+#     pin, and the quota restart's own relaunch is then refused and restores
+#     the prior pin under the mate that relaunch left running. Every rewrite
+#     of config/secondmate-harness, for any mate, holds
+#     state/.quota-failover-pin.lock across its read-modify-rename, so
+#     overlapping passes cannot lose each other's pin updates.
 #   - Exhausted: on the last link a sustained signature is reported once per
 #     episode. Once link 0's reset period (FM_QUOTA_FAILOVER_RESET_SECS) has
 #     passed since the mate left it, the mate is moved back to link 0 the same
@@ -93,7 +113,18 @@
 #     mate that cannot confirm its open work within the persist wait keeps
 #     running where it is and retries after the next clear period.
 # Every restart here passes --no-nudge or --failover, so a mate that is not
-# restarted is never sent the instruction-update re-read message.
+# restarted is never sent the instruction-update re-read message, and the id
+# it names is taken exactly as registered.
+#
+# Accepted behaviors: a failover runs inside the watcher's detached liveness
+# run for that mate and holds it for up to the persist wait, so that mate's
+# next liveness run waits behind it while the watcher itself does not stall;
+# and the pending-reply recovery ladder may re-post a persist request left
+# open by a restart to the fresh agent, which is its designed recovery.
+#
+# A check that acted reports even when its final state save fails: the save
+# failure is appended to that check line rather than turning it into a
+# liveness error, since the mate's pin and agent already changed.
 #
 # State file fields (key=value): link=<n>, first_seen=<epoch|empty>,
 # recurred=<1|empty>,
@@ -144,6 +175,7 @@ FM_QF_SIGNATURES=(
   -e 'usage[ _-]limit[ _-](reached|exceeded|hit)'
 )
 FM_QF_LINES=12
+FM_QF_CAPTURE_ROWS=100
 fm_quota_failover_matches() {  # <text>
   printf '%s\n' "$1" | grep -Ei "${FM_QF_SIGNATURES[@]}"
 }
@@ -292,8 +324,17 @@ fm_quota_failover_pin_line() {  # <id>
 
 # Replace the keyed pin for <id> in config/secondmate-harness with <line>, or
 # remove it when <line> is empty, preserving every other line, their order,
-# and the file's mode. A missing keyed pin is appended.
+# and the file's mode. A missing keyed pin is appended. The whole
+# read-modify-rename holds state/.quota-failover-pin.lock.
 fm_quota_failover_put_pin() {  # <id> <line>
+  local lock="${STATE:?}/.quota-failover-pin.lock" rc=0
+  fm_lock_acquire_wait_max "$lock" 30 || return 1
+  fm_quota_failover_write_pin "$@" || rc=$?
+  fm_lock_release "$lock" || true
+  return "$rc"
+}
+
+fm_quota_failover_write_pin() {  # <id> <line>
   local id=$1 new=$2 file tmp line written=0
   local -a f
   file="$(fm_quota_failover_config)/secondmate-harness"
@@ -357,46 +398,74 @@ fm_quota_failover_decide() {  # <links> <quota:0|1> <changed:0|1> <now>
 
 # Print the recorded endpoint's newest non-blank pane lines, local or remote.
 fm_quota_failover_capture() {  # <meta> <id>
-  local meta=$1 id=$2 lines=$FM_QF_LINES backend target pane
+  local meta=$1 id=$2 lines=$FM_QF_LINES rows=$FM_QF_CAPTURE_ROWS backend target pane
   if [ -n "$(fm_meta_get "$meta" remote_host)" ]; then
-    pane=$("$FM_QF_LIB_DIR/fm-on.sh" "$id" fm-remote-secondmate-control.sh capture "$id" "$lines" < /dev/null 2>/dev/null) || return 1
+    pane=$("$FM_QF_LIB_DIR/fm-on.sh" "$id" fm-remote-secondmate-control.sh capture "$id" "$rows" < /dev/null 2>/dev/null) || return 1
   else
     backend=$(fm_backend_of_meta "$meta")
     target=$(fm_backend_target_of_meta "$meta")
     [ -n "$target" ] || target=$(fm_meta_get "$meta" window)
     [ -n "$target" ] || return 1
-    pane=$(fm_backend_capture "$backend" "$target" "$lines" "fm-$id" 2>/dev/null) || return 1
+    pane=$(fm_backend_capture "$backend" "$target" "$rows" "fm-$id" 2>/dev/null) || return 1
   fi
   printf '%s\n' "$pane" | grep -v '^[[:space:]]*$' | tail -n "$lines"
+}
+
+# Succeeds when the link <harness> <model> <effort> is one a secondmate
+# relaunch of <id> accepts; otherwise prints why not.
+fm_quota_failover_link_valid() {  # <id> <harness> <model> <effort>
+  if ! command -v fm_control_harness_supports_kind >/dev/null 2>&1; then
+    # shellcheck source=bin/fm-control-lib.sh
+    . "$FM_QF_LIB_DIR/fm-control-lib.sh" || { echo "the harness capability table could not be loaded"; return 1; }
+  fi
+  fm_control_harness_supports_kind "$2" secondmate \
+    || { echo "chain link harness '$2' is not verified to run a secondmate"; return 1; }
+  "$FM_QF_LIB_DIR/fm-harness.sh" validate-secondmate-model "$2" "$3" "$1" 2>&1 \
+    && "$FM_QF_LIB_DIR/fm-harness.sh" validate-native-effort "$2" "$3" "$4" 2>&1
 }
 
 # Move <id> to chain link <target> (of the chain in <chain-text>) and restart it
 # persist-first. <mode> failover lets the restart proceed when the wedged mate
 # cannot answer the persist request; <mode> ordinary keeps the ordinary gate.
-# A restart refused before the agent was touched restores the prior pin line
-# and link; an unknown outcome keeps the target and sets FM_QF_UNKNOWN=1.
-# Sets FM_QF_OUT.
+# A link that fails validation, a held control lock, or a restart refused
+# before the agent was touched restores the prior pin line and link; an
+# unknown outcome keeps the target and sets FM_QF_UNKNOWN=1. Sets FM_QF_OUT.
 fm_quota_failover_apply() {  # <id> <chain-text> <target> <failover|ordinary> <now>
-  local id=$1 chain=$2 target=$3 mode=$4 now=$5 profile prior wait rc=0
+  local id=$1 chain=$2 target=$3 mode=$4 now=$5 profile prior wait control pinned=0 rc=0
   local from=$FM_QF_LINK left0=$FM_QF_LEFT0 episode=$FM_QF_EPISODE recurred=$FM_QF_RECURRED
   local -a args=(--no-nudge "$id")
+  local -a link
   profile=$(printf '%s\n' "$chain" | sed -n "$((target + 1))p")
+  read -r -a link <<< "$profile"
   prior=$(fm_quota_failover_pin_line "$id")
   wait=$(fm_quota_failover_knob "${FM_QUOTA_FAILOVER_PERSIST_WAIT:-}" 120)
+  control="$STATE/.control-$id.lock"
   FM_QF_OUT='' FM_QF_UNKNOWN=0
-  FM_QF_LINK=$target FM_QF_FIRST_SEEN='' FM_QF_RECURRED='' FM_QF_EPISODE=''
-  if [ "$target" -eq 0 ]; then
-    FM_QF_LEFT0=''
-  elif [ "$from" -eq 0 ]; then
-    FM_QF_LEFT0=$now
-  fi
-  if ! fm_quota_failover_save "$id"; then
-    FM_QF_OUT="the in-progress failover target could not be recorded"
+  if ! FM_QF_OUT=$(fm_quota_failover_link_valid "$id" "${link[@]}"); then
     rc=1
-  elif ! fm_quota_failover_put_pin "$id" "$id $profile"; then
-    FM_QF_OUT="the secondmate pin could not be rewritten"
+  elif ! fm_lock_try_acquire "$control"; then
+    FM_QF_OUT="another lifecycle action is already running for $id"
     rc=1
   else
+    FM_QF_LINK=$target FM_QF_FIRST_SEEN='' FM_QF_RECURRED='' FM_QF_EPISODE=''
+    if [ "$target" -eq 0 ]; then
+      FM_QF_LEFT0=''
+    elif [ "$from" -eq 0 ]; then
+      FM_QF_LEFT0=$now
+    fi
+    if ! fm_quota_failover_save "$id"; then
+      FM_QF_OUT="the in-progress failover target could not be recorded"
+      rc=1
+    else
+      pinned=1
+      if ! fm_quota_failover_put_pin "$id" "$id $profile"; then
+        FM_QF_OUT="the secondmate pin could not be rewritten"
+        rc=1
+      fi
+    fi
+    fm_lock_release "$control" || true
+  fi
+  if [ "$rc" -eq 0 ]; then
     [ "$mode" != failover ] || args=(--failover "$id")
     FM_QF_OUT=$(FM_HOME="${FM_HOME:-}" FM_STATE_OVERRIDE="$STATE" FM_CONFIG_OVERRIDE="$(fm_quota_failover_config)" \
       FM_SECONDMATE_PERSIST_WAIT="$wait" "$FM_QF_LIB_DIR/fm-secondmate-restart.sh" "${args[@]}" 2>&1) || rc=$?
@@ -406,7 +475,7 @@ fm_quota_failover_apply() {  # <id> <chain-text> <target> <failover|ordinary> <n
       return "$rc"
     fi
   fi
-  fm_quota_failover_put_pin "$id" "$prior" || true
+  [ "$pinned" = 0 ] || fm_quota_failover_put_pin "$id" "$prior" || true
   FM_QF_LINK=$from FM_QF_LEFT0=$left0 FM_QF_EPISODE=$episode FM_QF_RECURRED=$recurred
   FM_QF_FIRST_SEEN='' FM_QF_CLEAR_SINCE=''
   [ "$mode" != failover ] || FM_QF_FIRST_SEEN=$now
@@ -417,6 +486,7 @@ fm_quota_failover_apply() {  # <id> <chain-text> <target> <failover|ordinary> <n
 fm_quota_failover_persist() {  # <id>
   fm_quota_failover_save "$1" && return 0
   FM_QF_REPORT="${FM_QF_REPORT:+$FM_QF_REPORT; }quota failover state for $1 could not be saved"
+  case "$FM_QF_REPORT" in check:*) return 0 ;; esac
   return 1
 }
 

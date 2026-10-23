@@ -50,10 +50,18 @@ case "${FM_TEST_RESTART:-ok}" in
     printf 'held: %s: the request to write down its open work could not be delivered: endpoint busy\n' "$id"
     printf 'summary: 0 of 1 restarted, 0 nudged, 0 unreached, 1 held\n'
     exit 3 ;;
+  refused)
+    printf "held: %s: the restart was refused before its agent was touched: another lifecycle action is already running for task %s\n" "$id" "$id"
+    printf 'summary: 0 of 1 restarted, 0 nudged, 0 unreached, 1 held\n'
+    exit 3 ;;
   unknown)
-    printf 'unreached: %s: the restart outcome is unknown: launch refused\n' "$id"
+    printf "unreached: %s: the restart outcome is unknown: %s's agent was stopped but the replacement did not launch\n" "$id" "$id"
     printf 'summary: 0 of 1 restarted, 0 nudged, 1 unreached, 0 held\n'
     exit 3 ;;
+  unsaved)
+    # The restart succeeds, and then this home's state can no longer be written.
+    chmod 555 "$FM_STATE_OVERRIDE"
+    printf 'restarted: %s (stub)\nsummary: 1 of 1 restarted, 0 nudged, 0 unreached, 0 held\n' "$id" ;;
 esac
 SH
 chmod +x "$BIN/fm-secondmate-restart.sh"
@@ -63,8 +71,16 @@ mkdir -p "$FAKEBIN"
 cat > "$FAKEBIN/tmux" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$FM_TEST_TMUX_LOG"
+# capture-pane -S -<n> returns at most the newest <n> rows, as a row-bounded
+# backend capture does, so a request for too few rows loses older lines.
 case "${1:-}" in
-  capture-pane) cat "$FM_TEST_PANE" ;;
+  capture-pane)
+    rows=
+    while [ "$#" -gt 0 ]; do
+      [ "$1" != -S ] || rows=${2#-}
+      shift
+    done
+    if [ -n "$rows" ]; then tail -n "$rows" "$FM_TEST_PANE"; else cat "$FM_TEST_PANE"; fi ;;
 esac
 SH
 chmod +x "$FAKEBIN/tmux"
@@ -73,9 +89,9 @@ new_home() {  # <name>
   HOME_DIR="$TMP_ROOT/$1"
   mkdir -p "$HOME_DIR/state" "$HOME_DIR/config"
   fm_write_secondmate_meta "$HOME_DIR/state/$ID.meta" "$HOME_DIR" "fmtest:fm-$ID"
-  printf 'harness-zero\n%s harness-a model-a high\nmate-two harness-b model-b low\n' "$ID" \
+  printf 'harness-zero\n%s claude model-a high\nmate-two kimi model-b low\n' "$ID" \
     > "$HOME_DIR/config/secondmate-harness"
-  printf '%s harness-a model-a high\nmate-two harness-b model-b low\n%s harness-c model-c low\n%s harness-d model-d medium\n' \
+  printf '%s claude model-a high\nmate-two kimi model-b low\n%s codex model-c low\n%s opencode model-d medium\n' \
     "$ID" "$ID" "$ID" > "$HOME_DIR/config/secondmate-quota-chain"
   : > "$HOME_DIR/calls"
   : > "$HOME_DIR/tmux.log"
@@ -139,7 +155,7 @@ out=$(tick 1000) || fail "first sighting tick failed: $out"
 assert_equals "" "$out" "the first sighting reports nothing"
 assert_equals 0 "$(calls)" "the first sighting restarts nothing"
 assert_equals 1000 "$(state_field first_seen)" "the first sighting is recorded durably"
-assert_grep "capture-pane -p -t fmtest:fm-$ID -S -12" "$HOME_DIR/tmux.log" "detection reads the recorded endpoint's newest lines"
+assert_grep "capture-pane -p -t fmtest:fm-$ID -S -" "$HOME_DIR/tmux.log" "detection reads the recorded endpoint's newest lines"
 
 again 'API Error: 429 {"type":"error","error":{"message":"usage limit reached"}}'
 out=$(tick 1059) || fail "inside-window tick failed: $out"
@@ -148,11 +164,11 @@ assert_equals 1000 "$(state_field first_seen)" "the first sighting survives a fr
 
 out=$(tick 1060) || fail "window tick failed: $out"
 assert_equals 1 "$(calls)" "a sustained signature restarts once"
-assert_equals "--failover $ID|wait=120|pin=$ID harness-c model-c low" "$(head -1 "$HOME_DIR/calls")" \
+assert_equals "--failover $ID|wait=120|pin=$ID codex model-c low" "$(head -1 "$HOME_DIR/calls")" \
   "the restart runs persist-first in failover mode after the pin moved to the next link"
-assert_equals "$ID harness-c model-c low" "$(pin)" "the pin stays on the next link"
+assert_equals "$ID codex model-c low" "$(pin)" "the pin stays on the next link"
 assert_grep 'harness-zero' "$HOME_DIR/config/secondmate-harness" "the unkeyed default line is preserved"
-assert_grep 'mate-two harness-b model-b low' "$HOME_DIR/config/secondmate-harness" "another mate's pin is preserved"
+assert_grep 'mate-two kimi model-b low' "$HOME_DIR/config/secondmate-harness" "another mate's pin is preserved"
 [ -n "$(find "$HOME_DIR/config/secondmate-harness" -perm 640)" ] \
   || fail "the rewritten secondmate-harness keeps its original mode"
 assert_contains "$out" "quota failover from chain link 0 to link 1" "the advance is reported"
@@ -185,7 +201,7 @@ tick 1279 >/dev/null
 assert_equals 1 "$(calls)" "a clear capture restarted the window"
 out=$(tick 1280)
 assert_equals 2 "$(calls)" "the second link fails over to the last"
-assert_equals "$ID harness-d model-d medium" "$(pin)" "the pin moved to the last link"
+assert_equals "$ID opencode model-d medium" "$(pin)" "the pin moved to the last link"
 
 # The last link stays put and reports exhaustion once per episode.
 pane 'Error: exceeded_current_quota
@@ -195,7 +211,7 @@ again 'You have hit your usage limit.'
 out=$(tick 1350)
 assert_equals 2 "$(calls)" "an exhausted chain restarts nothing before link 0's reset"
 assert_contains "$out" "last chain link" "an exhausted chain is reported"
-assert_equals "$ID harness-d model-d medium" "$(pin)" "an exhausted chain keeps the last link"
+assert_equals "$ID opencode model-d medium" "$(pin)" "an exhausted chain keeps the last link"
 again 'You have hit your usage limit.'
 out=$(tick 1410)
 assert_equals "" "$out" "an exhausted chain is reported once, not every window"
@@ -207,7 +223,7 @@ pass "an exhausted chain stays on its last link and reports once"
 # Link 0 was left at 1060, so its pool's reset period ends at 1660.
 out=$(tick 1660)
 assert_equals 3 "$(calls)" "an exhausted chain retries link 0 after that link's reset period"
-assert_equals "--failover $ID|wait=120|pin=$ID harness-a model-a high" "$(sed -n 3p "$HOME_DIR/calls")" \
+assert_equals "--failover $ID|wait=120|pin=$ID claude model-a high" "$(sed -n 3p "$HOME_DIR/calls")" \
   "the move back from a wedged last link proceeds in failover mode onto link 0"
 assert_equals 0 "$(state_field link)" "link 0 is recorded"
 assert_contains "$out" "back to chain link 0" "the move back is reported"
@@ -346,7 +362,7 @@ tick 1659 >/dev/null
 assert_equals 1 "$(calls)" "a clear period shorter than the reset does not return"
 out=$(tick 1660)
 assert_equals 2 "$(calls)" "a clear period of the reset length returns"
-assert_equals "--no-nudge $ID|wait=120|pin=$ID harness-a model-a high" "$(sed -n 2p "$HOME_DIR/calls")" \
+assert_equals "--no-nudge $ID|wait=120|pin=$ID claude model-a high" "$(sed -n 2p "$HOME_DIR/calls")" \
   "the return keeps the persist gate within the failover wait, and never sends the re-read message"
 assert_equals 0 "$(state_field link)" "the first link is recorded"
 assert_contains "$out" "returned to chain link 0" "the return is reported"
@@ -360,6 +376,7 @@ $(printf 'healthy line %s\n' 1 2 3 4 5 6 7 8 9 10 11 12)"
 tick 1000 >/dev/null
 tick 2000 >/dev/null
 assert_equals "" "$(state_field first_seen)" "an error followed by twelve newer lines is not a sighting"
+# Blank rows between them spread those lines over more than twelve raw rows.
 pane "API Error: 429 Too Many Requests
 
 $(printf 'healthy line %s\n\n' 1 2 3 4 5 6 7 8 9 10 11)"
@@ -395,13 +412,13 @@ pass "a quota error that keeps occurring after a relaunch is a sighting"
 # --- a failed restart --------------------------------------------------------
 
 new_home held
-printf 'harness-zero\n%s   harness-a  model-a   high\n' "$ID" > "$HOME_DIR/config/secondmate-harness"
+printf 'harness-zero\n%s   claude  model-a   high\n' "$ID" > "$HOME_DIR/config/secondmate-harness"
 pane '429 Too Many Requests'
 tick 1000 >/dev/null
 again
 out=$(FM_TEST_RESTART=held tick 1060)
 assert_equals 1 "$(calls)" "the failover restart was attempted"
-assert_equals "$ID   harness-a  model-a   high" "$(pin)" "a refused restart restores the exact prior pin line"
+assert_equals "$ID   claude  model-a   high" "$(pin)" "a refused restart restores the exact prior pin line"
 assert_equals 0 "$(state_field link)" "a refused restart keeps the previous link"
 assert_equals 1060 "$(state_field first_seen)" "a refused restart re-arms the window"
 assert_contains "$out" "did not complete; pin restored to link 0: held: $ID:" "a refused restart is reported with its reason"
@@ -419,7 +436,7 @@ pane '429 Too Many Requests'
 tick 1000 >/dev/null
 again
 FM_TEST_RESTART=held tick 1060 >/dev/null
-assert_equals "--failover $ID|wait=120|pin=$ID harness-c model-c low" "$(head -1 "$HOME_DIR/calls")" \
+assert_equals "--failover $ID|wait=120|pin=$ID codex model-c low" "$(head -1 "$HOME_DIR/calls")" \
   "the restart ran on the next link's pin"
 assert_equals "" "$(pin)" "a refused restart removes a keyed pin that did not exist before"
 assert_equals 'harness-zero' "$(cat "$HOME_DIR/config/secondmate-harness")" "the default line is untouched"
@@ -430,11 +447,105 @@ pane '429 Too Many Requests'
 tick 1000 >/dev/null
 again
 out=$(FM_TEST_RESTART=unknown tick 1060)
-assert_equals "$ID harness-c model-c low" "$(pin)" "an unknown restart outcome keeps the target pin"
+assert_equals "$ID codex model-c low" "$(pin)" "an unknown restart outcome keeps the target pin"
 assert_equals 1 "$(state_field link)" "an unknown restart outcome records the target link"
 assert_equals 1060 "$(state_field left0)" "an unknown restart outcome still counts as leaving link 0"
 assert_contains "$out" "unknown restart outcome; pin kept on link 1: unreached: $ID:" "an unknown outcome is reported"
 pass "an unknown restart outcome keeps the pin on the target link instead of the exhausted one"
+
+new_home refused
+pane '429 Too Many Requests'
+tick 1000 >/dev/null
+again
+out=$(FM_TEST_RESTART=refused tick 1060)
+assert_equals "$ID claude model-a high" "$(pin)" "a relaunch refused before the stop restores the prior pin"
+assert_equals 0 "$(state_field link)" "a relaunch refused before the stop keeps the previous link"
+assert_contains "$out" "did not complete; pin restored to link 0: held: $ID: the restart was refused before its agent was touched" \
+  "a relaunch refused before the stop is reported as a restored refusal"
+pass "a relaunch the control plane refused before stopping the agent restores the prior pin"
+
+# A link a secondmate relaunch would refuse is never pinned or restarted onto.
+for bad in 'muse model-c low' 'no-such-harness model-c low' 'codex model-c ultra'; do
+  new_home "badlink-${bad%% *}"
+  printf '%s claude model-a high\n%s %s\n' "$ID" "$ID" "$bad" > "$HOME_DIR/config/secondmate-quota-chain"
+  pane '429 Too Many Requests'
+  tick 1000 >/dev/null
+  again
+  out=$(tick 1060)
+  assert_equals 0 "$(calls)" "an invalid chain link is never restarted onto ($bad)"
+  assert_equals "$ID claude model-a high" "$(pin)" "an invalid chain link is never pinned ($bad)"
+  assert_equals 0 "$(state_field link)" "an invalid chain link keeps the current link ($bad)"
+  assert_contains "$out" "did not complete; pin restored to link 0:" "an invalid chain link is reported ($bad)"
+done
+pass "a chain link a secondmate relaunch would refuse is never pinned"
+
+# --- serialization with other relaunches and other pin rewrites ---------------
+
+# hold_lock <lock> <script>: hold <lock> in a live background process while
+# <script> runs, then release it.
+hold_lock() {
+  rm -f "$HOME_DIR/release" "$HOME_DIR/held"
+  (
+    # shellcheck source=bin/fm-wake-lib.sh
+    . "$ROOT/bin/fm-wake-lib.sh"
+    fm_lock_try_acquire "$1" || exit 1
+    : > "$HOME_DIR/held"
+    eval "$2"
+    fm_lock_release "$1"
+  ) &
+  HOLDER=$!
+  for _ in $(seq 1 100); do [ -e "$HOME_DIR/held" ] && break; sleep 0.05; done
+  [ -e "$HOME_DIR/held" ] || fail "the lock holder never acquired $1"
+}
+
+# A relaunch of the same mate already holds the control plane's lock.
+new_home controllock
+pane '429 Too Many Requests'
+tick 1000 >/dev/null
+# shellcheck disable=SC2016 # Expanded by the holder, not here.
+hold_lock "$HOME_DIR/state/.control-$ID.lock" 'while [ ! -e "$HOME_DIR/release" ]; do sleep 0.1; done'
+again
+out=$(tick 1060)
+assert_equals 0 "$(calls)" "a failover must not restart a mate another relaunch is handling"
+assert_equals "$ID claude model-a high" "$(pin)" "a failover must not move the pin under another relaunch"
+assert_contains "$out" "another lifecycle action is already running for $ID" "the held control lock is reported"
+: > "$HOME_DIR/release"; wait "$HOLDER"; HOLDER=
+again
+tick 1120 >/dev/null
+assert_equals 1 "$(calls)" "the failover is retried once the other relaunch is done"
+assert_equals "$ID codex model-c low" "$(pin)" "the retried failover moves the pin"
+pass "a failover never moves the pin while another relaunch of the mate holds its control lock"
+
+# Another pass rewrites the file from what it read, while this one advances.
+new_home pinlock
+pane '429 Too Many Requests'
+tick 1000 >/dev/null
+# shellcheck disable=SC2016 # Expanded by the holder, not here.
+hold_lock "$HOME_DIR/state/.quota-failover-pin.lock" '
+  read_before=$(cat "$HOME_DIR/config/secondmate-harness")
+  sleep 2
+  printf "%s\n" "$read_before" | sed "s/^mate-two .*/mate-two codex model-e high/" > "$HOME_DIR/config/other-pass"
+  cat "$HOME_DIR/config/other-pass" > "$HOME_DIR/config/secondmate-harness"'
+again
+tick 1060 >/dev/null
+wait "$HOLDER"; HOLDER=
+assert_equals 1 "$(calls)" "the failover ran"
+assert_equals "$ID codex model-c low" "$(pin)" "the advance survives another pass's rewrite"
+assert_grep 'mate-two codex model-e high' "$HOME_DIR/config/secondmate-harness" "the other pass's rewrite survives the advance"
+pass "overlapping pin rewrites are serialized and never lose each other's update"
+
+# --- a failed final save after the restart ----------------------------------
+
+new_home unsaved
+pane '429 Too Many Requests'
+tick 1000 >/dev/null
+again
+out=$(FM_TEST_RESTART=unsaved tick 1060 2>/dev/null); rc=$?
+chmod 755 "$HOME_DIR/state"
+[ "$rc" -eq 0 ] || fail "a failover that restarted the mate must not be a liveness error (exit $rc): $out"
+assert_contains "$out" "check: secondmate $ID quota failover from chain link 0 to link 1" "the completed failover is still reported"
+assert_contains "$out" "quota failover state for $ID could not be saved" "the failed save is reported with it"
+pass "a failed state save after a completed failover is reported as part of its check"
 
 new_home unpersisted
 pane '429 Too Many Requests'
@@ -479,7 +590,7 @@ pass "a pass skips a mate whose failover is held by another live pass"
 # --- opt-in by data ---------------------------------------------------------
 
 new_home nochain
-printf 'mate-two harness-b model-b low\nmate-two harness-c model-c low\n' > "$HOME_DIR/config/secondmate-quota-chain"
+printf 'mate-two kimi model-b low\nmate-two codex model-c low\n' > "$HOME_DIR/config/secondmate-quota-chain"
 pane '429 Too Many Requests'
 tick 1000 >/dev/null || fail "a mate without a chain must not fail"
 tick 5000 >/dev/null
@@ -488,7 +599,7 @@ assert_equals 0 "$(calls)" "a mate without a chain is never restarted"
 pass "a mate without a chain of two links is never read or restarted"
 
 new_home malformed
-printf '%s harness-a model-a\n%s harness-c model-c low\n' "$ID" "$ID" > "$HOME_DIR/config/secondmate-quota-chain"
+printf '%s claude model-a\n%s codex model-c low\n' "$ID" "$ID" > "$HOME_DIR/config/secondmate-quota-chain"
 pane '429 Too Many Requests'
 out=$(tick 1000) || fail "a malformed chain must not fail the watcher's check: $out"
 assert_contains "$out" "malformed" "a malformed chain is reported"
@@ -499,7 +610,7 @@ assert_equals 0 "$(calls)" "a malformed chain restarts nothing"
 pass "a malformed chain stops only that mate's failover and is reported once"
 
 new_home othermalformed
-printf '%s harness-a model-a high\nmate-two harness-b\n%s harness-c model-c low\n' "$ID" "$ID" \
+printf '%s claude model-a high\nmate-two kimi\n%s codex model-c low\n' "$ID" "$ID" \
   > "$HOME_DIR/config/secondmate-quota-chain"
 pane '429 Too Many Requests'
 tick 1000 >/dev/null || fail "another mate's malformed line must not fail this mate's check"
