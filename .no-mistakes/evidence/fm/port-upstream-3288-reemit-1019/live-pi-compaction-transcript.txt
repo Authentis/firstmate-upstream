@@ -1,0 +1,108 @@
+Real pi 1.4.0 --mode rpc, firstmate fm-primary-turnend-guard extension (HEAD fd8d57e1 vs BASE f6c9733c), disposable lab FM_HOME + local fake OpenAI-compatible endpoint.
+Compact digest stub = 85,848 bytes / 1,101 lines (audit size 85,247).
+
+## HEAD  manual /compact  (new-manual)
+  step: after prompt                                         model requests so far = 1
+  step: after manual compact #1                              model requests so far = 1
+  step: after follow-up prompt #1                            model requests so far = 2
+  step: after manual compact #2                              model requests so far = 3
+  step: after follow-up prompt #2                            model requests so far = 4
+  req#1 main    SCENARIO_MANUAL          last=user      digestCopies=0 lastIsDigest=False bodyChars=14903
+  req#2 main    SCENARIO_MANUAL_NEXT     last=user      digestCopies=0 lastIsDigest=False bodyChars=27052
+  req#3 summary SCENARIO_MANUAL          last=user      digestCopies=0 lastIsDigest=False bodyChars=13620
+  req#4 main    SCENARIO_MANUAL_NEXT     last=user      digestCopies=1 lastIsDigest=False bodyChars=56087
+  persisted custom_message customType=firstmate-sessionstart-nudge chars=40370 truncNotice=True hasDigestTail=False
+  state/.reemit-latest.txt: {'bytes': 85848, 'lines': 1101, 'hasTail': True}
+
+## BASE  manual /compact  (base-manual)
+  step: after prompt                                         model requests so far = 1
+  step: after manual compact #1                              model requests so far = 1
+  step: after follow-up prompt #1                            model requests so far = 2
+  step: after manual compact #2                              model requests so far = 3
+  step: after follow-up prompt #2                            model requests so far = 4
+  req#1 main    SCENARIO_MANUAL          last=user      digestCopies=0 lastIsDigest=False bodyChars=14903
+  req#2 main    SCENARIO_MANUAL_NEXT     last=user      digestCopies=0 lastIsDigest=False bodyChars=27052
+  req#3 summary SCENARIO_MANUAL          last=user      digestCopies=0 lastIsDigest=False bodyChars=13620
+  req#4 main    SCENARIO_MANUAL_NEXT     last=user      digestCopies=1 lastIsDigest=False bodyChars=56087
+  persisted custom_message customType=firstmate-sessionstart-nudge chars=40370 truncNotice=True hasDigestTail=False
+  state/.reemit-latest.txt: {'bytes': 85848, 'lines': 1101, 'hasTail': True}
+
+## HEAD  auto threshold compaction at end of run  (new2-auto_end)
+  step: after warm-up prompt                                 model requests so far = 1
+  step: after run with end-of-run threshold compaction       model requests so far = 3
+  step: after follow-up prompt                               model requests so far = 4
+  req#1 main    SCENARIO_WARMUP          last=user      digestCopies=0 lastIsDigest=False bodyChars=14912
+  req#2 main    SCENARIO_AUTO_END        last=user      digestCopies=0 lastIsDigest=False bodyChars=27058
+  req#3 summary SCENARIO_WARMUP          last=user      digestCopies=0 lastIsDigest=False bodyChars=13629
+  req#4 main    SCENARIO_AUTO_END_NEXT   last=user      digestCopies=1 lastIsDigest=False bodyChars=56074
+  persisted custom_message customType=firstmate-sessionstart-nudge chars=40370 truncNotice=True hasDigestTail=False
+  state/.reemit-latest.txt: {'bytes': 85848, 'lines': 1101, 'hasTail': True}
+
+## BASE  auto threshold compaction at end of run  (base-auto_end)
+  step: after warm-up prompt                                 model requests so far = 1
+  step: after run with end-of-run threshold compaction       model requests so far = 4
+  step: after follow-up prompt                               model requests so far = 5
+  req#1 main    SCENARIO_WARMUP          last=user      digestCopies=0 lastIsDigest=False bodyChars=14912
+  req#2 main    SCENARIO_AUTO_END        last=user      digestCopies=0 lastIsDigest=False bodyChars=27058
+  req#3 summary SCENARIO_WARMUP          last=user      digestCopies=0 lastIsDigest=False bodyChars=13629
+  req#4 main    SCENARIO_AUTO_END        last=user      digestCopies=1 lastIsDigest=True bodyChars=55986
+  req#5 main    SCENARIO_AUTO_END_NEXT   last=user      digestCopies=1 lastIsDigest=False bodyChars=56131
+  persisted custom_message customType=firstmate-sessionstart-nudge chars=40370 truncNotice=True hasDigestTail=False
+  state/.reemit-latest.txt: {'bytes': 85848, 'lines': 1101, 'hasTail': True}
+
+## HEAD  auto threshold compaction mid-run (tool loop)  (new2-auto_mid)
+  step: after warm-up prompt                                 model requests so far = 1
+  step: after run with mid-run threshold compaction          model requests so far = 5
+  req#1 main    SCENARIO_WARMUP          last=user      digestCopies=0 lastIsDigest=False bodyChars=14912
+  req#2 main    SCENARIO_AUTO_MID        last=user      digestCopies=0 lastIsDigest=False bodyChars=27048
+  req#3 summary SCENARIO_WARMUP          last=user      digestCopies=0 lastIsDigest=False bodyChars=13629
+  req#4 main    SCENARIO_AUTO_MID        last=tool      digestCopies=0 lastIsDigest=False bodyChars=15212
+  req#5 main    SCENARIO_AUTO_MID        last=user      digestCopies=1 lastIsDigest=True bodyChars=56378
+  persisted custom_message customType=firstmate-sessionstart-nudge chars=40370 truncNotice=True hasDigestTail=False
+  state/.reemit-latest.txt: {'bytes': 85848, 'lines': 1101, 'hasTail': True}
+
+## BASE  auto threshold compaction mid-run (tool loop)  (base-auto_mid)
+  step: after warm-up prompt                                 model requests so far = 1
+  step: after run with mid-run threshold compaction          model requests so far = 4
+  req#1 main    SCENARIO_WARMUP          last=user      digestCopies=0 lastIsDigest=False bodyChars=14912
+  req#2 main    SCENARIO_AUTO_MID        last=user      digestCopies=0 lastIsDigest=False bodyChars=27048
+  req#3 summary SCENARIO_WARMUP          last=user      digestCopies=0 lastIsDigest=False bodyChars=13629
+  req#4 main    SCENARIO_AUTO_MID        last=user      digestCopies=1 lastIsDigest=True bodyChars=56151
+  persisted custom_message customType=firstmate-sessionstart-nudge chars=40370 truncNotice=True hasDigestTail=False
+  state/.reemit-latest.txt: {'bytes': 85848, 'lines': 1101, 'hasTail': True}
+
+## HEAD  two successful manual compactions  (new3-manual)
+  step: after prompt                                         model requests so far = 1
+  step: after manual compact #1                              model requests so far = 1
+  step: after follow-up prompt #1                            model requests so far = 2
+  step: after manual compact #2                              model requests so far = 3
+  step: after follow-up prompt #2                            model requests so far = 4
+  step: after manual compact #3                              model requests so far = 5
+  step: after follow-up prompt #3                            model requests so far = 6
+  req#1 main    SCENARIO_MANUAL          last=user      digestCopies=0 lastIsDigest=False bodyChars=14903
+  req#2 main    SCENARIO_MANUAL_NEXT     last=user      digestCopies=0 lastIsDigest=False bodyChars=27052
+  req#3 summary SCENARIO_MANUAL          last=user      digestCopies=0 lastIsDigest=False bodyChars=13620
+  req#4 main    SCENARIO_MANUAL_NEXT     last=user      digestCopies=1 lastIsDigest=False bodyChars=56087
+  req#5 summary SCENARIO_MANUAL_NEXT     last=user      digestCopies=0 lastIsDigest=False bodyChars=14024
+  req#6 main    SCENARIO_MANUAL_NEXT     last=user      digestCopies=2 lastIsDigest=False bodyChars=85025
+  persisted custom_message customType=firstmate-sessionstart-nudge chars=40370 truncNotice=True hasDigestTail=False
+  persisted custom_message customType=firstmate-sessionstart-nudge chars=40370 truncNotice=True hasDigestTail=False
+  state/.reemit-latest.txt: {'bytes': 85848, 'lines': 1101, 'hasTail': True}
+
+## BASE  two successful manual compactions  (base3-manual)
+  step: after prompt                                         model requests so far = 1
+  step: after manual compact #1                              model requests so far = 1
+  step: after follow-up prompt #1                            model requests so far = 2
+  step: after manual compact #2                              model requests so far = 3
+  step: after follow-up prompt #2                            model requests so far = 4
+  step: after manual compact #3                              model requests so far = 5
+  step: after follow-up prompt #3                            model requests so far = 6
+  req#1 main    SCENARIO_MANUAL          last=user      digestCopies=0 lastIsDigest=False bodyChars=14903
+  req#2 main    SCENARIO_MANUAL_NEXT     last=user      digestCopies=0 lastIsDigest=False bodyChars=27052
+  req#3 summary SCENARIO_MANUAL          last=user      digestCopies=0 lastIsDigest=False bodyChars=13620
+  req#4 main    SCENARIO_MANUAL_NEXT     last=user      digestCopies=1 lastIsDigest=False bodyChars=56087
+  req#5 summary SCENARIO_MANUAL_NEXT     last=user      digestCopies=0 lastIsDigest=False bodyChars=14024
+  req#6 main    SCENARIO_MANUAL_NEXT     last=user      digestCopies=2 lastIsDigest=False bodyChars=85025
+  persisted custom_message customType=firstmate-sessionstart-nudge chars=40370 truncNotice=True hasDigestTail=False
+  persisted custom_message customType=firstmate-sessionstart-nudge chars=40370 truncNotice=True hasDigestTail=False
+  state/.reemit-latest.txt: {'bytes': 85848, 'lines': 1101, 'hasTail': True}

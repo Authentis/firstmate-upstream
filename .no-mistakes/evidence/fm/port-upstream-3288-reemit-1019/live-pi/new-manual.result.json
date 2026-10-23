@@ -1,0 +1,201 @@
+{
+  "scenario": "manual",
+  "extRoot": "/tmp/fm-lab.reemit/root",
+  "steps": [
+    {
+      "label": "after prompt",
+      "requestsSoFar": 1
+    },
+    {
+      "label": "after manual compact #1",
+      "requestsSoFar": 1
+    },
+    {
+      "label": "after follow-up prompt #1",
+      "requestsSoFar": 2
+    },
+    {
+      "label": "after manual compact #2",
+      "requestsSoFar": 3
+    },
+    {
+      "label": "after follow-up prompt #2",
+      "requestsSoFar": 4
+    }
+  ],
+  "compact1": {
+    "success": false,
+    "error": "Nothing to compact (session too small)"
+  },
+  "entries": [
+    {
+      "type": "model_change",
+      "chars": 0,
+      "compactDigest": false,
+      "truncNotice": false,
+      "hasTail": false,
+      "preview": ""
+    },
+    {
+      "type": "thinking_level_change",
+      "chars": 0,
+      "compactDigest": false,
+      "truncNotice": false,
+      "hasTail": false,
+      "preview": ""
+    },
+    {
+      "type": "message",
+      "role": "system",
+      "chars": 0,
+      "compactDigest": false,
+      "truncNotice": false,
+      "hasTail": false,
+      "preview": ""
+    },
+    {
+      "type": "message",
+      "role": "user",
+      "chars": 12022,
+      "compactDigest": false,
+      "truncNotice": false,
+      "hasTail": false,
+      "preview": "SCENARIO_MANUAL hello filler words for context size filler w"
+    },
+    {
+      "type": "custom_message",
+      "customType": "firstmate-sessionstart-nudge",
+      "chars": 62,
+      "compactDigest": false,
+      "truncNotice": false,
+      "hasTail": false,
+      "preview": "⁣FIRSTMATE_OP: v1 session-start: STARTUP_DIGEST source=start"
+    },
+    {
+      "type": "message",
+      "role": "assistant",
+      "chars": 20,
+      "compactDigest": false,
+      "truncNotice": false,
+      "hasTail": false,
+      "preview": "done SCENARIO_MANUAL"
+    },
+    {
+      "type": "message",
+      "role": "user",
+      "chars": 12041,
+      "compactDigest": false,
+      "truncNotice": false,
+      "hasTail": false,
+      "preview": "SCENARIO_MANUAL_NEXT after first compact filler words for co"
+    },
+    {
+      "type": "message",
+      "role": "assistant",
+      "chars": 25,
+      "compactDigest": false,
+      "truncNotice": false,
+      "hasTail": false,
+      "preview": "done SCENARIO_MANUAL_NEXT"
+    },
+    {
+      "type": "compaction",
+      "chars": 0,
+      "compactDigest": false,
+      "truncNotice": false,
+      "hasTail": false,
+      "preview": "(compaction)"
+    },
+    {
+      "type": "custom_message",
+      "customType": "firstmate-sessionstart-nudge",
+      "chars": 40370,
+      "compactDigest": true,
+      "truncNotice": true,
+      "hasTail": false,
+      "preview": "⁣FIRSTMATE_OP: v1 session-start: LIVE_DIGEST_HEAD source=com"
+    },
+    {
+      "type": "message",
+      "role": "user",
+      "chars": 41,
+      "compactDigest": false,
+      "truncNotice": false,
+      "hasTail": false,
+      "preview": "SCENARIO_MANUAL_NEXT after second compact"
+    },
+    {
+      "type": "message",
+      "role": "assistant",
+      "chars": 25,
+      "compactDigest": false,
+      "truncNotice": false,
+      "hasTail": false,
+      "preview": "done SCENARIO_MANUAL_NEXT"
+    }
+  ],
+  "requests": [
+    {
+      "seq": 1,
+      "kind": "main",
+      "scenario": "SCENARIO_MANUAL",
+      "lastRole": "user",
+      "messageCount": 3,
+      "digestCopies": 0,
+      "truncNotice": false,
+      "lastIsDigest": false,
+      "bodyChars": 14903
+    },
+    {
+      "seq": 2,
+      "kind": "main",
+      "scenario": "SCENARIO_MANUAL_NEXT",
+      "lastRole": "user",
+      "messageCount": 5,
+      "digestCopies": 0,
+      "truncNotice": false,
+      "lastIsDigest": false,
+      "bodyChars": 27052
+    },
+    {
+      "seq": 3,
+      "kind": "summary",
+      "scenario": "SCENARIO_MANUAL",
+      "lastRole": "user",
+      "messageCount": 2,
+      "digestCopies": 0,
+      "truncNotice": false,
+      "lastIsDigest": false,
+      "bodyChars": 13620
+    },
+    {
+      "seq": 4,
+      "kind": "main",
+      "scenario": "SCENARIO_MANUAL_NEXT",
+      "lastRole": "user",
+      "messageCount": 6,
+      "digestCopies": 1,
+      "truncNotice": true,
+      "lastIsDigest": false,
+      "bodyChars": 56087
+    }
+  ],
+  "reemitLatest": {
+    "bytes": 85848,
+    "lines": 1101,
+    "hasTail": true
+  },
+  "events": [
+    "agent_start",
+    "turn_start",
+    "message_start",
+    "message_end",
+    "message_update",
+    "turn_end",
+    "agent_end",
+    "agent_settled",
+    "compaction_start",
+    "compaction_end"
+  ],
+  "stderrTail": ""
+}

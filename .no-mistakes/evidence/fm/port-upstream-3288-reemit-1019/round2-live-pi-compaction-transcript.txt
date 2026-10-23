@@ -1,0 +1,85 @@
+Round 2: real pi 1.4.0 --mode rpc + firstmate .pi/extensions/fm-primary-turnend-guard.ts, HEAD 21ac318f vs BASE f6c9733c.
+Disposable lab FM_HOME (bin/fm-lab-home.sh create /tmp/fm-lab.reemit), private PI_CODING_AGENT_DIR, local fake OpenAI-compatible endpoint;
+stub digest producer emits an 85,848-byte / 1,101-line compact digest (comparable to the 85,247-byte audit).
+'main' = model call, 'summary' = Pi's compaction-summary call. lastIsDigest=True on a main call right after compaction = a call the digest itself steered.
+
+## ext-head manual
+  step: after prompt                                       model requests so far = 1
+  step: after manual compact #1                            model requests so far = 1
+  step: after follow-up prompt #1                          model requests so far = 2
+  step: after manual compact #2                            model requests so far = 3
+  step: after follow-up prompt #2                          model requests so far = 4
+  step: after manual compact #3                            model requests so far = 5
+  step: after follow-up prompt #3                          model requests so far = 6
+  req#1 main    SCENARIO_MANUAL          last=user      digestCopies=0 lastIsDigest=False bodyChars=14903
+  req#2 main    SCENARIO_MANUAL_NEXT     last=user      digestCopies=0 lastIsDigest=False bodyChars=27052
+  req#3 summary SCENARIO_MANUAL          last=user      digestCopies=0 lastIsDigest=False bodyChars=13620
+  req#4 main    SCENARIO_MANUAL_NEXT     last=user      digestCopies=1 lastIsDigest=False bodyChars=56087
+  req#5 summary SCENARIO_MANUAL_NEXT     last=user      digestCopies=0 lastIsDigest=False bodyChars=14024
+  req#6 main    SCENARIO_MANUAL_NEXT     last=user      digestCopies=2 lastIsDigest=False bodyChars=85025
+  persisted custom_message customType=firstmate-sessionstart-nudge chars=40370 truncNotice=True hasDigestTail=False
+  persisted custom_message customType=firstmate-sessionstart-nudge chars=40370 truncNotice=True hasDigestTail=False
+  compactions=2 reemit-latest={'bytes': 85848, 'lines': 1101, 'hasTail': True}
+
+## ext-base manual
+  step: after prompt                                       model requests so far = 1
+  step: after manual compact #1                            model requests so far = 1
+  step: after follow-up prompt #1                          model requests so far = 2
+  step: after manual compact #2                            model requests so far = 3
+  step: after follow-up prompt #2                          model requests so far = 4
+  step: after manual compact #3                            model requests so far = 5
+  step: after follow-up prompt #3                          model requests so far = 6
+  req#1 main    SCENARIO_MANUAL          last=user      digestCopies=0 lastIsDigest=False bodyChars=14903
+  req#2 main    SCENARIO_MANUAL_NEXT     last=user      digestCopies=0 lastIsDigest=False bodyChars=27052
+  req#3 summary SCENARIO_MANUAL          last=user      digestCopies=0 lastIsDigest=False bodyChars=13620
+  req#4 main    SCENARIO_MANUAL_NEXT     last=user      digestCopies=1 lastIsDigest=False bodyChars=56087
+  req#5 summary SCENARIO_MANUAL_NEXT     last=user      digestCopies=0 lastIsDigest=False bodyChars=14024
+  req#6 main    SCENARIO_MANUAL_NEXT     last=user      digestCopies=2 lastIsDigest=False bodyChars=85025
+  persisted custom_message customType=firstmate-sessionstart-nudge chars=40370 truncNotice=True hasDigestTail=False
+  persisted custom_message customType=firstmate-sessionstart-nudge chars=40370 truncNotice=True hasDigestTail=False
+  compactions=2 reemit-latest={'bytes': 85848, 'lines': 1101, 'hasTail': True}
+
+## ext-head auto_end
+  step: after warm-up prompt                               model requests so far = 1
+  step: after run with end-of-run threshold compaction     model requests so far = 3
+  step: after follow-up prompt                             model requests so far = 4
+  req#1 main    SCENARIO_WARMUP          last=user      digestCopies=0 lastIsDigest=False bodyChars=14912
+  req#2 main    SCENARIO_AUTO_END        last=user      digestCopies=0 lastIsDigest=False bodyChars=27058
+  req#3 summary SCENARIO_WARMUP          last=user      digestCopies=0 lastIsDigest=False bodyChars=13629
+  req#4 main    SCENARIO_AUTO_END_NEXT   last=user      digestCopies=1 lastIsDigest=False bodyChars=56074
+  persisted custom_message customType=firstmate-sessionstart-nudge chars=40370 truncNotice=True hasDigestTail=False
+  compactions=1 reemit-latest={'bytes': 85848, 'lines': 1101, 'hasTail': True}
+
+## ext-base auto_end
+  step: after warm-up prompt                               model requests so far = 1
+  step: after run with end-of-run threshold compaction     model requests so far = 4
+  step: after follow-up prompt                             model requests so far = 5
+  req#1 main    SCENARIO_WARMUP          last=user      digestCopies=0 lastIsDigest=False bodyChars=14912
+  req#2 main    SCENARIO_AUTO_END        last=user      digestCopies=0 lastIsDigest=False bodyChars=27058
+  req#3 summary SCENARIO_WARMUP          last=user      digestCopies=0 lastIsDigest=False bodyChars=13629
+  req#4 main    SCENARIO_AUTO_END        last=user      digestCopies=1 lastIsDigest=True bodyChars=55986
+  req#5 main    SCENARIO_AUTO_END_NEXT   last=user      digestCopies=1 lastIsDigest=False bodyChars=56131
+  persisted custom_message customType=firstmate-sessionstart-nudge chars=40370 truncNotice=True hasDigestTail=False
+  compactions=1 reemit-latest={'bytes': 85848, 'lines': 1101, 'hasTail': True}
+
+## ext-head auto_mid
+  step: after warm-up prompt                               model requests so far = 1
+  step: after run with mid-run threshold compaction        model requests so far = 5
+  req#1 main    SCENARIO_WARMUP          last=user      digestCopies=0 lastIsDigest=False bodyChars=14912
+  req#2 main    SCENARIO_AUTO_MID        last=user      digestCopies=0 lastIsDigest=False bodyChars=27048
+  req#3 summary SCENARIO_WARMUP          last=user      digestCopies=0 lastIsDigest=False bodyChars=13629
+  req#4 main    SCENARIO_AUTO_MID        last=tool      digestCopies=0 lastIsDigest=False bodyChars=15212
+  req#5 main    SCENARIO_AUTO_MID        last=user      digestCopies=1 lastIsDigest=True bodyChars=56378
+  persisted custom_message customType=firstmate-sessionstart-nudge chars=40370 truncNotice=True hasDigestTail=False
+  compactions=1 reemit-latest={'bytes': 85848, 'lines': 1101, 'hasTail': True}
+
+## ext-base auto_mid
+  step: after warm-up prompt                               model requests so far = 1
+  step: after run with mid-run threshold compaction        model requests so far = 4
+  req#1 main    SCENARIO_WARMUP          last=user      digestCopies=0 lastIsDigest=False bodyChars=14912
+  req#2 main    SCENARIO_AUTO_MID        last=user      digestCopies=0 lastIsDigest=False bodyChars=27048
+  req#3 summary SCENARIO_WARMUP          last=user      digestCopies=0 lastIsDigest=False bodyChars=13629
+  req#4 main    SCENARIO_AUTO_MID        last=user      digestCopies=1 lastIsDigest=True bodyChars=56151
+  persisted custom_message customType=firstmate-sessionstart-nudge chars=40370 truncNotice=True hasDigestTail=False
+  compactions=1 reemit-latest={'bytes': 85848, 'lines': 1101, 'hasTail': True}
+
