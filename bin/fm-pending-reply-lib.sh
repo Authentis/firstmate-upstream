@@ -750,25 +750,48 @@ _fm_pending_reply_try_resolve_locked() {  # <state-dir> <corr_id> [status-file-o
 }
 
 # Retire an awaiting_report record delivered longer ago than the age cap.
-# 0 iff the record is (now) retired. The record is kept with its provenance, and
-# a correlated parent report is the caller's to check first.
-fm_pending_reply_retire_if_stale() {  # <record-path>
-  local rec=$1 phase delivered now cap age day
-  phase=$(fm_pending_reply_get "$rec" phase)
-  [ "$phase" = retired ] && return 0
-  [ "$phase" = awaiting_report ] || return 1
+# 0 iff the record is (now) retired. A correlated report always wins: the
+# retirement takes the same per-correlation lock as resolution, tries to resolve
+# first, and rechecks the phase and age under it, so it can never overwrite a
+# resolved record. The terminal phase write is last.
+fm_pending_reply_retire_if_stale() {  # <state-dir> <corr_id>
+  local state=$1 corr=$2 rec lock rc=1
+  local STATE FM_WAKE_QUEUE FM_WAKE_QUEUE_LOCK
+  rec=$(fm_pending_reply_path "$state" "$corr")
+  [ -f "$rec" ] || return 1
+  [ "$(fm_pending_reply_get "$rec" phase)" = retired ] && return 0
+  _fm_pending_reply_stale_awaiting "$rec" || return 1
+  STATE=$state
+  lock="$state/.pending-reply-$corr.lock"
+  # shellcheck source=bin/fm-wake-lib.sh
+  . "$_FM_PENDING_REPLY_LIB_DIR/fm-wake-lib.sh"
+  fm_lock_acquire_wait "$lock" || return 1
+  if ! _fm_pending_reply_try_resolve_locked "$state" "$corr" \
+    && _fm_pending_reply_stale_awaiting "$rec"; then
+    _fm_pending_reply_retire_locked "$rec" && rc=0
+  fi
+  fm_lock_release "$lock"
+  return "$rc"
+}
+
+# 0 iff the record is awaiting_report and delivered longer ago than the cap.
+_fm_pending_reply_stale_awaiting() {  # <record-path>
+  local rec=$1 delivered
+  [ "$(fm_pending_reply_get "$rec" phase)" = awaiting_report ] || return 1
   delivered=$(fm_pending_reply_get "$rec" delivered_epoch)
   case "$delivered" in ''|*[!0-9]*) return 1 ;; esac
+  [ $(( $(fm_pending_reply_now) - delivered )) -gt "$(fm_pending_reply_max_age_secs)" ]
+}
+
+_fm_pending_reply_retire_locked() {  # <record-path>
+  local rec=$1 now cap day
   now=$(fm_pending_reply_now)
   cap=$(fm_pending_reply_max_age_secs)
-  age=$((now - delivered))
-  [ "$age" -gt "$cap" ] || return 1
   day=$(date -u -d "@$now" +%F 2>/dev/null || date -u -r "$now" +%F 2>/dev/null || printf '%s' "$now")
-  fm_pending_reply_set "$rec" retired_from_phase "$phase" || return 1
+  fm_pending_reply_set "$rec" retired_from_phase awaiting_report || return 1
   fm_pending_reply_set "$rec" retired_epoch "$now" || return 1
   fm_pending_reply_set "$rec" retired_reason "no correlated report within the ${cap}s age cap; retired ${day} instead of reposting" || return 1
   fm_pending_reply_set "$rec" phase retired || return 1
-  return 0
 }
 
 # Observe backend busy/idle evidence for the active turn without reading chat.
@@ -785,8 +808,12 @@ fm_pending_reply_observe_busy() {  # <state-dir> <corr_id> <busy_state>
   esac
   delivered=$(fm_pending_reply_get "$rec" delivered_epoch)
   [ -n "$delivered" ] || return 0
-  if [ "$phase" = awaiting_report ] && fm_pending_reply_retire_if_stale "$rec"; then
-    return 0
+  if [ "$phase" = awaiting_report ]; then
+    if fm_pending_reply_retire_if_stale "$state" "$corr"; then
+      return 0
+    fi
+    # A report may have resolved the record while the retirement was refused.
+    [ "$(fm_pending_reply_get "$rec" phase)" = awaiting_report ] || return 0
   fi
   if [ "$phase" = awaiting_report ]; then
     field_seen=turn_seen_busy
@@ -1014,9 +1041,10 @@ fm_pending_reply_send_recovery() {  # <state-dir> <corr_id>
   [ -f "$rec" ] || return 1
   phase=$(fm_pending_reply_get "$rec" phase)
   [ "$phase" = awaiting_report ] || return 1
-  if fm_pending_reply_retire_if_stale "$rec"; then
+  if fm_pending_reply_retire_if_stale "$state" "$corr"; then
     return 1
   fi
+  [ "$(fm_pending_reply_get "$rec" phase)" = awaiting_report ] || return 1
   attempted=$(fm_pending_reply_get "$rec" recovery_attempted_epoch)
   if [ -n "$attempted" ]; then
     fm_pending_reply_reconcile_recovery "$state" "$corr" || true
@@ -1526,7 +1554,7 @@ fm_pending_reply_tick_one() {  # <state-dir> <corr_id> <busy_state> [secondmate-
   fi
   phase=$(fm_pending_reply_get "$rec" phase)
   # The age cap retires a stale request before anything can stamp or repost it.
-  if [ "$phase" = awaiting_report ] && fm_pending_reply_retire_if_stale "$rec"; then
+  if [ "$phase" = awaiting_report ] && fm_pending_reply_retire_if_stale "$state" "$corr"; then
     return 0
   fi
   case "$phase" in

@@ -6,7 +6,7 @@
 #   fm-remote-secondmate-control.sh relaunch <id> <harness> <model|default|-> <effort|default|->
 #   fm-remote-secondmate-control.sh state <id>
 #   fm-remote-secondmate-control.sh route <id>
-#   fm-remote-secondmate-control.sh send <id> <message> [fire-and-forget]
+#   fm-remote-secondmate-control.sh send <id> <message> [fire-and-forget][,bypass-exited]
 #   fm-remote-secondmate-control.sh key <id> <key>
 #   fm-remote-secondmate-control.sh capture <id> [lines]
 #   fm-remote-secondmate-control.sh observe <id>
@@ -269,8 +269,15 @@ cmd_relaunch() {
 }
 
 cmd_send() {
-  local id=$1 message=$2 delivery_mode=${3:-} rec ring_rc=0 meta meta_lock
+  local id=$1 message=$2 delivery_mode=${3:-} rec ring_rc=0 meta meta_lock bypass=0
   validate_id "$id"
+  # The mode may carry bypass-exited: the parent already decided (its dormant
+  # marker is authoritative and its FM_ALLOW_DORMANT_DISPATCH reached it as
+  # this token), so the host-local writer never re-checks a marker of its own.
+  case "$delivery_mode" in
+    bypass-exited) bypass=1; delivery_mode= ;;
+    fire-and-forget,bypass-exited) bypass=1; delivery_mode=fire-and-forget ;;
+  esac
   [ -z "$delivery_mode" ] || [ "$delivery_mode" = fire-and-forget ] || die "invalid send delivery mode"
   validate_home "$id"
   meta=$(meta_path "$id")
@@ -290,7 +297,12 @@ cmd_send() {
   # the parent may safely repeat this leg. Exit 0 once the record durably
   # exists; no ring outcome changes it, because the parent transport owns any
   # retry or reply-tracking policy from here.
-  if ! rec=$(fm_task_inbox_write_idempotent "$CONTROL_STATE" "$id" "$message" "$delivery_mode"); then
+  if [ "$bypass" != 1 ] &&
+    ! FM_ALLOW_DORMANT_DISPATCH='' fm_task_inbox_refuse_exited "$REMOTE_ENDPOINT_BACKEND" "$REMOTE_ENDPOINT_TARGET" "$id"; then
+    fm_lock_release "$meta_lock"
+    die "steer not recorded: the secondmate agent has exited"
+  fi
+  if ! rec=$(FM_ALLOW_DORMANT_DISPATCH=1 fm_task_inbox_write_idempotent "$CONTROL_STATE" "$id" "$message" "$delivery_mode"); then
     fm_lock_release "$meta_lock"
     die "steering-inbox record could not be written under $CONTROL_STATE/$id.inbox"
   fi

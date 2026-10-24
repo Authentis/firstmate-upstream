@@ -1327,7 +1327,7 @@ test_watcher_dead_pane_ignores_stale_busy_state() {
 # A secondmate marked dormant refuses every new dispatch with the route named,
 # keeps accepting acknowledgements, and an explicit env bypass still writes.
 test_dormant_secondmate_refuses_new_dispatch() {
-  local state="$TMP_ROOT/dormant-state" out rec
+  local state="$TMP_ROOT/dormant-state" out rec rec2
   mkdir -p "$state/parent-route"
   rec=$(inbox_lib "$state" fm_task_inbox_write "$state" bosgame "before dormancy") || fail "baseline write failed"
   : > "$state/parent-route/bosgame.dormant"
@@ -1345,6 +1345,10 @@ test_dormant_secondmate_refuses_new_dispatch() {
     || fail "no record may be added for a dormant mate"
   inbox_lib "$state" fm_task_inbox_acknowledge "$state" bosgame 1 >/dev/null 2>&1 || true
   [ ! -e "$rec" ] || [ -e "$state/bosgame.inbox/handled/${rec##*/}" ] || fail "acknowledgement must stay allowed"
+  # An identical idempotent retry still confirms the existing record while dormant.
+  rec2=$(inbox_lib "$state" fm_task_inbox_write_idempotent "$state" bosgame "before dormancy") \
+    || fail "dormant idempotent retry of an existing record must confirm it"
+  case "$rec2" in *001.msg) : ;; *) fail "retry should land on the existing record, got $rec2" ;; esac
   FM_ALLOW_DORMANT_DISPATCH=1 inbox_lib "$state" fm_task_inbox_write "$state" bosgame "chief override" >/dev/null \
     || fail "env bypass must write"
   rm -f "$state/parent-route/bosgame.dormant"
@@ -1353,8 +1357,35 @@ test_dormant_secondmate_refuses_new_dispatch() {
 }
 
 
+# A positively exited agent refuses new dispatch; any uncertain classifier
+# result does not count as an exit; the bypass still allows it.
+test_exited_agent_refuses_new_dispatch() {
+  local verdict
+  for verdict in alive ambiguous unreadable unverified missing; do
+    FM_FAKE_AGENT_STATE=$verdict bash -c '
+      . "$1"
+      fm_backend_agent_state() { printf "%s" "$FM_FAKE_AGENT_STATE"; }
+      fm_task_inbox_refuse_exited tmux s:w t1' _ "$ROOT/bin/fm-task-inbox-lib.sh" 2>/dev/null \
+      || fail "an uncertain or live state ($verdict) must not refuse dispatch"
+  done
+  if FM_FAKE_AGENT_STATE=dead bash -c '
+    . "$1"
+    fm_backend_agent_state() { printf "%s" "$FM_FAKE_AGENT_STATE"; }
+    fm_task_inbox_refuse_exited tmux s:w t1' _ "$ROOT/bin/fm-task-inbox-lib.sh" 2>/dev/null; then
+    fail "a dead agent must refuse new dispatch"
+  fi
+  FM_ALLOW_DORMANT_DISPATCH=1 FM_FAKE_AGENT_STATE=dead bash -c '
+    . "$1"
+    fm_backend_agent_state() { printf "%s" "$FM_FAKE_AGENT_STATE"; }
+    fm_task_inbox_refuse_exited tmux s:w t1' _ "$ROOT/bin/fm-task-inbox-lib.sh" 2>/dev/null \
+    || fail "the bypass must allow dispatch to an exited agent"
+  pass "exited agent refuses new dispatch; uncertain states and the bypass allow it"
+}
+
+
 test_write_is_durable_and_exact
 test_dormant_secondmate_refuses_new_dispatch
+test_exited_agent_refuses_new_dispatch
 test_doorbell_is_a_shell_noop
 test_doorbell_rejects_terminal_controls
 test_ring_skips_dead_agent

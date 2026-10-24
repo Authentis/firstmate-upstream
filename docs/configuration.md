@@ -417,8 +417,11 @@ Bootstrap reports a code-root `data/backlog.md` or `data/done-archive.md` that i
 An empty or one-line file at `state/parent-route/<id>.dormant` marks that secondmate dormant: intentionally down or exited, with its work routed elsewhere.
 The steering-inbox writers in `bin/fm-task-inbox-lib.sh`, and therefore `bin/fm-send.sh`, refuse every new dispatch to it and name `bosgame-control` (the netcup secondmate, over ssh) as the route.
 The optional first line is a free-text note quoted in the refusal.
+For a remote secondmate the parent-side marker is the authoritative one and is checked before any transport.
+A new dispatch to a secondmate whose agent is positively exited (the backend classifies the endpoint dead) is refused the same way, before any record is written; an uncertain classification never counts as an exit.
+An exact duplicate of an existing idempotent record is confirmation, not a new dispatch, and stays allowed.
 Acknowledgements and handled-record moves are not dispatches and stay allowed.
-The captain or chief bypasses the refusal for one command with `FM_ALLOW_DORMANT_DISPATCH=1`.
+The captain or chief bypasses either refusal for one command with `FM_ALLOW_DORMANT_DISPATCH=1`, which `bin/fm-send.sh` carries to a remote secondmate as an explicit mode token because ssh sends no environment.
 Removing the file makes the secondmate dispatchable again.
 
 ## Runtime backend (config/backend / FM_BACKEND)

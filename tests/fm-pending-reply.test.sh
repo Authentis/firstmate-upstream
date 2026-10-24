@@ -2142,7 +2142,7 @@ at_epoch() {  # <epoch> <command> [args...]
 }
 
 test_age_cap_retires_stale_request_without_repost() {
-  local home state stale fresh hook_log rec now
+  local home state stale fresh raced hook_log rec now
   home=$(setup_parent age-cap)
   state="$home/state"
   hook_log="$TMP_ROOT/age-cap-hook.log"
@@ -2172,6 +2172,17 @@ test_age_cap_retires_stale_request_without_repost() {
   [ -f "$rec" ] || fail "retired record must be kept"
   if at_epoch "$now" fm_pending_reply_send_recovery "$state" "$stale" 2>/dev/null; then fail "retired request must not be reposted"; fi
   [ ! -s "$hook_log" ] || fail "no repost may be sent for a retired request"
+  # A correlated report that lands before retirement wins: the retirement takes
+  # the resolution lock, resolves first, and never overwrites the resolved phase.
+  raced=$(at_epoch 1000 fm_pending_reply_create "$home" "$state" "netcup" "raced order")
+  at_epoch 1000 fm_pending_reply_mark_delivered "$state" "$raced"
+  printf 'done [corr=%s]: handled\n' "$raced" > "$state/netcup.status"
+  if at_epoch "$now" fm_pending_reply_retire_if_stale "$state" "$raced"; then
+    fail "a correlated report must beat retirement"
+  fi
+  [ "$(phase_of "$state" "$raced")" = resolved ] || fail "raced request should be resolved, got $(phase_of "$state" "$raced")"
+  [ -z "$(fm_pending_reply_get "$(fm_pending_reply_path "$state" "$raced")" retired_epoch)" ] \
+    || fail "a resolved request must carry no retirement fields"
   # Still inside the cap: the ordinary path stamps completion and reposts once.
   at_epoch "$now" fm_pending_reply_tick_one "$state" "$fresh" idle
   [ "$(phase_of "$state" "$fresh")" = recovery_sent ] || fail "recent request should take the ordinary path, got $(phase_of "$state" "$fresh")"

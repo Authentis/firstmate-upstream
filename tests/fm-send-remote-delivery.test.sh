@@ -787,7 +787,35 @@ test_local_pending_does_not_close_resolve_key() {
   pass "fm-send local: an unconfirmed submit still never closes a --resolve-key decision"
 }
 
+test_remote_send_refuses_a_dormant_marked_mate() {
+  local dir fb ssh_log home rhome rc err
+  dir="$TMP_ROOT/remote-dormant"; mkdir -p "$dir"
+  fb=$(make_stubs "$dir"); ssh_log="$dir/ssh.log"; : > "$ssh_log"
+  rhome=$(setup_remote_secondmate_home remote-dormant)
+  home=$(setup_remote_parent_home remote-dormant "$rhome")
+  mkdir -p "$home/state/parent-route"
+  : > "$home/state/parent-route/rsm.dormant"
+
+  rc=0
+  send_env "$fb" "$home" "$ssh_log" "$SEND" rsm "new order" >"$dir/out" 2>"$dir/err" || rc=$?
+  err=$(cat "$dir/err")
+  [ "$rc" -ne 0 ] || fail "a dormant-marked remote mate must refuse a new dispatch"
+  assert_contains "$err" "bosgame-control" "the refusal must name the route"
+  [ ! -s "$ssh_log" ] || fail "a refused dispatch must never cross the transport"
+  [ -z "$(remote_inbox_records "$rhome")" ] || fail "a refused dispatch must create no remote record"
+  [ -z "$(pending_record "$home")" ] || fail "a refused dispatch must discard its pending expectation"
+
+  rc=0
+  send_env "$fb" "$home" "$ssh_log" FM_ALLOW_DORMANT_DISPATCH=1 \
+    "$SEND" rsm "chief override" >"$dir/out2" 2>"$dir/err2" || rc=$?
+  expect_code 0 "$rc" "the bypass must reach a dormant remote mate: $(cat "$dir/err2")"
+  [ -n "$(remote_inbox_records "$rhome")" ] || fail "the bypassed dispatch must land remotely"
+  pass "fm-send remote: the parent dormant marker refuses before transport and the bypass crosses it"
+}
+
+
 test_remote_steer_lands_in_remote_inbox
+test_remote_send_refuses_a_dormant_marked_mate
 test_remote_rerun_is_idempotent
 test_remote_retry_failure_preserves_ambiguous_expectation
 test_remote_fire_and_forget_never_arms_reply_recovery

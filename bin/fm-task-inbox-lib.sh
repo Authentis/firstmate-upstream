@@ -259,6 +259,18 @@ fm_task_inbox_refuse_dormant() {  # <state-dir> <task-id>
   return 1
 }
 
+# A secondmate whose agent is positively exited (the backend classifies the
+# endpoint `dead`) accepts no new dispatch either: the record would only wait
+# for a relaunch and then replay. Only `dead` refuses; an uncertain classifier
+# result (ambiguous, unreadable, unverified, missing) never counts as an exit.
+# Same FM_ALLOW_DORMANT_DISPATCH=1 bypass as the dormant marker.
+fm_task_inbox_refuse_exited() {  # <backend> <target> <task-id>
+  [ "${FM_ALLOW_DORMANT_DISPATCH:-0}" = 1 ] && return 0
+  [ "$(fm_backend_agent_state "$1" "$2" 2>/dev/null || true)" = dead ] || return 0
+  echo "error: $3's agent has exited ($2); new dispatch refused. Relaunch it, route the work elsewhere, or set FM_ALLOW_DORMANT_DISPATCH=1 to bypass as captain or chief." >&2
+  return 1
+}
+
 # Durably enqueue one steer: temp-write, then atomic rename into the next
 # sequence slot. Prints the record path. Fails without a partial record.
 fm_task_inbox_write() {  # <state-dir> <task-id> <text> [delivery-mode]
@@ -287,7 +299,6 @@ fm_task_inbox_write() {  # <state-dir> <task-id> <text> [delivery-mode]
 # a repeated identical local steer is a deliberate new instruction.
 fm_task_inbox_write_idempotent() {  # <state-dir> <task-id> <text> [delivery-mode]
   local state=$1 task=$2 text=$3 delivery_mode=${4:-} dir lock want have f rec='' status=0
-  fm_task_inbox_refuse_dormant "$state" "$task" || return 1
   dir=$(fm_task_inbox_dir "$state" "$task")
   mkdir -p "$dir/handled" || return 1
   lock="$dir/.seq.lock"
@@ -329,6 +340,11 @@ fm_task_inbox_write_idempotent() {  # <state-dir> <task-id> <text> [delivery-mod
     rm -f "$want" "$have"
   else
     rm -f "${want:-}" 2>/dev/null || true
+    status=1
+  fi
+  # A duplicate of an existing record is confirmation, not a new dispatch, so
+  # only a record that would be created is refused for a dormant mate.
+  if [ "$status" -eq 0 ] && [ -z "$rec" ] && ! fm_task_inbox_refuse_dormant "$state" "$task"; then
     status=1
   fi
   if [ "$status" -eq 0 ] && [ -z "$rec" ]; then

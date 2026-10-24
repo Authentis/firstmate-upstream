@@ -927,10 +927,27 @@ else
       echo "error: steer not sent to remote secondmate $TARGET_REMOTE_ID: its parent task retired or changed route during target resolution" >&2
       exit 1
     fi
+    # The parent-side dormant marker is authoritative for a remote secondmate:
+    # refuse before any transport. The remote leg cannot see the parent's
+    # environment (ssh sends none), so the bypass crosses as an explicit mode
+    # token instead.
+    if ! fm_task_inbox_refuse_dormant "$STATE" "$TARGET_REMOTE_ID"; then
+      fm_lock_release "$REMOTE_META_LOCK"
+      if [ "$PENDING_REPLY_CREATED" = 1 ] && [ -n "$PENDING_REPLY_CORR" ]; then
+        fm_pending_reply_discard_undelivered "$STATE" "$PENDING_REPLY_CORR" || true
+      fi
+      echo "error: steer not sent to remote secondmate $TARGET_REMOTE_ID: it is marked dormant" >&2
+      exit 1
+    fi
     remote_rc=0
     remote_completion_unknown=0
+    REMOTE_SEND_MODE=
+    [ -z "$FIRE_AND_FORGET_ID" ] || REMOTE_SEND_MODE=fire-and-forget
+    if [ "${FM_ALLOW_DORMANT_DISPATCH:-0}" = 1 ]; then
+      REMOTE_SEND_MODE="${REMOTE_SEND_MODE:+$REMOTE_SEND_MODE,}bypass-exited"
+    fi
     REMOTE_SEND_ARGS=("$TARGET_REMOTE_ID" "$MESSAGE")
-    [ -z "$FIRE_AND_FORGET_ID" ] || REMOTE_SEND_ARGS+=(fire-and-forget)
+    [ -z "$REMOTE_SEND_MODE" ] || REMOTE_SEND_ARGS+=("$REMOTE_SEND_MODE")
     # Each transport attempt is bounded by FM_SEND_REMOTE_BUDGET seconds.
     # fm_run_timed's 124 means the attempt was killed at the bound with remote
     # completion unknown - the enqueue may have landed - so it exits through
@@ -1030,6 +1047,18 @@ else
         fm_pending_reply_discard_undelivered "$STATE" "$PENDING_REPLY_CORR" || true
       fi
       echo "error: steer not sent to $INBOX_TASK_ID: the task retired or changed endpoint during target resolution" >&2
+      exit 1
+    fi
+    # A secondmate request (marked) is refused before any durable record exists
+    # when its agent is positively exited; the dormant marker is refused by the
+    # inbox writer below.
+    if [ "$MARK_FROM_FIRSTMATE" = 1 ] &&
+      ! fm_task_inbox_refuse_exited "$CURRENT_INBOX_BACKEND" "$CURRENT_INBOX_TARGET" "$INBOX_TASK_ID"; then
+      fm_lock_release "$INBOX_META_LOCK"
+      if [ "$PENDING_REPLY_CREATED" = 1 ] && [ -n "$PENDING_REPLY_CORR" ]; then
+        fm_pending_reply_discard_undelivered "$STATE" "$PENDING_REPLY_CORR" || true
+      fi
+      echo "error: steer not sent to $INBOX_TASK_ID: its agent has exited" >&2
       exit 1
     fi
     if [ "${FM_SEND_IDEMPOTENT:-0}" = 1 ]; then
