@@ -6,7 +6,7 @@
 #   fm-remote-secondmate-control.sh relaunch <id> <harness> <model|default|-> <effort|default|->
 #   fm-remote-secondmate-control.sh state <id>
 #   fm-remote-secondmate-control.sh route <id>
-#   fm-remote-secondmate-control.sh send <id> <message> [fire-and-forget][,bypass-exited]
+#   fm-remote-secondmate-control.sh send <id> <message> [fire-and-forget][,bypass-exited][,parent-dormant]
 #   fm-remote-secondmate-control.sh key <id> <key>
 #   fm-remote-secondmate-control.sh capture <id> [lines]
 #   fm-remote-secondmate-control.sh observe <id>
@@ -269,15 +269,24 @@ cmd_relaunch() {
 }
 
 cmd_send() {
-  local id=$1 message=$2 delivery_mode=${3:-} rec ring_rc=0 meta meta_lock bypass=0
+  local id=$1 message=$2 delivery_mode=${3:-} rec ring_rc=0 meta meta_lock bypass=0 refuse
   validate_id "$id"
-  # The mode may carry bypass-exited: the parent already decided (its dormant
-  # marker is authoritative and its FM_ALLOW_DORMANT_DISPATCH reached it as
-  # this token), so the host-local writer never re-checks a marker of its own.
-  case "$delivery_mode" in
-    bypass-exited) bypass=1; delivery_mode= ;;
-    fire-and-forget,bypass-exited) bypass=1; delivery_mode=fire-and-forget ;;
-  esac
+  # The mode is a comma list of fire-and-forget, bypass-exited (the parent's
+  # FM_ALLOW_DORMANT_DISPATCH, which ssh cannot carry), and parent-dormant (the
+  # parent's marker, which this host cannot see).
+  local tokens token parent_dormant=0
+  tokens=$delivery_mode
+  delivery_mode=
+  while [ -n "$tokens" ]; do
+    token=${tokens%%,*}
+    case "$tokens" in *,*) tokens=${tokens#*,} ;; *) tokens= ;; esac
+    case "$token" in
+      bypass-exited) bypass=1 ;;
+      parent-dormant) parent_dormant=1 ;;
+      fire-and-forget) delivery_mode=fire-and-forget ;;
+      *) die "invalid send delivery mode" ;;
+    esac
+  done
   [ -z "$delivery_mode" ] || [ "$delivery_mode" = fire-and-forget ] || die "invalid send delivery mode"
   validate_home "$id"
   meta=$(meta_path "$id")
@@ -297,12 +306,17 @@ cmd_send() {
   # the parent may safely repeat this leg. Exit 0 once the record durably
   # exists; no ring outcome changes it, because the parent transport owns any
   # retry or reply-tracking policy from here.
-  if [ "$bypass" != 1 ] &&
-    ! FM_ALLOW_DORMANT_DISPATCH='' fm_task_inbox_refuse_exited "$REMOTE_ENDPOINT_BACKEND" "$REMOTE_ENDPOINT_TARGET" "$id"; then
-    fm_lock_release "$meta_lock"
-    die "steer not recorded: the secondmate agent has exited"
+  # Refuse only a record that would be CREATED: the idempotent writer still
+  # confirms an exact duplicate of an existing one.
+  refuse=
+  if [ "$bypass" != 1 ]; then
+    if [ "$parent_dormant" = 1 ]; then
+      refuse="error: $id is marked dormant by its parent; new dispatch refused. Route the work through bosgame-control (the netcup secondmate, over ssh), or set FM_ALLOW_DORMANT_DISPATCH=1 to bypass as captain or chief."
+    else
+      refuse=$(FM_ALLOW_DORMANT_DISPATCH='' fm_task_inbox_exited_refusal "$REMOTE_ENDPOINT_BACKEND" "$REMOTE_ENDPOINT_TARGET" "$id") || refuse=
+    fi
   fi
-  if ! rec=$(FM_ALLOW_DORMANT_DISPATCH=1 fm_task_inbox_write_idempotent "$CONTROL_STATE" "$id" "$message" "$delivery_mode"); then
+  if ! rec=$(FM_ALLOW_DORMANT_DISPATCH=1 FM_TASK_INBOX_REFUSE_CREATE=$refuse fm_task_inbox_write_idempotent "$CONTROL_STATE" "$id" "$message" "$delivery_mode"); then
     fm_lock_release "$meta_lock"
     die "steering-inbox record could not be written under $CONTROL_STATE/$id.inbox"
   fi

@@ -95,6 +95,16 @@ env FM_HOME="$remote_home" FM_ROOT_OVERRIDE="$FM_REMOTE_CODE_ROOT" \
 exit "$rc"
 SH
   chmod +x "$fb/fake-ssh"
+  # A herdr stand-in with a running server and unreadable panes: the agent state
+  # is then uncertain, which never refuses a dispatch to the remote mate.
+  cat > "$fb/herdr" <<'SH'
+#!/usr/bin/env bash
+case " $* " in
+  *" status "*) printf '{"server":{"running":true}}\n'; exit 0 ;;
+esac
+exit 1
+SH
+  chmod +x "$fb/herdr"
   printf '%s\n' "$fb"
 }
 
@@ -170,7 +180,7 @@ run_notify() {  # <home> <fakebin> <name> <snapshot> [extra args...]
   shift 4
   PATH="$fakebin:$PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
     FM_STATE_OVERRIDE="$home/state" \
-    FM_FAKE_TMUX_WINDOW="firstmate:fm-mate" \
+    FM_FAKE_TMUX_WINDOW=$'firstmate:fm-mate\nfirstmate:fm-other' \
     FM_FAKE_TMUX_LOG="$TMP_ROOT/$name-tmux.log" \
     FM_FAKE_TMUX_CAPTURE="$TMP_ROOT/$name-fake/pane.txt" \
     "$RECONCILE" notify --snapshot "$snap" "$@"

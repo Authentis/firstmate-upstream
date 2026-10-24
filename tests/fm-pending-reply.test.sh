@@ -79,7 +79,7 @@ case "${1:-}" in
     for a in "$@"; do case "$a" in *cursor_y*) printf '1\n'; exit 0 ;; esac; done
     printf 'fakepane\n'; exit 0 ;;
   capture-pane) printf '╭────╮\n│    │\n╰────╯\n'; exit 0 ;;
-  list-windows) exit 0 ;;
+  list-windows) printf '%s\n' fm-hibit fm-domain fm-other fm-resolved fm-escalated fm-mate; exit 0 ;;
 esac
 exit 0
 SH
@@ -2200,8 +2200,50 @@ test_age_cap_retires_stale_request_without_repost() {
 }
 
 
+# The age cap is re-evaluated against a fresh clock under the final recovery
+# lock: a repost that was inside the cap at its precheck but crossed it while
+# waiting is retired, not sent.
+test_recovery_crossing_the_age_cap_at_the_final_lock_is_retired() {
+  local home state corr hook_log counter
+  home=$(setup_parent age-boundary)
+  state="$home/state"
+  hook_log="$TMP_ROOT/age-boundary-hook.log"
+  : > "$hook_log"
+  # shellcheck disable=SC2329
+  boundary_hook() {
+    printf '%s\t%s\n' "$1" "$2" >> "$hook_log"
+  }
+  export -f boundary_hook
+  export FM_PENDING_REPLY_SEND_HOOK=boundary_hook
+  export FM_PENDING_REPLY_MAX_AGE_SECS=21600
+  corr=$(at_epoch 1000 fm_pending_reply_create "$home" "$state" "netcup" "boundary order")
+  at_epoch 1000 fm_pending_reply_mark_delivered "$state" "$corr"
+  fm_pending_reply_set "$(fm_pending_reply_path "$state" "$corr")" request_turn_completed_epoch 1100
+  counter="$TMP_ROOT/age-boundary.clock"
+  printf '0\n' > "$counter"
+  # The clock starts 10s inside the cap and jumps 30s per read, so it crosses
+  # the cap between the precheck and the final locked guard.
+  # shellcheck disable=SC2329
+  fm_pending_reply_now() {
+    local n
+    n=$(cat "$counter")
+    printf '%s\n' "$((n + 1))" > "$counter"
+    printf '%s' "$((1000 + 21600 - 10 + n * 30))"
+  }
+  fm_pending_reply_send_recovery "$state" "$corr" && fail "a repost that crossed the age cap must not send"
+  unset -f fm_pending_reply_now
+  # shellcheck source=bin/fm-pending-reply-lib.sh
+  . "$ROOT/bin/fm-pending-reply-lib.sh"
+  [ "$(phase_of "$state" "$corr")" = retired ] || fail "expected retired, got $(phase_of "$state" "$corr")"
+  [ ! -s "$hook_log" ] || fail "no repost may be sent once the cap is crossed"
+  unset FM_PENDING_REPLY_SEND_HOOK FM_PENDING_REPLY_MAX_AGE_SECS
+  pass "a recovery that crosses the age cap at the final lock is retired, not reposted"
+}
+
+
 test_normal_correlated_reply_resolves_once
 test_age_cap_retires_stale_request_without_repost
+test_recovery_crossing_the_age_cap_at_the_final_lock_is_retired
 test_completed_turn_no_report_triggers_one_recovery
 test_recovery_waits_while_the_mate_has_an_open_decision
 test_recovery_sends_during_an_open_decision_without_the_flag

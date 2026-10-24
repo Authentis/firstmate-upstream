@@ -1090,6 +1090,7 @@ fm_pending_reply_send_recovery() {  # <state-dir> <corr_id>
   fm_lock_acquire_wait "$lock" || return 1
   if _fm_pending_reply_try_resolve_locked "$state" "$corr" "$status_file" \
     || [ "$(fm_pending_reply_get "$rec" phase)" != awaiting_report ] \
+    || { if _fm_pending_reply_stale_awaiting "$rec"; then _fm_pending_reply_retire_locked "$rec"; true; else false; fi; } \
     || ! fm_pending_reply_set "$rec" recovery_sender_pid "$sender_pid" \
     || ! fm_pending_reply_set "$rec" recovery_sender_identity "$sender_identity" \
     || ! fm_pending_reply_set "$rec" recovery_attempted_epoch "$now" \

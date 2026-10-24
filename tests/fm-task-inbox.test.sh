@@ -1360,19 +1360,28 @@ test_dormant_secondmate_refuses_new_dispatch() {
 # A positively exited agent refuses new dispatch; any uncertain classifier
 # result does not count as an exit; the bypass still allows it.
 test_exited_agent_refuses_new_dispatch() {
-  local verdict
-  for verdict in alive ambiguous unreadable unverified missing; do
+  local verdict out
+  for verdict in alive ambiguous unreadable unverified; do
     FM_FAKE_AGENT_STATE=$verdict bash -c '
       . "$1"
       fm_backend_agent_state() { printf "%s" "$FM_FAKE_AGENT_STATE"; }
       fm_task_inbox_refuse_exited tmux s:w t1' _ "$ROOT/bin/fm-task-inbox-lib.sh" 2>/dev/null \
       || fail "an uncertain or live state ($verdict) must not refuse dispatch"
   done
-  if FM_FAKE_AGENT_STATE=dead bash -c '
-    . "$1"
-    fm_backend_agent_state() { printf "%s" "$FM_FAKE_AGENT_STATE"; }
-    fm_task_inbox_refuse_exited tmux s:w t1' _ "$ROOT/bin/fm-task-inbox-lib.sh" 2>/dev/null; then
-    fail "a dead agent must refuse new dispatch"
+  for verdict in dead missing; do
+    if FM_FAKE_AGENT_STATE=$verdict bash -c '
+      . "$1"
+      fm_backend_agent_state() { printf "%s" "$FM_FAKE_AGENT_STATE"; }
+      fm_task_inbox_refuse_exited tmux s:w t1' _ "$ROOT/bin/fm-task-inbox-lib.sh" 2>/dev/null; then
+      fail "a $verdict agent must refuse new dispatch"
+    fi
+  done
+  # A refused create still confirms an exact duplicate of an existing record.
+  out=$(inbox_lib "$TMP_ROOT/exit-state" fm_task_inbox_write_idempotent "$TMP_ROOT/exit-state" t1 "dup body") || fail "seed write failed"
+  FM_TASK_INBOX_REFUSE_CREATE="error: gone" inbox_lib "$TMP_ROOT/exit-state" fm_task_inbox_write_idempotent "$TMP_ROOT/exit-state" t1 "dup body" >/dev/null 2>&1 \
+    || fail "an exact duplicate must stay confirmable when creation is refused"
+  if FM_TASK_INBOX_REFUSE_CREATE="error: gone" inbox_lib "$TMP_ROOT/exit-state" fm_task_inbox_write_idempotent "$TMP_ROOT/exit-state" t1 "new body" >/dev/null 2>&1; then
+    fail "a new record must be refused when creation is refused"
   fi
   FM_ALLOW_DORMANT_DISPATCH=1 FM_FAKE_AGENT_STATE=dead bash -c '
     . "$1"

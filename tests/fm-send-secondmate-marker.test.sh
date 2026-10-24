@@ -268,7 +268,27 @@ test_marked_send_preserves_trailing_newlines() {
   pass "fm-send: marked secondmate payload preserves trailing newline bytes in its record"
 }
 
+test_typed_plane_slash_to_dormant_secondmate_is_refused() {
+  local dir fb log home rc
+  dir="$TMP_ROOT/typed-dormant"; mkdir -p "$dir"
+  fb=$(make_stubs "$dir"); log="$dir/send.log"
+  home=$(setup_home typed-dormant)
+  fm_write_secondmate_meta "$home/state/domain.meta" "$home" "sess:fm-domain"
+  mkdir -p "$home/state/parent-route"
+  : > "$home/state/parent-route/domain.dormant"
+  run_send "$fb" "$home" "$log" "fm-domain" "/review"; rc=$?
+  [ "$rc" -ne 0 ] || fail "a harness-native slash to a dormant secondmate must be refused"
+  [ ! -s "$log" ] || fail "a refused slash must type nothing: $(cat "$log")"
+  [ -z "$(find "$home/state/pending-replies" -maxdepth 1 -type f ! -name '.*' 2>/dev/null)" ] \
+    || fail "a refused slash must discard its pending expectation"
+  FM_ALLOW_DORMANT_DISPATCH=1 run_send "$fb" "$home" "$log" "fm-domain" "/review"; rc=$?
+  expect_code 0 "$rc" "the bypass must allow the slash to a dormant secondmate"
+  pass "fm-send: a typed-plane slash to a dormant secondmate is refused and the bypass allows it"
+}
+
+
 test_secondmate_target_is_marked
+test_typed_plane_slash_to_dormant_secondmate_is_refused
 test_exact_secondmate_task_id_is_marked
 test_crewmate_target_is_not_marked
 test_explicit_window_is_not_marked

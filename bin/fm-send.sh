@@ -886,6 +886,19 @@ else
       esac
     fi
   fi
+  # A secondmate request that rides the typed plane (a harness-native slash or
+  # skill message) is a new dispatch too: refuse it for a dormant marker or a
+  # positively exited agent before anything is typed.
+  if [ "$INBOX_PLANE" = 0 ] && [ "$MARK_FROM_FIRSTMATE" = 1 ] && [ "$TARGET_BACKEND" != remote ]; then
+    if ! fm_task_inbox_refuse_dormant "$STATE" "$TARGET_TASK_ID" ||
+      ! fm_task_inbox_refuse_exited "$TARGET_BACKEND" "$T" "$TARGET_TASK_ID"; then
+      if [ "$PENDING_REPLY_CREATED" = 1 ] && [ -n "$PENDING_REPLY_CORR" ]; then
+        fm_pending_reply_discard_undelivered "$STATE" "$PENDING_REPLY_CORR" || true
+      fi
+      echo "error: steer not sent to $TARGET_TASK_ID: new dispatch refused" >&2
+      exit 1
+    fi
+  fi
   if [ "$INBOX_PLANE" = 1 ] && [ "$TARGET_BACKEND" = remote ]; then
     # Remote inbox leg: the message becomes a durable record in the remote
     # home's steering inbox, written idempotently by the host-local leg, then
@@ -927,24 +940,18 @@ else
       echo "error: steer not sent to remote secondmate $TARGET_REMOTE_ID: its parent task retired or changed route during target resolution" >&2
       exit 1
     fi
-    # The parent-side dormant marker is authoritative for a remote secondmate:
-    # refuse before any transport. The remote leg cannot see the parent's
-    # environment (ssh sends none), so the bypass crosses as an explicit mode
-    # token instead.
-    if ! fm_task_inbox_refuse_dormant "$STATE" "$TARGET_REMOTE_ID"; then
-      fm_lock_release "$REMOTE_META_LOCK"
-      if [ "$PENDING_REPLY_CREATED" = 1 ] && [ -n "$PENDING_REPLY_CORR" ]; then
-        fm_pending_reply_discard_undelivered "$STATE" "$PENDING_REPLY_CORR" || true
-      fi
-      echo "error: steer not sent to remote secondmate $TARGET_REMOTE_ID: it is marked dormant" >&2
-      exit 1
-    fi
+    # The parent-side dormant marker is authoritative for a remote secondmate,
+    # but only the remote idempotent writer can tell an exact duplicate (still
+    # confirmed) from a new record (refused), so the marker and the bypass cross
+    # as explicit mode tokens: ssh sends no environment.
     remote_rc=0
     remote_completion_unknown=0
     REMOTE_SEND_MODE=
     [ -z "$FIRE_AND_FORGET_ID" ] || REMOTE_SEND_MODE=fire-and-forget
     if [ "${FM_ALLOW_DORMANT_DISPATCH:-0}" = 1 ]; then
       REMOTE_SEND_MODE="${REMOTE_SEND_MODE:+$REMOTE_SEND_MODE,}bypass-exited"
+    elif fm_task_inbox_is_dormant "$STATE" "$TARGET_REMOTE_ID"; then
+      REMOTE_SEND_MODE="${REMOTE_SEND_MODE:+$REMOTE_SEND_MODE,}parent-dormant"
     fi
     REMOTE_SEND_ARGS=("$TARGET_REMOTE_ID" "$MESSAGE")
     [ -z "$REMOTE_SEND_MODE" ] || REMOTE_SEND_ARGS+=("$REMOTE_SEND_MODE")
@@ -1049,23 +1056,18 @@ else
       echo "error: steer not sent to $INBOX_TASK_ID: the task retired or changed endpoint during target resolution" >&2
       exit 1
     fi
-    # A secondmate request (marked) is refused before any durable record exists
-    # when its agent is positively exited; the dormant marker is refused by the
-    # inbox writer below.
-    if [ "$MARK_FROM_FIRSTMATE" = 1 ] &&
-      ! fm_task_inbox_refuse_exited "$CURRENT_INBOX_BACKEND" "$CURRENT_INBOX_TARGET" "$INBOX_TASK_ID"; then
-      fm_lock_release "$INBOX_META_LOCK"
-      if [ "$PENDING_REPLY_CREATED" = 1 ] && [ -n "$PENDING_REPLY_CORR" ]; then
-        fm_pending_reply_discard_undelivered "$STATE" "$PENDING_REPLY_CORR" || true
-      fi
-      echo "error: steer not sent to $INBOX_TASK_ID: its agent has exited" >&2
-      exit 1
+    # A secondmate request (marked) to a positively exited agent is refused by
+    # the writer when it would create a record, so an exact duplicate retry is
+    # still confirmed; the dormant marker is refused there too.
+    INBOX_REFUSE_CREATE=
+    if [ "$MARK_FROM_FIRSTMATE" = 1 ]; then
+      INBOX_REFUSE_CREATE=$(fm_task_inbox_exited_refusal "$CURRENT_INBOX_BACKEND" "$CURRENT_INBOX_TARGET" "$INBOX_TASK_ID") || INBOX_REFUSE_CREATE=
     fi
     if [ "${FM_SEND_IDEMPOTENT:-0}" = 1 ]; then
-      INBOX_RECORD=$(fm_task_inbox_write_idempotent "$STATE" "$INBOX_TASK_ID" "$MESSAGE" \
+      INBOX_RECORD=$(FM_TASK_INBOX_REFUSE_CREATE=$INBOX_REFUSE_CREATE fm_task_inbox_write_idempotent "$STATE" "$INBOX_TASK_ID" "$MESSAGE" \
         "${FIRE_AND_FORGET_ID:+fire-and-forget}") || inbox_write_rc=$?
     else
-      INBOX_RECORD=$(fm_task_inbox_write "$STATE" "$INBOX_TASK_ID" "$MESSAGE" \
+      INBOX_RECORD=$(FM_TASK_INBOX_REFUSE_CREATE=$INBOX_REFUSE_CREATE fm_task_inbox_write "$STATE" "$INBOX_TASK_ID" "$MESSAGE" \
         "${FIRE_AND_FORGET_ID:+fire-and-forget}") || inbox_write_rc=$?
     fi
     if [ "${inbox_write_rc:-0}" -ne 0 ]; then

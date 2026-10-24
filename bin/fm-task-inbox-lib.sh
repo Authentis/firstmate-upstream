@@ -250,24 +250,49 @@ _fm_task_inbox_write_record_locked() {  # <inbox-dir> <text> [delivery-mode]
 # unread behind an exited endpoint and later be replayed. Acknowledgements and
 # handled-record moves never go through the writers below, so they stay allowed.
 # FM_ALLOW_DORMANT_DISPATCH=1 is the explicit captain/chief bypass.
+fm_task_inbox_is_dormant() {  # <state-dir> <task-id>
+  [ "${FM_ALLOW_DORMANT_DISPATCH:-0}" = 1 ] && return 1
+  [ -e "$1/parent-route/$2.dormant" ]
+}
+
 fm_task_inbox_refuse_dormant() {  # <state-dir> <task-id>
   local marker="$1/parent-route/$2.dormant" note
-  [ "${FM_ALLOW_DORMANT_DISPATCH:-0}" = 1 ] && return 0
-  [ -e "$marker" ] || return 0
+  fm_task_inbox_is_dormant "$1" "$2" || return 0
   note=$(sed -n '1p' "$marker" 2>/dev/null || true)
   echo "error: $2 is dormant (marker $marker${note:+: $note}); new dispatch refused. Route the work through bosgame-control (the netcup secondmate, over ssh), or set FM_ALLOW_DORMANT_DISPATCH=1 to bypass as captain or chief." >&2
   return 1
 }
 
-# A secondmate whose agent is positively exited (the backend classifies the
-# endpoint `dead`) accepts no new dispatch either: the record would only wait
-# for a relaunch and then replay. Only `dead` refuses; an uncertain classifier
-# result (ambiguous, unreadable, unverified, missing) never counts as an exit.
-# Same FM_ALLOW_DORMANT_DISPATCH=1 bypass as the dormant marker.
+# A secondmate whose agent is positively gone (the backend classifies the
+# endpoint `dead` or `missing`) accepts no new dispatch either: the record would
+# only wait for a relaunch and then replay. An uncertain classifier result
+# (ambiguous, unreadable, unverified) never counts as an exit. Same
+# FM_ALLOW_DORMANT_DISPATCH=1 bypass as the dormant marker.
+# fm_task_inbox_exited_refusal prints the refusal text and returns 0 iff it
+# applies, so a caller can hand it to a writer as FM_TASK_INBOX_REFUSE_CREATE.
+fm_task_inbox_exited_refusal() {  # <backend> <target> <task-id>
+  [ "${FM_ALLOW_DORMANT_DISPATCH:-0}" = 1 ] && return 1
+  case "$(fm_backend_agent_state "$1" "$2" 2>/dev/null || true)" in
+    dead|missing) ;;
+    *) return 1 ;;
+  esac
+  printf "error: %s's agent has exited (%s); new dispatch refused. Relaunch it, route the work elsewhere, or set FM_ALLOW_DORMANT_DISPATCH=1 to bypass as captain or chief." "$3" "$2"
+}
+
 fm_task_inbox_refuse_exited() {  # <backend> <target> <task-id>
-  [ "${FM_ALLOW_DORMANT_DISPATCH:-0}" = 1 ] && return 0
-  [ "$(fm_backend_agent_state "$1" "$2" 2>/dev/null || true)" = dead ] || return 0
-  echo "error: $3's agent has exited ($2); new dispatch refused. Relaunch it, route the work elsewhere, or set FM_ALLOW_DORMANT_DISPATCH=1 to bypass as captain or chief." >&2
+  local msg
+  msg=$(fm_task_inbox_exited_refusal "$@") || return 0
+  echo "$msg" >&2
+  return 1
+}
+
+# FM_TASK_INBOX_REFUSE_CREATE=<text> makes a writer refuse to CREATE a record
+# (printing the text) while an exact duplicate of an existing record is still
+# confirmed by the idempotent writer. Set by a caller whose refusal reason is
+# known before the write (exited agent, parent-side dormant marker).
+fm_task_inbox_refuse_create() {
+  [ -n "${FM_TASK_INBOX_REFUSE_CREATE:-}" ] || return 0
+  echo "$FM_TASK_INBOX_REFUSE_CREATE" >&2
   return 1
 }
 
@@ -276,6 +301,7 @@ fm_task_inbox_refuse_exited() {  # <backend> <target> <task-id>
 fm_task_inbox_write() {  # <state-dir> <task-id> <text> [delivery-mode]
   local state=$1 task=$2 text=$3 delivery_mode=${4:-} dir lock rec status=0
   fm_task_inbox_refuse_dormant "$state" "$task" || return 1
+  fm_task_inbox_refuse_create || return 1
   dir=$(fm_task_inbox_dir "$state" "$task")
   mkdir -p "$dir/handled" || return 1
   lock="$dir/.seq.lock"
@@ -344,7 +370,7 @@ fm_task_inbox_write_idempotent() {  # <state-dir> <task-id> <text> [delivery-mod
   fi
   # A duplicate of an existing record is confirmation, not a new dispatch, so
   # only a record that would be created is refused for a dormant mate.
-  if [ "$status" -eq 0 ] && [ -z "$rec" ] && ! fm_task_inbox_refuse_dormant "$state" "$task"; then
+  if [ "$status" -eq 0 ] && [ -z "$rec" ] && { ! fm_task_inbox_refuse_dormant "$state" "$task" || ! fm_task_inbox_refuse_create; }; then
     status=1
   fi
   if [ "$status" -eq 0 ] && [ -z "$rec" ]; then
