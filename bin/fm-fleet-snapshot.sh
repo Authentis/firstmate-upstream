@@ -2120,12 +2120,12 @@ if [ "$OUTPUT_MODE" = contribution-input ]; then
   # The backlog JSON can exceed Linux MAX_ARG_STRLEN (128 KiB) as one --argjson
   # argument, so both documents ride temp files via --slurpfile instead of argv.
   contribution_tasks=$(contribution_tasks_json) || { echo "fm-fleet-snapshot: contribution task read failed" >&2; exit 1; }
-  printf '%s\n' "$BACKLOG_JSON" > "$JSON_TRANSPORT_DIR/contribution-backlog.json" \
-    || { echo "fm-fleet-snapshot: temporary backlog file write failed" >&2; exit 1; }
-  printf '%s\n' "$contribution_tasks" > "$JSON_TRANSPORT_DIR/contribution-tasks-only.json" \
-    || { echo "fm-fleet-snapshot: contribution task staging failed" >&2; exit 1; }
-  jq -n --slurpfile backlog "$JSON_TRANSPORT_DIR/contribution-backlog.json" \
-    --slurpfile tasks "$JSON_TRANSPORT_DIR/contribution-tasks-only.json" '{backlog:$backlog[0],tasks:$tasks[0]}'
+  contribution_input_dir=$(mktemp -d "${TMPDIR:-/tmp}/fm-fleet-snapshot.contrib.XXXXXX") || { echo "fm-fleet-snapshot: contribution temp dir failed" >&2; exit 1; }
+  # shellcheck disable=SC2064  # The trap resolves this invocation's directory at exit.
+  trap 'rm -rf -- "$contribution_input_dir"' EXIT
+  printf '%s' "$BACKLOG_JSON" > "$contribution_input_dir/backlog.json" || { echo "fm-fleet-snapshot: contribution backlog write failed" >&2; exit 1; }
+  printf '%s' "$contribution_tasks" > "$contribution_input_dir/tasks.json" || { echo "fm-fleet-snapshot: contribution tasks write failed" >&2; exit 1; }
+  jq -n --slurpfile backlog "$contribution_input_dir/backlog.json" --slurpfile tasks "$contribution_input_dir/tasks.json" '{backlog:$backlog[0],tasks:$tasks[0]}' || { echo "fm-fleet-snapshot: contribution input assembly failed" >&2; exit 1; }
   exit 0
 fi
 prefetch_task_current_states || { echo "fm-fleet-snapshot: task observation failed" >&2; exit 1; }

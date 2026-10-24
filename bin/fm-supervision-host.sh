@@ -52,14 +52,14 @@
 #     that is unsafe or holds nothing for the branch) stay main's. That
 #     pass-through starts the successor watcher cycle and leaves it running
 #     before the close is printed, so supervision continues when the session
-#     drops the handoff. It hands its own confirmed handoff back to downtime
-#     and confirms no handling handoff, so the re-arm owner delivers the close
-#     to main (hand_downtime_to_main). The host records that successor's arm
-#     before relinquishing it (detach_successor owns the persistence check
-#     and failure path). The session's next park without --restart requests
-#     a take-over of its cycle rather than an ordinary attach;
-#     bin/fm-watch-arm.sh's --take-over header owns the conditions under
-#     which that restores a single owner and the fallback;
+#     drops the handoff. It confirms no handling handoff and republishes the
+#     recovery marker as downtime, even over handling an earlier engine turn
+#     left, so the re-arm owner delivers the close to main; a failed publish
+#     prints a watcher FAILED line instead of the close. The host records that successor's arm before relinquishing it
+#     (detach_successor owns the persistence check and failure path). The
+#     session's next park without --restart requests a take-over of its cycle
+#     rather than an ordinary attach; bin/fm-watch-arm.sh's --take-over header owns the
+#     conditions under which that restores a single owner and the fallback;
 #   - away (an away record exists): every close goes to the engine.
 # Every turn that starts attended meets that rule again at its start, so a
 # close accepted away whose turn starts attended (the captain returned in
@@ -77,8 +77,11 @@
 # releases the branch's leases and grant, and counts the wake handled only
 # when that turn exited cleanly, recorded a durable report
 # (bin/fm-branch-report.sh), and left none of its granted rows in the wake
-# queue. A handled wake with only routine outcomes never wakes
-# main, and neither does any handled wake while away: captain outcomes wait in
+# queue. Before parking after a handled turn, it settles the successor handoff;
+# docs/watcher-continuity.md "Durable queue and turn-end backstop" owns how
+# that transition makes rows still queued for main recoverable. A handled wake
+# with only routine outcomes never wakes main, and neither does any handled
+# wake while away: captain outcomes wait in
 # the outcome store for the return drain's BRANCH OUTCOMES section. A handled
 # attended wake that recorded a captain outcome exits with one "supervision-host: branch-outcome:"
 # line naming its store rows, without the close it handled; main drains, where
@@ -441,6 +444,11 @@ stop_engine_turn() {
 cleanup() {
   local rc=$? f
   trap - EXIT HUP TERM INT
+  # A signal can land inside the handled-turn settle, which holds the queue and
+  # marker locks; the grant release below needs the queue lock, so drop any of
+  # them this process still owns first (fm_lock_release ignores foreign owners).
+  fm_lock_release "$STATE/.watcher-down.lock" 2>/dev/null || true
+  fm_lock_release "$FM_WAKE_QUEUE_LOCK" 2>/dev/null || true
   if [ "$ENGINE_RUNNING" -eq 1 ]; then
     stop_engine_turn
   fi
@@ -728,40 +736,18 @@ detach_successor() {
   SUCCESSOR_PID=
 }
 
-# Main, not the engine, handles an attended pass-through, and the re-arm owner
-# delivers it only while the recovery marker reads downtime (autoarm_commit in
-# bin/fm-claude-stop-autoarm.sh). Restoring is required, not just harmless: a
-# close surfaced from a row queued before an earlier close's handling handoff
-# appends nothing, so the marker can still read that handoff's handling, and
-# the re-arm owner would then drop the close in silence beside a healthy
-# successor. Only the handoff this host confirmed (SUCCESSOR_GENERATION, still
-# set from the handled close whose successor delivered this one) is handed
-# back; a marker of any other generation belongs to another owner and is left
-# as it is (fm_recovery_marker_restore_downtime). An absent or unparseable
-# marker is no episode to restore, so the main-only successor still starts and
-# its arm transition repairs the marker before the re-arm owner reads it. A
-# failed restore (lock or write failure, or a marker that is not a regular
-# file) returns 1, and the caller then leaves no successor and adds a
-# "supervision-host:" line. The re-arm owner's lost hand-back notice reaches
-# main only while a readable handling token remains in the marker. A marker
-# that is a directory, a symlink, or another non-regular file carries no such
-# token, so the re-arm owner exits 0 and main gets no notice: a known,
-# pre-existing limit of the re-arm owner.
-hand_downtime_to_main() {
-  fm_recovery_marker_restore_downtime "$STATE/.watcher-down" "$SUCCESSOR_GENERATION" \
-    >/dev/null 2>&1 && return 0
-  log_line "pass-through	downtime-unrestored	$(printf '%s\n' "$REASON" | head -n 1)"
-  return 1
-}
-
-# Start the same successor a handled wake starts and leave it running. It
-# confirms no handling handoff, so the marker hand_downtime_to_main restored
-# still reads downtime. A failed start returns 1; the caller still prints the
-# close unchanged.
+# Main receives this close only on downtime, even when a preceding engine
+# turn left handling behind (autoarm_commit in bin/fm-claude-stop-autoarm.sh)
+# Return 1 on successor failure, 2 on an undeliverable recovery marker
 leave_successor_for_main() {
   if ! ARM_OWN_GROUP=1 start_successor "$CLOSED_ARM_PID"; then
     log_line "pass-through	successor-unverified	$(printf '%s\n' "$REASON" | head -n 1)"
     return 1
+  fi
+  if [ -n "$SUCCESSOR_GENERATION" ] \
+    && ! fm_recovery_marker_publish "$STATE/.watcher-down" downtime >/dev/null 2>&1; then
+    log_line "pass-through	downtime-unrestored	$(printf '%s\n' "$REASON" | head -n 1)"
+    return 2
   fi
   detach_successor
 }
@@ -1012,7 +998,7 @@ handle_wake() {  # <reason-lines>
     [ -z "${FM_STATE_OVERRIDE:-}" ] || export FM_STATE_OVERRIDE
     [ -z "${FM_CONFIG_OVERRIDE:-}" ] || export FM_CONFIG_OVERRIDE
     export FM_SUPERVISION_ACTOR=branch
-    FM_LEASE_HOLDER_PID=$(sed -n '1p' "$STATE/.lock" 2>/dev/null | tr -cd '0-9')
+    FM_LEASE_HOLDER_PID=$(sed -n '1p' "$STATE/.lock" 2>/dev/null)
     export FM_LEASE_HOLDER_PID
     export FM_SUPERVISION_PRIMARY_HARNESS="$PRIMARY"
     export FM_BRANCH_REPORT_TURN="$turn"
@@ -1145,15 +1131,14 @@ while :; do
   if ! fm_afk_contract_away_present "$STATE"; then
     if ! attended_acceptor "$(printf '%s\n' "$REASON" | head -n 1)"; then
       log_line "pass-through	attended	$ATTENDED_WHY	$(printf '%s\n' "$REASON" | head -n 1)"
-      # A superseded host must not touch the marker or arm a cycle that now
-      # belongs to another generation.
-      host_still_owner || stand_down "this session no longer owns supervision"
-      if ! hand_downtime_to_main; then
-        emit "supervision-host: watcher downtime could not be restored for the main hand-back"
-        exit 1
-      fi
-      if [ "$ATTENDED_WHY" = main-only ] && host_still_owner; then
-        leave_successor_for_main || true
+      if [ "$ATTENDED_WHY" = main-only ]; then
+        leave_successor_for_main
+        PASS_THROUGH_RC=$?
+        if [ "$PASS_THROUGH_RC" -eq 2 ]; then
+          # An actionable banner cannot commit while the marker is handling
+          printf 'watcher: FAILED - the main-only hand-back could not restore watcher downtime\n'
+          exit 1
+        fi
       fi
       emit
       exit 0
@@ -1199,9 +1184,11 @@ while :; do
     detach_successor
     # Main handles this close after all, so hand back the downtime the handoff
     # above consumed: the re-arm owner delivers the close only while the
-    # recovery marker reads downtime (leave_successor_for_main).
+    # recovery marker reads downtime (leave_successor_for_main). It is handed
+    # back as already announced, so the successor left running does not
+    # resurface the episode this very close delivers.
     if [ -n "$SUCCESSOR_GENERATION" ] \
-      && ! fm_recovery_marker_publish "$STATE/.watcher-down" downtime >/dev/null 2>&1; then
+      && ! fm_recovery_marker_handback "$STATE/.watcher-down" >/dev/null 2>&1; then
       log_line "pass-through	downtime-unrestored	$(printf '%s\n' "$REASON" | head -n 1)"
       exit 1
     fi
@@ -1241,6 +1228,9 @@ while :; do
   fi
 
   # Handled: park on the successor.
+  if ! fm_recovery_marker_handling_settled "$STATE/.watcher-down"; then
+    log_line "handling-settle-failed	turn=$LAST_TURN	successor=$SUCCESSOR_PID"
+  fi
   ARM_PID=$SUCCESSOR_PID
   ARM_OUT=$SUCCESSOR_OUT
   SUCCESSOR_PID=
