@@ -245,10 +245,25 @@ _fm_task_inbox_write_record_locked() {  # <inbox-dir> <text> [delivery-mode]
   printf '%s' "$rec"
 }
 
+# A secondmate marked dormant (state/parent-route/<task-id>.dormant, schema in
+# docs/configuration.md) accepts no new dispatch: a write to its inbox would sit
+# unread behind an exited endpoint and later be replayed. Acknowledgements and
+# handled-record moves never go through the writers below, so they stay allowed.
+# FM_ALLOW_DORMANT_DISPATCH=1 is the explicit captain/chief bypass.
+fm_task_inbox_refuse_dormant() {  # <state-dir> <task-id>
+  local marker="$1/parent-route/$2.dormant" note
+  [ "${FM_ALLOW_DORMANT_DISPATCH:-0}" = 1 ] && return 0
+  [ -e "$marker" ] || return 0
+  note=$(sed -n '1p' "$marker" 2>/dev/null || true)
+  echo "error: $2 is dormant (marker $marker${note:+: $note}); new dispatch refused. Route the work through bosgame-control (the netcup secondmate, over ssh), or set FM_ALLOW_DORMANT_DISPATCH=1 to bypass as captain or chief." >&2
+  return 1
+}
+
 # Durably enqueue one steer: temp-write, then atomic rename into the next
 # sequence slot. Prints the record path. Fails without a partial record.
 fm_task_inbox_write() {  # <state-dir> <task-id> <text> [delivery-mode]
   local state=$1 task=$2 text=$3 delivery_mode=${4:-} dir lock rec status=0
+  fm_task_inbox_refuse_dormant "$state" "$task" || return 1
   dir=$(fm_task_inbox_dir "$state" "$task")
   mkdir -p "$dir/handled" || return 1
   lock="$dir/.seq.lock"
@@ -272,6 +287,7 @@ fm_task_inbox_write() {  # <state-dir> <task-id> <text> [delivery-mode]
 # a repeated identical local steer is a deliberate new instruction.
 fm_task_inbox_write_idempotent() {  # <state-dir> <task-id> <text> [delivery-mode]
   local state=$1 task=$2 text=$3 delivery_mode=${4:-} dir lock want have f rec='' status=0
+  fm_task_inbox_refuse_dormant "$state" "$task" || return 1
   dir=$(fm_task_inbox_dir "$state" "$task")
   mkdir -p "$dir/handled" || return 1
   lock="$dir/.seq.lock"

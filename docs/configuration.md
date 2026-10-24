@@ -92,6 +92,7 @@ Each effective `FM_HOME` contains private operational directories.
 - Private secondmate config-reread generations with their retry and quarantine state.
 - Per-task steering-inbox records under `state/<id>.inbox/` (`bin/fm-task-inbox-lib.sh`).
 - Parent-owned secondmate pending-reply records under `state/pending-replies/` (`bin/fm-pending-reply-lib.sh`).
+- Dormant-secondmate markers under `state/parent-route/<id>.dormant` (see "Dormant secondmate marker" below).
 
 `config/` holds local gitignored operating choices, including explicit extension bindings under `config/extensions.d/`.
 
@@ -410,6 +411,15 @@ Linking the code-root copy into the home therefore forks the queue on the first 
 Run every routine Firstmate backlog command through [`bin/fm-tasks-axi.sh`](../bin/fm-tasks-axi.sh).
 Like lifecycle transitions, it addresses this home's backlog and archive from any working directory.
 Bootstrap reports a code-root `data/backlog.md` or `data/done-archive.md` that is not this home's own file as a `BACKLOG_RECONCILE: code-root ...` line, even in a read-only session.
+
+## Dormant secondmate marker (state/parent-route/<id>.dormant)
+
+An empty or one-line file at `state/parent-route/<id>.dormant` marks that secondmate dormant: intentionally down or exited, with its work routed elsewhere.
+The steering-inbox writers in `bin/fm-task-inbox-lib.sh`, and therefore `bin/fm-send.sh`, refuse every new dispatch to it and name `bosgame-control` (the netcup secondmate, over ssh) as the route.
+The optional first line is a free-text note quoted in the refusal.
+Acknowledgements and handled-record moves are not dispatches and stay allowed.
+The captain or chief bypasses the refusal for one command with `FM_ALLOW_DORMANT_DISPATCH=1`.
+Removing the file makes the secondmate dispatchable again.
 
 ## Runtime backend (config/backend / FM_BACKEND)
 
@@ -2727,6 +2737,8 @@ GROK_HOME=              # optional Grok config home for firstmate's global grok 
 FM_SEND_RETRIES=3       # fm-send typed-plane Enter-retry attempts after typing the line once; agy typed targets use a longer per-harness default owned by bin/fm-send.sh
 FM_SEND_SLEEP=0.4       # seconds between fm-send typed-plane submit checks
 FM_SEND_SETTLE=1        # seconds fm-send waits after a successful typed-plane submit; 0 disables
+FM_PENDING_REPLY_MAX_AGE_SECS=21600   # seconds after delivery past which an unanswered awaiting_report record is retired (phase=retired, kept with retired_from_phase, retired_epoch, retired_reason) instead of observed or reposted; 0 or a non-number uses the default
+FM_ALLOW_DORMANT_DISPATCH=0   # 1 lets the captain or chief write a new steer to a secondmate marked dormant (see "Dormant secondmate marker")
 FM_PENDING_REPLY_GRACE_SECS=120   # seconds after the request turn completes without a correlated parent report before its one recovery repost is eligible, and after the recovery turn completes before the missed-report escalation is eligible; never counted from delivery
 # sub-supervisor (bin/fm-supervise-daemon.sh); presence-gated via /afk
 FM_SUPERVISOR_BACKEND=             # optional supervisor pane backend override; tmux/herdr only, otherwise detects $TMUX_PANE then HERDR_ENV/HERDR_PANE_ID before tmux fallback

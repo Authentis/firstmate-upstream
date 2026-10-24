@@ -1097,7 +1097,7 @@ secondmate_unresolved_pending_replies_refuse() {
     task_id=$(fm_meta_get "$rec" task_id)
     [ "$task_id" = "$ID" ] || continue
     phase=$(fm_meta_get "$rec" phase)
-    [ "$phase" = resolved ] || {
+    [ "$phase" = resolved ] || [ "$phase" = retired ] || {
       echo "REFUSED: secondmate $ID still has an unresolved routed reply" >&2
       return 1
     }

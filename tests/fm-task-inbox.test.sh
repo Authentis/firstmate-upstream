@@ -1324,7 +1324,37 @@ test_watcher_dead_pane_ignores_stale_busy_state() {
   pass "watcher: dead-pane recovery overrides stale busy state"
 }
 
+# A secondmate marked dormant refuses every new dispatch with the route named,
+# keeps accepting acknowledgements, and an explicit env bypass still writes.
+test_dormant_secondmate_refuses_new_dispatch() {
+  local state="$TMP_ROOT/dormant-state" out rec
+  mkdir -p "$state/parent-route"
+  rec=$(inbox_lib "$state" fm_task_inbox_write "$state" bosgame "before dormancy") || fail "baseline write failed"
+  : > "$state/parent-route/bosgame.dormant"
+  if out=$(inbox_lib "$state" fm_task_inbox_write "$state" bosgame "new order" 2>&1); then
+    fail "dormant write must be refused"
+  fi
+  case "$out" in
+    *bosgame-control*) : ;;
+    *) fail "refusal must name bosgame-control: $out" ;;
+  esac
+  if inbox_lib "$state" fm_task_inbox_write_idempotent "$state" bosgame "new order" >/dev/null 2>&1; then
+    fail "dormant idempotent write must be refused"
+  fi
+  [ "$(find "$state/bosgame.inbox" -maxdepth 1 -name '*.msg' | wc -l | tr -d ' ')" = 1 ] \
+    || fail "no record may be added for a dormant mate"
+  inbox_lib "$state" fm_task_inbox_acknowledge "$state" bosgame 1 >/dev/null 2>&1 || true
+  [ ! -e "$rec" ] || [ -e "$state/bosgame.inbox/handled/${rec##*/}" ] || fail "acknowledgement must stay allowed"
+  FM_ALLOW_DORMANT_DISPATCH=1 inbox_lib "$state" fm_task_inbox_write "$state" bosgame "chief override" >/dev/null \
+    || fail "env bypass must write"
+  rm -f "$state/parent-route/bosgame.dormant"
+  inbox_lib "$state" fm_task_inbox_write "$state" bosgame "after revival" >/dev/null || fail "unmarked mate must accept"
+  pass "dormant secondmate refuses new dispatch; ack and bypass allowed"
+}
+
+
 test_write_is_durable_and_exact
+test_dormant_secondmate_refuses_new_dispatch
 test_doorbell_is_a_shell_noop
 test_doorbell_rejects_terminal_controls
 test_ring_skips_dead_agent

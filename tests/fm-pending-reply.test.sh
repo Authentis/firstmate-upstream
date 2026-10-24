@@ -2133,7 +2133,64 @@ EOF
 
 # --- run --------------------------------------------------------------------
 
+# A request delivered longer ago than the age cap is retired, never stamped and
+# never reposted; an exited agent's idle pane never counts as a completed turn.
+at_epoch() {  # <epoch> <command> [args...]
+  local epoch=$1
+  shift
+  FM_PENDING_REPLY_NOW=$epoch "$@"
+}
+
+test_age_cap_retires_stale_request_without_repost() {
+  local home state stale fresh hook_log rec now
+  home=$(setup_parent age-cap)
+  state="$home/state"
+  hook_log="$TMP_ROOT/age-cap-hook.log"
+  : > "$hook_log"
+  # shellcheck disable=SC2329
+  age_cap_hook() {
+    printf '%s\t%s\n' "$1" "$2" >> "$hook_log"
+  }
+  export -f age_cap_hook
+  export FM_PENDING_REPLY_SEND_HOOK='age_cap_hook'
+  export FM_PENDING_REPLY_MAX_AGE_SECS=21600
+  now=$((1000 + 21600 + 60))
+  stale=$(at_epoch 1000 fm_pending_reply_create "$home" "$state" "netcup" "old order")
+  at_epoch 1000 fm_pending_reply_mark_delivered "$state" "$stale"
+  fresh=$(at_epoch $((now - 70)) fm_pending_reply_create "$home" "$state" "netcup" "recent order")
+  at_epoch $((now - 70)) fm_pending_reply_mark_delivered "$state" "$fresh"
+  at_epoch "$now" fm_pending_reply_tick_one "$state" "$stale" idle
+  rec=$(fm_pending_reply_path "$state" "$stale")
+  [ "$(phase_of "$state" "$stale")" = retired ] || fail "stale request should be retired, got $(phase_of "$state" "$stale")"
+  [ -z "$(fm_pending_reply_get "$rec" request_turn_completed_epoch)" ] || fail "retired request must not be stamped complete"
+  [ "$(fm_pending_reply_get "$rec" retired_from_phase)" = awaiting_report ] || fail "retired_from_phase missing"
+  [ "$(fm_pending_reply_get "$rec" retired_epoch)" = "$now" ] || fail "retired_epoch missing"
+  case "$(fm_pending_reply_get "$rec" retired_reason)" in
+    *"age cap"*) : ;;
+    *) fail "retired_reason should name the age cap" ;;
+  esac
+  [ -f "$rec" ] || fail "retired record must be kept"
+  if at_epoch "$now" fm_pending_reply_send_recovery "$state" "$stale" 2>/dev/null; then fail "retired request must not be reposted"; fi
+  [ ! -s "$hook_log" ] || fail "no repost may be sent for a retired request"
+  # Still inside the cap: the ordinary path stamps completion and reposts once.
+  at_epoch "$now" fm_pending_reply_tick_one "$state" "$fresh" idle
+  [ "$(phase_of "$state" "$fresh")" = recovery_sent ] || fail "recent request should take the ordinary path, got $(phase_of "$state" "$fresh")"
+  [ -n "$(fm_pending_reply_get "$(fm_pending_reply_path "$state" "$fresh")" request_turn_completed_epoch)" ] \
+    || fail "recent request should still be observed"
+  [ "$(wc -l < "$hook_log" | tr -d ' ')" = 1 ] || fail "only the recent request may be reposted"
+  # An exited agent (shell prompt) is never observed as idle.
+  # shellcheck disable=SC2329
+  fm_backend_agent_state() { printf 'dead'; }
+  [ "$(fm_pending_reply_backend_observation tmux sess:win fm-x claude)" = unknown ] \
+    || fail "exited agent must observe as unknown"
+  unset -f fm_backend_agent_state
+  unset FM_PENDING_REPLY_SEND_HOOK FM_PENDING_REPLY_MAX_AGE_SECS
+  pass "age cap retires a stale request without a repost; exited agent never reads idle"
+}
+
+
 test_normal_correlated_reply_resolves_once
+test_age_cap_retires_stale_request_without_repost
 test_completed_turn_no_report_triggers_one_recovery
 test_recovery_waits_while_the_mate_has_an_open_decision
 test_recovery_sends_during_an_open_decision_without_the_flag
