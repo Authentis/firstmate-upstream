@@ -2410,7 +2410,6 @@ if [ "$RELAUNCH" -eq 1 ]; then
   # crew or secondmate default currently says. Choosing a different harness is
   # the caller's explicit decision, made with --harness (bin/fm-control.sh
   # resolves that decision, including a secondmate's durable pin).
-  spawn_resolve_secondmate_pin || exit
   ARG3=${HARNESS_ARG:-$RELAUNCH_PRIOR_HARNESS}
   [ -n "$ARG3" ] || {
     echo "error: task $ID has no recorded harness; pass --harness to relaunch it" >&2
