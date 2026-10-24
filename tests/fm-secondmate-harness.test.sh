@@ -3004,59 +3004,6 @@ SH
   pass "B25 spawn quarantines stale rereads without blocking relaunch"
 }
 
-test_keyed_secondmate_pins() {
-  local cfg out rc row id model effort
-  cfg="$TMP_ROOT/keyed-pins/config"
-  mkdir -p "$cfg"
-  printf 'pi\nnetcup pi anthropic/claude-opus-5-5 low\nbosgame pi openai/gpt-6.1-sol low\n' > "$cfg/secondmate-harness"
-  for row in 'netcup anthropic/claude-opus-5-5 low' 'bosgame openai/gpt-6.1-sol low'; do
-    read -r id model effort <<< "$row"
-    out=$(FM_CONFIG_OVERRIDE="$cfg" "$ROOT/bin/fm-harness.sh" secondmate-pin "$id")
-    [ "$out" = "pi $model $effort" ] || fail "wrong keyed profile: $out"
-    [ "$(FM_CONFIG_OVERRIDE="$cfg" "$ROOT/bin/fm-harness.sh" secondmate-model "$id")" = "$model" ] || fail "model lookup missed id"
-    [ "$(FM_CONFIG_OVERRIDE="$cfg" "$ROOT/bin/fm-harness.sh" secondmate-effort "$id")" = "$effort" ] || fail "effort lookup missed id"
-  done
-  [ "$(FM_CONFIG_OVERRIDE="$cfg" "$ROOT/bin/fm-harness.sh" secondmate missing)" = pi ] || fail "legacy default changed"
-  [ -z "$(FM_CONFIG_OVERRIDE="$cfg" "$ROOT/bin/fm-harness.sh" secondmate-model missing)" ] || fail "missing id acquired another pin"
-  printf 'codex fallback medium\nnetcup pi anthropic/claude-opus-5-5 low\n' > "$cfg/secondmate-harness"
-  [ "$(FM_CONFIG_OVERRIDE="$cfg" "$ROOT/bin/fm-harness.sh" secondmate-model bosgame)" = fallback ] || fail "unkeyed profile no longer works"
-  for row in 'netcup pi default low' 'netcup pi anthropic/claude-opus-5-5 default' 'netcup pi model low extra' $'netcup pi model low\nnetcup pi other low' $'pi\ncodex'; do
-    printf '%s\n' "$row" > "$cfg/secondmate-harness"
-    rc=0
-    out=$(FM_CONFIG_OVERRIDE="$cfg" "$ROOT/bin/fm-harness.sh" secondmate-pin netcup 2>&1) || rc=$?
-    expect_code 2 "$rc" "malformed pin must refuse: $row"
-    assert_contains "$out" 'error:' 'malformed pin has no diagnostic'
-  done
-  pass "keyed secondmate pins select by id, preserve legacy defaults, and refuse malformed config"
-}
-
-test_keyed_pi_launch_and_first_call() {
-  local w sm out rc launch error meta
-  for error in '' '403 forbidden' '401 unauthorized' '429 quota exceeded'; do
-    w="$TMP_ROOT/keyed-launch-${error%% *}"
-    sm="$w/sm"
-    mkdir -p "$w/home/config"
-    printf 'codex\nsm pi anthropic/claude-opus-5-5 low\n' > "$w/home/config/secondmate-harness"
-    make_seeded_home "$sm" sm
-    rc=0
-    out=$(FM_FAKE_PI_ERROR="$error" spawn_secondmate_capture "$w" sm "$sm" "$w/launch" --harness codex --model stale --effort high 2>&1) || rc=$?
-    launch=$(cat "$w/launch")
-    assert_contains "$launch" "--model 'anthropic/claude-opus-5-5'" 'keyed launch fell through to host default/stale model'
-    assert_contains "$launch" "--thinking 'low'" 'keyed launch lost thinking pin'
-    meta="$w/home/state/sm.meta"
-    if [ -z "$error" ]; then
-      expect_code 0 "$rc" "successful first call must launch: $out"
-      [ "$(meta_field "$meta" model)" = anthropic/claude-opus-5-5 ] || fail "meta missed model pin (rc=$rc): $out"
-      assert_contains "$out" 'spawned sm' 'successful Pi first call not confirmed'
-    else
-      expect_code 1 "$rc" "bad first call must fail: $out"
-      assert_contains "$out" "model anthropic/claude-opus-5-5 first call failed: error: $error" 'provider error/model hidden'
-      assert_not_contains "$out" 'spawned sm' 'provider failure claimed launch success'
-    fi
-  done
-  pass "keyed Pi launches pass explicit flags and reject first-call 403/401/quota errors"
-}
-
 test_pi_first_call_bounded_and_first_response_only() {
   local receipt out rc hook reason
   receipt="$TMP_ROOT/first-call/receipt"
@@ -3088,48 +3035,6 @@ test_pi_first_call_bounded_and_first_response_only() {
   pass "Pi first-call readiness ignores user messages, preserves first errors, and bounds missing responses"
 }
 
-test_remote_spawn_replaces_stale_meta_with_keyed_pin() {
-  local w out rc
-  w="$TMP_ROOT/remote-keyed"
-  mkdir -p "$w/code/bin" "$w/home/config" "$w/home/state" "$w/home/data"
-  ln -s "$ROOT"/bin/*.sh "$w/code/bin/"
-  rm "$w/code/bin/fm-on.sh" "$w/code/bin/fm-remote-inherit-push.sh" "$w/code/bin/fm-procevent-remote-reply.sh"
-  printf '#!/usr/bin/env bash\nexit 0\n' > "$w/code/bin/fm-remote-inherit-push.sh"
-  printf '#!/usr/bin/env bash\nexit 0\n' > "$w/code/bin/fm-procevent-remote-reply.sh"
-  cat > "$w/code/bin/fm-on.sh" <<'SH'
-#!/usr/bin/env bash
-set -eu
-[ "$1" = sm ] || exit 2
-case "$2" in
-  fm-remote-doctor.sh) exit 0 ;;
-  fm-remote-secondmate-control.sh)
-    [ "$3" = launch ] || exit 2
-    printf '%s\n' "$*" > "$FM_HOME/wire"
-    printf 'backend=herdr\ntarget=fm-remote:w1:p1\nherdr_session=fm-remote\nharness=%s\nmodel=%s\neffort=%s\n' "$5" "$6" "$7"
-    ;;
-  *) exit 2 ;;
-esac
-SH
-  chmod +x "$w/code/bin/fm-on.sh" "$w/code/bin/fm-remote-inherit-push.sh" "$w/code/bin/fm-procevent-remote-reply.sh"
-  printf 'codex\nsm pi openai/gpt-6.1-sol low\n' > "$w/home/config/secondmate-harness"
-  printf -- '- sm - remote domain (host: fake-host; root: /srv/fm; home: /srv/mate; scope: things; projects: p; added 2026-10-08)\n' > "$w/home/data/secondmates.md"
-  fm_write_meta "$w/home/state/sm.meta" 'window=remote:sm' 'kind=secondmate' 'harness=pi' 'model=default' 'effort=default' 'remote_host=fake-host' 'remote_root=/srv/fm' 'home=/srv/mate'
-  rc=0
-  out=$(FM_HOME="$w/home" FM_ROOT_OVERRIDE="$w/code" FM_SPAWN_NO_GUARD=1 "$w/code/bin/fm-spawn.sh" sm --secondmate 2>&1) || rc=$?
-  expect_code 0 "$rc" "remote keyed spawn failed: $out"
-  [ "$(cat "$w/home/wire")" = 'sm fm-remote-secondmate-control.sh launch sm pi openai/gpt-6.1-sol low herdr' ] || fail "remote spawn did not send the parent model/effort pin: $(cat "$w/home/wire")"
-  [ "$(meta_field "$w/home/state/sm.meta" model)" = openai/gpt-6.1-sol ] || fail 'remote spawn retained stale model metadata'
-  [ "$(meta_field "$w/home/state/sm.meta" effort)" = low ] || fail 'remote spawn retained stale effort metadata'
-  printf 'pi\n' > "$w/home/config/secondmate-harness"
-  rm "$w/home/wire"
-  rc=0
-  out=$(FM_HOME="$w/home" FM_ROOT_OVERRIDE="$w/code" FM_SPAWN_NO_GUARD=1 "$w/code/bin/fm-spawn.sh" sm --secondmate 2>&1) || rc=$?
-  expect_code 1 "$rc" "unpinned remote spawn must refuse: $out"
-  assert_contains "$out" 'requires an explicit model' 'remote spawn missing-model diagnostic hidden'
-  [ ! -f "$w/home/wire" ] || fail 'unpinned remote spawn reached launch transport'
-  pass "remote initial/recovery spawn passes explicit id pins despite default model/effort metadata"
-}
-
 test_pi_secondmate_refuses_missing_model() {
   local w sm out rc model
   local -a profile_args
@@ -3152,17 +3057,11 @@ test_pi_secondmate_refuses_missing_model() {
 
 if [ "${FM_SM_PIN_TEST_ONLY:-0}" = 1 ]; then
   test_pi_secondmate_refuses_missing_model
-  test_keyed_secondmate_pins
-  test_remote_spawn_replaces_stale_meta_with_keyed_pin
-  test_keyed_pi_launch_and_first_call
   test_pi_first_call_bounded_and_first_response_only
   exit 0
 fi
 
-test_keyed_secondmate_pins
 test_pi_secondmate_refuses_missing_model
-test_remote_spawn_replaces_stale_meta_with_keyed_pin
-test_keyed_pi_launch_and_first_call
 test_pi_first_call_bounded_and_first_response_only
 
 test_harness_resolution

@@ -3724,14 +3724,15 @@ test_secondmate_first_call_failure_wakes_with_model_error() {
   mkdir -p "$dir/code/bin"
   ln -s "$ROOT"/bin/*.sh "$dir/code/bin/"
   rm "$dir/code/bin/fm-spawn.sh"
-  printf 'pi\nsm1 pi anthropic/claude-opus-5-5 low\n' > "$dir/config/secondmate-harness"
+  printf 'pi\nmate sm1: pi anthropic/claude-opus-5-5 low\n' > "$dir/config/secondmate-harness"
   printf 'error: 403 forbidden\n' > "$dir/receipt"
   cat > "$dir/code/bin/fm-spawn.sh" <<'SH'
 #!/usr/bin/env bash
 set -eu
 [ "$1" = sm1 ] && [ "$2" = --secondmate ] || exit 2
-profile=$("$FM_ROOT_OVERRIDE/bin/fm-harness.sh" secondmate-pin "$1")
-read -r harness model effort <<< "$profile"
+harness=$("$FM_ROOT_OVERRIDE/bin/fm-harness.sh" secondmate "$1")
+model=$("$FM_ROOT_OVERRIDE/bin/fm-harness.sh" secondmate-model "$1")
+effort=$("$FM_ROOT_OVERRIDE/bin/fm-harness.sh" secondmate-effort "$1")
 [ "$harness" = pi ] && [ "$effort" = low ] || exit 2
 printf 'warning: sync skipped before launch\n' >&2
 "$FM_ROOT_OVERRIDE/bin/fm-pi-first-call.sh" wait "$FM_HOME/receipt" "$model" 1
