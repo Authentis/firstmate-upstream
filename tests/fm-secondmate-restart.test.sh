@@ -940,7 +940,7 @@ test_remote_restart_uses_id_specific_profile() {
   dir=$(new_case remote-keyed)
   setup_remote_case "$dir" sm2 ok
   export FM_FAKE_ANSWER_STATUS="$dir/home/state/sm2.status"
-  printf 'codex fallback high\nsm2 pi anthropic/claude-opus-5-5 low\n' > "$dir/home/config/secondmate-harness"
+  printf 'codex fallback high\nmate sm2: pi anthropic/claude-opus-5-5 low\n' > "$dir/home/config/secondmate-harness"
   out=$(run_restart "$dir" sm2); rc=$?
   unset FM_FAKE_ANSWER_STATUS
   expect_code 0 "$rc" "keyed remote restart failed: $out"

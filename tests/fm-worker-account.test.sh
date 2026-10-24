@@ -435,6 +435,8 @@ test_secondmate_account_override() {
     expect_code 0 "$rc" "an unconfigured secondmate should keep the primary's pin: $out"
     run_pane
     assert_grep "$variable=$CASE/primary" "$CASE/$worker-worker" "another mate must not receive the override"
+    # A Pi ship model is checked against the harness's own catalog before launch.
+    [ "$harness" = claude ] || printf 'openai-codex  gpt-5.5  272K\n' > "$CASE/primary/listed"
     out=$(spawn_ship acct-ship --model openai-codex/gpt-5.5); rc=$?
     expect_code 0 "$rc" "an ordinary worker must keep the primary's pin: $out"
     run_pane

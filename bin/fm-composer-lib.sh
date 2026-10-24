@@ -260,6 +260,13 @@ fm_composer_normalize_trim_var() {  # <varname>
 # the tightest margin over the 128 default in the fleet. Above ~150 that glyph is
 # stripped as ghost text, which is why the bare-glyph fallback below must also
 # recognise every agent glyph from the UNSTRIPPED plain row.
+# Command Code draws its idle placeholder in truecolor 38;2;138;148;168,
+# luminance ~147.3, while its typed text is the default foreground (verified
+# live, Command Code 1.74.1 with COLORTERM=truecolor, which its launch pins; a
+# 256-colour terminal gets the untested 38;5;145 instead). Raising the fleet-wide
+# ceiling to reach it would over-strip other harnesses, so only a screen that the
+# backend's identity probe attributes to Command Code is read with a fixed
+# ceiling of 160 in its place (fm_composer_classify_screen).
 # The dim/faint and dark-foreground states are tracked together as "de-emphasis";
 # codes are processed left to right within a sequence, so "ESC[0;2m" reads as dim.
 # LC_ALL=C makes awk walk bytes, so multibyte glyphs (e.g. ❯) and de-emphasised
@@ -358,7 +365,7 @@ fm_composer_strip_ghost() {
 # Delivery-only rendered busy footers per harness. claude/codex: "esc to
 # interrupt"; opencode: "esc interrupt"; pi: "Working..."; omp: "Working…"; grok: "Ctrl+c:cancel"; agy: "esc to cancel";
 # devin: "esc twice to interrupt" and its "❭ Guide Devin while it works" working composer.
-# commandcode: "esc to interrupt" and its "• <n>s • ↓" elapsed and token cells.
+# commandcode: "esc to interrupt" beside a bullet-framed elapsed cell.
 # Claude's current spinner has a rotating glyph and word, but every active-turn
 # line has an ellipsis followed by a parenthesized elapsed duration. Keep this
 # signature separate from the shared default because that shape is not generic
@@ -388,12 +395,13 @@ FM_DELIVERY_CLAUDE_BUSY_REGEX_DEFAULT='esc to interrupt|…[[:space:]]+\([0-9]+[
 # Devin 3000.11.1: the working composer and interrupt hint are independent
 # delivery signals. Neither is used as semantic worker-state evidence.
 FM_DELIVERY_DEVIN_BUSY_REGEX_DEFAULT='esc twice to interrupt|^[[:space:]]*❭ Guide Devin while it works$'
+# Command Code 1.74.1 renders one status row while a turn runs, for example
+# ` ○ Contemplificating…  esc to interrupt • 2s • ↓ 41`: the `esc to interrupt`
+# token and the bullet-framed elapsed cell are independent delivery signals, and
+# the idle footer carries neither. Delivery guard only; recorded worker state
+# comes from the commandcode-mod writer in bin/fm-busy-lib.sh.
+FM_DELIVERY_COMMANDCODE_BUSY_REGEX_DEFAULT='esc to interrupt|•[[:space:]]+[0-9]+[smh]([[:space:]]+[0-9]+[smh])*[[:space:]]+•'
 FM_DELIVERY_CODEX_BUSY_REGEX_DEFAULT='esc to interrupt'
-# Command Code 1.73.4 renders one status row for the whole running turn:
-# `<spinner> <verb>…  esc to interrupt • 2m 8s • ↓ 920`. The interrupt hint and the
-# elapsed-plus-token cells are matched independently, so neither vendor string
-# alone is load-bearing (verified live, commandcode 1.73.4 in tmux).
-FM_DELIVERY_COMMANDCODE_BUSY_REGEX_DEFAULT='esc to interrupt|•[[:space:]]+[0-9]+[smh]([[:space:]]+[0-9]+[smh])*[[:space:]]+•[[:space:]]+↓'
 FM_DELIVERY_OPENCODE_BUSY_REGEX_DEFAULT='esc interrupt'
 FM_DELIVERY_PI_BUSY_REGEX_DEFAULT='Working\.\.\.'
 # omp (Oh My Pi) renders its TUI busy line as `Working…` with U+2026 HORIZONTAL
@@ -1310,7 +1318,7 @@ _fm_composer_classify_rows() {  # <screen> <styled> <ambiguous> <first-row> <las
 # be the harness's own idle suggestion (claude's rotating dim hint, codex's
 # `Use /skills ...`), so it must read `unknown` rather than a false `pending`.
 _fm_composer_classify_bare_row() {  # <screen> <styled> <row>
-  local screen=$1 styled=$2 row=$3 raw content plain state body glyph='' fg
+  local screen=$1 styled=$2 row=$3 raw content plain state
   raw=$(_fm_composer_screen_row "$row" "$screen")
   content=$(_fm_composer_row_content "$raw" "$styled")
   plain=$(_fm_composer_row_content "$raw" 0)
@@ -1321,22 +1329,6 @@ _fm_composer_classify_bare_row() {  # <screen> <styled> <row>
   if [ "$styled" != 1 ] && [ "$state" = pending ]; then
     printf 'unknown'
     return 0
-  fi
-  # A placeholder that survived ghost stripping still reads `pending` above.
-  # It is furniture only when the row's own styling proves it: see
-  # _fm_composer_row_is_cursor_placeholder.
-  if [ "$state" = pending ] && [ "$styled" = 1 ]; then
-    body=$plain
-    if fm_composer_leading_agent_glyph_var glyph "$body"; then
-      body=${body#*"$glyph"}
-      fm_composer_normalize_trim_var body
-      if fg=$(printf '%s\n' "$raw" | _fm_composer_row_is_cursor_placeholder) \
-         && { fm_composer_idle_matches "$body" "${FM_COMPOSER_IDLE_RE:-$FM_COMPOSER_IDLE_RE_DEFAULT}" insensitive \
-              || { [ -n "$fg" ] && [ "$row" -gt 0 ] \
-                   && [ "$(_fm_composer_screen_row "$((row - 1))" "$screen" | _fm_composer_rule_row_fg)" = "$fg" ]; }; }; then
-        state=empty
-      fi
-    fi
   fi
   printf '%s' "$state"
 }
@@ -2629,6 +2621,16 @@ fm_composer_classify_screen() {  # <caps> <screen> [cursor_row] [identity]
   done <<EOF
 $caps
 EOF
+  # A Command Code identity (`commandcode` from the tmux probe, `cmd` from
+  # Herdr's native agent detection) reads this one screen with Command Code's
+  # placeholder ceiling; see fm_composer_strip_ghost.
+  if [ "$has_identity" = 1 ]; then
+    case "${identity%%$'\t'*}" in
+      commandcode|cmd)
+        local FM_COMPOSER_GHOST_LUMA_MAX=160
+        ;;
+    esac
+  fi
   [ "$cursor" = 1 ] || cy=''
   if [ -n "$cy" ]; then
     case "$cy" in *[!0-9]*) printf 'unknown'; return 0 ;; esac

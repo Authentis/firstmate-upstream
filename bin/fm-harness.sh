@@ -19,6 +19,8 @@
 #                                        print the optional EFFORT token from
 #                                        config/secondmate-harness, or empty when absent.
 #                                        An id selects that mate's override line first.
+#        fm-harness.sh validate-secondmate-model <harness> <model> [<id>]
+#                                        Refuse Pi secondmates without a concrete model.
 #        fm-harness.sh validate-native-effort <harness> <model> <effort>
 #                                        Refuse ultra unless the harness is pi or
 #                                        pi-signed and the model explicitly names
@@ -255,10 +257,10 @@ harness_process_verdict() {  # <pid>
     # markers at its launch boundary as defense in depth.
     polytoken) echo "comm polytoken"; return ;;
     devin) echo "comm devin"; return ;;
-    # Command Code is a node bundle that sets process.title to `command-code`
-    # once its TUI starts (verified, commandcode 1.73.4: `ps -o comm=` reports
-    # command-code). Anchored, so no unrelated command can claim it; the brief
-    # startup window before the title is set reads as node and stays unclaimed.
+    # Command Code runs as a node bundle that sets its own process title, so
+    # the kernel process name is exactly `command-code` (verified, Command Code
+    # 1.74.1: comm=command-code and the rewritten argv is the same word).
+    # Anchored, so an unrelated command containing that fragment never matches.
     command-code) echo "comm commandcode"; return ;;
     node*|python*)
       # Bare interpreter: match the harness name in its script path.
@@ -519,25 +521,10 @@ secondmate_parse() {
   while IFS= read -r line || [ -n "$line" ]; do
     num=$((num + 1))
     line="${line#"${line%%[![:space:]]*}"}"
+    line="${line%"${line##*[![:space:]]}"}"
     [ -n "$line" ] || continue
-    case "$line" in '#'*) continue ;; esac
-    read -r -a fields <<< "$line"
-    set -- "${fields[@]}"
-    case "$#" in
-      1|2|3)
-        [ -z "$fallback" ] || { echo "error: duplicate default in config/secondmate-harness" >&2; return 2; }
-        fallback="$*"
-        ;;
-      4)
-        key=$1
-        case "$key" in ''|*[!A-Za-z0-9._-]*) echo "error: invalid secondmate pin id: $key" >&2; return 2 ;; esac
-        case "$seen" in *"|$key|"*) echo "error: duplicate secondmate pin: $key" >&2; return 2 ;; esac
-        seen="$seen$key|"
-        case "$2/$3" in default/*|-/*|*/default|*/-) echo "error: secondmate pin $key requires a concrete harness and model" >&2; return 2 ;; esac
-        case "$4" in low|medium|high|xhigh|max|ultra) ;; *) echo "error: invalid secondmate pin effort for $key: $4" >&2; return 2 ;; esac
-        [ "$key" != "$id" ] || selected="$2 $3 $4"
-        ;;
-      *) echo "error: malformed config/secondmate-harness line: $line" >&2; return 2 ;;
+    case "$line" in
+      '#'*) continue ;;
     esac
     if [[ "$line" =~ $override_pattern ]]; then
       id=${BASH_REMATCH[1]}
@@ -613,8 +600,13 @@ secondmate_field() {
   local idx=$1 id=${2:-} line
   line=$(secondmate_line "$id") || return 1
   [ -n "$line" ] || return 0
-  read -r -a fields <<< "$line"
-  printf '%s\n' "${fields[$((idx - 1))]:-}"
+  # shellcheck disable=SC2086  # deliberate word-splitting: tokenizing the line into fields
+  set -- $line
+  case "$idx" in
+    1) printf '%s\n' "${1:-}" ;;
+    2) printf '%s\n' "${2:-}" ;;
+    3) printf '%s\n' "${3:-}" ;;
+  esac
 }
 
 # Resolve the harness the PRIMARY uses to launch SECONDMATE agents: a fallback

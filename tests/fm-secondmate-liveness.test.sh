@@ -831,7 +831,7 @@ test_remote_poll_probe_unreachable_preserves_route() {
 test_sweep_relaunches_keyed_signed_pi_after_first_call_success() {
   local w fb tmuxfb log out
   w=$(new_world sweep-keyed-pi-signed)
-  printf 'codex\nsm1 pi-signed openai/gpt-6.1-sol low\n' > "$w/home/config/secondmate-harness"
+  printf 'codex\nmate sm1: pi-signed openai/gpt-6.1-sol low\n' > "$w/home/config/secondmate-harness"
   add_sm_home "$w" sm1 firstmate:fm-sm1 pi-signed
   printf 'model=default\neffort=default\n' >> "$w/home/state/sm1.meta"
   fb=$(make_toolchain "$w"); tmuxfb=$(make_liveness_tmux "$w")

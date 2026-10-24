@@ -61,6 +61,16 @@ set -u
 D=$FM_FAKE_DIR
 case "${1:-}" in
   send-keys)
+    # A Pi secondmate spawn waits for its first model call; run the generated
+    # first-call hook against the fake, as a real Pi session would.
+    if [ "${!#}" = Enter ] && [ -n "${FM_TEST_PI_FIRST_CALL_FAKE:-}" ]; then
+      for ext in "${FM_STATE_OVERRIDE:-$FM_HOME/state}"/*.pi-first-call.ts; do
+        [ -f "$ext" ] || continue
+        id=${ext##*/}; id=${id%.pi-first-call.ts}
+        grep -q '^kind=secondmate$' "${FM_STATE_OVERRIDE:-$FM_HOME/state}/$id.meta" 2>/dev/null || continue
+        node "$FM_TEST_PI_FIRST_CALL_FAKE" "$ext" || exit
+      done
+    fi
     shift
     literal=0
     while [ $# -gt 0 ]; do
@@ -240,6 +250,7 @@ run_control() {  # <case-dir> <args...>
     PATH="$dir/fakebin:$PATH" FM_HOME="$dir/home" FM_FAKE_DIR="$dir/fake" \
     HOME="$dir/user-home" CLAUDE_CONFIG_DIR='' \
     FM_SPAWN_NO_GUARD=1 GROK_HOME="$dir/grokhome" \
+    FM_TEST_PI_FIRST_CALL_FAKE="$ROOT/tests/assets/pi-first-call-fake.mjs" \
     FM_CONTROL_POLL=0.01 FM_CONTROL_EXIT_WAIT=0.05 FM_CONTROL_LAUNCH_WAIT=0.05 \
     FM_REAL_GIT="${FM_REAL_GIT:-}" FM_FAKE_GIT_FAILURE="${FM_FAKE_GIT_FAILURE:-}" \
     FM_REAL_MV="${FM_REAL_MV:-}" FM_FAKE_COMPLETE_JOURNAL_MV_FAIL="${FM_FAKE_COMPLETE_JOURNAL_MV_FAIL:-}" \

@@ -1156,6 +1156,9 @@ test_polytoken_post_launch_failure_drops_its_slot_claim() {
   mkdir -p "$slot_root/1"
   git -C "$PROJ_DIR" worktree move "$WT_DIR" "$slot_root/1/project"
   WT_DIR="$slot_root/1/project"
+  # A pool slot is handed out detached; a slot holding a branch is refused as
+  # one that was never returned to the pool.
+  git -C "$WT_DIR" checkout -q --detach
   printf '{"worktrees":[{"name":"1","path":"%s"}]}\n' "$WT_DIR" > "$slot_root/treehouse-state.json"
   claim="$slot_root/1/.fm-slot-owner"
   rc=0
