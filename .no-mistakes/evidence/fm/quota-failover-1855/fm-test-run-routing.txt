@@ -1,0 +1,9 @@
+$ bin/fm-test-run.sh --list --family secondmate | grep quota-failover
+tests/fm-quota-failover.test.sh
+$ bin/fm-test-run.sh --check-coverage
+FM_TEST_COVERAGE ok total=285 parallel=24 parallel_max_ms=665545 parallel_imbalance_ms=2 parallel_unhinted=0 serial=245 serial_shards=9 serial_unhinted=6 serial_max_ms=1200000 serial_budget_ms=1200000 herdr=16
+exit=0
+$ bin/fm-test-run.sh --list --changed --base c81d33e0 | grep -E "quota-failover|secondmate-restart|wake-queue"
+tests/fm-quota-failover.test.sh
+tests/fm-secondmate-restart.test.sh
+tests/fm-wake-queue.test.sh
