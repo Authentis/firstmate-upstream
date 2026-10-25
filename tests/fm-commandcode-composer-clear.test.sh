@@ -132,7 +132,15 @@ tmux_t() { "$REAL_TMUX" -L "$SOCKET" "$@"; }
 start_pane() {
   local draft=$1
   shift
+  # kill-server returns before the old server has exited; a new-session that
+  # reaches the dying server fails with "server exited unexpectedly".
+  local old_pid i=0
+  old_pid=$(tmux_t display-message -p '#{pid}' 2>/dev/null) || old_pid=
   tmux_t kill-server >/dev/null 2>&1 || true
+  while [ -n "$old_pid" ] && kill -0 "$old_pid" 2>/dev/null && [ "$i" -lt 100 ]; do
+    sleep 0.05
+    i=$((i + 1))
+  done
   : > "$LAB/keys.log"
   local draft_env=
   [ "$draft" = - ] || draft_env="FAKE_DRAFT=$CAPTURES/$draft"

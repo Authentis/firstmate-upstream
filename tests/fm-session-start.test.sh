@@ -2139,6 +2139,7 @@ EOF
   make_fake_toolchain "$fakebin"
   make_fake_tasks_axi_compact "$fakebin"
   make_fake_ps_claude "$fakebin"
+  make_fake_tmux "$fakebin" "fm-sess:compact"
   write_long_body_backlog "$home/data/backlog.md"
   mkdir -p "$home/projects/firstmate"
   printf 'window=fm-sess:compact\nworktree=%s\nproject=firstmate\nkind=ship\n' "$home/projects/firstmate" \
