@@ -17,7 +17,6 @@ commandcode status
 commandcode --list-models
 bin/fm-test-run.sh tests/fm-commandcode-harness.test.sh
 bin/fm-test-run.sh tests/fm-tmux-agent-liveness.test.sh
-bin/fm-test-run.sh tests/fm-commandcode-composer-clear.test.sh
 FM_COMMANDCODE_SIGNALS_LIVE=1 bin/fm-test-run.sh tests/fm-commandcode-signals-live-e2e.test.sh
 ```
 
