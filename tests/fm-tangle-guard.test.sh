@@ -227,6 +227,7 @@ make_spawn_record_fakebin() {
 #!/usr/bin/env bash
 set -u
 [ -n "${FM_TMUX_REC:-}" ] && printf 'tmux %s\n' "$*" >> "$FM_TMUX_REC"
+window_file="$(dirname "$0")/.spawn-window"
 case "$*" in
   *"export TREEHOUSE_ROOT="*) [ "${FM_FAIL_ROOT_EXPORT:-0}" = 0 ] || exit 1 ;;
 esac
@@ -235,8 +236,22 @@ case "$*" in
 esac
 case "${1:-}" in
   display-message) printf 'firstmate\n'; exit 0 ;;
-  new-window) printf '%s\n' "@spawnwid"; exit 0 ;;
-  list-windows) exit 0 ;;
+  new-window)
+    name=
+    previous=
+    for arg in "$@"; do
+      [ "$previous" = -n ] && name=$arg
+      previous=$arg
+    done
+    printf '%s\n' "$name" > "$window_file"
+    printf '%s\n' "@spawnwid"
+    exit 0 ;;
+  list-windows)
+    case "$*" in
+      *'#{window_id}'*) printf '%s\n' '@spawnwid' ;;
+      *) [ ! -s "$window_file" ] || cat "$window_file" ;;
+    esac
+    exit 0 ;;
   has-session|new-session|send-keys|set-window-option) exit 0 ;;
 esac
 exit 0
