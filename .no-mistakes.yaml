@@ -40,7 +40,7 @@ commands:
 test:
   instructions: |
     On macOS (uname Darwin) run only single test files, one at a time, under `taskpolicy -b`; never `tests/run`, test families, lanes, or parallel or backgrounded suites. Full suites run only on the Linux hosts bosgame or netcup.
-    On macOS never run a test whose fan-out can exceed the mac-guard limit of 60 processes, notably tests/fm-session-start.test.sh; run such tests only on bosgame or netcup (from a tar snapshot of the run head via ssh bosgame-control), report their pass/fail line as the evidence, and report the Mac-skipped test as covered-on-Linux rather than untested.
+    On macOS never run tests/fm-session-start.test.sh (it exceeds the mac-guard 60-process limit); report it as Mac-skipped.
     Run live Herdr scenarios only through bin/fm-herdr-lab.sh with a named non-default fm-lab-* session, following that helper's prepare, provision, run, and teardown contract exactly.
     Never touch the live default Herdr session or fleet panes.
     Prefer a throwaway lab for spawn, long-launch, and Claude-path proofs, and tear it down in the same evidence turn.
