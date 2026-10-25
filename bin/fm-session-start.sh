@@ -476,7 +476,7 @@ REEMIT_STATE_BYTES=${FM_SESSION_START_REEMIT_STATE_BYTES:-15000}
 case "$REEMIT_STATE_BYTES" in ''|*[!0-9]*) REEMIT_STATE_BYTES=15000 ;; esac
 [ "$REEMIT_STATE_BYTES" -gt 0 ] 2>/dev/null || REEMIT_STATE_BYTES=15000
 # One per-task endpoint read may never outlive this bound: a hung backend CLI
-# becomes that task's endpoint: error line instead of the digest's whole
+# becomes that lane's endpoint: error field instead of the digest's whole
 # runtime budget.
 ENDPOINT_TIMEOUT=${FM_SESSION_START_ENDPOINT_TIMEOUT:-10}
 case "$ENDPOINT_TIMEOUT" in ''|*[!0-9]*) ENDPOINT_TIMEOUT=10 ;; esac
