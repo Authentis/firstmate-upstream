@@ -732,20 +732,9 @@ endpoint_verdict() {
   fi
 }
 
-endpoint_verdict_line() {  # the record dump's endpoint line for the last endpoint_verdict
-  case "$ENDPOINT_VERDICT" in
-    unknown) printf 'endpoint: unknown (no window recorded)\n' ;;
-    error)
-      printf 'endpoint: error (backend=%s window=%s - the endpoint read died or hit its %ss bound; the digest continued past it)\n' \
-        "$ENDPOINT_BACKEND" "$ENDPOINT_WINDOW" "$ENDPOINT_TIMEOUT"
-      ;;
-    *) printf 'endpoint: %s (backend=%s window=%s)\n' "$ENDPOINT_VERDICT" "$ENDPOINT_BACKEND" "$ENDPOINT_WINDOW" ;;
-  esac
-}
-
 # print_fleet_records_full: the startup record dump - the compact backlog
-# listing, every state/*.meta with its endpoint line and status tail, and the
-# orphan status logs.
+# listing, one line per state/*.meta lane (endpoint and last status event), and
+# the orphan status logs.
 print_fleet_records_full() {
   local meta id kind status record found=0
   print_backlog_compact "$DATA/backlog.md" "data/backlog.md"

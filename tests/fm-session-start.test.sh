@@ -2893,7 +2893,7 @@ EOF
     run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
   full_fleet=$(printf '%s\n' "$full" | sed -n '/^FLEET STATE$/,/^NETWORK CHECKS$/p' | LC_ALL=C wc -c | tr -d ' ')
   [ "$full_fleet" -gt 20000 ] || fail "the cap fixture is vacuous: the full record dump is only $full_fleet bytes"
-  assert_contains "$full" "Work under way (state/*.meta)" "a full startup stopped printing the record dump"
+  assert_contains "$full" "Work under way (one line per lane" "a full startup stopped printing the record dump"
   assert_not_contains "$full" "OPEN ITEMS (mandatory" "a full startup printed the re-emit state summary"
   # Let the full startup's deferred network stage publish before the re-emit,
   # as the sibling re-emit test does, so the two never race.
@@ -2912,7 +2912,7 @@ EOF
   assert_contains "$summary" "Budget: 15000 bytes for this whole summary" "the summary did not state its default cap"
   assert_contains "$summary" "more omitted by the state budget - bin/fm-tasks-axi.sh ready" \
     "the cap cut ready rows without disclosing the remainder and its command"
-  assert_not_contains "$reemit" "Work under way (state/*.meta)" "the locked re-emit still printed the record dump"
+  assert_not_contains "$reemit" "Work under way (one line per lane" "the locked re-emit still printed the record dump"
   assert_not_contains "$reemit" "status tail (last" "the locked re-emit still printed status-tail log lines"
 
   # Repeated wake events collapse to one line and a count; superseded history to a count.
@@ -3386,7 +3386,7 @@ EOF
     "a lock-refused --reemit still claimed repair ownership"
   # Only a lock-holding drain refreshes the fold the state summary reads.
   assert_contains "$reemit" "OPEN ITEMS (mandatory" "a locked --reemit did not print the state summary"
-  assert_contains "$readonly_out" "Work under way (state/*.meta)" \
+  assert_contains "$readonly_out" "Work under way (one line per lane" \
     "a lock-refused --reemit replaced the full record dump with an unrefreshed state summary"
   assert_not_contains "$readonly_out" "OPEN ITEMS (mandatory" \
     "a lock-refused --reemit printed a state summary no drain refreshed"
