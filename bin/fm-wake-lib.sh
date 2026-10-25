@@ -1741,6 +1741,7 @@ fm_treehouse_slot_claim_custody() {  # <worktree> <task-id>
   if [ -z "$owner_state" ]; then
     FM_TREEHOUSE_SLOT_CLAIM=unlocatable
   elif [ -e "$owner_state/$owner.meta" ] || [ -L "$owner_state/$owner.meta" ]; then
+    # shellcheck disable=SC2034 # Output global read by fm-slot-release.sh.
     FM_TREEHOUSE_SLOT_CLAIM=live
   fi
   return 0
@@ -1825,6 +1826,7 @@ fm_treehouse_slot_retire() {  # <worktree> <task-id> [lease-id]
   esac
   "$ret" "$worktree" "$lease" || return 1
   fm_treehouse_slot_owner_release "$worktree" "$id"
+  # shellcheck disable=SC2034 # Output global read by fm-slot-release.sh.
   FM_TREEHOUSE_SLOT_RETIRE_RESULT=released
 }
 

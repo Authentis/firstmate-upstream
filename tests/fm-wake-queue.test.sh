@@ -3517,6 +3517,64 @@ SH
   pass "watch liveness: an unreachable remote secondmate is probed, preserved, and never failed over"
 }
 
+# A live mate wedged on a provider quota error is handed to the quota failover
+# library (bin/fm-quota-failover-lib.sh owns its contract and full pilot); this
+# pins only the watcher wiring: an alive probe reads the pane, a sustained
+# signature drives one failover restart, and its success wakes as one check.
+# The watcher runs from a bin/ whose restart owner is a stub answering in
+# bin/fm-secondmate-restart.sh's success vocabulary, since this fixture's fake
+# tmux cannot carry a real agent through a relaunch; that owner's own
+# --failover restart is covered in tests/fm-secondmate-restart.test.sh.
+test_secondmate_liveness_tick_hands_quota_wedged_mate_to_failover() {
+  local dir state pid out bin f appender
+  dir=$(make_secondmate_liveness_case liveness-quota)
+  state="$dir/state"
+  bin="$TMP_ROOT/liveness-quota-bin"
+  mkdir -p "$bin"
+  for f in "$ROOT"/bin/*; do ln -s "$f" "$bin/${f##*/}"; done
+  rm -f "$bin/fm-secondmate-restart.sh"
+  cat > "$bin/fm-secondmate-restart.sh" <<'SH'
+#!/usr/bin/env bash
+[ -n "${FM_HOME:-}" ] || { echo "error: FM_HOME is not set" >&2; exit 1; }
+printf '%s|pin=%s\n' "$*" "$(grep '^sm1 ' "$FM_CONFIG_OVERRIDE/secondmate-harness")" >> "$FM_STATE_OVERRIDE/restart-calls"
+printf 'restarted: %s (stub)\nsummary: 1 of 1 restarted, 0 nudged, 0 unreached, 0 held\n' "${!#}"
+SH
+  chmod +x "$bin/fm-secondmate-restart.sh"
+  printf 'sm1 claude model-one high\nsm1 codex model-two low\n' > "$dir/config/secondmate-quota-chain"
+  # The wedged agent answers every turn it is given with a quota error.
+  : > "$dir/pane"
+  (
+    n=0
+    while [ -d "$dir" ]; do
+      n=$((n + 1))
+      printf '> turn %s\nAPI Error: 429 Too Many Requests\n' "$n" >> "$dir/pane"
+      sleep 0.5
+    done
+  ) &
+  appender=$!
+
+  WATCH="$bin/fm-watch.sh" run_liveness_leg "$dir" quota FM_FAKE_TMUX_CURRENT_COMMAND=claude \
+    FM_FAKE_TMUX_CAPTURE="$dir/pane" FM_QUOTA_FAILOVER_WINDOW_SECS=0; pid=$LIVENESS_PID
+  wait_for_exit "$pid" 600 || { kill "$appender" 2>/dev/null; fail "the watcher did not wake on a quota-wedged secondmate"; }
+  kill "$appender" 2>/dev/null
+  # The killed appender's status is expected; an earlier case may leave errexit on.
+  wait "$appender" 2>/dev/null || true
+  out="$dir/watch-quota.out"
+  [ "$(cat "$state/restart-calls" 2>/dev/null)" = '--failover sm1|pin=sm1 codex model-two low' ] \
+    || fail "the watcher did not restart the mate once, persist-first, on the next chain link: $(cat "$state/restart-calls" 2>&1)"
+  [ "$(grep -c 'check: secondmate sm1 quota' "$out")" -eq 1 ] \
+    || fail "a quota-wedged secondmate did not produce exactly one quota check: $(cat "$out" "$dir/watch-quota.err")"
+  grep -F 'check: secondmate sm1 quota failover from chain link 0 to link 1 after a provider quota error persisted' "$out" >/dev/null \
+    || fail "the quota check did not report a completed failover to the next chain link: $(cat "$out")"
+  [ "$(sed -n 's/^link=//p' "$state/.quota-failover-sm1")" = 1 ] \
+    || fail "the failover did not record the next chain link: $(cat "$state/.quota-failover-sm1")"
+  grep -Fx 'sm1 codex model-two low' "$dir/config/secondmate-harness" >/dev/null \
+    || fail "the failover did not leave the mate pinned to the next chain link: $(cat "$dir/config/secondmate-harness" 2>&1)"
+  grep -F 'secondmate-quota-sm1-' "$state/.wake-queue" >/dev/null \
+    || fail "the quota check row was not queued durably: $(cat "$state/.wake-queue")"
+  pass "watch liveness: a live mate showing a sustained quota error is failed over and restarted"
+}
+
 # A remote round trip on the poll's path once held the liveness beacon for the
 # whole remote job deadline: the pending-reply observation and the secondmate
 # liveness probe each waited on a degraded host in turn, so the watcher neither
@@ -3728,4 +3786,5 @@ test_secondmate_liveness_tick_error_keeps_scanning_and_wakes
 test_secondmate_liveness_tick_unqueued_outcome_is_an_error_not_a_wake
 test_secondmate_liveness_tick_skips_mate_whose_lock_is_held
 test_secondmate_liveness_tick_preserves_unreachable_remote
+test_secondmate_liveness_tick_hands_quota_wedged_mate_to_failover
 test_slow_remote_round_trips_keep_the_beacon_fresh

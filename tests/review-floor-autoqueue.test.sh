@@ -4,6 +4,7 @@
 # sub-30 s PASS queues the second-family exact-head review itself on the next
 # free non-GPT family, at most 2 automatic queues per head, and a head that
 # moves while the review is queued cancels it without a re-queue.
+# shellcheck disable=SC2016 # The generated shims and the perl flock stand-in are single-quoted on purpose.
 set -u
 
 # shellcheck source=tests/lib.sh

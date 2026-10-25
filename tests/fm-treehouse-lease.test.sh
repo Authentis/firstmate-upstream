@@ -210,7 +210,7 @@ run_spawn() {
 
 test_spawn_takes_a_lease_and_records_its_id() {
   local rec id out status
-  id=lease-spawn-a1
+  id="lease-spawn-a1"
   rec=$(make_spawn_case lease-spawn "$id")
   read_spawn_case "$rec"
   out=$(run_spawn "$id")
@@ -229,7 +229,7 @@ test_spawn_takes_a_lease_and_records_its_id() {
 
 test_spawn_without_lease_support_keeps_the_interactive_path() {
   local rec id out status
-  id=lease-spawn-old-a2
+  id="lease-spawn-old-a2"
   rec=$(make_spawn_case lease-old "$id")
   read_spawn_case "$rec"
   out=$(FM_FAKE_TH_NOLEASE=1 run_spawn "$id")
@@ -244,7 +244,7 @@ test_spawn_without_lease_support_keeps_the_interactive_path() {
 
 test_aborted_spawn_returns_its_unrecorded_lease() {
   local rec id out status
-  id=lease-spawn-abort-a3
+  id="lease-spawn-abort-a3"
   rec=$(make_spawn_case lease-abort "$id")
   read_spawn_case "$rec"
   # A lease that reports the spawning project itself fails the isolation guard.
@@ -564,16 +564,16 @@ slot_head() { git -C "$1/pool/$2/repo" symbolic-ref --quiet --short HEAD 2>/dev/
 # A slot is leasable again when treehouse hands it out and firstmate's own
 # custody check (the one a spawn applies) finds nothing holding it.
 assert_slot_leasable() { # <case> <slot> <why>
-  local case_dir=$1 slot=$2 why=$3 got
-  [ "$(slot_head "$case_dir" "$slot")" = detached ] || fail "$why: slot $slot still holds a branch"
+  local case_dir=$1 slot_n=$2 why=$3 got
+  [ "$(slot_head "$case_dir" "$slot_n")" = detached ] || fail "$why: slot $slot_n still holds a branch"
   (
     . "$ROOT/bin/fm-wake-lib.sh"
     FM_HOME="$case_dir/home"
-    fm_treehouse_slot_claim_custody "$case_dir/pool/$slot/repo" next-task
+    fm_treehouse_slot_claim_custody "$case_dir/pool/$slot_n/repo" next-task
     [ "$FM_TREEHOUSE_SLOT_CLAIM" = free ]
-  ) || fail "$why: slot $slot is still claimed"
+  ) || fail "$why: slot $slot_n is still claimed"
   got=$(pool_cmd "$case_dir" treehouse get --lease --json) || fail "$why: treehouse could not lease the slot"$'\n'"$got"
-  assert_contains "$got" "$case_dir/pool/$slot/repo" "$why: the lease did not hand out slot $slot"
+  assert_contains "$got" "$case_dir/pool/$slot_n/repo" "$why: the lease did not hand out slot $slot_n"
 }
 
 test_retire_keeps_the_branch_and_the_slot_leases_again() {
