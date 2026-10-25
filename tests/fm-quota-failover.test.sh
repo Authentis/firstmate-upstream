@@ -639,6 +639,7 @@ hold_lock() {
     eval "$2"
     fm_lock_release "$1"
   ) &
+  # shellcheck disable=SC2031 # The background PID is captured immediately in this shell.
   HOLDER=$!
   for _ in $(seq 1 100); do [ -e "$HOME_DIR/held" ] && break; sleep 0.05; done
   [ -e "$HOME_DIR/held" ] || fail "the lock holder never acquired $1"
