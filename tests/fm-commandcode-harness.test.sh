@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # Portable Command Code worker adapter regression. Vendor facts are refreshed by
 # fm-commandcode-signals-live-e2e.test.sh; this suite needs no Command Code
-# install and no credentials. The parked-cursor tmux read is pinned with real
-# processes in fm-tmux-agent-liveness.test.sh.
+# install and no credentials.
 set -u
 # shellcheck source=tests/fixtures.sh
 . "$(dirname "${BASH_SOURCE[0]}")/fixtures.sh"
@@ -18,245 +17,186 @@ TMP_ROOT=$(fm_test_tmproot fm-commandcode-harness)
 HARNESS="$ROOT/bin/fm-harness.sh"
 unset CLAUDECODE PI_CODING_AGENT GROK_AGENT CURSOR_AGENT CURSOR_INVOKED_AS GEMINI_CLI FM_OMP_HARNESS ATLASSIAN_AGENT_TYPE ROVODEV_CLI
 
-# --- identity -------------------------------------------------------------------
 mkdir -p "$TMP_ROOT/names"
-for name in command-code command-coder; do ln -s /bin/bash "$TMP_ROOT/names/$name"; done
+for name in command-code command-code-helper; do ln -s /bin/bash "$TMP_ROOT/names/$name"; done
 # shellcheck disable=SC2016
 out=$(CLAUDECODE=1 "$TMP_ROOT/names/command-code" -c '"$1"; :' _ "$HARNESS")
 [ "$out" = commandcode ] || fail "native Command Code ancestry must beat foreign CLAUDECODE: $out"
 # shellcheck disable=SC2016
-out=$("$TMP_ROOT/names/command-coder" -c '"$1" ancestry "$$"; :' _ "$HARNESS")
-[ "$out" != 'comm commandcode' ] || fail "unrelated command-coder claimed the adapter"
+out=$("$TMP_ROOT/names/command-code-helper" -c '"$1" ancestry "$$"; :' _ "$HARNESS")
+[ "$out" != 'comm commandcode' ] || fail "unrelated command-code-helper claimed the adapter"
 [ "$(fm_agent_process_classify_name /usr/bin/command-code)" = agent ] || fail "liveness lost Command Code"
-[ "$(fm_agent_process_classify_name command-coder)" = other ] || fail "liveness claims an unrelated executable"
-pass "Command Code process-title identity; anchored liveness"
+[ "$(fm_agent_process_classify_name command-code-helper)" = other ] || fail "liveness claims unrelated executable"
+pass "Command Code native identity; anchored liveness"
 
-# --- lifecycle capabilities ---------------------------------------------------------
-[ "$(fm_control_harness_family commandcode)" = commandcode ] || fail 'recorded harness family lost'
 [ "$(fm_control_interrupt_key commandcode)" = Escape ] || fail 'wrong interrupt key'
-[ "$(fm_control_interrupt_repeat commandcode)" = 1 ] || fail 'Command Code interrupts on one Escape'
-[ -z "$(fm_control_interrupt_clear_key commandcode)" ] || fail 'Command Code restores no draft and needs no clear key'
+[ "$(fm_control_interrupt_repeat commandcode)" = 1 ] || fail 'a second Escape opens the rewind picker'
 [ -z "$(fm_control_interrupt_arm_signal commandcode)" ] || fail 'a single press needs no arm proof'
-[ "$(fm_control_exit_command commandcode)" = /exit ] || fail 'wrong exit command'
+[ -z "$(fm_control_interrupt_clear_key commandcode)" ] || fail 'Command Code must not erase a composer draft'
+[ "$(fm_control_exit_command commandcode)" = /quit ] || fail 'wrong exit command'
+hazard=$(fm_control_interrupt_hazard_signal commandcode)
+for row in 'Select a checkpoint to restore your session' 'Press Enter to select · Esc to cancel'; do
+  printf '%s\n' "$row" | grep -Eq -- "$hazard" || fail "rewind picker row not recognized: $row"
+done
+! printf '❯ Ask your question...\n' | grep -Eq -- "$hazard" || fail 'idle composer read as the rewind picker'
+[ "$(fm_control_harness_family commandcode)" = commandcode ] || fail 'recorded family lost'
 fm_control_harness_supports_kind commandcode ship || fail 'ship refused'
 fm_control_harness_supports_kind commandcode scout || fail 'scout refused'
 ! fm_control_harness_supports_kind commandcode secondmate || fail 'secondmate accepted'
-[ "$(fm_control_harness_wiring_paths commandcode /wt /st id1)" = "$(printf '%s\n%s' /st/id1.commandcode-mod.ts /wt/.commandcode/settings.local.json)" ] \
-  || fail 'wiring retirement must name the state mod and the worktree settings file'
-pass "worker-only lifecycle capabilities and wiring retirement"
+[ -z "$(fm_control_harness_wiring_paths commandcode /wt /st id)" ] || fail 'the tracked mod leaves no per-task wiring file'
+pass "worker-only resolution, single-press interrupt, rewind-picker hazard, and lifecycle capabilities"
 
-# --- composer and delivery signals ------------------------------------------------------
-cc_screen() {  # <styled composer row>
-  local rule
-  rule=$(printf '\033[38;2;138;148;168m%s\033[39m' '────────────────────────────────')
-  printf '\n%s\n%s\n%s\n  » permission bypass on [shift+tab]\n  ? for shortcuts · taste on\n' "$rule" "$1" "$rule"
+# The composer rows Command Code 1.74.1 renders under COLORTERM=truecolor: a
+# default-foreground `❯`, a reverse-video cursor cell, and the rest of the
+# placeholder in 38;2;138;148;168 between two rules.
+esc=$(printf '\033')
+rule=$(printf '─%.0s' $(seq 1 60))
+screen() {  # <styled composer row>
+  printf '%s\n' "  ⠶ done" "" "${esc}[38;2;138;148;168m$rule" "$1" "${esc}[38;2;138;148;168m$rule" \
+    "${esc}[39m  » permission bypass on [shift+tab]" "  ? for shortcuts · taste on"
 }
-idle_row=$(printf '\033[39m❯ \033[7mA\033[0m\033[38;2;138;148;168msk your question...\033[39m')
-typed_row=$(printf '\033[39m❯ Ask your question...\033[7m \033[0m')
-home_row=$(printf '\033[39m❯ \033[7mA\033[0msk your question...')
-nocolor_row=$(printf '\033[39m❯ A\033[38;2;138;148;168msk your question...\033[39m')
-draft_row=$(printf '\033[39m❯ hello draft\033[7m \033[0m')
-[ "$(fm_composer_classify_screen styled=1 "$(cc_screen "$idle_row")")" = empty ] || fail 'idle placeholder must read empty'
-[ "$(fm_composer_classify_screen styled=1 "$(cc_screen "$draft_row")")" = pending ] || fail 'typed draft must read pending'
-[ "$(fm_composer_classify_screen styled=1 "$(cc_screen "$typed_row")")" = pending ] || fail 'typed placeholder words must read pending'
-[ "$(fm_composer_classify_screen styled=1 "$(cc_screen "$home_row")")" = pending ] || fail 'typed placeholder words with the cursor home must read pending'
-[ "$(fm_composer_classify_screen styled=1 "$(cc_screen "$nocolor_row")")" = pending ] \
-  || fail 'without the reverse-video cursor cell the placeholder is unproven and must not read empty'
-# The styling proof is load-bearing: the identical plain bytes cannot prove empty.
-[ "$(fm_composer_classify_screen styled=0 "$(cc_screen "$idle_row" | fm_composer_strip_ansi)")" != empty ] \
-  || fail 'an unstyled capture must never prove the placeholder empty'
-pass "composer: the styled placeholder proof reads idle empty and every typed shape pending"
-
-# A real idle 1.74.0 pane as herdr's ANSI viewport read returns it, CR LF row
-# endings included (the composer tail, byte-exact).
-herdr_idle=$(cat "$ROOT/tests/captures/commandcode-v1.74.0/herdr-idle.ansi")
-case "$herdr_idle" in *$'\r'*) ;; *) fail 'capture lost its CR row endings; the case would be vacuous' ;; esac
-[ "$(fm_composer_classify_screen styled=1 "$herdr_idle")" = empty ] || fail 'a captured idle 1.74.0 herdr pane must read empty'
-[ "$(fm_composer_classify_screen styled=1 "$(printf '%s\n' "$herdr_idle" | tr -d '\r')")" = empty ] || fail 'the same pane without CR must read empty'
-for row in "$draft_row" "$typed_row" "$home_row" "$nocolor_row"; do
-  [ "$(fm_composer_classify_screen styled=1 "$(cc_screen "$row" | sed 's/$/\r/')")" = pending ] \
-    || fail "a CR row ending must not prove a typed row empty: $(printf '%s' "$row" | fm_composer_strip_ansi)"
+idle_row="${esc}[39m❯ ${esc}[7mA${esc}[0m${esc}[38;2;138;148;168msk your question...${esc}[39m"
+caps=$'styled=1\ncursor=0\nidentity=1'
+idle=$(screen "$idle_row")
+[ "$(fm_composer_classify_screen "$caps" "$idle")" = need-identity ] || fail 'the separated shape must ask for identity'
+[ "$(fm_composer_classify_screen "$caps" "$idle" '' $'commandcode\tidle')" = empty ] || fail 'idle placeholder not empty for the tmux identity'
+[ "$(fm_composer_classify_screen "$caps" "$idle" '' $'cmd\tidle')" = empty ] || fail 'idle placeholder not empty for the Herdr identity'
+# The divergence that keeps this case honest: without a Command Code identity
+# the same placeholder survives the fleet-wide ghost ceiling and reads pending.
+[ "$(fm_composer_classify_screen "$caps" "$idle" '' probe-absent)" = pending ] \
+  || fail 'the fleet-wide ceiling must not strip Command Code placeholder text on its own'
+[ "$(fm_composer_classify_screen "$caps" "$idle" '' $'claude\tidle')" = pending ] || fail 'another identity borrowed the Command Code ceiling'
+for typed in 'unsubmitted draft' 'Ask your question...'; do
+  draft=$(screen "${esc}[39m❯ $typed${esc}[7m ${esc}[0m")
+  [ "$(fm_composer_classify_screen "$caps" "$draft" '' $'commandcode\tidle')" = pending ] \
+    || fail "typed default-foreground text must stay pending: $typed"
 done
-pass "composer: herdr's CR LF rows read the idle placeholder empty and every typed shape pending"
-
-# Real 1.74.1 composer tails, byte-exact, under three launch environments. The
-# colour-erased shapes (NO_COLOR and FORCE_COLOR=0) are the verified way an
-# empty idle composer reads pending: they stay pending on purpose, because
-# without the styling proof the row cannot be told from typed text, and the
-# control plane's clear refuses to repeat its Escape pair on them
-# (fm-commandcode-composer-clear.test.sh). The launch clears NO_COLOR.
-cc174="$ROOT/tests/captures/commandcode-v1.74.1"
-truecolor_idle=$(cat "$cc174/truecolor-idle.ansi")
-[ "$(fm_composer_classify_screen styled=1 "$truecolor_idle")" = empty ] || fail 'a captured idle 1.74.1 pane must read empty'
-[ "$(fm_composer_classify_screen styled=1 "$(cat "$cc174/nocolor-idle.ansi")")" = pending ] \
-  || fail 'the captured NO_COLOR placeholder has no cursor cell and must stay pending'
-[ "$(fm_composer_classify_screen styled=1 "$(cat "$cc174/forcecolor0-idle.ansi")")" = pending ] \
-  || fail 'the captured FORCE_COLOR=0 placeholder has no muted tail and must stay pending'
-# A long transcript above the composer, as on a lane that has run for hours,
-# changes nothing about the verdict, with LF or CR LF rows.
-transcript=$(for n in $(seq 1 30); do printf '  - transcript row %s that is long enough to look like a worker report line\n' "$n"; done)
-long_screen=$(printf '%s\n\n%s\n' "$transcript" "$truecolor_idle")
-[ "$(fm_composer_classify_screen styled=1 "$long_screen")" = empty ] || fail 'a long transcript above an idle composer must read empty'
-[ "$(fm_composer_classify_screen styled=1 "$(printf '%s\n' "$long_screen" | sed 's/$/\r/')")" = empty ] \
-  || fail 'a long transcript with CR LF rows above an idle composer must read empty'
-# The plain capture from the stalled netcup lane carries no escapes, so it can
-# never prove the placeholder: it must not read as empty or as typed text.
-netcup_idle=$(cat "$ROOT/tests/captures/commandcode-v1.74.0/netcup-leaf-idle-plain.txt")
-case "$(fm_composer_classify_screen styled=0 "$netcup_idle")" in
-  empty|pending) fail 'an unstyled capture of the stalled lane must read unknown' ;;
-esac
-# The checkpoint picker an Escape pair opens on an empty composer is neither.
-for picker in "$cc174/rewind-overlay.ansi" "$ROOT/tests/captures/commandcode-v1.74.0/netcup-leaf-rewind-plain.txt"; do
-  case "$(fm_composer_classify_screen styled=1 "$(cat "$picker")")" in
-    empty|pending) fail "the checkpoint picker must read neither empty nor pending: $picker" ;;
-  esac
-done
-pass "composer: captured 1.74.1 idle, colour-erased, long-transcript, stalled-lane, and checkpoint-picker screens"
-
-# Two independent placeholder signals, each sufficient beside the cursor-cell
-# proof: the anchored placeholder text, and a body drawn in the frame rule's own
-# foreground. Drive them apart and keep each case honest about which one holds.
-cc_framed() {  # <rule fg> <styled composer row>
-  local rule
-  rule=$(printf '\033[%sm%s\033[0m' "$1" '────────────────────────────────')
-  printf '\n%s\n%s\n%s\n  ? for shortcuts\n' "$rule" "$2" "$rule"
-}
-muted='38;2;138;148;168' other='38;2;232;64;87'
-renamed_row=$(printf '\033[39m❯ \033[7mW\033[0m\033[%smhat should we build?\033[0m' "$muted")
-! fm_composer_idle_matches 'What should we build?' "$FM_COMPOSER_IDLE_RE_DEFAULT" insensitive || fail 'renamed placeholder must not match the idle regex'
-[ "$(fm_composer_classify_screen styled=1 "$(cc_framed "$muted" "$renamed_row")")" = empty ] \
-  || fail 'a renamed placeholder in the frame colour must read empty without its string'
-[ "$(fm_composer_classify_screen styled=1 "$(cc_framed "$other" "$idle_row")")" = empty ] \
-  || fail 'the known placeholder must read empty when the frame colour differs'
-[ "$(fm_composer_classify_screen styled=1 "$(cc_framed "$other" "$renamed_row")")" = pending ] \
-  || fail 'with neither signal the row must stay pending'
-mixed_row=$(printf '\033[39m❯ \033[7mW\033[0m\033[%smhat should \033[%smwe build?\033[0m' "$muted" "$other")
-[ "$(fm_composer_classify_screen styled=1 "$(cc_framed "$muted" "$mixed_row")")" = pending ] \
-  || fail 'a body in more than one foreground is not the frame colour'
-for row in "$typed_row" "$home_row" "$nocolor_row"; do
-  [ "$(fm_composer_classify_screen styled=1 "$(cc_framed "$muted" "$row")")" = pending ] \
-    || fail "the frame colour must not prove a typed row empty: $(printf '%s' "$row" | fm_composer_strip_ansi)"
-done
-pass "composer: placeholder text and frame colour each carry the idle verdict; neither alone is load-bearing"
-
-for signal in ' ⌘ Crystallizing…  esc to interrupt • 3s • ↓ 0' 'esc to interrupt' ' ☆ Organizing… • 12s • ↓ 418' ' ✧ Calculating… • 2m 8s • ↓ 920'; do
+for signal in ' ○ Contemplificating…  esc to interrupt • 2s • ↓ 41' ' ☆ Brewing…  • 12s • ↓ 1.4k' ' ⌘ Choreographing…  • 1m 30s • ↓ 1.4k' 'esc to interrupt'; do
   printf '%s\n' "$signal" | fm_busy_lines_match commandcode || fail "independent delivery signal lost: $signal"
 done
-! printf '❯ hello draft\n' | fm_busy_lines_match commandcode || fail 'draft read busy'
+! printf '❯ Ask your question...\n  ? for shortcuts · taste on\n✻ Worked for 33s\n' | fm_busy_lines_match commandcode || fail 'idle footer read busy'
 ! printf 'esc to cancel\n' | fm_busy_lines_match commandcode || fail 'borrowed another harness signal'
-pass "independent delivery signals"
+pass "composer placeholder, draft safety, identity-scoped ceiling, and independent delivery signals"
 
-# --- spawn ------------------------------------------------------------------------------
+drive_mod() {  # <event> <stopReason|-> [option-overrides-json]
+  MOD="$ROOT/bin/fm-commandcode-mod.ts" EVENT="$1" STOP="$2" OPTS="${3:-}" node --input-type=module 2>&1 <<'EOF'
+import { pathToFileURL } from "node:url";
+const mod = await import(pathToFileURL(process.env.MOD).href);
+const flags = {};
+const handlers = {};
+const hooks = [];
+const values = JSON.parse(process.env.OPTS || "{}");
+mod.default({
+  addFlag: (name, spec) => { flags[name] = spec.default; },
+  getFlag: (name) => (name in values ? values[name] : flags[name]),
+  on: (name, fn) => { handlers[name] = fn; },
+  hooks: (h) => { hooks.push(h); },
+});
+switch (process.env.EVENT) {
+  case "list": console.log([...Object.keys(handlers), ...hooks.flatMap((h) => Object.keys(h))].sort().join(" ")); break;
+  case "run_start": handlers.run_start({ type: "run_start" }); break;
+  case "run_end": handlers.run_end({ type: "run_end", result: { stopReason: process.env.STOP } }); break;
+  case "session_end": for (const h of hooks) if (h.onSessionEnd) await h.onSessionEnd({ reason: "shutdown" }); break;
+  default: throw new Error("unknown event " + process.env.EVENT);
+}
+EOF
+}
+if ! command -v node >/dev/null 2>&1 || ! drive_mod list - >/dev/null 2>&1; then
+  printf 'skip: no node that loads TypeScript for the busy-mod cases\n'
+else
+  state="$TMP_ROOT/mod state"
+  mkdir -p "$state"
+  gen=$("$ROOT/bin/fm-busy-event.sh" arm "$state" worker)
+  opts=$(jq -cn --arg w "$ROOT/bin/fm-busy-event.sh" --arg s "$state" --arg g "$gen" '{fmWriter: $w, fmState: $s, fmId: "worker", fmGen: $g}')
+  [ "$(drive_mod list -)" = 'onSessionEnd run_end run_start' ] || fail "mod registers the wrong lifecycle: $(drive_mod list -)"
+  drive_mod run_start - "$opts" >/dev/null || fail 'run_start drive failed'
+  [ "$(fm_busy_classify tmux fake:w commandcode worker "$state")" = 'busy commandcode-mod' ] || fail 'run_start did not open busy'
+  drive_mod run_end end_turn "$opts" >/dev/null || fail 'run_end drive failed'
+  [ "$(fm_busy_classify tmux fake:w commandcode worker "$state")" = 'idle commandcode-mod' ] || fail 'run_end did not settle'
+  assert_present "$state/worker.turn-ended" 'run_end notification absent'
+  rm "$state/worker.turn-ended"
+  drive_mod run_start - "$opts" >/dev/null
+  drive_mod run_end interrupted "$opts" >/dev/null
+  [ "$(fm_busy_classify tmux fake:w commandcode worker "$state")" = 'idle commandcode-mod' ] || fail 'an interrupted run did not settle'
+  assert_absent "$state/worker.turn-ended" 'an interrupted run must not raise the turn-end notification'
+  drive_mod run_start - "$opts" >/dev/null
+  drive_mod session_end - "$opts" >/dev/null
+  [ "$(fm_busy_classify tmux fake:w commandcode worker "$state")" = 'idle commandcode-mod' ] || fail 'session end did not settle'
+  "$ROOT/bin/fm-busy-event.sh" arm "$state" worker >/dev/null
+  drive_mod run_end end_turn "$opts" >/dev/null
+  [ "$(fm_busy_classify tmux fake:w commandcode worker "$state")" = 'busy fm-spawn' ] || fail 'stale run_end cleared replacement'
+  assert_absent "$state/worker.turn-ended" 'stale run_end woke replacement'
+  # A relaunch can arm a replacement right after the old run_end's idle write
+  # passed its generation check; this writer accepts the write and then arms
+  # one, so a notification the mod raised on its own would wake the replacement.
+  racing="$TMP_ROOT/racing-writer"
+  # shellcheck disable=SC2016 # positional params expand in the generated writer.
+  printf '#!/bin/sh\n%s arm "$2" "$3" >/dev/null\n' "'$ROOT/bin/fm-busy-event.sh'" > "$racing"
+  chmod +x "$racing"
+  drive_mod run_end end_turn "$(jq -c --arg w "$racing" '.fmWriter = $w' <<<"$opts")" >/dev/null
+  assert_absent "$state/worker.turn-ended" 'the turn-end notification escaped the writer generation check'
+  drive_mod run_end end_turn '{}' >/dev/null
+  [ "$(fm_busy_classify tmux fake:w commandcode worker "$state")" = 'busy fm-spawn' ] || fail 'an unconfigured mod wrote a record'
+  fm_busy_source_trusted commandcode commandcode-mod || fail 'commandcode must trust its mod'
+  ! fm_busy_source_trusted commandcode devin-hook || fail 'commandcode trusted another writer'
+  pass "busy mod: run_start busy, run_end and session end idle, stale and unconfigured writes refused"
+fi
+
 case_dir="$TMP_ROOT/spawn"
 fakebin=$(make_spawn_fakebin "$case_dir/fake" claude)
-cat >"$fakebin/commandcode" <<'SH'
-#!/usr/bin/env bash
-if [ "${1:-}" = --list-models ]; then
-  printf 'Available models  ·  2 models\n\nOpen Source\n\n'
-  printf 'deepseek/deepseek-v4.1-flash           V4.1 hybrid-attention reasoning with vision\n'
-  printf 'xiaomi/mimo-v2.5                       efficient long-context agentic coding\n'
-fi
-exit 0
-SH
-chmod +x "$fakebin/commandcode"
+fm_fake_exit0 "$fakebin" commandcode
 home="$case_dir/home"
 proj="$case_dir/project"
 wt="$case_dir/wt"
 fm_test_spawn_home "$home" commandcode
 fm_git_worktree "$proj" "$wt" commandcode-test
-fm_test_spawn_brief "$home" cc-worker
-if ! out=$(FM_FAKE_LAUNCH_LOG="$case_dir/launch" fm_test_run_spawn "$home" "$wt" "$fakebin" cc-worker "$proj" --scout --harness commandcode --model deepseek/deepseek-v4.1-flash --effort high 2>&1)
-then fail "spawn failed: $out"; fi
-launch=$(cat "$case_dir/launch")
-mod="$home/state/cc-worker.commandcode-mod.ts"
-assert_contains "$launch" "'$fakebin/commandcode' -t --yolo --skip-onboarding --no-auto-update" 'trust, autonomy, or update flags missing'
-assert_contains "$launch" "--model 'deepseek/deepseek-v4.1-flash'" 'model lost'
-assert_contains "$launch" "--mod '$mod'" 'per-task mod missing'
-assert_contains "$launch" '-u NO_COLOR' 'NO_COLOR would erase the placeholder proof'
+spawn_case() {  # <id> <model> <effort>
+  fm_test_spawn_brief "$home" "$1"
+  FM_FAKE_LAUNCH_LOG="$case_dir/$1.launch" fm_test_run_spawn "$home" "$wt" "$fakebin" "$1" "$proj" \
+    --scout --harness commandcode --model "$2" --effort "$3" 2>&1
+}
+out=$(spawn_case cc-low deepseek/deepseek-v4.1-flash low) || fail "spawn failed: $out"
+launch=$(cat "$case_dir/cc-low.launch")
+gen=$(cat "$home/state/cc-low.busy-gen")
+assert_contains "$launch" '--yolo --trust --skip-onboarding --no-auto-update' 'autonomy/trust flags missing'
+assert_contains "$launch" "--model 'deepseek/deepseek-v4.1-flash' --effort 'low' " 'model or verified effort lost'
+assert_contains "$launch" "--mod '$ROOT/bin/fm-commandcode-mod.ts'" 'busy mod not loaded'
+assert_contains "$launch" "--mod-option 'fmState=$home/state' --mod-option 'fmId=cc-low' --mod-option 'fmGen=$gen' " 'mod options lost'
+assert_contains "$launch" '-u NO_COLOR COLORTERM=truecolor' 'placeholder styling not pinned'
+# shellcheck disable=SC2016 # the literal command substitution in the template
+assert_contains "$launch" '-- "$(' 'typed launch envelope must follow --'
 assert_contains "$launch" 'encode launch-brief' 'typed launch envelope lost'
-case "$launch" in *--effort*) fail 'effort reached argv, where Command Code persists it globally' ;; esac
-assert_grep 'effort=high' "$home/state/cc-worker.meta" 'effort not recorded'
-assert_present "$mod" 'spawn did not write the mod'
-assert_grep 'const effort = "high";' "$mod" 'mod does not carry the session effort'
-settings="$wt/.commandcode/settings.local.json"
-jq -e '.attribution.commit == "" and .mods.disabled == ["learning"]' "$settings" >/dev/null \
-  || fail 'worktree settings must turn the co-author trailer and taste learning off'
-excl=$(git -C "$wt" rev-parse --path-format=absolute --git-path info/exclude)
-grep -qxF '.commandcode/settings.local.json' "$excl" || fail 'settings file not excluded from git'
-grep -qxF '.commandcode/taste/' "$excl" || fail 'taste directory not excluded from git'
-[ -z "$(git -C "$wt" status --porcelain)" ] || fail "spawn left untracked files in the worktree: $(git -C "$wt" status --porcelain)"
-[ "$(fm_busy_classify tmux fake:w commandcode cc-worker "$home/state")" = 'busy fm-spawn' ] || fail 'launch not armed'
-pass "launch carries model, autonomy, typed brief, and mod; effort rides the mod; settings stay out of git"
-
-# --- the mod drives the busy record ---------------------------------------------------------
-drive_mod() {  # <mod> <event>...
-  MOD_PATH="$1" EVENTS="${*:2}" node --input-type=module 2>&1 <<'EOF'
-import { pathToFileURL } from "node:url";
-import { existsSync } from "node:fs";
-const mod = await import(pathToFileURL(process.env.MOD_PATH).href);
-const handlers = {};
-const efforts = [];
-mod.default({ on: (name, fn) => { handlers[name] = fn; }, setEffort: (e) => efforts.push(e) });
-for (const ev of process.env.EVENTS.split(" ").filter(Boolean)) {
-  if (ev === "handlers") { console.log(Object.keys(handlers).sort().join(" ")); continue; }
-  if (ev === "efforts") { console.log(efforts.join(",") || "none"); continue; }
-  await handlers[ev]({ type: ev });
-}
-await new Promise((resolve) => setTimeout(resolve, 200));
-EOF
-}
-command -v node >/dev/null 2>&1 || fail 'node is required to drive the per-task mod'
-state="$home/state"
-out=$(drive_mod "$mod" handlers efforts)
-[ "$out" = "$(printf '%s\n%s' 'run_end run_error run_start session_shutdown turn_end' high)" ] || fail "mod registration or effort wrong: $out"
-rm -f "$state/cc-worker.turn-ended"
-drive_mod "$mod" turn_end >/dev/null
-assert_present "$state/cc-worker.turn-ended" 'turn_end no longer touches the notification marker'
-[ "$(fm_busy_classify tmux fake:w commandcode cc-worker "$state")" = 'busy fm-spawn' ] || fail 'turn_end must stay a notification'
-drive_mod "$mod" run_start >/dev/null
-[ "$(fm_busy_classify tmux fake:w commandcode cc-worker "$state")" = 'busy commandcode-mod' ] || fail 'run_start must open busy'
-drive_mod "$mod" run_start run_start run_end >/dev/null
-[ "$(fm_busy_classify tmux fake:w commandcode cc-worker "$state")" = 'busy commandcode-mod' ] || fail 'a nested run_end must not close the outer run'
-drive_mod "$mod" run_start run_end >/dev/null
-[ "$(fm_busy_classify tmux fake:w commandcode cc-worker "$state")" = 'idle commandcode-mod' ] || fail 'run_end must settle idle'
-drive_mod "$mod" run_start run_error >/dev/null
-[ "$(fm_busy_classify tmux fake:w commandcode cc-worker "$state")" = 'idle commandcode-mod' ] || fail 'run_error must settle idle'
-drive_mod "$mod" run_start session_shutdown >/dev/null
-[ "$(fm_busy_classify tmux fake:w commandcode cc-worker "$state")" = 'idle commandcode-mod' ] || fail 'session_shutdown must settle idle'
-fm_busy_source_trusted commandcode commandcode-mod || fail 'Command Code must trust its own mod'
-! fm_busy_source_trusted commandcode omp-ext || fail 'Command Code must not trust another adapter writer'
-"$ROOT/bin/fm-busy-event.sh" arm "$state" cc-worker >/dev/null
-drive_mod "$mod" run_start run_end >/dev/null
-[ "$(fm_busy_classify tmux fake:w commandcode cc-worker "$state")" = 'busy fm-spawn' ] || fail 'a stale mod generation changed the replacement record'
-pass "mod: run_start busy, nested and failed runs, run_end and shutdown idle, stale generation rejected"
-
-# --- spawn variants ---------------------------------------------------------------------------
-fm_test_spawn_brief "$home" cc-plain
-wt2="$case_dir/wt2"
-git -C "$proj" worktree add --quiet -b commandcode-plain "$wt2"
-touch "$home/config/keep-ai-trailers"
-if ! out=$(FM_FAKE_LAUNCH_LOG="$case_dir/launch2" fm_test_run_spawn "$home" "$wt2" "$fakebin" cc-plain "$proj" --scout --harness commandcode 2>&1)
-then fail "plain spawn failed: $out"; fi
-rm -f "$home/config/keep-ai-trailers"
-jq -e '(has("attribution") | not) and .mods.disabled == ["learning"]' "$wt2/.commandcode/settings.local.json" >/dev/null \
-  || fail 'keep-ai-trailers must leave Command Code attribution alone and still turn learning off'
-assert_grep 'const effort = "";' "$home/state/cc-plain.commandcode-mod.ts" 'an unrequested effort must not be set'
-case "$(cat "$case_dir/launch2")" in *--model*) fail 'an omitted model reached argv' ;; esac
-pass "keep-ai-trailers and omitted model/effort"
-
-fm_test_spawn_brief "$home" cc-bad
-if out=$(fm_test_run_spawn "$home" "$wt" "$fakebin" cc-bad "$proj" --scout --harness commandcode --model nope/not-listed 2>&1)
-then fail 'an unlisted model was accepted'; fi
-assert_contains "$out" "Command Code model 'nope/not-listed' is not listed" 'wrong model refusal'
+[ "$(fm_busy_classify tmux fake:w commandcode cc-low "$home/state")" = 'busy fm-spawn' ] || fail 'launch not armed'
+[ ! -e "$wt/.commandcode" ] || fail 'spawn wrote project Command Code settings'
+mkdir -p "$wt/.commandcode/taste" && : > "$wt/.commandcode/taste/taste.md"
+[ -z "$(git -C "$wt" status --porcelain -- .commandcode)" ] || fail 'Command Code taste state is visible to git'
+rm -rf "$wt/.commandcode"
+out=$(spawn_case cc-xhigh deepseek/deepseek-v4.1-flash xhigh) || fail "spawn failed: $out"
+case "$(cat "$case_dir/cc-xhigh.launch")" in *--effort*) fail 'an unaccepted effort reached argv' ;; esac
+assert_grep 'effort=xhigh' "$home/state/cc-xhigh.meta" 'effort not recorded'
+out=$(spawn_case cc-other moonshotai/kimi-k3 low) || fail "spawn failed: $out"
+case "$(cat "$case_dir/cc-other.launch")" in *--effort*) fail 'an unverified model received an effort flag' ;; esac
 if out=$(fm_test_run_spawn "$home" "$wt" "$fakebin" cc-sm "$proj" --secondmate --harness commandcode 2>&1)
 then fail 'Command Code secondmate launch accepted'; fi
 assert_contains "$out" 'crewmate/scout adapter only' 'wrong secondmate refusal'
-pass "unlisted model and secondmate refused"
+pass "scout launch carries model, verified effort only, autonomy, typed brief, and the per-process mod"
 
-# --- trailer strip ----------------------------------------------------------------------------
-msg="$TMP_ROOT/msg"
-printf 'fix: thing\n\nCo-authored-by: CommandCodeBot <noreply@commandcode.ai>\nCo-authored-by: Jane Doe <jane@example.com>\n' >"$msg"
-"$ROOT/bin/fm-git-strip-ai-trailers.sh" "$msg" || fail 'strip failed'
-! grep -q CommandCodeBot "$msg" || fail 'Command Code default trailer survived'
-grep -q 'Jane Doe' "$msg" || fail 'human co-author removed'
-pass "Command Code's default co-author trailer is stripped; humans kept"
+# Only tmux and Herdr supply the Command Code identity that lets its idle
+# placeholder read empty, so every other spawn-capable backend is refused
+# before any endpoint, worktree, or busy record exists.
+cat > "$fakebin/orca" <<'EOF'
+#!/bin/sh
+printf '%s\n' '{"ok":true,"result":{"runtime":{"reachable":true,"state":"ready"}}}'
+EOF
+chmod +x "$fakebin/orca"
+for backend in zellij cmux orca; do
+  fm_test_spawn_brief "$home" "cc-$backend"
+  if out=$(FM_FAKE_LAUNCH_LOG="$case_dir/cc-$backend.launch" fm_test_run_spawn "$home" "$wt" "$fakebin" "cc-$backend" "$proj" \
+    --scout --harness commandcode --backend "$backend" 2>&1)
+  then fail "Command Code launch accepted on backend=$backend"; fi
+  assert_contains "$out" "commandcode is verified on the tmux and herdr backends only; backend=$backend" "wrong refusal on $backend: $out"
+  assert_absent "$case_dir/cc-$backend.launch" "Command Code launched on $backend"
+  assert_absent "$home/state/cc-$backend.meta" "refused $backend spawn left a task record"
+  assert_absent "$home/state/cc-$backend.busy-gen" "refused $backend spawn armed busy state"
+done
+pass "Command Code launches are refused on zellij, cmux, and orca"

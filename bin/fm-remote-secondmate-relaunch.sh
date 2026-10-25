@@ -44,13 +44,6 @@ MODEL=$3
 EFFORT=$4
 case "$ID" in ''|*[!A-Za-z0-9._-]*) die "invalid secondmate id: $ID" ;; esac
 
-# The parent owns the pin, not the remote host's non-inherited config.
-# Resolve before invoking any lifecycle operation; a malformed pin refuses.
-PIN=$("$SCRIPT_DIR/fm-harness.sh" secondmate-pin "$ID")
-if [ -n "$PIN" ]; then
-  read -r HARNESS MODEL EFFORT <<< "$PIN"
-fi
-
 "$SCRIPT_DIR/fm-harness.sh" validate-secondmate-model "$HARNESS" "$MODEL" "$ID" || exit 1
 
 META="$STATE/$ID.meta"
