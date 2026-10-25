@@ -412,19 +412,6 @@ A candidate must meet all of these conditions:
 - The task's ordinary metadata must be absent.
 - The candidate must have exactly one tab and exactly one pane.
 
-Discovery also archives a confirmed orphan directly, before the per-candidate close below.
-An orphan is a journal whose task metadata is absent and whose projected workspace is gone from the same locked snapshot.
-Gone means no workspace label still carries the journal's token and, for a version 2 binding, its exact bound workspace id is missing too, so a present or malformed-but-token-bearing label and a live bound workspace both preserve it.
-The snapshot proves absence only when every workspace entry is well formed; a single malformed entry makes the verdict unknown and preserves every orphan.
-An orphan is archived under its task-id spawn lock with no per-journal Herdr read.
-This is the leftover an interrupted teardown leaves behind, and without it such journals accumulate until every later sweep scales its work with the journal count.
-Under that lock the journal's inode and a fresh read of its content must still match what the scan saw, so a journal a teardown, retry, or spawn replaced between the scan and the lock is preserved rather than archived under a stale verdict.
-The whole sweep instead parses every ordinary journal exactly once and is paced by `FM_HERDR_CLEANUP_BUDGET_SECS` (default 45): the budget stops it between journals and between candidates, every Herdr call runs in its own child under a hard timeout of the smaller of the remaining budget and `FM_HERDR_CLEANUP_CALL_TIMEOUT_SECS` (default 20), and the sweep itself also runs under one hard timeout of the budget so one blocked call cannot outlive either bound.
-A pass that runs out leaves the rest for the next session start, and every archive already made is durable, so repeated starts converge.
-
-`FM_HERDR_JOURNAL_PRUNE=off` (case-insensitive) is the kill switch.
-It stops the sweep before any mutation: it still runs its ordinary read-only discovery and completes normally, but it closes no pane and moves, removes, or archives no journal.
-
 Firstmate then cleans up the candidate in this order:
 
 1. Acquire the existing task-id spawn lock, and then the shared named-session presentation lock.
@@ -435,11 +422,7 @@ Firstmate then cleans up the candidate in this order:
 6. Immediately revalidate the same journal, metadata absence, workspace title and token uniqueness, one-tab and one-pane topology, exact pane relationship, absent agent, process proof, and non-target focus.
 7. Call the existing exact-pane focus-preserving close helper.
    It closes only that pane, never a workspace.
-8. Archive the matching journal only after the exact pane is positively confirmed gone.
-
-Nothing this sweep takes is ever deleted.
-Every journal it takes is moved into this home's dated archive under `data/herdr-journal-archive/<date>/` with a sidecar recording its source path, task id, archive time, and reason.
-That archive is the recovery path and is never automatically pruned; its retention is a captain decision.
+8. Retire the matching journal only after the exact pane is positively confirmed gone.
 
 The process proof requires all of these:
 
@@ -453,7 +436,7 @@ A genuinely busy pane fails every sample.
 Any foreground command, child process, active shell job, unknown shell, unreadable process table, missing field, or API error preserves the pane.
 
 An unconfirmed close retains the journal.
-A confirmed close may archive it even when focus restoration reported an error after the close.
+A confirmed close may retire it even when focus restoration reported an error after the close.
 A second run finds no matching title or journal and is a no-op.
 
 Any of these preserves the candidate and lets session startup continue with at most a concise warning:
@@ -688,9 +671,6 @@ Typed-plane text is typed once; only Enter is retried.
 When native `agent get` identity is Claude, the adapter types only into an empty composer.
 A Claude composer that already holds text, or cannot be read, before the send is refused with nothing typed.
 Before that Enter, the adapter continues only when the selected composer shows the typed payload, or only Claude paste placeholders with no literal remainder.
-That read is repeated a bounded number of times before the payload is judged unsent.
-`FM_BACKEND_HERDR_PROOF_POLLS` and `FM_BACKEND_HERDR_PROOF_GAP` bound it, an invalid or out-of-range value (a gap above 5 seconds) falls back to its default, and a composer that never shows the payload, or a gap sleep that fails, is refused as below.
-The working explanation is that a busy Claude draws typed input lazily, so one read can show an empty composer for text still arriving; it comes from code reading plus a fake model and has not been reproduced on a live pane.
 Every herdr adapter composer read (`fm_backend_herdr_composer_state`, `fm_backend_herdr_composer_content`) captures the full visible viewport, never a bounded tail, while the shared inbox pending-line confirmation read (bin/fm-task-inbox-lib.sh) stays a bounded tail on every backend: an overlay Claude renders between the composer and the pane bottom - the slash-command popup is the verified shape - pushes the composer outside a tail window, and the composer is by definition inside the viewport.
 Dated measurement: docs/verification/runtime-backends.md "Claude exit behind the slash-command popup".
 
@@ -700,9 +680,7 @@ It ignores U+2063 because Claude's Herdr read-back never shows it.
 A composer that holds a shorter suffix, or a placeholder plus a literal remainder, does not receive Enter.
 Instead:
 
-1. The adapter presses Ctrl+U until the shared classifier reads the composer as empty twice, `FM_BACKEND_HERDR_CLEAR_CONFIRM` seconds apart.
-   An invalid or out-of-range (above 5 seconds) `FM_BACKEND_HERDR_CLEAR_CONFIRM` is the default and never skips the second read, and a failed confirming sleep fails the clear.
-   The working explanation is that a single empty read can be a frame drawn before Claude processed the queued text, leaving the first wrapped row behind; that is from code reading plus a fake model, not reproduced on a live pane.
+1. The adapter presses Ctrl+U until the shared classifier reads the composer as empty.
 2. It then reports `send-failed`, so a resend starts from a clean composer.
 
 Ctrl+C is not used for this, because Claude documents it as interrupting a running operation.

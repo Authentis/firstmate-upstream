@@ -3260,8 +3260,9 @@ fm_backend_herdr_composer_state() {  # <target> -> empty|pending|pending-unprove
 # agent-state (fm_backend_herdr_busy_state) stays the semantic owner, and this
 # read exists only so the submit core below can confirm a delivery for a
 # harness whose native state never transitions. Without a harness argument the
-# shared matcher uses its union of verified tokens, which is what the submit
-# core wants: it has no recorded harness for the pane.
+# shared matcher uses its union of verified tokens; the submit core passes
+# polytoken only when the pane's native identity names polytoken, whose
+# `Running for` row is outside that union.
 fm_backend_herdr_rendered_busy_state() {  # <target> [harness] -> busy|idle|unknown
   local target=$1 harness=${2:-} cap visible
   cap=$(fm_backend_herdr_capture "$target" 40) || { printf 'unknown'; return 0; }
@@ -3363,14 +3364,14 @@ fm_backend_herdr_rendered_busy_state() {  # <target> [harness] -> busy|idle|unkn
 # mid-turn). When <allow-rendered> is 1, an idle native baseline may also take
 # the pane's rendered busy footer, because live Claude keeps agent_status idle
 # through a whole turn.
-fm_backend_herdr_queued_enter_busy() {  # <target> <allow-rendered>
-  local target=$1 allow_rendered=${2:-0} raw
+fm_backend_herdr_queued_enter_busy() {  # <target> <allow-rendered> [busy-harness]
+  local target=$1 allow_rendered=${2:-0} busy_harness=${3:-} raw
   raw=$(fm_backend_herdr_agent_status_raw "$FM_BACKEND_HERDR_SESSION" "$FM_BACKEND_HERDR_PANE")
   case "$raw" in
     working) printf 'busy'; return 0 ;;
   esac
   if [ "$allow_rendered" = 1 ]; then
-    fm_backend_herdr_rendered_busy_state "$target"
+    fm_backend_herdr_rendered_busy_state "$target" "$busy_harness"
   else
     printf 'idle'
   fi
@@ -3408,11 +3409,8 @@ fm_backend_herdr_proof_lines() {  # <text>
 # 2.1.283 draws a typed slash command in muted grey 38;2;112;112;112 (verified
 # live), which that strip dropped, judging a typed /exit unsent. Claude's own
 # ghost suggestion is SGR-2 dim and is still stripped.
-# <identity> is the pane's `<agent>\t<status>` from the native identity probe;
-# the shared extractor reads Claude's slash-command menu as furniture only for
-# an identified claude pane, so the proof callers below pass it through.
-fm_backend_herdr_composer_content() {  # <target> [identity]
-  local target=$1 identity=${2:-} cap caps
+fm_backend_herdr_composer_content() {  # <target>
+  local target=$1 cap caps
   if cap=$(fm_backend_herdr_visible_capture_ansi "$target" 2>/dev/null) && [ -n "$cap" ]; then
     caps=$(printf 'styled=1\ncursor=0\nidentity=0')
   elif cap=$(fm_backend_herdr_visible_capture "$target") && [ -n "$cap" ]; then
@@ -3420,7 +3418,7 @@ fm_backend_herdr_composer_content() {  # <target> [identity]
   else
     return 1
   fi
-  FM_COMPOSER_GHOST_LUMA_MAX=0 fm_composer_extract_selected_content "$caps" "$cap" "$identity"
+  FM_COMPOSER_GHOST_LUMA_MAX=0 fm_composer_extract_selected_content "$caps" "$cap"
 }
 
 # fm_backend_herdr_composer_payload_shown: 0 when <after>, read from a
@@ -3452,57 +3450,6 @@ fm_backend_herdr_composer_payload_shown() {  # <text> <after>
   [ -z "$literal" ]
 }
 
-# fm_backend_herdr_decimal_or_default and fm_backend_herdr_count_or_default
-# read the proof and clear tunables below. A value that is not a plain
-# non-negative integer or decimal (count: a positive integer), or a decimal
-# above <max> seconds, is not half-honoured, clamped, skipped or read as zero:
-# it is the documented default. The bound keeps a typo such as 1000000000 from
-# becoming a decades-long sleep inside a send.
-FM_BACKEND_HERDR_TUNABLE_MAX_SECS=5
-fm_backend_herdr_decimal_or_default() {  # <value> <default> [max-seconds]
-  local max=${3:-$FM_BACKEND_HERDR_TUNABLE_MAX_SECS}
-  if [[ ${1-} =~ ^([0-9]+(\.[0-9]+)?|\.[0-9]+)$ ]] \
-    && awk -v v="$1" -v m="$max" 'BEGIN { exit (v + 0 <= m + 0) ? 0 : 1 }'; then
-    printf '%s' "$1"
-  else
-    printf '%s' "$2"
-  fi
-}
-
-fm_backend_herdr_count_or_default() {  # <value> <default>
-  if [[ ${1-} =~ ^[0-9]{1,4}$ ]] && [ "$((10#$1))" -ge 1 ]; then
-    printf '%s' "$((10#$1))"
-  else
-    printf '%s' "$2"
-  fi
-}
-
-# fm_backend_herdr_composer_await_payload: whether the composer comes to show
-# <text>, read up to FM_BACKEND_HERDR_PROOF_POLLS times (default 6)
-# FM_BACKEND_HERDR_PROOF_GAP seconds apart (default 0.2). A busy Claude
-# renders typed input lazily, so one read taken a settle after the send can
-# show an empty or half-drawn composer for a payload that is still arriving;
-# judging that unsent made the caller clear a line that was about to land (the
-# Claude Code 2.1.296 stranded-prefix shape). The window is bounded: a
-# composer that never shows the payload is refused as before, and so is one
-# whose gap sleep fails, because the wait it stands for did not happen.
-# An invalid or out-of-range tunable (the gap is at most
-# FM_BACKEND_HERDR_TUNABLE_MAX_SECS seconds) is its default.
-fm_backend_herdr_composer_await_payload() {  # <target> <text> [identity]
-  local target=$1 text=$2 identity=${3:-} polls gap i=0 content
-  polls=$(fm_backend_herdr_count_or_default "${FM_BACKEND_HERDR_PROOF_POLLS-}" 6)
-  gap=$(fm_backend_herdr_decimal_or_default "${FM_BACKEND_HERDR_PROOF_GAP-}" 0.2)
-  while :; do
-    if content=$(fm_backend_herdr_composer_content "$target" "$identity") \
-      && fm_backend_herdr_composer_payload_shown "$text" "$content"; then
-      return 0
-    fi
-    i=$((i + 1))
-    [ "$i" -lt "$polls" ] || return 1
-    sleep "$gap" || return 1
-  done
-}
-
 # fm_backend_herdr_composer_clear: after a refused proof, press Ctrl+U until
 # the shared classifier reads the composer as empty. Claude documents Ctrl+U
 # as delete-to-line-start, repeated across lines of a multiline draft; Ctrl+C
@@ -3510,49 +3457,39 @@ fm_backend_herdr_composer_await_payload() {  # <target> <text> [identity]
 # wrapped screen row per press, so a single-line leftover can need several
 # presses. The press count comes from fm_backend_herdr_proof_lines, which
 # sizes it from the payload length, not from the viewport read.
-# An empty read only counts once a second read, FM_BACKEND_HERDR_CLEAR_CONFIRM
-# seconds later (default 0.3, at most FM_BACKEND_HERDR_TUNABLE_MAX_SECS; an
-# explicit 0 skips it; an invalid or larger value is the default), also reads
-# empty: typed input that Claude has not drawn yet leaves
-# a momentarily empty frame, and a clear declared done on that frame left the
-# first wrapped row of the line behind once the queued text and the single
-# Ctrl+U were both processed. A failed confirming sleep is a failed clear.
 # 0 only when the composer is verified empty again.
 fm_backend_herdr_composer_clear() {  # <target> <text>
-  local target=$1 text=$2 presses i=0 confirm
-  confirm=$(fm_backend_herdr_decimal_or_default "${FM_BACKEND_HERDR_CLEAR_CONFIRM-}" 0.3)
+  local target=$1 text=$2 presses i=0
   presses=$(fm_backend_herdr_proof_lines "$text")
   while [ "$i" -lt "$presses" ]; do
     fm_backend_herdr_send_key "$target" C-u || return 1
     i=$((i + 1))
-    if [ "$(fm_backend_herdr_composer_state "$target")" = empty ]; then
-      [[ $confirm =~ ^0+(\.0*)?$ ]] && return 0
-      sleep "$confirm" || return 1
-      [ "$(fm_backend_herdr_composer_state "$target")" = empty ] && return 0
-    fi
+    [ "$(fm_backend_herdr_composer_state "$target")" = empty ] && return 0
   done
   return 1
 }
 
 fm_backend_herdr_send_text_submit() {  # <target> <text> <retries> <enter-sleep> <settle>
   local target=$1 text=$2 retries=$3 sleep_s=$4 settle=$5 i=0 verdict baseline confirm_sleep
-  local raw_status footer_baseline='' allow_rendered=0 enter_sent=0 identity proof=0 content
+  local raw_status footer_baseline='' allow_rendered=0 enter_sent=0 identity proof=0 content busy_harness=''
   fm_backend_herdr_parse_target "$target" || { printf 'unknown'; return 0; }
   # Claude on Herdr is the live-verified truncation shape: Enter is withheld
   # unless the composer, empty before the send, shows this payload. A suffix
   # that then starts a turn must not report empty. Other harnesses keep the
   # unproven type-then-Enter path.
   identity=$(fm_backend_herdr_agent_identity_raw "$FM_BACKEND_HERDR_SESSION" "$FM_BACKEND_HERDR_PANE") || identity=
+  [ "${identity%%$'\t'*}" != polytoken ] || busy_harness=polytoken
   if [ "${identity%%$'\t'*}" = claude ]; then
     proof=1
-    content=$(fm_backend_herdr_composer_content "$target" "$identity") \
+    content=$(fm_backend_herdr_composer_content "$target") \
       || { printf 'send-failed'; return 0; }
     [ -z "${content//[$' \t\r\n\v\f']/}" ] || { printf 'send-failed'; return 0; }
   fi
   fm_backend_herdr_send_literal "$target" "$text" || { printf 'send-failed'; return 0; }
   sleep "$settle"
   if [ "$proof" = 1 ]; then
-    if ! fm_backend_herdr_composer_await_payload "$target" "$text" "$identity"; then
+    if ! content=$(fm_backend_herdr_composer_content "$target") \
+      || ! fm_backend_herdr_composer_payload_shown "$text" "$content"; then
       if fm_backend_herdr_composer_clear "$target" "$text"; then
         printf 'send-failed'
       else
@@ -3569,7 +3506,7 @@ fm_backend_herdr_send_text_submit() {  # <target> <text> <retries> <enter-sleep>
   if [ "$baseline" = idle ]; then
     allow_rendered=1
   else
-    footer_baseline=$(fm_backend_herdr_rendered_busy_state "$target")
+    footer_baseline=$(fm_backend_herdr_rendered_busy_state "$target" "$busy_harness")
   fi
   while :; do
     if fm_backend_herdr_send_key "$target" Enter; then
@@ -3612,7 +3549,7 @@ fm_backend_herdr_send_text_submit() {  # <target> <text> <retries> <enter-sleep>
       fi
       if [ "$verdict" = pending ] && [ "$raw_status" != working ] \
         && [ "$footer_baseline" = idle ] \
-        && [ "$(fm_backend_herdr_rendered_busy_state "$target")" = busy ]; then
+        && [ "$(fm_backend_herdr_rendered_busy_state "$target" "$busy_harness")" = busy ]; then
         verdict=busy
       fi
       case "$verdict" in
@@ -3627,7 +3564,7 @@ fm_backend_herdr_send_text_submit() {  # <target> <text> <retries> <enter-sleep>
         printf 'send-failed'
       else
         fm_composer_queued_enter_verdict "$verdict" \
-          "$(fm_backend_herdr_queued_enter_busy "$target" "$allow_rendered")"
+          "$(fm_backend_herdr_queued_enter_busy "$target" "$allow_rendered" "$busy_harness")"
       fi
       return 0
     fi

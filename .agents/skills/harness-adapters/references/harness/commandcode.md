@@ -1,6 +1,7 @@
 # Command Code
 
-Verified on 2026-10-02 with Command Code CLI 1.73.4 and 1.74.0 on the GOAT plan.
+Verified on 2026-10-05 with Command Code 1.74.1 on Linux, model `deepseek/deepseek-v4.1-flash`.
+The adapter name is `commandcode`, the executable Firstmate resolves; `cmd` is also installed but is too generic to name an adapter.
 The router owns the crewmate/scout-only boundary; primary and secondmate integration is unsupported.
 [Verification evidence](../../../../../docs/verification/commandcode.md) and its live guard refresh the vendor facts below.
 
@@ -8,46 +9,35 @@ The router owns the crewmate/scout-only boundary; primary and secondmate integra
 
 | Fact | Value |
 |---|---|
-| Busy state | A per-task mod loaded with `--mod` opens on `run_start` and settles idle on `run_end` (including an interrupted run), `run_error`, and `session_shutdown`, writing through the generation-bound writer; `turn_end` touches the turn-ended file; `../../../bin/fm-busy-lib.sh` owns trust. |
-| Exit command | `/exit`, with the shared slash-command settle before Enter; prints `commandcode --resume <session-id>`. |
-| Interrupt | One Escape cancels the running turn, renders `Interrupted`, keeps the agent, and leaves an empty composer; an idle Escape is harmless; no post-interrupt clear key. |
-| Draft clear | Two Escapes within about 0.4 s empty an idle composer holding any draft (single-line, multi-line, pasted block); one Escape on a draft changes nothing, Ctrl-U and Ctrl-A then Ctrl-K clear only the cursor line, and one Ctrl-C clears but arms an exit on the next. The same pair on an EMPTY composer opens the Rewind checkpoint picker once the session has a turn, and one Escape closes it; Enter would restore a checkpoint. `../../../../../bin/fm-control-lib.sh` owns the key, count, and gap, and `fm_control_clear_draft` the send-and-verify, the picker check, and the single closing Escape. |
-| Skill invocation | Not verified; steer with ordinary text. |
-| Resume | `commandcode --resume <session-id>`. |
-| Model flag | `--model <provider/model-id>`, for example `deepseek/deepseek-v4.1-flash`; the spawn refuses an id absent from `commandcode --list-models`. |
-| Effort flag | Never passed on argv, because CLI `--effort` persists into the user's global config; the mod sets the recorded effort for the session only (`low`, `medium`, `high`, `xhigh`, or `max`). |
+| Busy state | The tracked `../../../bin/fm-commandcode-mod.ts`, loaded per process with `--mod`: `run_start` opens, `run_end` closes (an Escape interrupt included, as stop reason `interrupted`) and, for a completed turn, has the writer touch `state/<id>.turn-ended` under the same generation check, and session end closes; `../../../bin/fm-busy-lib.sh` owns trust. |
+| Exit command | `/quit` (`/exit` is an alias); prints `cmd --resume <session-id>`. |
+| Interrupt | One Esc cancels a running turn and prints `Interrupted · What should Command Code do instead?` with an empty composer. Two Escs within about half a second on an idle agent open the Rewind checkpoint picker, where Enter restores a checkpoint, so the control plane sends one press and closes a picker with one more Esc. |
+| Skill invocation | `/<skill>`, for example `/no-mistakes`; Command Code discovers user skills from `~/.agents/skills` and `~/.commandcode/skills`, and its slash popup lists them as `[skill]`. |
+| Resume | `commandcode --resume <session-id>` (also `--session <id-prefix>`) reopens the conversation but ignores a message passed beside it, so the next prompt is typed after the composer reads empty; `--model` applies to the resumed session. |
+| Model flag | `--model <model-id>`; `commandcode --list-models` is the authoritative listing, and an unlisted id exits the launch. |
+| Effort flag | `--effort <level>`, model-scoped; `deepseek/deepseek-v4.1-flash` accepts `off`, `low`, `high`, and `max`, and an unaccepted value exits the launch, so `../../../bin/fm-spawn.sh` passes only verified pairs. |
 | Model discovery | `commandcode --list-models`; authentication preflight is `commandcode status`. |
-| Marker | None; the TUI sets its process title to `command-code`, and that anchored ancestry identifies the adapter. |
-| Trust dialogs | `--yolo --skip-onboarding --no-auto-update` skip permission prompts, onboarding, and self-update for this run; the spawn owner carries the exact flags. |
-| Workspace files | A git-excluded `.commandcode/settings.local.json` disables taste learning, and Command Code's own `.commandcode/taste/` directory is git-excluded too; no user or project config is edited. |
-| Commit attribution | Unless the home sets `config/keep-ai-trailers` (`../../../../../docs/configuration.md` "Commit attribution"), that local settings file sets `attribution.commit` empty, Command Code's switch for its `Co-authored-by: CommandCodeBot` trailer. |
+| Marker | None; the process title is the anchored name `command-code`, which identifies the adapter and outranks foreign inherited markers. |
+| Trust dialogs | `--trust` skips the fresh-worktree folder-trust prompt and `--yolo` bypasses permission prompts. |
+| Commit attribution | Command Code adds `Co-authored-by: CommandCodeBot <noreply@commandcode.ai>` by default and only its settings files can turn that off, so the fleet commit-msg strip removes it unless the home sets `config/keep-ai-trailers` (`../../../docs/configuration.md` "Commit attribution"). |
 
-## Worker lifecycle limits
+## Per-process wiring limits
 
-Enter while a run is busy queues the text into the same run as another turn rather than starting a new one.
-The interrupt key is acknowledged only through the mod's `run_end`, not a rendered hint.
-Herdr is not live-verified: Command Code ships a built-in `herdr` mod that reports its own agent state to Herdr, which a `--herdr-lab` verification must prove before Herdr dispatch is trusted.
-Linux process-name identity is inferred from the same vendor process title and is not separately verified.
-
-`../../../../../bin/fm-spawn.sh` owns autonomy, onboarding, brief delivery, the mod, and the local settings file; the user config at `~/.commandcode/` remains vendor-owned.
+`--config key=value` is not per process: it persists the setting into `~/.commandcode/config.json`, so Firstmate never passes it.
+Hooks in `settings.json` are file-scoped and gain no `UserPromptSubmit`, so the mod, not a hook, carries busy state; user and project hooks keep running beside it.
+Taste learning has no per-process switch and seeds `.commandcode/taste/` in the project on every start, which the spawn adds to the worktree's git exclude.
 
 ## Composer and steering
 
-`../../../../../bin/fm-composer-lib.sh` owns the verified `❯` composer row between two solid rules, the `Ask your question...` placeholder proof, and the busy row.
-The idle placeholder is rendered at default-like brightness, so it reads empty only when its first cell is the reverse-video cursor and every later cell carries an explicit non-default foreground; typed text renders in the default foreground and stays a draft.
-Beside that cursor proof, either the known placeholder text or a body drawn in the foreground of the rule above it identifies the placeholder, so no single vendor string is load-bearing.
-A row's trailing carriage return, which Herdr's ANSI read emits, is a row ending rather than a typed cell.
-Command Code parks the terminal cursor below its status rows, so `../../../../../bin/fm-tmux-lib.sh` reclassifies its cursor-anchored read from the identified pane.
-`NO_COLOR` removes the cursor cell, so the launch unsets it; `FORCE_COLOR=0` leaves the cursor cell but draws the placeholder body in the default foreground, and `TERM=dumb` draws no styling at all, so under any of them an empty idle composer reads pending by design, the verified way a pane that looks empty reads as holding text.
-The clear is the only consumer that sends keys on that verdict, so it never repeats its Escape pair after the pair opened the Rewind checkpoint picker, which proves the composer was empty; it closes the picker with one Escape and refuses with the misread named.
-The `../../../../../bin/fm-task-inbox-lib.sh` doorbell was read and acknowledged through real `fm-send`.
-A draft stranded in an idle composer used to skip that doorbell and make `fm-control exit` refuse.
-`fm-control` interrupt and exit now send the draft clear when the composer reads pending and refuse unless it then reads empty with no checkpoint picker open, and the doorbell sends it only when both the mod's idle record and the visible screen prove the agent idle, because the same Escape pair interrupts a running turn.
-Any of them first closes an already open picker with one Escape, because typing into it and pressing Enter restores a checkpoint.
-No other adapter's draft is ever cleared: it may be the captain's own typing.
+Command Code draws a bare `❯` composer between two rules, parks the terminal cursor below its footer, and draws its own reverse-video cursor cell.
+Its `Ask your question...` placeholder is truecolor bright enough to survive the fleet ghost ceiling, so `../../../bin/fm-composer-lib.sh` reads a screen with a Command Code identity at a higher ceiling; typed text is the default foreground and stays pending.
+The launch clears `NO_COLOR` and pins `COLORTERM=truecolor`, because a 256-colour terminal renders the placeholder in an untested palette colour.
+`../../../bin/fm-tmux-lib.sh` supplies the `commandcode` identity on tmux, while Herdr's native detection reports `cmd`.
+Zellij, cmux, and orca supply no such identity, so the placeholder would read pending there and `../../../bin/fm-spawn.sh` refuses a Command Code launch on those backends.
+The delivery busy signals are `esc to interrupt` and the bullet-framed elapsed cell on the status row.
 
 ## Primary integration
 
 No primary Stop guard, watcher protocol, pre-tool protection, or session-start contract was verified for Command Code.
 Do not launch a primary or secondmate with this adapter.
-Command Code's GOAT plan exposes no OpenAI-compatible endpoint, so provider wiring through another harness is not an alternative path.
+Quota-provider mapping and typed dispatch resolution remain separate follow-ups.

@@ -250,7 +250,7 @@ test_doorbell_rejects_terminal_controls() {
     log="$dir/$label.send.log"; : > "$log"
     rc=0
     PATH="$dir/fakebin:$PATH" FM_SEND_LOG="$log" \
-      inbox_lib "$state" fm_task_inbox_ring tmux sess:fm-t1 "$rec" fm-t1 claude || rc=$?
+      inbox_lib "$state" fm_task_inbox_ring tmux sess:fm-t1 "$rec" fm-t1 || rc=$?
     [ "$rc" = 2 ] || fail "a rejected $label inbox name should return send-failed status 2, got $rc"
     [ ! -s "$log" ] || fail "a $label inbox name reached send-keys:"$'\n'"$(cat "$log")"
     [ ! -e "$marker" ] || fail "a $label inbox name executed its crafted command"
@@ -273,25 +273,25 @@ test_ring_skips_dead_agent() {
   log="$dir/send.log"; : > "$log"
   rc=0
   PATH="$dir/fakebin:$PATH" FM_SEND_LOG="$log" FM_FAKE_TMUX_AGENT=zsh \
-    inbox_lib "$state" fm_task_inbox_ring tmux sess:fm-t1 "$rec" fm-t1 claude || rc=$?
+    inbox_lib "$state" fm_task_inbox_ring tmux sess:fm-t1 "$rec" fm-t1 || rc=$?
   [ "$rc" = 3 ] || fail "a dead agent should return 3 from the ring, got $rc"
   [ ! -s "$log" ] || fail "a dead pane was typed into:"$'\n'"$(cat "$log")"
   [ -f "$rec" ] || fail "skipping the ring must leave the durable record in place"
   rc=0
   PATH="$dir/fakebin:$PATH" FM_SEND_LOG="$log" FM_FAKE_TMUX_MISSING=1 \
-    inbox_lib "$state" fm_task_inbox_ring tmux sess:fm-t1 "$rec" fm-t1 claude || rc=$?
+    inbox_lib "$state" fm_task_inbox_ring tmux sess:fm-t1 "$rec" fm-t1 || rc=$?
   [ "$rc" = 3 ] || fail "a missing endpoint should return 3 from the ring, got $rc"
   [ ! -s "$log" ] || fail "a missing endpoint was typed into:"$'\n'"$(cat "$log")"
   [ -f "$rec" ] || fail "skipping a missing endpoint must leave the durable record in place"
   rc=0
   PATH="$dir/fakebin:$PATH" FM_SEND_LOG="$log" FM_FAKE_TMUX_AGENT=claude \
-    inbox_lib "$state" fm_task_inbox_ring tmux sess:fm-t1 "$rec" fm-t1 claude || rc=$?
+    inbox_lib "$state" fm_task_inbox_ring tmux sess:fm-t1 "$rec" fm-t1 || rc=$?
   [ "$rc" = 0 ] || fail "a live agent should still be rung, got $rc"
   grep -qF 'Firstmate instruction waiting' "$log" || fail "a live agent did not receive the doorbell"
   : > "$log"
   rc=0
   PATH="$dir/fakebin:$PATH" FM_SEND_LOG="$log" \
-    inbox_lib "$state" fm_task_inbox_ring tmux sess:fm-t1 "$rec" fm-t1 claude || rc=$?
+    inbox_lib "$state" fm_task_inbox_ring tmux sess:fm-t1 "$rec" fm-t1 || rc=$?
   [ "$rc" = 0 ] || fail "an endpoint the classifier cannot see should still be rung, got $rc"
   grep -qF 'Firstmate instruction waiting' "$log" || fail "an unclassifiable endpoint did not receive the doorbell"
   pass "inbox: the ring skips dead or missing endpoints and still rings live or unclassifiable endpoints"
@@ -364,7 +364,7 @@ test_ring_submits_its_own_stuck_doorbell() {
   log="$dir/send.log"; composer="$dir/composer"; drops="$dir/drops"
   ring() {
     PATH="$dir/fakebin:$PATH" FM_SEND_LOG="$log" FM_FAKE_COMPOSER="$composer" \
-      FM_FAKE_DROP_ENTERS="$drops" inbox_lib "$state" fm_task_inbox_ring tmux sess:fm-t1 "$rec" fm-t1 claude
+      FM_FAKE_DROP_ENTERS="$drops" inbox_lib "$state" fm_task_inbox_ring tmux sess:fm-t1 "$rec" fm-t1
   }
 
   : > "$log"; printf '%s' "$doorbell" > "$composer"
@@ -396,76 +396,6 @@ test_ring_submits_its_own_stuck_doorbell() {
     || fail "the retry Enter should submit the doorbell once:"$'\n'"$(cat "$log")"
   [ ! -s "$composer" ] || fail "a lost Enter left the doorbell unsubmitted"
   pass "inbox: the ring submits its own stuck doorbell, skips other pending text, and retries a lost Enter once on both paths"
-}
-
-# Claude Code 2.1.296 left doorbells cut part-way in the composer (the stranded
-# lines ended at "... steering inbox" and "... inbox'"). A strict prefix of our
-# own line that still carries the `/*.msg` glob is our own stranded ring and is
-# submitted, never refused as a foreign draft; a shorter fragment or any other
-# text stays refused untouched.
-test_ring_treats_a_stranded_doorbell_prefix_as_its_own() {
-  local dir state rec doorbell log composer drops rc cut other
-  dir="$TMP_ROOT/ring-prefix"
-  state="$dir/state"
-  mkdir -p "$state"
-  make_composer_stub "$dir"
-  rec=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "please continue")
-  doorbell=$(inbox_lib "$state" fm_task_inbox_doorbell_line "$rec")
-  log="$dir/send.log"; composer="$dir/composer"; drops="$dir/drops"
-  ring() {
-    PATH="$dir/fakebin:$PATH" FM_SEND_LOG="$log" FM_FAKE_COMPOSER="$composer" \
-      FM_FAKE_DROP_ENTERS="$drops" inbox_lib "$state" fm_task_inbox_ring tmux sess:fm-t1 "$rec" fm-t1 claude
-  }
-
-  for cut in "${doorbell%%, read*}" "${doorbell%%\' steering*}'" "${doorbell%%/\*.msg*}/*.msg" "${doorbell%?}"; do
-    : > "$log"; printf '%s' "$cut" > "$composer"; echo 0 > "$drops"
-    rc=0; ring || rc=$?
-    [ "$rc" = 0 ] || fail "a stranded doorbell prefix should be submitted, got rc $rc for: $cut"
-    [ "$(cat "$log")" = "SUBMIT: $cut" ] \
-      || fail "the stranded prefix should be submitted exactly once, not retyped or completed:"$'\n'"$(cat "$log")"
-    [ ! -s "$composer" ] || fail "the stranded prefix was left in the composer: $(cat "$composer")"
-  done
-
-  # A lost first Enter on a prefix gets the same one confirmed retry.
-  cut=${doorbell%%, read*}
-  : > "$log"; printf '%s' "$cut" > "$composer"; echo 1 > "$drops"
-  rc=0; ring || rc=$?
-  [ "$rc" = 0 ] || fail "a stranded prefix whose first Enter is lost should still report rung, got rc $rc"
-  [ "$(cat "$log")" = "SUBMIT: $cut" ] || fail "the retry Enter should submit the stranded prefix once:"$'\n'"$(cat "$log")"
-
-  for other in ': Firstmate instruction waiting:' ': Firstmate instruction waiting: list' \
-    "${doorbell%%/\*.msg*}" "${doorbell%%, read*} and a draft" "${doorbell:0:60}X${doorbell:61:40}" \
-    'a half-typed draft'; do
-    : > "$log"; printf '%s' "$other" > "$composer"; echo 0 > "$drops"
-    rc=0; ring || rc=$?
-    [ "$rc" = 1 ] || fail "a foreign draft should skip the ring, got rc $rc for: $other"
-    [ ! -s "$log" ] || fail "a foreign draft was submitted:"$'\n'"$(cat "$log")"
-    [ "$(cat "$composer")" = "$other" ] || fail "a foreign draft was changed: $(cat "$composer")"
-  done
-  pass "inbox: the ring submits a stranded prefix of its own doorbell and leaves shorter or foreign drafts untouched"
-}
-
-# One Enter that does not submit gets exactly one confirmed retry, then a
-# report and a non-zero result; the ring never presses Enter a third time.
-test_ring_reports_a_doorbell_two_enters_do_not_submit() {
-  local dir state rec doorbell log composer drops rc err
-  dir="$TMP_ROOT/ring-enters"
-  state="$dir/state"
-  mkdir -p "$state"
-  make_composer_stub "$dir"
-  rec=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "please continue")
-  doorbell=$(inbox_lib "$state" fm_task_inbox_doorbell_line "$rec")
-  log="$dir/send.log"; composer="$dir/composer"; drops="$dir/drops"; err="$dir/err"
-  : > "$log"; printf '%s' "$doorbell" > "$composer"; echo 3 > "$drops"
-  rc=0
-  PATH="$dir/fakebin:$PATH" FM_SEND_LOG="$log" FM_FAKE_COMPOSER="$composer" FM_FAKE_DROP_ENTERS="$drops" \
-    inbox_lib "$state" fm_task_inbox_ring tmux sess:fm-t1 "$rec" fm-t1 claude 2>"$err" || rc=$?
-  [ "$rc" = 2 ] || fail "a doorbell that two Enters do not submit should report rc 2, got $rc"
-  [ "$(cat "$drops")" = 1 ] || fail "the ring should press Enter exactly twice, leaving 1 of 3 drops: $(cat "$drops")"
-  [ "$(cat "$composer")" = "$doorbell" ] || fail "the unsubmitted doorbell should stay in the composer untouched"
-  [ ! -s "$log" ] || fail "nothing should have been submitted:"$'\n'"$(cat "$log")"
-  grep -q 'still unsubmitted' "$err" || fail "the ring should say the doorbell is still unsubmitted: $(cat "$err")"
-  pass "inbox: a doorbell that two Enters do not submit is reported with rc 2 after exactly one retry"
 }
 
 test_idempotent_write_dedups_exact_body() {
@@ -596,42 +526,6 @@ SH
     || fail "a writer abandoned an acquisition whose competing lock had already vanished"
   [ -f "$rec" ] || fail "the retry after a vanished lock collision did not write its record"
   pass "inbox: a writer retries when a competing lock vanishes after its failed claim"
-}
-
-test_lock_wait_default_is_thirty_seconds_and_env_wins() {
-  local dir lock marker holder i rc start elapsed
-  dir="$TMP_ROOT/lock-wait-default"
-  mkdir -p "$dir"
-  lock="$dir/.held.lock"
-  marker="$dir/held"
-  bash -c '
-    . "$1"
-    fm_lock_acquire_wait "$2"
-    touch "$3"
-    sleep 8
-    fm_lock_release "$2"
-  ' _ "$ROOT/bin/fm-wake-lib.sh" "$lock" "$marker" &
-  holder=$!
-  i=0
-  while [ ! -e "$marker" ] && [ "$i" -lt 100 ]; do
-    sleep 0.05
-    i=$((i + 1))
-  done
-  [ -e "$marker" ] || { kill "$holder" 2>/dev/null; fail "the lock holder did not start"; }
-  start=$(date +%s)
-  FM_TASK_INBOX_LOCK_WAIT_SECS=1 inbox_lib "$dir" fm_task_inbox_lock_acquire "$lock"
-  rc=$?
-  elapsed=$(( $(date +%s) - start ))
-  [ "$rc" -ne 0 ] && [ "$elapsed" -lt 5 ] \
-    || fail "FM_TASK_INBOX_LOCK_WAIT_SECS=1 should override the default and give up fast (rc=$rc, ${elapsed}s)"
-  # shellcheck disable=SC2016 # $1/$2 expand in the child shell.
-  env -u FM_TASK_INBOX_LOCK_WAIT_SECS bash -c '
-    . "$1"
-    fm_task_inbox_lock_acquire "$2"
-  ' _ "$ROOT/bin/fm-task-inbox-lib.sh" "$lock" \
-    || { kill "$holder" 2>/dev/null; fail "the default wait should outlast an 8s lock hold (old default was 5s)"; }
-  wait "$holder" 2>/dev/null
-  pass "inbox: lock wait defaults to 30s and the env override still wins"
 }
 
 test_ladder_writes_ignore_vanished_inbox() {
@@ -835,43 +729,6 @@ test_watcher_waits_on_busy_pane() {
   [ "$(wc -l < "$dir/state/.wake-queue")" = "$wakes" ] || fail "busy escalation repeated"
   [ -f "$dir/state/t1.inbox/001.msg" ] || fail "busy escalation lost the steer"
   pass "watcher: busy deferrals survive restart, escalate once at the bound, and never type"
-}
-
-test_watcher_rings_once_after_stuck_busy_lane_goes_idle() {
-  local dir rings
-  dir=$(busy_case busy-then-idle)
-  busy_steer_check "$dir"
-  busy_steer_check "$dir"
-  grep -q 'stuck-busy' "$dir/state/.wake-queue" || fail "busy lane did not escalate"
-  # Still busy after the escalation: no ring, no second wake.
-  busy_steer_check "$dir"
-  busy_steer_check "$dir"
-  [ ! -s "$dir/send.log" ] || fail "an escalated lane was rung while still busy"
-  [ "$(wc -l < "$dir/state/.wake-queue" | tr -d ' ')" = 1 ] || fail "still-busy polls woke firstmate again"
-  # The lane goes idle: exactly one ring, then quiet.
-  busy_steer_check "$dir" "$(idle_capture "$dir")"
-  rings=$(grep -c 'Firstmate instruction waiting' "$dir/send.log")
-  [ "$rings" = 1 ] || fail "idle transition after a stuck-busy escalation rang $rings times, wanted 1"
-  busy_steer_check "$dir" "$(idle_capture "$dir")"
-  busy_steer_check "$dir" "$(idle_capture "$dir")"
-  rings=$(grep -c 'Firstmate instruction waiting' "$dir/send.log")
-  [ "$rings" = 1 ] || fail "post-busy ring repeated: $rings"
-  [ "$(wc -l < "$dir/state/.wake-queue" | tr -d ' ')" = 1 ] || fail "post-busy ring woke firstmate again"
-  [ ! -e "$dir/state/t1.inbox/.busy-escalated" ] || fail "the spent post-busy mark was kept"
-  pass "watcher: a stuck-busy escalation still owes one ring when the lane goes idle, and only one"
-}
-
-test_watcher_post_busy_ring_is_silent_when_acknowledged() {
-  local dir
-  dir=$(busy_case busy-acked)
-  busy_steer_check "$dir"
-  busy_steer_check "$dir"
-  grep -q 'stuck-busy' "$dir/state/.wake-queue" || fail "busy lane did not escalate"
-  mv "$dir/state/t1.inbox/001.msg" "$dir/state/t1.inbox/handled/"
-  busy_steer_check "$dir" "$(idle_capture "$dir")"
-  [ ! -s "$dir/send.log" ] || fail "an acknowledged record was rung after the lane went idle"
-  [ ! -e "$dir/state/t1.inbox/.busy-escalated" ] || fail "acknowledging kept the post-busy mark"
-  pass "watcher: an acknowledged stuck-busy record is never rung"
 }
 
 test_watcher_busy_budget_resets_on_ring_and_ack() {
@@ -1329,8 +1186,6 @@ test_doorbell_is_a_shell_noop
 test_doorbell_rejects_terminal_controls
 test_ring_skips_dead_agent
 test_ring_submits_its_own_stuck_doorbell
-test_ring_treats_a_stranded_doorbell_prefix_as_its_own
-test_ring_reports_a_doorbell_two_enters_do_not_submit
 test_idempotent_write_dedups_exact_body
 test_idempotent_write_follows_concurrent_ack
 test_handled_mv_dedups_by_sequence
@@ -1344,8 +1199,6 @@ test_ring_ladder_policy
 test_watcher_rerings_idle_pane_quietly
 test_watcher_waits_on_busy_pane
 test_watcher_busy_budget_resets_on_ring_and_ack
-test_watcher_rings_once_after_stuck_busy_lane_goes_idle
-test_watcher_post_busy_ring_is_silent_when_acknowledged
 test_watcher_busy_bookkeeping_failure_surfaces
 test_watcher_successor_busy_reset_failure_surfaces idle
 test_watcher_successor_busy_reset_failure_surfaces busy
@@ -1375,4 +1228,3 @@ test_watcher_retry_keeps_a_newer_mark
 test_watcher_escalates_once_after_budget
 test_watcher_dead_pane_escalates_once_without_ringing
 test_watcher_dead_pane_ignores_stale_busy_state
-test_lock_wait_default_is_thirty_seconds_and_env_wins

@@ -523,12 +523,6 @@ test_no_mistakes_dod_wording() {
     "no-mistakes DOD must require a self-sufficient --intent string"
   assert_grep "write the substance of the referenced items into \`--intent\`" "$brief" \
     "no-mistakes DOD must tell the worker to resolve report, decision, and PR references into substance"
-  assert_grep "Rulings on this PR (supervisor decisions, verbatim; they only narrow what the review may flag and never add a requirement):" "$brief" \
-    "no-mistakes DOD must name the final rulings block in --intent"
-  assert_grep "re-read this brief's Firstmate instruction inbox" "$brief" \
-    "no-mistakes DOD must source rulings from the steering inbox before every run and restart"
-  assert_grep "When the inbox holds no such ruling, append no block." "$brief" \
-    "no-mistakes DOD must append no rulings block when the inbox holds none"
 
   # The --yes ban is a fleet-wide prohibition, not a preference, and it must not
   # claim an enforcement the tool does not provide: this is instruction only.
@@ -1172,6 +1166,37 @@ test_scout_and_secondmate_scaffold() {
   pass "fm-brief: scout and secondmate code paths still scaffold well-formed briefs"
 }
 
+# Contract: the inbox listing the brief tells a worker to run succeeds silently
+# on an empty or absent inbox and lists messages in numeric order, in bash and zsh.
+test_inbox_listing_command_is_safe_on_empty_inbox() {
+  local home brief cmd inbox shell_name out status
+  home="$TMP_ROOT/inbox-listing-home"
+  mkdir -p "$home/data" "$home/config"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" brief-inbox-list some-proj --mode no-mistakes >/dev/null 2>&1 \
+    || fail "fm-brief.sh ship scaffold exited non-zero"
+  brief="$home/data/brief-inbox-list/brief.md"
+  # shellcheck disable=SC2016
+  cmd=$(sed -n 's/.*list them with `\(find [^`]*\)`.*/\1/p' "$brief" | head -1)
+  [ -n "$cmd" ] || fail "the brief does not give a find-based inbox listing command"
+  inbox="$home/state/brief-inbox-list.inbox"
+  for shell_name in bash zsh; do
+    command -v "$shell_name" >/dev/null 2>&1 || continue
+    rm -rf "$inbox"
+    status=0
+    out=$("$shell_name" -c "$cmd" 2>&1) || status=$?
+    [ "$status" -eq 0 ] && [ -z "$out" ] || fail "$shell_name: absent inbox listing was not silent success (exit $status): $out"
+    mkdir -p "$inbox"
+    status=0
+    out=$("$shell_name" -c "$cmd" 2>&1) || status=$?
+    [ "$status" -eq 0 ] && [ -z "$out" ] || fail "$shell_name: empty inbox listing was not silent success (exit $status): $out"
+    : > "$inbox/1000.msg"
+    : > "$inbox/999.msg"
+    out=$("$shell_name" -c "$cmd" 2>&1 | sed 's#.*/##' | tr '\n' ' ')
+    [ "$out" = "999.msg 1000.msg " ] || fail "$shell_name: messages not listed in numeric order: $out"
+  done
+  pass "fm-brief: inbox listing is silent on empty/absent inbox and numerically ordered"
+}
+
 # Contract: a waiting worker spends no turns. A decision wait ends the turn, an
 # external wait sleeps in one bounded blocking shell command sized per harness,
 # and a waiting worker neither polls its inbox nor polls a pipeline between holds.
@@ -1313,50 +1338,6 @@ test_home_brief_include_is_appended_last() {
   assert_contains "$out" "brief-include.md must be a readable regular file" "unusable include refusal did not name the file"
   assert_absent "$home/data/include-unusable" "an unusable include left a partial scaffold behind"
   pass "fm-brief.sh: the home brief include lands last on ship and scout, verbatim, and fails closed"
-}
-
-# --habits is an opt-in role section: absent by default, role-specific for ship
-# and scout, placed before the home include, and refused on a secondmate charter
-# so a supervisor never takes it.
-test_habits_switch_is_opt_in_and_role_specific() {
-  local home brief kind out rc last_heading plain with_habits
-  home="$TMP_ROOT/habits-home"
-  mkdir -p "$home/config"
-  printf '%s\n' 'House rule.' > "$home/config/brief-include.md"
-
-  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" habits-off-ship some-proj --mode local-only >/dev/null || fail "ship scaffold failed without --habits"
-  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" habits-off-scout some-proj --scout >/dev/null || fail "scout scaffold failed without --habits"
-  assert_no_grep '# Engineering habits' "$home/data/habits-off-ship/brief.md" "ship brief carried habits without the flag"
-  assert_no_grep '# Engineering habits' "$home/data/habits-off-scout/brief.md" "scout brief carried habits without the flag"
-
-  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" habits-on-ship some-proj --mode local-only --habits >/dev/null || fail "ship scaffold failed with --habits"
-  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" habits-on-scout some-proj --scout --habits >/dev/null || fail "scout scaffold failed with --habits"
-  for kind in ship scout; do
-    brief="$home/data/habits-on-$kind/brief.md"
-    [ "$(grep -c -x '# Engineering habits' "$brief")" = 1 ] || fail "$kind brief did not carry exactly one habits section"
-    assert_grep 'Every other section of this brief takes precedence' "$brief" "$kind habits lost their precedence line"
-    last_heading=$(grep -n '^# ' "$brief" | tail -n 1)
-    [ "${last_heading#*:}" = '# Home brief additions' ] || fail "$kind include no longer last with habits on (got: $last_heading)"
-    [ "$(grep -n -x '# Engineering habits' "$brief" | cut -d: -f1)" -lt "$(grep -n -x '# Home brief additions' "$brief" | cut -d: -f1)" ] \
-      || fail "$kind habits landed after the home include"
-    [ "$(sed -n '/^# Engineering habits$/,/^# Home brief additions$/p' "$brief" | wc -l)" -le 28 ] || fail "$kind habits exceed the line budget"
-  done
-  assert_grep 'You are a ship worker' "$home/data/habits-on-ship/brief.md" "ship habits lost the ship isolation text"
-  assert_no_grep 'You are a scout' "$home/data/habits-on-ship/brief.md" "ship brief took the scout habits"
-  assert_grep 'You are a scout' "$home/data/habits-on-scout/brief.md" "scout habits lost the scout isolation text"
-  assert_no_grep 'You are a ship worker' "$home/data/habits-on-scout/brief.md" "scout brief took the ship habits"
-
-  # Dropping the habits section leaves exactly the brief made without the flag.
-  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" habits-cmp some-proj --mode local-only >/dev/null || fail "comparison scaffold failed"
-  plain=$(sed 's/habits-cmp/X/g' "$home/data/habits-cmp/brief.md")
-  with_habits=$(sed 's/habits-on-ship/X/g' "$home/data/habits-on-ship/brief.md" | sed '/^# Engineering habits$/,/^# Home brief additions$/{/^# Home brief additions$/!d;}')
-  [ "$plain" = "$with_habits" ] || fail "--habits changed more of the brief than its own section"
-
-  out=$(FM_HOME="$home" FM_SECONDMATE_CHARTER='Supervise.' "$ROOT/bin/fm-brief.sh" habits-mate --secondmate --no-projects --habits 2>&1); rc=$?
-  expect_code 1 "$rc" "a secondmate charter must refuse --habits"
-  assert_contains "$out" 'never takes it' "secondmate refusal did not explain itself"
-  assert_absent "$home/data/habits-mate" "a refused --habits left a partial charter behind"
-  pass "fm-brief.sh: --habits is opt-in, role-specific, ahead of the include, and refused for secondmates"
 }
 
 # --base-branch names the branch a task starts from and a ship's PR targets. It is
@@ -1648,23 +1629,6 @@ test_crewmate_scaffolds_forbid_pool_administration() {
   pass "fm-brief.sh: every crewmate scaffold forbids administering the shared worktree pool"
 }
 
-test_crewmate_scaffolds_carry_the_live_pane_test_rule() {
-  local home="$TMP_ROOT/livepane" brief
-  mkdir -p "$home/data"
-  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" live-ship alpha --mode no-mistakes >/dev/null 2>&1 \
-    || fail "fm-brief.sh ship exited non-zero"
-  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" live-scout alpha --scout >/dev/null 2>&1 \
-    || fail "fm-brief.sh --scout exited non-zero"
-  for brief in "$home/data/live-ship/brief.md" "$home/data/live-scout/brief.md"; do
-    assert_grep "scratch pane your own test launched" "$brief" \
-      "a crewmate brief lost the live-pane-test rule"
-    assert_grep "send only when it shows a plain empty prompt" "$brief" \
-      "a crewmate brief lost the read-the-screen-before-sending rule"
-  done
-  pass "fm-brief.sh: ship and scout scaffolds carry the live-pane-test rule"
-}
-
-
 test_script_parses
 test_no_heredoc_in_command_substitution
 test_help_includes_entire_header
@@ -1693,10 +1657,10 @@ test_ship_and_scout_teach_validation_round_pause
 test_scout_and_secondmate_load_decision_hold_policy
 test_scout_and_secondmate_scaffold
 test_scout_lavish_line_follows_presentation_floor
+test_inbox_listing_command_is_safe_on_empty_inbox
 test_workers_wait_without_spending_turns
 test_wait_no_turns_absent_keeps_the_previous_brief
 test_home_brief_include_is_appended_last
-test_habits_switch_is_opt_in_and_role_specific
 test_base_branch_is_rendered_and_bounded
 test_ship_branch_prefix_defaults_to_legacy_fm
 test_ship_branch_prefix_override_is_consistent_across_modes
@@ -1705,4 +1669,3 @@ test_branch_prefix_is_refused_where_it_does_not_apply
 test_branch_prefix_value_is_validated
 test_branch_prefix_command_is_shell_safe
 test_crewmate_scaffolds_forbid_pool_administration
-test_crewmate_scaffolds_carry_the_live_pane_test_rule

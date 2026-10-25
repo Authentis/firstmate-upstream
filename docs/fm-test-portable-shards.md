@@ -14,7 +14,6 @@ Use the slowest successful `duration_ms` per script across their uploaded portab
 All artifact records were cross-checked against the corresponding job's markers.
 This covers all 24 parallel and 201 serial members; an existing live-capability skip is a portable-runner measurement, not a timing claim for the unavailable live integration.
 Observed maxima provide conservative packing weights, not an upper bound on future durations.
-Serial scripts added after that refresh carry the duration their first completed Ubuntu run measured, from [Authentis/firstmate-upstream run 39967337279](https://github.com/Authentis/firstmate-upstream/actions/runs/39967337279), instead of the unmeasured default.
 
 Two serial-5 jobs were cancelled at their 30-minute cap and uploaded no artifact.
 Their completed log markers supplement the complete runs, but a cancelled job's wall time is only a lower bound and its unfinished or never-started scripts have no completed sample.
@@ -22,11 +21,10 @@ A failed script's duration is excluded even when its lane uploaded an artifact.
 In particular, run 36664663190's serial 5 finished in 22m15s with an assertion failure, not a timeout; treating that as a healthy whole-lane sample would hide the failure.
 Collect successful per-script measurements for every member before calculating a split.
 
-`tests/fm-supervision-host.test.sh` runs alone in its own portable serial shard.
-Its wait-bound cases took 1030 s and 1620 s on two hosted runs of the same head, so its older 789123 ms hint let the planner stack about 150 s of other scripts behind it until the 30-minute job limit cancelled the lane.
-Its hint is therefore the lane's 1200000 ms packing budget rather than a measured maximum: that weight exceeds every other shard's load, so the longest-processing-time planner never places another script beside it, and `tests/fm-test-run.test.sh` requires the isolation.
-Do not lower the hint toward a measured sample without keeping the script alone, and do not use the job timeout to absorb its variance.
+`tests/fm-supervision-host.test.sh` uses 789123 ms from run 36669175457, after the merged [host runtime fix](https://github.com/kunchenguid/firstmate/pull/6179), rather than its pre-fix maximum of 1065298 ms.
+That post-fix value has only one sample in this baseline, so further green runs must establish its variance.
 The native-Windows-only `tests/fm-pi-windows-shell-invocation.test.sh` retains its separate 5121 ms measurement from 2026-09-06T21:02Z instead of a portable capability skip.
+The 2026-10-07 polytoken adapter tests carry provisional local measurements instead - 21090 ms for `tests/fm-polytoken-harness.test.sh` and the 103 ms live-guard skip for `tests/fm-polytoken-signals-live-e2e.test.sh`, both measured on the adapter-verification macOS host - until the next CI refresh replaces them with Ubuntu measurements, because they postdate the 2026-09-30 baseline.
 The session-start hint retains its pre-optimization maximum until CI measures the shorter fixture-only home-summary bound; do not discount a local speedup from CI packing weights.
 
 ## Parallel lanes

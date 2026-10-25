@@ -5,8 +5,7 @@
 # otherwise, including on every error, so a failed lookup can never be read as
 # a merge. The provider-tagged identity is data in the sidecar and is never
 # interpolated into this source: these bytes are identical for every task.
-# Each provider is read through its own standard CLI, gh for GitHub (through
-# the shared read throttle in bin/fm-pr-read.sh when run from bin/), glab for
+# Each provider is read through its own standard CLI, gh for GitHub, glab for
 # GitLab, gerrit-axi for Gerrit, and tea for Forgejo, so an upstream checkout
 # needs no extra tooling to follow GitHub or GitLab. The Gerrit and Forgejo
 # branches additionally need jq, which bin/fm-pr-check.sh refuses to arm those
@@ -67,20 +66,7 @@ case "$provider" in
       .|..|*[!A-Za-z0-9._-]*) exit 0 ;;
     esac
     [ "$url" = "https://github.com/$owner/$repo/pull/$number" ] || exit 0
-    # A GitHub read is a timer poll, so it goes through the shared read
-    # throttle (bin/fm-pr-read.sh) whenever that script sits beside this one,
-    # as it does when the watcher runs this file from bin/. A copy run from
-    # elsewhere has no throttle to find and reads the pull request directly.
-    read_script=
-    case "$0" in
-      */*) read_script=${0%/*}/fm-pr-read.sh ;;
-    esac
-    if [ -n "$read_script" ] && [ -x "$read_script" ]; then
-      raw=$("$read_script" "$owner" "$repo" "$number" 2>/dev/null) || exit 0
-      state=$(printf '%s\n' "$raw" | sed -n 's/^state=//p' | head -1) || exit 0
-    else
-      state=$(gh pr view "$url" --json state -q .state 2>/dev/null) || exit 0
-    fi
+    state=$(gh pr view "$url" --json state -q .state 2>/dev/null) || exit 0
     [ "$state" = MERGED ] && printf '%s\n' merged
     ;;
   gitlab)

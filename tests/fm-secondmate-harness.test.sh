@@ -319,7 +319,6 @@ test_propagate_lib() {
   printf 'manual\n' > "$src/backlog-backend"
   printf 'tmux\n' > "$src/backend"
   : > "$src/herdr-presentation-spaces"
-  printf 'on\n' > "$src/herdr-project-groups"
   : > "$src/trace-context"
   stdout="$d/clean-copy.out"
   stderr="$d/clean-copy.err"
@@ -331,7 +330,6 @@ test_propagate_lib() {
   [ "$(cat "$dest/backlog-backend")" = manual ] || fail "backlog-backend not propagated"
   [ "$(cat "$dest/backend")" = tmux ] || fail "backend not propagated"
   [ -f "$dest/herdr-presentation-spaces" ] || fail "herdr-presentation-spaces not propagated"
-  [ "$(cat "$dest/herdr-project-groups")" = on ] || fail "herdr-project-groups not propagated"
   printf 'herdr\n' > "$dest/backend"
   propagate_inheritable_config "$src" "$dest"
   [ "$(cat "$dest/backend")" = tmux ] || fail "primary backend did not overwrite a divergent destination"
@@ -372,14 +370,13 @@ test_propagate_lib() {
   # 4. removing the source mirrors absence downstream (primary-authoritative)
   printf 'herdr\n' > "$dest/backend"
   rm -f "$src/crew-dispatch.json" "$src/crew-harness" "$src/backlog-backend" \
-    "$src/backend" "$src/herdr-presentation-spaces" "$src/herdr-project-groups" "$src/trace-context"
+    "$src/backend" "$src/herdr-presentation-spaces" "$src/trace-context"
   propagate_inheritable_config "$src" "$dest"
   [ -e "$dest/crew-dispatch.json" ] && fail "dispatch profile absence not mirrored downstream"
   [ -e "$dest/crew-harness" ] && fail "absence not mirrored downstream"
   [ -e "$dest/backlog-backend" ] && fail "backlog-backend absence not mirrored downstream"
   [ -e "$dest/backend" ] && fail "backend absence not mirrored downstream"
   [ -e "$dest/herdr-presentation-spaces" ] && fail "herdr-presentation-spaces absence not mirrored downstream"
-  [ -e "$dest/herdr-project-groups" ] && fail "herdr-project-groups absence not mirrored downstream"
   [ -e "$dest/trace-context" ] && fail "trace-context absence not mirrored downstream"
 
   rm -f "$dest/crew-harness"
@@ -734,14 +731,6 @@ case "${1:-}" in
   kill-window) : > "$window_file"; exit 0 ;;
   has-session|new-session) exit 0 ;;
   send-keys)
-    if [ "${!#}" = Enter ]; then
-      for ext in "$FM_STATE_OVERRIDE"/*.pi-first-call.ts; do
-        [ -f "$ext" ] || continue
-        id=${ext##*/}; id=${id%.pi-first-call.ts}
-        grep -q '^kind=secondmate$' "$FM_STATE_OVERRIDE/$id.meta" || continue
-        node "$FM_ROOT_OVERRIDE/tests/assets/pi-first-call-fake.mjs" "$ext" || exit
-      done
-    fi
     if [ -n "${FM_FAKE_LAUNCH_LOG:-}" ]; then
       prev=
       for a in "$@"; do
@@ -1659,42 +1648,6 @@ sm_presentation_verdict() {  # <config-dir> -> on|off
   ' "$ROOT" "$1" 2>/dev/null
 }
 
-test_remote_receiver_accepts_herdr_project_groups() {
-  local d home body hash err
-  d="$TMP_ROOT/remote-herdr-groups"
-  home="$d/home"
-  mkdir -p "$home/config"
-  err="$d/err"
-  body='on'
-  hash=$(printf '%s\n' "$body" | shasum -a 256 | awk '{print $1}')
-  printf '%s\n' "$body" | FM_HOME="$home" bash "$ROOT/bin/fm-remote-inherit.sh" put config/herdr-project-groups 3 "$hash" 1 2>"$err" \
-    || fail "receiver refused config/herdr-project-groups put: $(cat "$err")"
-  [ "$(cat "$home/config/herdr-project-groups")" = on ] || fail "receiver did not write herdr-project-groups"
-  FM_HOME="$home" bash "$ROOT/bin/fm-remote-inherit.sh" absent config/herdr-project-groups 0 \
-    e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 2 2>"$err" \
-    || fail "receiver refused config/herdr-project-groups absent: $(cat "$err")"
-  [ -e "$home/config/herdr-project-groups" ] && fail "receiver did not remove herdr-project-groups"
-  pass "B12d remote receiver accepts put and absent for config/herdr-project-groups"
-}
-
-test_remote_receiver_accepts_firstmate_role() {
-  local d home body hash err
-  d="$TMP_ROOT/remote-firstmate-role"
-  home="$d/home"
-  mkdir -p "$home/config"
-  err="$d/err"
-  body='maintainer'
-  hash=$(printf '%s\n' "$body" | shasum -a 256 | awk '{print $1}')
-  printf '%s\n' "$body" | FM_HOME="$home" bash "$ROOT/bin/fm-remote-inherit.sh" put config/firstmate-role 11 "$hash" 1 2>"$err" \
-    || fail "receiver refused config/firstmate-role put: $(cat "$err")"
-  [ "$(cat "$home/config/firstmate-role")" = maintainer ] || fail "receiver did not write firstmate-role"
-  FM_HOME="$home" bash "$ROOT/bin/fm-remote-inherit.sh" absent config/firstmate-role 0 \
-    e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 2 2>"$err" \
-    || fail "receiver refused config/firstmate-role absent: $(cat "$err")"
-  [ -e "$home/config/firstmate-role" ] && fail "receiver did not remove firstmate-role"
-  pass "B12e remote receiver accepts put and absent for config/firstmate-role"
-}
-
 test_presentation_inheritance_default_on_and_opt_out() {
   local w head out err status verdict
   w=$(new_world presentation-inherit)
@@ -2376,8 +2329,6 @@ test_config_reread_serializes_concurrent_pushes() {
   w=$(new_world config-reread-serialized-pushes)
   head=$(git -C "$w/main" rev-parse HEAD)
   add_sm_worktree "$w" sm "$head"
-  # The nudge needs a known harness to prove the stub's prompt empty.
-  printf 'harness=claude\n' >> "$w/home/state/sm.meta"
   mkdir -p "$w/sm/config" "$w/sm/state"
   printf 'old\n' > "$w/sm/config/crew-harness"
   printf 'one\n' > "$w/home/config/crew-harness"
@@ -2682,7 +2633,7 @@ test_config_reread_bootstrap_path_and_spawn_flexibility() {
   fm_config_reread_mark_pending "$stale" "$stale.pending" \
     || fail "could not create spawn stale reread marker"
   launchlog="$w/spawn-flex.launch.log"
-  spawn_secondmate_capture "$w" sm-flex "$sm" "$launchlog" --harness pi --model openai/gpt-6.1-sol >/dev/null 2>&1
+  spawn_secondmate_capture "$w" sm-flex "$sm" "$launchlog" --harness pi >/dev/null 2>&1
   assert_no_reread_pending "$sm"
   assert_no_reread_instructions "$sm"
   launch=$(cat "$launchlog")
@@ -2816,167 +2767,6 @@ SH
   pass "B25 spawn quarantines stale rereads without blocking relaunch"
 }
 
-test_keyed_secondmate_pins() {
-  local cfg out rc row id model effort
-  cfg="$TMP_ROOT/keyed-pins/config"
-  mkdir -p "$cfg"
-  printf 'pi\nnetcup pi anthropic/claude-opus-5-5 low\nbosgame pi openai/gpt-6.1-sol low\n' > "$cfg/secondmate-harness"
-  for row in 'netcup anthropic/claude-opus-5-5 low' 'bosgame openai/gpt-6.1-sol low'; do
-    read -r id model effort <<< "$row"
-    out=$(FM_CONFIG_OVERRIDE="$cfg" "$ROOT/bin/fm-harness.sh" secondmate-pin "$id")
-    [ "$out" = "pi $model $effort" ] || fail "wrong keyed profile: $out"
-    [ "$(FM_CONFIG_OVERRIDE="$cfg" "$ROOT/bin/fm-harness.sh" secondmate-model "$id")" = "$model" ] || fail "model lookup missed id"
-    [ "$(FM_CONFIG_OVERRIDE="$cfg" "$ROOT/bin/fm-harness.sh" secondmate-effort "$id")" = "$effort" ] || fail "effort lookup missed id"
-  done
-  [ "$(FM_CONFIG_OVERRIDE="$cfg" "$ROOT/bin/fm-harness.sh" secondmate missing)" = pi ] || fail "legacy default changed"
-  [ -z "$(FM_CONFIG_OVERRIDE="$cfg" "$ROOT/bin/fm-harness.sh" secondmate-model missing)" ] || fail "missing id acquired another pin"
-  printf 'codex fallback medium\nnetcup pi anthropic/claude-opus-5-5 low\n' > "$cfg/secondmate-harness"
-  [ "$(FM_CONFIG_OVERRIDE="$cfg" "$ROOT/bin/fm-harness.sh" secondmate-model bosgame)" = fallback ] || fail "unkeyed profile no longer works"
-  for row in 'netcup pi default low' 'netcup pi anthropic/claude-opus-5-5 default' 'netcup pi model low extra' $'netcup pi model low\nnetcup pi other low' $'pi\ncodex'; do
-    printf '%s\n' "$row" > "$cfg/secondmate-harness"
-    rc=0
-    out=$(FM_CONFIG_OVERRIDE="$cfg" "$ROOT/bin/fm-harness.sh" secondmate-pin netcup 2>&1) || rc=$?
-    expect_code 2 "$rc" "malformed pin must refuse: $row"
-    assert_contains "$out" 'error:' 'malformed pin has no diagnostic'
-  done
-  pass "keyed secondmate pins select by id, preserve legacy defaults, and refuse malformed config"
-}
-
-test_keyed_pi_launch_and_first_call() {
-  local w sm out rc launch error meta
-  for error in '' '403 forbidden' '401 unauthorized' '429 quota exceeded'; do
-    w="$TMP_ROOT/keyed-launch-${error%% *}"
-    sm="$w/sm"
-    mkdir -p "$w/home/config"
-    printf 'codex\nsm pi anthropic/claude-opus-5-5 low\n' > "$w/home/config/secondmate-harness"
-    make_seeded_home "$sm" sm
-    rc=0
-    out=$(FM_FAKE_PI_ERROR="$error" spawn_secondmate_capture "$w" sm "$sm" "$w/launch" --harness codex --model stale --effort high 2>&1) || rc=$?
-    launch=$(cat "$w/launch")
-    assert_contains "$launch" "--model 'anthropic/claude-opus-5-5'" 'keyed launch fell through to host default/stale model'
-    assert_contains "$launch" "--thinking 'low'" 'keyed launch lost thinking pin'
-    meta="$w/home/state/sm.meta"
-    if [ -z "$error" ]; then
-      expect_code 0 "$rc" "successful first call must launch: $out"
-      [ "$(meta_field "$meta" model)" = anthropic/claude-opus-5-5 ] || fail "meta missed model pin (rc=$rc): $out"
-      assert_contains "$out" 'spawned sm' 'successful Pi first call not confirmed'
-    else
-      expect_code 1 "$rc" "bad first call must fail: $out"
-      assert_contains "$out" "model anthropic/claude-opus-5-5 first call failed: error: $error" 'provider error/model hidden'
-      assert_not_contains "$out" 'spawned sm' 'provider failure claimed launch success'
-    fi
-  done
-  pass "keyed Pi launches pass explicit flags and reject first-call 403/401/quota errors"
-}
-
-test_pi_first_call_bounded_and_first_response_only() {
-  local receipt out rc hook reason
-  receipt="$TMP_ROOT/first-call/receipt"
-  mkdir -p "${receipt%/*}"
-  hook="$TMP_ROOT/first-call/hook.mjs"
-  {
-    printf 'export default function(pi) {\n'
-    "$ROOT/bin/fm-pi-first-call.sh" hook "$receipt"
-    printf '}\n'
-  } > "$hook"
-  FM_FAKE_PI_ERROR='403 forbidden' node "$ROOT/tests/assets/pi-first-call-fake.mjs" "$hook" || fail 'hook execution failed'
-  rc=0
-  out=$("$ROOT/bin/fm-pi-first-call.sh" wait "$receipt" explicit/model 1 2>&1) || rc=$?
-  expect_code 1 "$rc" 'later successful retry erased the first provider failure'
-  assert_contains "$out" '403 forbidden' 'first provider error missing'
-  for reason in aborted unknown; do
-    FM_FAKE_PI_STOP_REASON="$reason" node "$ROOT/tests/assets/pi-first-call-fake.mjs" "$hook" || fail 'hook execution failed'
-    rc=0
-    out=$("$ROOT/bin/fm-pi-first-call.sh" wait "$receipt" explicit/model 1 2>&1) || rc=$?
-    expect_code 1 "$rc" "first-call stop reason $reason must refuse"
-    assert_contains "$out" "$reason" 'unsuccessful stop reason missing'
-  done
-  rm -f "$receipt"
-  rc=0
-  out=$("$ROOT/bin/fm-pi-first-call.sh" wait "$receipt" explicit/model 1 2>&1) || rc=$?
-  expect_code 1 "$rc" 'missing first-call receipt must time out'
-  assert_contains "$out" 'within 1s' 'bounded readiness timeout missing'
-  assert_contains "$out" 'explicit/model' 'timeout did not name model'
-  pass "Pi first-call readiness ignores user messages, preserves first errors, and bounds missing responses"
-}
-
-test_remote_spawn_replaces_stale_meta_with_keyed_pin() {
-  local w out rc
-  w="$TMP_ROOT/remote-keyed"
-  mkdir -p "$w/code/bin" "$w/home/config" "$w/home/state" "$w/home/data"
-  ln -s "$ROOT"/bin/*.sh "$w/code/bin/"
-  rm "$w/code/bin/fm-on.sh" "$w/code/bin/fm-remote-inherit-push.sh" "$w/code/bin/fm-procevent-remote-reply.sh"
-  printf '#!/usr/bin/env bash\nexit 0\n' > "$w/code/bin/fm-remote-inherit-push.sh"
-  printf '#!/usr/bin/env bash\nexit 0\n' > "$w/code/bin/fm-procevent-remote-reply.sh"
-  cat > "$w/code/bin/fm-on.sh" <<'SH'
-#!/usr/bin/env bash
-set -eu
-[ "$1" = sm ] || exit 2
-case "$2" in
-  fm-remote-doctor.sh) exit 0 ;;
-  fm-remote-secondmate-control.sh)
-    [ "$3" = launch ] || exit 2
-    printf '%s\n' "$*" > "$FM_HOME/wire"
-    printf 'backend=herdr\ntarget=fm-remote:w1:p1\nherdr_session=fm-remote\nharness=%s\nmodel=%s\neffort=%s\n' "$5" "$6" "$7"
-    ;;
-  *) exit 2 ;;
-esac
-SH
-  chmod +x "$w/code/bin/fm-on.sh" "$w/code/bin/fm-remote-inherit-push.sh" "$w/code/bin/fm-procevent-remote-reply.sh"
-  printf 'codex\nsm pi openai/gpt-6.1-sol low\n' > "$w/home/config/secondmate-harness"
-  printf -- '- sm - remote domain (host: fake-host; root: /srv/fm; home: /srv/mate; scope: things; projects: p; added 2026-10-08)\n' > "$w/home/data/secondmates.md"
-  fm_write_meta "$w/home/state/sm.meta" 'window=remote:sm' 'kind=secondmate' 'harness=pi' 'model=default' 'effort=default' 'remote_host=fake-host' 'remote_root=/srv/fm' 'home=/srv/mate'
-  rc=0
-  out=$(FM_HOME="$w/home" FM_ROOT_OVERRIDE="$w/code" FM_SPAWN_NO_GUARD=1 "$w/code/bin/fm-spawn.sh" sm --secondmate 2>&1) || rc=$?
-  expect_code 0 "$rc" "remote keyed spawn failed: $out"
-  [ "$(cat "$w/home/wire")" = 'sm fm-remote-secondmate-control.sh launch sm pi openai/gpt-6.1-sol low herdr' ] || fail "remote spawn did not send the parent model/effort pin: $(cat "$w/home/wire")"
-  [ "$(meta_field "$w/home/state/sm.meta" model)" = openai/gpt-6.1-sol ] || fail 'remote spawn retained stale model metadata'
-  [ "$(meta_field "$w/home/state/sm.meta" effort)" = low ] || fail 'remote spawn retained stale effort metadata'
-  printf 'pi\n' > "$w/home/config/secondmate-harness"
-  rm "$w/home/wire"
-  rc=0
-  out=$(FM_HOME="$w/home" FM_ROOT_OVERRIDE="$w/code" FM_SPAWN_NO_GUARD=1 "$w/code/bin/fm-spawn.sh" sm --secondmate 2>&1) || rc=$?
-  expect_code 1 "$rc" "unpinned remote spawn must refuse: $out"
-  assert_contains "$out" 'requires an explicit model' 'remote spawn missing-model diagnostic hidden'
-  [ ! -f "$w/home/wire" ] || fail 'unpinned remote spawn reached launch transport'
-  pass "remote initial/recovery spawn passes explicit id pins despite default model/effort metadata"
-}
-
-test_pi_secondmate_refuses_missing_model() {
-  local w sm out rc model
-  local -a profile_args
-  for model in '' default -; do
-    w="$TMP_ROOT/unpinned-${model:-empty}"
-    sm="$w/sm"
-    mkdir -p "$w/home/config"
-    printf 'pi\n' > "$w/home/config/secondmate-harness"
-    make_seeded_home "$sm" sm
-    rc=0
-    profile_args=(--harness pi)
-    [ -z "$model" ] || profile_args+=(--model "$model")
-    out=$(spawn_secondmate_capture "$w" sm "$sm" "$w/launch" "${profile_args[@]}" 2>&1) || rc=$?
-    expect_code 1 "$rc" "unpinned Pi spawn must fail: $out"
-    assert_contains "$out" 'Pi secondmate sm requires an explicit model' 'spawn missing-model refusal hidden'
-    [ ! -s "$w/launch" ] || fail 'unpinned Pi launch reached endpoint'
-  done
-  pass "local Pi spawn refuses empty/default/dash models before creating an endpoint"
-}
-
-if [ "${FM_SM_PIN_TEST_ONLY:-0}" = 1 ]; then
-  test_pi_secondmate_refuses_missing_model
-  test_keyed_secondmate_pins
-  test_remote_spawn_replaces_stale_meta_with_keyed_pin
-  test_keyed_pi_launch_and_first_call
-  test_pi_first_call_bounded_and_first_response_only
-  exit 0
-fi
-
-test_keyed_secondmate_pins
-test_pi_secondmate_refuses_missing_model
-test_remote_spawn_replaces_stale_meta_with_keyed_pin
-test_keyed_pi_launch_and_first_call
-test_pi_first_call_bounded_and_first_response_only
-
 test_harness_resolution
 test_cursor_marker_detection
 test_secondmate_model_effort_tokens
@@ -3009,8 +2799,6 @@ test_spawn_secondmate_claude_permission_mode_auto
 test_spawn_secondmate_claude_grants_parent_inbox_dir
 test_claude_permission_mode_inheritance_present_and_absent
 test_presentation_inheritance_default_on_and_opt_out
-test_remote_receiver_accepts_herdr_project_groups
-test_remote_receiver_accepts_firstmate_role
 test_bootstrap_sweep_surfaces_config_propagation_failure
 test_bootstrap_rereads_after_partial_propagation
 test_config_push_propagates_reports_without_ff_or_nudge

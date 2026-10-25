@@ -29,9 +29,6 @@ if [ "${1:-}" = --help ]; then
   *) printf '%s\n' "Pi ${FM_FAKE_PI_VERSION:-0.84.0}" 'Options: --help --tui-mode <mode> --approve' ;;
   esac
 fi
-if [ "${1:-}" = --list-models ]; then
-  printf '%s\n' 'provider      model         context' 'openai-codex  gpt-5.6-sol   272K'
-fi
 exit 0
 SH
   chmod +x "$fakebin/$tool"
@@ -40,18 +37,13 @@ SH
 make_spawn_fakebin() {
   local dir=$1 fakebin
   fakebin=$(fm_test_make_spawn_fakebin "$dir")
-  # Mirrors timeout(1)'s argument shape (options, then the duration, then the
-  # command) without bounding anything.
   cat > "$fakebin/timeout" <<'SH'
 #!/usr/bin/env bash
-while [ $# -gt 0 ]; do
-  case "$1" in
-    -k|-s|--kill-after|--signal) shift 2 ;;
-    --) shift; break ;;
-    -*) shift ;;
-    *) break ;;
-  esac
-done
+# Match GNU timeout's option shape from bin/fm-timeout-lib.sh fm_run_timed:
+# `timeout -k <grace> <secs> cmd...` or plain `timeout <secs> cmd...`.
+if [ "${1:-}" = -k ]; then
+  shift 2
+fi
 shift
 exec "$@"
 SH
@@ -71,12 +63,7 @@ if [ "${1:-}" = --list-models ]; then
 fi
 exit 0
 SH
-  cat > "$fakebin/opencode" <<'SH'
-#!/usr/bin/env bash
-[ "${1:-}" != models ] || printf '%s\n' anthropic/claude-sonnet-4-5 openai/gpt-5.6-sol
-exit 0
-SH
-  chmod +x "$fakebin/timeout" "$fakebin/cursor-agent" "$fakebin/opencode"
+  chmod +x "$fakebin/timeout" "$fakebin/cursor-agent"
   make_spawn_pi_probe "$fakebin" pi
   make_spawn_pi_probe "$fakebin" pi-signed
   printf '%s\n' "$fakebin"
@@ -272,33 +259,6 @@ test_non_cursor_launch_clears_inherited_cursor_markers() {
   assert_contains "$launch" "env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI" \
     "non-cursor launch must clear both inherited Cursor identity markers"
   pass "non-cursor launches clear inherited Cursor identity markers"
-}
-
-# A Claude worker is a top-level session: an inherited child-session marker
-# would turn its transcript saving off. Execute the recorded launch line against
-# a stand-in claude that reports what it inherited.
-test_claude_launch_clears_inherited_child_session_marker() {
-  local rec id out status launch
-  id=profile-claude-child-marker-z1c
-  rec=$(make_spawn_case profile-claude-child-marker claude "$id")
-  read_case_record "$rec"
-
-  out=$(CLAUDE_CODE_CHILD_SESSION=1 \
-    run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
-  status=$?
-  expect_code 0 "$status" "claude spawn under a child-session marker should succeed"$'\n'"$out"
-  launch=$(cat "$LAUNCH_LOG")
-  mkdir -p "$CASE_DIR/claudebin"
-  cat > "$CASE_DIR/claudebin/claude" <<SH
-#!/usr/bin/env bash
-printf 'child=%s\\n' "\${CLAUDE_CODE_CHILD_SESSION-unset}" > '$CASE_DIR/claude-env'
-SH
-  chmod +x "$CASE_DIR/claudebin/claude"
-  (cd "$WT_DIR" && CLAUDE_CODE_CHILD_SESSION=1 PATH="$CASE_DIR/claudebin:$PATH" bash -c "$launch") \
-    || fail "the recorded launch line should run"$'\n'"$launch"
-  [ "$(cat "$CASE_DIR/claude-env" 2>/dev/null)" = "child=unset" ] \
-    || fail "the spawned claude must not inherit CLAUDE_CODE_CHILD_SESSION, got: $(cat "$CASE_DIR/claude-env" 2>/dev/null)"
-  pass "claude launches clear an inherited child-session marker so transcripts persist"
 }
 
 test_relative_home_overrides_launch_with_absolute_cross_process_paths() {
@@ -618,7 +578,7 @@ test_active_dispatch_profile_allows_raw_launch_command() {
   # The unverified-adapter escape hatch is still an agent this fleet launched,
   # so it carries the compact-adviser floor and the AI-trailer strip; nothing
   # else may rewrite the captain's own command.
-  [ "$launch" = "$(launch_path_export)export COMPACT_ADVISER_DISABLE=1; $(task_inbox_export "$HOME_DIR" "$id")$(fm_test_launch_git_prefix "$launch")custom-agent --flag" ] || fail "raw launch command changed"$'\n'"actual: $launch"
+  [ "$launch" = "export COMPACT_ADVISER_DISABLE=1; $(task_inbox_export "$HOME_DIR" "$id")$(fm_test_launch_git_prefix "$launch")custom-agent --flag" ] || fail "raw launch command changed"$'\n'"actual: $launch"
   pass "active crew-dispatch profile allows the raw launch-command escape hatch"
 }
 
@@ -1144,7 +1104,7 @@ test_pi_signed_persistent_secondmate_uses_pi_extensions_and_identity() {
   id=profile-pi-signed-secondmate-z8d
   rec=$(make_spawn_case profile-pi-signed-secondmate codex "$id")
   read_case_record "$rec"
-  printf '%s\n' 'pi-signed openai/gpt-6.1-sol' > "$HOME_DIR/config/secondmate-harness"
+  printf '%s\n' pi-signed > "$HOME_DIR/config/secondmate-harness"
   sm="$CASE_DIR/secondmate-home"
   make_seeded_secondmate_home "$sm" "$id"
   sm=$(cd "$sm" && pwd -P)
@@ -1156,13 +1116,13 @@ test_pi_signed_persistent_secondmate_uses_pi_extensions_and_identity() {
   expect_code 0 "$status" "pi-signed persistent secondmate spawn should succeed"
   assert_contains "$out" "spawned $id harness=pi-signed kind=secondmate" \
     "pi-signed secondmate spawn did not preserve its runtime identity"
-  assert_meta_profile "$HOME_DIR/state/$id.meta" pi-signed openai/gpt-6.1-sol default
+  assert_meta_profile "$HOME_DIR/state/$id.meta" pi-signed default default
   cmp -s "$ROOT/AGENTS.md" "$sm/AGENTS.md" || fail "secondmate launch rewrote the supervisor contract"
   cmp -s "$CASE_DIR/charter-before" "$sm/data/charter.md" || fail "secondmate launch rewrote the charter"
   assert_absent "$HOME_DIR/data/$id/launch-brief.md" "secondmate launch received a worker overlay"
   launch=$(cat "$LAUNCH_LOG")
   assert_contains "$launch" "< '$sm/data/charter.md'" "secondmate launch lost its original charter"
-  assert_contains "$launch" "FM_PI_HARNESS=pi-signed '$FAKEBIN_DIR/pi-signed' --tui-mode regular --approve --model 'openai/gpt-6.1-sol' -e '$sm/.pi/extensions/fm-primary-turnend-guard.ts' -e '$sm/.pi/extensions/fm-primary-pi-watch.ts'" \
+  assert_contains "$launch" "FM_PI_HARNESS=pi-signed '$FAKEBIN_DIR/pi-signed' --tui-mode regular --approve -e '$sm/.pi/extensions/fm-primary-turnend-guard.ts' -e '$sm/.pi/extensions/fm-primary-pi-watch.ts'" \
     "pi-signed secondmate did not force the regular TUI with Pi's primary extension launch shape and seeded-home --approve"
   if [ "${FM_TEST_EVIDENCE:-0}" = 1 ]; then
     printf '# evidence begin: persistent secondmate\n%s\n' "$out"
@@ -1179,7 +1139,7 @@ test_pi_seeded_secondmate_preapproves_project_trust() {
     id="profile-${harness}-seeded-approve-z8e"
     rec=$(make_spawn_case "profile-${harness}-seeded-approve" codex "$id")
     read_case_record "$rec"
-    printf '%s openai/gpt-6.1-sol\n' "$harness" > "$HOME_DIR/config/secondmate-harness"
+    printf '%s\n' "$harness" > "$HOME_DIR/config/secondmate-harness"
     sm="$CASE_DIR/secondmate-home"
     make_seeded_secondmate_home "$sm" "$id"
     sm=$(cd "$sm" && pwd -P)
@@ -1221,7 +1181,7 @@ test_pi_approve_probe_omits_unsupported_flag() {
     id="profile-${harness}-no-approve-z8g"
     rec=$(make_spawn_case "profile-${harness}-no-approve" codex "$id")
     read_case_record "$rec"
-    printf '%s openai/gpt-6.1-sol\n' "$harness" > "$HOME_DIR/config/secondmate-harness"
+    printf '%s\n' "$harness" > "$HOME_DIR/config/secondmate-harness"
     sm="$CASE_DIR/secondmate-home"
     make_seeded_secondmate_home "$sm" "$id"
     sm=$(cd "$sm" && pwd -P)
@@ -1534,7 +1494,7 @@ test_pi_exclude_tools_do_not_leak_across_homes_or_to_secondmates() {
   id_a=excl-sm-z9h
   rec_a=$(make_spawn_case excl-sm codex "$id_a")
   read_case_record "$rec_a"
-  printf '%s\n' 'pi openai/gpt-6.1-sol' > "$HOME_DIR/config/secondmate-harness"
+  printf '%s\n' pi > "$HOME_DIR/config/secondmate-harness"
   write_exclude_file "$HOME_DIR" 'mcp__srv__writeTool'
   sm="$CASE_DIR/secondmate-home"
   make_seeded_secondmate_home "$sm" "$id_a"
@@ -1581,7 +1541,7 @@ test_claude_forwards_firstmate_config_dir_when_set() {
   status=$?
   expect_code 0 "$status" "claude spawn with CLAUDE_CONFIG_DIR set should succeed"
   launch=$(cat "$LAUNCH_LOG")
-  assert_contains "$launch" "CLAUDE_CONFIG_DIR='$CASE_DIR/claude-work' env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI env -u CLAUDE_CODE_CHILD_SESSION CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_SEND_FEEDBACK=0 claude --dangerously-skip-permissions $(claude_worker_add_dirs "$HOME_DIR" "$id")--settings '{\"feedbackDrafts\":\"off\",\"attribution\":{\"commit\":\"\",\"pr\":\"\",\"sessionUrl\":false}}'" \
+  assert_contains "$launch" "CLAUDE_CONFIG_DIR='$CASE_DIR/claude-work' env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_SEND_FEEDBACK=0 claude --dangerously-skip-permissions $(claude_worker_add_dirs "$HOME_DIR" "$id")--settings '{\"feedbackDrafts\":\"off\",\"attribution\":{\"commit\":\"\",\"pr\":\"\",\"sessionUrl\":false}}'" \
     "claude launch did not forward firstmate's CLAUDE_CONFIG_DIR to the crewmate pane"
   pass "claude forwards firstmate's CLAUDE_CONFIG_DIR so the crewmate uses the same credential store"
 }
@@ -1843,8 +1803,6 @@ test_active_dispatch_profile_does_not_block_secondmate_launch() {
 # Execute the actual emitted command in a synthetic pane environment: the
 # fake backend records delivery, while real shells exercise the env boundary.
 # No developer environment or credential values are inspected by these probes.
-# PATH inside the worker is the pane's startup PATH followed by the spawner's,
-# which every launch appends (the launch PATH contract in bin/fm-spawn.sh's header).
 test_launch_environment_allowlist() {
   local setting rec id out status probe result expected launch value pane_shell pane_path
   # shellcheck disable=SC2016
@@ -1886,7 +1844,7 @@ SH
         enabled) expected=$(printf '%s\n' unset "$value" '' unset) ;;
         empty) expected=$(printf '%s\n' unset unset unset unset) ;;
       esac
-      expected="$expected"$'\n'"$HOME_DIR/user-home"$'\n'"$pane_path:$FAKEBIN_DIR:$PATH"$'\nxterm\nsynthetic-pane\n/synthetic/gotmp'
+      expected="$expected"$'\n'"$HOME_DIR/user-home"$'\n'"$pane_path"$'\nxterm\nsynthetic-pane\n/synthetic/gotmp'
       # The strip-hook entry must also survive the env -i boundary.
       expected="$expected"$'\n'"hooksPath=$(cd "$HOME_DIR/state" && pwd -P)/$id.git-hooks"
       [ "$result" = "$expected" ] || fail "allowlist=$setting worker environment mismatch: $result"
@@ -2192,24 +2150,13 @@ claude_worker_add_dirs() {  # <home> <id>
   printf '%s ' "--add-dir '$state_real/operational-inbox' --add-dir '$state_real/$2.inbox' --add-dir '$data_real/$2' --add-dir '$root_real/.agents/skills'"
 }
 
-# The spawner's PATH as fm-spawn shell-quotes it into the launch: the fake bin
-# fm_test_run_spawn prepends to the ambient PATH.
-launch_path_export() {
-  # shellcheck disable=SC2016
-  printf 'export PATH="${PATH:+$PATH:}"%s; ' "$(spawner_path_quoted)"
-}
-
-spawner_path_quoted() {
-  printf "'%s'" "$(printf '%s' "$FAKEBIN_DIR:$PATH" | sed "s/'/'\\\\''/g")"
-}
-
 claude_expected_launch() {  # <launch> <home> <id> <permission-flag>
   local doorbell quoted
   doorbell=$(claude_launch_brief_arg "$1")
   [ "$(printf '%s' "$doorbell" | "$ROOT/bin/fm-operational-input.sh" doorbell-kind)" = launch-brief ] \
     || doorbell="not a launch-brief doorbell"
   quoted="'$(printf '%s' "$doorbell" | sed "s/'/'\\\\''/g")'"
-  printf '%s' "$(launch_path_export)export COMPACT_ADVISER_DISABLE=1; $(task_inbox_export "$2" "$3")$(fm_test_launch_git_prefix "$1")env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI env -u CLAUDE_CODE_CHILD_SESSION CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_SEND_FEEDBACK=0 claude $4 $(claude_worker_add_dirs "$2" "$3")--settings '{\"feedbackDrafts\":\"off\",\"attribution\":{\"commit\":\"\",\"pr\":\"\",\"sessionUrl\":false}}' $CLAUDE_CONTROL_CHANNEL_FLAG $quoted"
+  printf '%s' "export COMPACT_ADVISER_DISABLE=1; $(task_inbox_export "$2" "$3")$(fm_test_launch_git_prefix "$1")env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_SEND_FEEDBACK=0 claude $4 $(claude_worker_add_dirs "$2" "$3")--settings '{\"feedbackDrafts\":\"off\",\"attribution\":{\"commit\":\"\",\"pr\":\"\",\"sessionUrl\":false}}' $CLAUDE_CONTROL_CHANNEL_FLAG $quoted"
 }
 
 test_claude_permission_mode_bypass_matches_absent_launch() {
@@ -2343,7 +2290,6 @@ test_claude_launch_brief_publishes_record_doorbell
 test_claude_secondmate_launch_brief_publishes_into_its_own_home
 test_claude_spawn_refuses_when_the_brief_record_cannot_publish
 test_non_cursor_launch_clears_inherited_cursor_markers
-test_claude_launch_clears_inherited_child_session_marker
 test_relative_home_overrides_launch_with_absolute_cross_process_paths
 test_home_defaults_preserve_absolute_or_resolve_relative_paths
 test_absolute_override_spelling_is_preserved_in_launch_paths

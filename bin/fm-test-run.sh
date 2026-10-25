@@ -56,8 +56,6 @@
 #                   min(4, cpus) workers when multiple selected scripts are
 #                   admissible; --lane, --family, and --all stay serial unless
 #                   asked for concurrency explicitly.
-#                   On Darwin N is clamped to 4 with a message, because a loaded
-#                   laptop froze twice under larger runs.
 #                   N>1 is allowed only when every selected script is proven
 #                   safe to run concurrently: individually in the proven-isolated
 #                   set (bin/fm-test-isolation-proof.sh --list), or in a family
@@ -96,18 +94,6 @@
 #   FM_TEST_SUMMARY_FAMILY family=<name> count=<n> duration_ms=<n> failed=<n>
 #   FM_TEST_SLOWEST rank=<k> script=<path> duration_ms=<n>
 #   FM_TEST_BUDGET max_wall_ms=<n> duration_ms=<n>   (only with --max-wall-ms)
-#
-# Host safety (executing modes only):
-#   One run per checkout: the runner takes a lock keyed on its checkout and
-#   refuses to start, naming the holder, while another live run owns it. A lock
-#   whose holder is gone is reclaimed. A script that itself invokes this runner
-#   (the runner's own tests) inherits FM_TEST_RUN_LOCK_HOLDER and is exempt.
-#   FM_TEST_RUN_LOCK_DIR overrides the lock directory (default ${TMPDIR:-/tmp}).
-#   On Darwin the runner re-executes itself under `taskpolicy -b` so every
-#   worker runs at background priority. FM_TEST_RUN_NO_TASKPOLICY=1 skips that.
-#   An EXIT, HUP, INT, or TERM trap terminates every descendant of the runner
-#   (workers, their children, helpers) so nothing outlives it. SIGKILL cannot
-#   be trapped; the lock then goes stale and the next run reclaims it.
 #
 # Placement refusal:
 #   A task worker is assigned an isolated worktree, and that placement is
@@ -164,8 +150,6 @@
 # tests/fixtures/<dir>/ is mapped by that directory instead. Curated family arms
 # above those also name individual tests/ files explicitly.
 set -eu
-
-ORIG_ARGS=("$@")
 
 now_ms() {
   if command -v python3 >/dev/null 2>&1; then
@@ -288,138 +272,6 @@ cpu_count() {
   printf '%s\n' "$n"
 }
 
-# Host safety for executing modes (header: "Host safety"): background priority
-# on Darwin, one live run per checkout, and a trap that leaves no descendant
-# behind. A full suite run from a tool session froze the host twice, so none of
-# this is optional once a run is going to execute scripts.
-RUN_TMP=
-LOCK_DIR=
-
-# Every pid below <root-pid>, one per line, in breadth-first order.
-# shellcheck disable=SC2329
-descendant_pids() {  # [root-pid]
-  ps -A -o pid= -o ppid= 2>/dev/null | awk -v root="${1:-$$}" '
-    { kids[$2] = kids[$2] " " $1 }
-    END {
-      queue[1] = root
-      n = 1
-      for (i = 1; i <= n; i++) {
-        c = split(kids[queue[i]], a, " ")
-        for (j = 1; j <= c; j++) { queue[++n] = a[j]; print a[j] }
-      }
-    }'
-}
-
-# Terminate everything this runner started. TERM first, then KILL for whatever
-# survives a short grace. The first snapshot is kept: a middle process that dies
-# re-parents its children to init, where a later descendant walk can no longer
-# find them.
-# shellcheck disable=SC2329
-terminate_descendants() {
-  local seen pid live waited=0 now
-  seen=$(descendant_pids "$$")
-  [ -n "$seen" ] || return 0
-  # shellcheck disable=SC2086
-  kill -TERM $seen 2>/dev/null || true
-  while [ "$waited" -lt 20 ]; do
-    live=
-    for pid in $seen; do
-      if kill -0 "$pid" 2>/dev/null; then live="$live $pid"; fi
-    done
-    [ -n "$live" ] || return 0
-    sleep 0.1
-    waited=$((waited + 1))
-  done
-  now=$(descendant_pids "$$")
-  # shellcheck disable=SC2086
-  kill -KILL $live $now 2>/dev/null || true
-}
-
-# shellcheck disable=SC2329
-release_run_lock() {
-  [ -n "$LOCK_DIR" ] || return 0
-  if [ "$(cat "$LOCK_DIR/pid" 2>/dev/null)" = "$$" ]; then
-    rm -rf "$LOCK_DIR"
-  fi
-  LOCK_DIR=
-}
-
-# Invoked indirectly by the EXIT trap in start_host_safety.
-# shellcheck disable=SC2329
-cleanup_run() {
-  trap - EXIT HUP INT TERM
-  terminate_descendants
-  release_run_lock
-  [ -z "$RUN_TMP" ] || rm -rf "$RUN_TMP"
-}
-
-proc_start_stamp() {  # <pid>
-  ps -o lstart= -p "$1" 2>/dev/null | tr -s ' ' | sed 's/^ //'
-}
-
-# Take the per-checkout lock or refuse naming the live holder. A holder is live
-# only while its pid exists with the start time recorded next to it, so a dead
-# run and a recycled pid both read as stale and the lock is reclaimed.
-acquire_run_lock() {
-  local base key dir holder_pid holder_stamp now_stamp holder_args attempt=0
-  base=${FM_TEST_RUN_LOCK_DIR:-${TMPDIR:-/tmp}}
-  mkdir -p "$base" 2>/dev/null || die "cannot create lock directory $base"
-  key=$(printf '%s' "$(pwd -P)" | cksum | awk '{print $1}')
-  dir="${base%/}/fm-test-run-lock.$key"
-  while [ "$attempt" -lt 20 ]; do
-    attempt=$((attempt + 1))
-    if mkdir "$dir" 2>/dev/null; then
-      LOCK_DIR=$dir
-      proc_start_stamp "$$" >"$dir/start"
-      printf '%s\n' "$ROOT" >"$dir/root"
-      printf '%s\n' "${ORIG_ARGS[*]-}" >"$dir/args"
-      # The pid file is written last: its presence marks a complete record.
-      printf '%s\n' "$$" >"$dir/pid.tmp"
-      mv "$dir/pid.tmp" "$dir/pid"
-      export FM_TEST_RUN_LOCK_HOLDER=$$
-      return 0
-    fi
-    holder_pid=$(cat "$dir/pid" 2>/dev/null || true)
-    if [ -z "$holder_pid" ]; then
-      # Holder is still writing its record, or died before finishing it.
-      if [ "$attempt" -ge 10 ]; then rm -rf "$dir"; else sleep 0.1; fi
-      continue
-    fi
-    holder_stamp=$(cat "$dir/start" 2>/dev/null || true)
-    now_stamp=$(proc_start_stamp "$holder_pid")
-    if [ -n "$now_stamp" ] && [ "$now_stamp" = "$holder_stamp" ]; then
-      # A script this holder is running may invoke the runner again (its own
-      # tests do); that nested run is the holder's, not a second suite.
-      [ "${FM_TEST_RUN_LOCK_HOLDER:-}" != "$holder_pid" ] || return 0
-      holder_args=$(cat "$dir/args" 2>/dev/null || true)
-      die "another test run is live for this checkout: pid $holder_pid (started $holder_stamp) running 'fm-test-run.sh $holder_args'; wait for it or stop it with kill $holder_pid - parallel suites froze this host before"
-    fi
-    # Stale holder: reclaim. Losing the mkdir race to another reclaimer loops
-    # back and reads that reclaimer as the live holder.
-    rm -rf "$dir"
-  done
-  die "could not take the test-run lock under $base"
-}
-
-start_host_safety() {
-  local darwin=0
-  [ "$(uname -s 2>/dev/null)" = Darwin ] && darwin=1
-  if [ "$darwin" -eq 1 ] && [ -z "${FM_TEST_RUN_BACKGROUNDED:-}" ] \
-    && [ "${FM_TEST_RUN_NO_TASKPOLICY:-}" != 1 ] && command -v taskpolicy >/dev/null 2>&1; then
-    FM_TEST_RUN_BACKGROUNDED=1 exec taskpolicy -b "$BASH" \
-      "$ROOT/bin/$(basename "${BASH_SOURCE[0]}")" "${ORIG_ARGS[@]+"${ORIG_ARGS[@]}"}"
-  fi
-  if [ "$darwin" -eq 1 ] && [ "$JOBS" -gt 4 ]; then
-    log "--jobs $JOBS clamped to 4 on Darwin"
-    JOBS=4
-  fi
-  trap cleanup_run EXIT
-  trap 'exit 129' HUP
-  trap 'exit 130' INT
-  trap 'exit 143' TERM
-  acquire_run_lock
-}
-
 # Primary family for one tests/*.test.sh basename. Unmapped scripts are
 # unclassified so new tests are still runnable and visible in summaries.
 #
@@ -441,7 +293,7 @@ family_for_basename() {
     fm-documentation-audiences.test.sh|fm-ensure-agents-md.test.sh|fm-forge-detect.test.sh|fm-grok-harness.test.sh|\
     fm-fork-free-helpers.test.sh|\
     fm-harness-precedence.test.sh|\
-    fm-kimi-harness.test.sh|fm-devin-harness.test.sh|fm-commandcode-harness.test.sh|fm-muse-harness.test.sh|fm-rovo-harness.test.sh|fm-agy-harness.test.sh|fm-omp-harness.test.sh|fm-herdr-lab.test.sh|fm-lint.test.sh|\
+    fm-kimi-harness.test.sh|fm-devin-harness.test.sh|fm-commandcode-harness.test.sh|fm-muse-harness.test.sh|fm-rovo-harness.test.sh|fm-agy-harness.test.sh|fm-omp-harness.test.sh|fm-polytoken-harness.test.sh|fm-herdr-lab.test.sh|fm-lint.test.sh|\
     fm-lint-workflows.test.sh|\
     fm-operational-input.test.sh|fm-pi-primary-types.test.sh|\
     fm-calm-claude-mod.test.sh|\
@@ -463,7 +315,7 @@ family_for_basename() {
     fm-tool-update-check.test.sh|\
     fm-mail.test.sh|fm-mail-check.test.sh|\
     fm-turnend-foreign-owner-arm-fix.test.sh|\
-    fm-wake-classify.test.sh|fm-wake-fold.test.sh|fm-wake-queue.test.sh|fm-watch-arm.test.sh|fm-watch-checkpoint.test.sh|fm-watch-recovery-loop.test.sh|\
+    fm-wake-queue.test.sh|fm-watch-arm.test.sh|fm-watch-checkpoint.test.sh|fm-watch-recovery-loop.test.sh|\
     fm-watch-triage.test.sh|fm-task-inbox.test.sh|\
     fm-watcher-lock.test.sh|fm-inactive-reconcile.test.sh)
       printf '%s\n' watcher-wake-lock
@@ -487,7 +339,7 @@ family_for_basename() {
     fm-remote-secondmate-trace-context.test.sh|\
     fm-secondmate-harness.test.sh|fm-secondmate-lifecycle-e2e.test.sh|\
     fm-secondmate-liveness.test.sh|fm-secondmate-reconcile.test.sh|\
-    fm-secondmate-restart.test.sh|fm-remote-secondmate-relaunch.test.sh|fm-quota-failover.test.sh|\
+    fm-secondmate-restart.test.sh|fm-remote-secondmate-relaunch.test.sh|\
     fm-secondmate-safety.test.sh|fm-secondmate-sync.test.sh|\
     fm-startup-memory-budget.test.sh|fm-stow-cascade.test.sh|\
     fm-send-secondmate-marker.test.sh|fm-shared-captain-inheritance.test.sh)
@@ -495,7 +347,7 @@ family_for_basename() {
       ;;
     fm-backlog-atomicity.test.sh|\
     fm-bootstrap.test.sh|fm-bootstrap-network-parallel.test.sh|fm-fleet-sync.test.sh|fm-gate-refuse.test.sh|fm-gotmp.test.sh|\
-    fm-session-start.test.sh|fm-session-start-scale.test.sh|fm-sessionstart-nudge.test.sh|fm-startup-network.test.sh|\
+    fm-session-start.test.sh|fm-sessionstart-nudge.test.sh|fm-startup-network.test.sh|\
     fm-tangle-guard.test.sh|fm-update.test.sh)
       printf '%s\n' session-bootstrap
       ;;
@@ -510,12 +362,12 @@ family_for_basename() {
     fm-cursor-primary-live-e2e.test.sh|\
     fm-grok-stop-live-e2e.test.sh|fm-harness-adapter-instructions-live-e2e.test.sh|\
     fm-harness-liveness-drift-live-e2e.test.sh|\
-    fm-devin-signals-live-e2e.test.sh|fm-commandcode-signals-live-e2e.test.sh|fm-muse-signals-live-e2e.test.sh|fm-rovo-signals-live-e2e.test.sh|fm-agy-signals-live-e2e.test.sh|\
+    fm-devin-signals-live-e2e.test.sh|fm-commandcode-signals-live-e2e.test.sh|fm-muse-signals-live-e2e.test.sh|fm-rovo-signals-live-e2e.test.sh|fm-agy-signals-live-e2e.test.sh|fm-polytoken-signals-live-e2e.test.sh|\
     fm-launch-prompt-signals-live-e2e.test.sh|\
     fm-pi-seeded-home-trust-live-e2e.test.sh|\
     fm-herdr-version-floor-live-e2e.test.sh|\
     fm-herdr-pi-stale-registration-live-e2e.test.sh|\
-    fm-worker-account-live-e2e.test.sh|fm-model-catalog-live-e2e.test.sh|\
+    fm-worker-account-live-e2e.test.sh|\
     fm-opencode-primary-live-e2e.test.sh|fm-pi-branch-live-e2e.test.sh|\
     fm-pi-branch-responsiveness-live-e2e.test.sh|\
     fm-pi-primary-live-e2e.test.sh|fm-pi-codex-native.test.sh|fm-omp-primary-live-e2e.test.sh|\
@@ -532,18 +384,16 @@ family_for_basename() {
       printf '%s\n' live-harness-optin
       ;;
     fm-backend-herdr.test.sh|fm-backend-tmux-smoke.test.sh|fm-backend.test.sh|\
-    fm-tmux-agent-liveness.test.sh|fm-commandcode-composer-clear.test.sh|\
-    fm-control.test.sh|fm-control-relaunch.test.sh|fm-control-launch-check.test.sh|\
-    fm-model-catalog.test.sh|\
+    fm-tmux-agent-liveness.test.sh|\
+    fm-control.test.sh|fm-control-relaunch.test.sh|\
     fm-herdr-session-cleanup.test.sh|fm-send-resolve-key.test.sh|fm-send-strict.test.sh|\
     fm-send-inbox.test.sh|fm-spawn-batch.test.sh|\
-    fm-spawn-dispatch-profile.test.sh|fm-spawn-launch-path.test.sh|fm-claude-trust.test.sh|\
+    fm-spawn-dispatch-profile.test.sh|fm-claude-trust.test.sh|\
     fm-worker-account.test.sh|\
     fm-git-strip-ai-trailers.test.sh|\
     fm-trace-context-spawn.test.sh|fm-spawn-worktree-settle.test.sh|\
     fm-spawn-compact-adviser-disable.test.sh|\
     fm-spawn-compact-adviser-disable-remote.test.sh|\
-    fm-spawn-treehouse-lock-wait.test.sh|\
     fm-project-capacity.test.sh|\
     fm-teardown-endpoint-safety.test.sh)
       printf '%s\n' backend-dispatch
@@ -554,7 +404,7 @@ family_for_basename() {
       printf '%s\n' pr-forge
       ;;
     fm-afk-contract.test.sh|fm-afk-inject-e2e.test.sh|fm-afk-return.test.sh|\
-    fm-supervision-host.test.sh|fm-host-mirror.test.sh|fm-offer-wake-fold.test.sh)
+    fm-supervision-host.test.sh|fm-host-mirror.test.sh)
       printf '%s\n' afk
       ;;
     fm-bearings-board-render.test.sh|fm-bearings-snapshot.test.sh|fm-contributions.test.sh|\
@@ -879,8 +729,7 @@ tests/fm-claude-trust.test.sh 12010
 tests/fm-cmux-claude-composer-live-e2e.test.sh 77
 tests/fm-codex-continuity-live-e2e.test.sh 108
 tests/fm-codex-hook-layer-live-e2e.test.sh 108
-tests/fm-commandcode-composer-clear.test.sh 91251
-tests/fm-commandcode-harness.test.sh 15784
+tests/fm-commandcode-harness.test.sh 8182
 tests/fm-commandcode-signals-live-e2e.test.sh 49
 tests/fm-composer-codex-idle-live-e2e.test.sh 77
 tests/fm-composer-matrix-live-e2e.test.sh 51
@@ -901,11 +750,9 @@ tests/fm-fleet-ledger.test.sh 19980
 tests/fm-fleet-snapshot-view.test.sh 23334
 tests/fm-fleet-sync.test.sh 40541
 tests/fm-forge-detect.test.sh 193
-tests/fm-fork-churn.test.sh 43705
 tests/fm-fork-free-helpers.test.sh 746
 tests/fm-gate-refuse.test.sh 9953
 tests/fm-gemini-harness.test.sh 947
-tests/fm-git-push-guard.test.sh 905
 tests/fm-git-strip-ai-trailers.test.sh 2067
 tests/fm-gitignore-config.test.sh 59
 tests/fm-gotmp.test.sh 1509
@@ -926,10 +773,8 @@ tests/fm-host-mirror-live-e2e.test.sh 79
 tests/fm-host-mirror.test.sh 11587
 tests/fm-inactive-reconcile.test.sh 60823
 tests/fm-inbox.test.sh 6062
-tests/fm-lane-reaper.test.sh 5000
 tests/fm-jev-mem-guard.test.sh 336
 tests/fm-kimi-harness.test.sh 58917
-tests/fm-lane-retire.test.sh 1118
 tests/fm-launch-prompt-signals-live-e2e.test.sh 50
 tests/fm-lint-workflows.test.sh 872
 tests/fm-live-gate.test.sh 7452
@@ -937,19 +782,13 @@ tests/fm-live-lab-up-mate.test.sh 17363
 tests/fm-live-lab.test.sh 79639
 tests/fm-mail-check.test.sh 7524
 tests/fm-mail.test.sh 9684
-tests/fm-model-catalog.test.sh 16676
-tests/fm-meta-archive.test.sh 9082
-tests/fm-model-catalog-live-e2e.test.sh 1432
 tests/fm-muse-harness.test.sh 46548
 tests/fm-muse-signals-live-e2e.test.sh 52
 tests/fm-nm-test-contract.test.sh 853
 tests/fm-no-mistakes-required.test.sh 270
-tests/fm-offer-wake-fold.test.sh 4200
 tests/fm-omp-harness.test.sh 63796
 tests/fm-omp-primary-live-e2e.test.sh 74
 tests/fm-on.test.sh 11473
-tests/fm-opencode-abs-cwd-rail-live-e2e.test.sh 38
-tests/fm-open-decisions-fold-linear.test.sh 39542
 tests/fm-opencode-primary-live-e2e.test.sh 47
 tests/fm-operational-input.test.sh 2404
 tests/fm-peek-remote.test.sh 1082
@@ -962,30 +801,23 @@ tests/fm-pi-primary-live-e2e.test.sh 72
 tests/fm-pi-seeded-home-trust-live-e2e.test.sh 45
 tests/fm-pi-watch-extension.test.sh 56515
 tests/fm-pi-windows-shell-invocation.test.sh 5121
-tests/fm-pipeline-spend.test.sh 1570
+tests/fm-polytoken-harness.test.sh 21090
+tests/fm-polytoken-signals-live-e2e.test.sh 103
 tests/fm-pr-check-security.test.sh 300675
-tests/fm-pr-discover.test.sh 16697
-tests/fm-pr-read-throttle.test.sh 19021
 tests/fm-pr-reviewers.test.sh 157
 tests/fm-pr-state-live-e2e.test.sh 47
 tests/fm-pr-state.test.sh 525
 tests/fm-procevent-quota.test.sh 2459
 tests/fm-procevent-when.test.sh 25674
 tests/fm-procevent.test.sh 292297
-tests/fm-project-mode.test.sh 209
-tests/fm-project-capacity.test.sh 183450
 tests/fm-project-origin.test.sh 123
 tests/fm-public-followup.test.sh 381564
 tests/fm-quota-array-dispatch-live-e2e.test.sh 50
 tests/fm-quota-choose.test.sh 2860
-tests/fm-quota-failover.test.sh 3600
 tests/fm-remote-backlog-handoff.test.sh 82063
-tests/fm-remote-delta-read.test.sh 6058
 tests/fm-remote-doctor.test.sh 14460
 tests/fm-remote-entrypoint.test.sh 134
 tests/fm-remote-herdr-guard.test.sh 3140
-tests/fm-remote-job-claim-retention.test.sh 159
-tests/fm-remote-job-launchagent.test.sh 56467
 tests/fm-remote-job-orphan-reap.test.sh 2985
 tests/fm-remote-job.test.sh 81046
 tests/fm-remote-reply.test.sh 140887
@@ -994,7 +826,6 @@ tests/fm-remote-secondmate-parent-binding.test.sh 42294
 tests/fm-remote-secondmate-relaunch.test.sh 879
 tests/fm-remote-secondmate-trace-context.test.sh 74870
 tests/fm-remote-transport-lanes.test.sh 66089
-tests/fm-review-check.test.sh 1436
 tests/fm-rovo-harness.test.sh 15691
 tests/fm-rovo-signals-live-e2e.test.sh 52
 tests/fm-secondmate-harness.test.sh 188187
@@ -1005,13 +836,11 @@ tests/fm-secondmate-reconcile.test.sh 100853
 tests/fm-secondmate-restart.test.sh 52591
 tests/fm-secondmate-safety.test.sh 69424
 tests/fm-secondmate-sync.test.sh 55501
-tests/fm-self-repo-role.test.sh 4986
 tests/fm-send-agy-confirm.test.sh 4440
 tests/fm-send-inbox-doorbell-live-e2e.test.sh 108
 tests/fm-send-inbox.test.sh 41713
 tests/fm-send-remote-delivery.test.sh 31964
 tests/fm-send-resolve-key.test.sh 47317
-tests/fm-send-screen-guard.test.sh 6066
 tests/fm-send-secondmate-marker-herdr-e2e.test.sh 80
 tests/fm-send-secondmate-marker.test.sh 7574
 tests/fm-session-lock-ancestry.test.sh 18918
@@ -1020,17 +849,12 @@ tests/fm-sessionstart-hook-live-e2e.test.sh 50
 tests/fm-sessionstart-instruction-refresh-live-e2e.test.sh 49
 tests/fm-sessionstart-nudge.test.sh 71802
 tests/fm-shared-captain-inheritance.test.sh 7991
-tests/fm-sm-context.test.sh 420
 tests/fm-spawn-compact-adviser-disable-remote.test.sh 38561
 tests/fm-spawn-compact-adviser-disable.test.sh 21654
 tests/fm-spawn-dispatch-profile.test.sh 197548
-tests/fm-spawn-external-review.test.sh 6003
-tests/fm-spawn-launch-path.test.sh 4216
 tests/fm-spawn-orca-worktree.test.sh 2400
 tests/fm-spawn-pool-base-freshen.test.sh 68652
-tests/fm-spawn-treehouse-lock-wait.test.sh 70463
 tests/fm-spawn-worktree-settle.test.sh 9309
-tests/fm-startup-growth-check.test.sh 5236
 tests/fm-startup-memory-budget.test.sh 8086
 tests/fm-startup-network.test.sh 72106
 tests/fm-stat-shadowing.test.sh 75
@@ -1039,7 +863,7 @@ tests/fm-subagent-pretool-check.test.sh 998
 tests/fm-supervision-events.test.sh 673
 tests/fm-supervision-host-attended-live-e2e.test.sh 49
 tests/fm-supervision-host-live-e2e.test.sh 75
-tests/fm-supervision-host.test.sh 1200000
+tests/fm-supervision-host.test.sh 789123
 tests/fm-tangle-guard.test.sh 8501
 tests/fm-task-delivery.test.sh 32789
 tests/fm-task-inbox.test.sh 31965
@@ -1054,20 +878,16 @@ tests/fm-tmux-agent-liveness.test.sh 3770
 tests/fm-tool-update-check.test.sh 14383
 tests/fm-trace-context-lib.test.sh 221
 tests/fm-trace-context-spawn.test.sh 57488
-tests/fm-treehouse-slot-retire-e2e.test.sh 38
-tests/fm-treehouse-lease.test.sh 20921
 tests/fm-turnend-foreign-owner-arm-fix.test.sh 5575
 tests/fm-turnend-guard.test.sh 34727
 tests/fm-update.test.sh 11894
 tests/fm-vendor-auth-probe.test.sh 43278
 tests/fm-voice-relay.test.sh 28917
-tests/fm-wake-classify.test.sh 120000
 tests/fm-wake-daemon-lifecycle-e2e.test.sh 7345
 tests/fm-wake-drain-open-decisions-cursor.test.sh 47677
 tests/fm-wake-drain-open-decisions.test.sh 8781
 tests/fm-wake-drain-outcome-backstop.test.sh 46316
 tests/fm-wake-drain-unread-status.test.sh 24251
-tests/fm-wake-fold.test.sh 120000
 tests/fm-wake-queue.test.sh 165906
 tests/fm-watch-arm.test.sh 113076
 tests/fm-watch-checkpoint.test.sh 11234
@@ -1076,7 +896,6 @@ tests/fm-watch-triage.test.sh 1074843
 tests/fm-watcher-lock.test.sh 72022
 tests/fm-worker-account-live-e2e.test.sh 3179
 tests/fm-worker-account.test.sh 37445
-tests/review-floor-autoqueue.test.sh 6400
 EOF
 }
 
@@ -1709,9 +1528,6 @@ families_for_changed_path() {
     bin/fm-procevent-quota.sh)
       printf '%s\n' "__script__:fm-procevent-quota.test.sh"
       ;;
-    bin/fm-quota-failover-lib.sh)
-      printf '%s\n' secondmate
-      ;;
     bin/fm-quota-choose.sh)
       printf '%s\n' "__script__:fm-quota-choose.test.sh"
       ;;
@@ -1738,7 +1554,6 @@ families_for_changed_path() {
       printf '%s\n' __script__:fm-wake-queue.test.sh
       printf '%s\n' __script__:fm-pi-primary-types.test.sh
       printf '%s\n' __script__:fm-supervision-host.test.sh
-      printf '%s\n' __script__:fm-offer-wake-fold.test.sh
       # Whether an arriving outcome still lets the captain type is a fact only
       # a real Pi TUI can answer, so the live guards are selected too.
       printf '%s\n' live-harness-optin
@@ -2321,9 +2136,6 @@ case "$JOBS" in
 esac
 [ "$JOBS" -ge 1 ] || die "--jobs must be >= 1"
 [ "$JOBS" -le "$JOBS_MAX" ] || die "--jobs is capped at $JOBS_MAX (got $JOBS)"
-# The request as made: admission refuses on it, so a host clamp below never turns
-# a refusal into a smaller run.
-JOBS_REQUESTED=$JOBS
 
 if [ -n "$MAX_WALL_MS" ]; then
   case "$MAX_WALL_MS" in
@@ -2344,10 +2156,6 @@ esac
 # who named no selection mode is told that rather than this.
 if [ -n "${MODE:-}" ] && [ "$LIST_ONLY" -eq 0 ] && [ "$LIST_SCHEDULED" -eq 0 ]; then
   refuse_primary_checkout_for_task
-fi
-
-if [ -n "${MODE:-}" ] && [ "$LIST_ONLY" -eq 0 ] && [ "$LIST_SCHEDULED" -eq 0 ]; then
-  start_host_safety
 fi
 
 case "${MODE:-}" in
@@ -2500,8 +2308,8 @@ if [ "$JOBS" -gt 1 ] && [ "$AUTO_CONCURRENCY" -eq 0 ]; then
     if ! is_proven_isolated_script "$s"; then
       family=$(family_for_basename "$(basename "$s")")
       family_jobs_max=$(concurrent_safe_family_jobs_max "$family")
-      [ "$JOBS_REQUESTED" -le "$family_jobs_max" ] \
-        || die "--jobs $JOBS_REQUESTED refused: family $family is proven only up to $family_jobs_max concurrent workers"
+      [ "$JOBS" -le "$family_jobs_max" ] \
+        || die "--jobs $JOBS refused: family $family is proven only up to $family_jobs_max concurrent workers"
     fi
   done
 fi
@@ -2561,6 +2369,14 @@ FAMILIES_TSV="$RUN_TMP/families.tsv"
 declare -a WORKER_PIDS=()
 declare -a WORKER_IDX=()
 declare -a WORKER_SCRIPTS=()
+
+# Invoked indirectly by the EXIT trap below.
+# shellcheck disable=SC2329
+cleanup_run() {
+  rm -rf "$RUN_TMP"
+}
+
+trap cleanup_run EXIT
 
 RUN_ID="fm-test-run-${RUN_STARTED_MS}-$$"
 TOTAL=0
@@ -2651,26 +2467,9 @@ run_script_bounded() {  # <script> <out> <stream> <id>
   local GIT_CONFIG_GLOBAL GIT_CONFIG_NOSYSTEM
   # shellcheck source=tests/git-config-helpers.sh
   . "$ROOT/tests/git-config-helpers.sh" || return
-  local rc bg
+  local rc
   : "$id"
   set +e
-  # Backgrounded and waited on: bash defers a trapped INT or TERM until a
-  # foreground child exits, which would leave a killed runner alive for as long
-  # as one test script takes. `wait` returns at the signal and the trap runs.
-  run_script_once "$script" "$out" "$stream" <&0 &
-  bg=$!
-  wait "$bg"
-  rc=$?
-  if [ "$PER_SCRIPT_TIMEOUT_SECS" -gt 0 ] && [ "$rc" -eq 124 ]; then
-    printf 'not ok - %s exceeded the per-script bound of %ss and was terminated\n' \
-      "$script" "$PER_SCRIPT_TIMEOUT_SECS" >>"$out"
-    [ "$stream" -eq 1 ] && tail -1 "$out"
-  fi
-  return "$rc"
-}
-
-run_script_once() {  # <script> <out> <stream>
-  local script=$1 out=$2 stream=$3 rc
   if [ "$stream" -eq 1 ]; then
     if [ "$PER_SCRIPT_TIMEOUT_SECS" -gt 0 ]; then
       # Expansion is intentionally deferred to the child bash passed to -c.
@@ -2688,6 +2487,11 @@ run_script_once() {  # <script> <out> <stream>
   else
     bash "$script" >"$out" 2>&1
     rc=$?
+  fi
+  if [ "$PER_SCRIPT_TIMEOUT_SECS" -gt 0 ] && [ "$rc" -eq 124 ]; then
+    printf 'not ok - %s exceeded the per-script bound of %ss and was terminated\n' \
+      "$script" "$PER_SCRIPT_TIMEOUT_SECS" >>"$out"
+    [ "$stream" -eq 1 ] && tail -1 "$out"
   fi
   return "$rc"
 }

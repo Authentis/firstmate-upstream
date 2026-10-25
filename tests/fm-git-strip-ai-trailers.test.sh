@@ -495,6 +495,7 @@ test_push_guard_install_runs_the_guard_before_chaining() {
 }
 
 test_cursor_trailer_does_not_reach_the_commit_object
+test_commandcode_trailer_is_stripped
 test_human_coauthor_is_kept
 test_human_at_a_vendor_domain_is_kept
 test_hook_manager_cannot_displace_the_strip

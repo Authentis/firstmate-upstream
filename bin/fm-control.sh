@@ -7,8 +7,6 @@
 #        fm-control.sh <task-id> relaunch [--harness <name>] [--model <name>]
 #                                         [--effort <level>]
 #                                         (--note <text> | --note-file <path>)
-#        fm-control.sh <task-id> launch-check [--fallback <harness>/<model>]...
-#                                         [--window <seconds>]
 #
 # Why this exists, and how it differs from fm-send.sh. bin/fm-send.sh is the
 # DATA plane: conversational text for the agent to read, always routing-marked
@@ -34,16 +32,10 @@
 #              an idle agent (Devin's revert picker) sends its later presses
 #              only after the first press rendered a running turn, and
 #              otherwise reports `cancel=not-running` having sent one press.
-#              An adapter with a verified draft clear (Command Code's double
-#              Escape, fm_control_draft_clear_key) whose composer then reads
-#              pending has that clear sent and must read empty afterwards, or
-#              the verb refuses; the result carries `draft=cleared`.
 #   exit       Stop the agent, preserving its terminal endpoint, worktree, and
 #              every uncommitted change. Interrupts first when the task reads
 #              busy, then submits the harness's exit command. Postcondition:
 #              the backend's recovery-grade classifier reports the agent gone.
-#              The same draft clear runs before the exit command is typed, so
-#              a stuck draft cannot make the command concatenate onto it.
 #              Already-stopped is success (idempotent). An endpoint that reads
 #              `missing` is put through the control plane's per-backend absence
 #              proof (fm_control_endpoint_absence_verdict) before anything is
@@ -72,9 +64,8 @@
 #              answer. Reclaim is HERDR-ONLY for the reason `exit` gives above:
 #              a tmux `missing` cannot be proven absent from a task record, so
 #              it refuses.
-#              Outside a matching keyed secondmate pin, an explicit `default`
-#              model or effort clears that axis for the replacement.
-#              With no explicit axis, a secondmate
+#              An explicit `default` model or effort clears that
+#              axis for the replacement. With no explicit axis, a secondmate
 #              re-resolves its durable config/secondmate-harness pin (harness
 #              plus its optional model and effort tokens) exactly as any other
 #              respawn does, while a ship or scout keeps the exact adapter
@@ -98,54 +89,6 @@
 #              the prior durable record in place and reports the concrete
 #              state; it never leaves a half-transitioned task claiming to be
 #              running.
-#
-#   launch-check  Judge whether the task's CURRENT launch incarnation (the
-#              spawn_gen fm-spawn recorded) became a working agent, for a ship
-#              or scout only. The worker's own declarations after the
-#              incarnation's launch come first and are final: a done line
-#              stamped at or after it records `completed`, and a
-#              needs-decision, blocked, paused, or failed line records `held`;
-#              neither is building, writes a status line, or relaunches. A
-#              working line or a commit in the worktree since (its HEAD reflog)
-#              only forbids a relaunch. Otherwise an alive agent is `pending`
-#              until the incarnation is --window old (default 120 seconds),
-#              and only then judged: `building` needs BOTH a process-level
-#              `alive` from the backend's recovery-grade classifier AND a
-#              running turn: the busy record armed for this exact incarnation
-#              (bin/fm-busy-lib.sh; its gen must equal the busy_gen the record
-#              names) reads state=busy from the harness's own adapter source,
-#              not the fm-spawn launch seed or a Firstmate-written event. A
-#              shell prompt, an existing pane, an accepted launch command, or a
-#              turn that already ended never qualifies, so an alive agent
-#              without a running adapter turn at the window is a failure. A
-#              dead or missing agent is a
-#              launch failure at once. A harness with no
-#              adapter turn source, a backend with no recovery-grade
-#              classifier, or an unattributable endpoint reads `unproven`:
-#              never building, and nothing is acted on.
-#              On failure, a task the current-state owner
-#              (bin/fm-crew-state.sh) attributes to a no-mistakes run reads
-#              `held` (the run has custody) and a worker that acted fails
-#              without a relaunch. Otherwise the verb relaunches at most ONCE per task (bound to
-#              spawn_first, so every later incarnation of the same dispatch
-#              counts against it) onto the first --fallback route, in the
-#              caller's order, that differs from the failed one, can run this
-#              kind, passes the account pin, and passes the harness catalog
-#              check (bin/fm-model-catalog-lib.sh); that relaunch is the
-#              ordinary transactional `relaunch` above, with a generated
-#              progress note, under the same lock. When no route is eligible,
-#              the relaunch fails, or the relaunched incarnation fails too, the
-#              verb appends one `failed:` line to the task's status log, which
-#              every current-state reader treats as terminal, so it is never
-#              counted as building. The verdict is recorded in
-#              state/<id>.launch-check against the incarnation, which
-#              bin/fm-crew-state.sh reports as failed ahead of the launch's
-#              busy seed when no run is attributed, and so a repeat
-#              call prints it again and acts on nothing; route order, the
-#              two-minute schedule, and which routes are free stay with the
-#              caller. Exit status: 0 building, completed, or held, 3 pending
-#              or just relaunched (check again after the window), 4 failed,
-#              5 unproven.
 #
 # Teardown and discard are NOT verbs here and never will be. `exit` stops an
 # agent and preserves everything else; removing a worktree, killing an
@@ -230,6 +173,8 @@ DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 . "$SCRIPT_DIR/fm-busy-lib.sh"
 # shellcheck source=bin/fm-control-lib.sh
 . "$SCRIPT_DIR/fm-control-lib.sh"
+# shellcheck source=bin/fm-polytoken-lib.sh
+. "$SCRIPT_DIR/fm-polytoken-lib.sh"
 # shellcheck source=bin/fm-pr-lib.sh
 . "$SCRIPT_DIR/fm-pr-lib.sh"
 # shellcheck source=bin/fm-wake-lib.sh
@@ -238,12 +183,6 @@ DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 . "$SCRIPT_DIR/fm-worker-account-lib.sh"
 # shellcheck source=bin/fm-exclude-tools-lib.sh
 . "$SCRIPT_DIR/fm-exclude-tools-lib.sh"
-# shellcheck source=bin/fm-classify-lib.sh
-. "$SCRIPT_DIR/fm-classify-lib.sh"
-# shellcheck source=bin/fm-model-catalog-lib.sh
-. "$SCRIPT_DIR/fm-model-catalog-lib.sh"
-# shellcheck source=bin/fm-cursor-lib.sh
-. "$SCRIPT_DIR/fm-cursor-lib.sh"
 
 POLL=${FM_CONTROL_POLL:-0.5}
 SETTLE_WAIT=${FM_CONTROL_SETTLE_WAIT:-5}
@@ -259,7 +198,6 @@ die() {  # <message>
 
 CONTROL_LOCK=
 CONTROL_LOCK_HELD=0
-LAUNCH_CHECK_RELAUNCH=
 RELAUNCH_ACTIVE=0
 RELAUNCH_PHASE=start
 
@@ -269,18 +207,10 @@ control_cleanup() {
      && declare -F relaunch_rollback >/dev/null 2>&1; then
     relaunch_rollback || true
   fi
-  if [ -n "${LAUNCH_CHECK_RELAUNCH:-}" ] && [ "$status" -ne 0 ] \
-     && declare -F launch_check_cleanup_failure >/dev/null 2>&1; then
-    launch_check_cleanup_failure || true
-    status=4
-  fi
   # Remove the dialog file while the lock is still held: once it is released,
   # the next lifecycle command for this task writes the same path.
   if [ -n "${FM_COMPOSER_DIALOG_SINK:-}" ]; then
     rm -f "$FM_COMPOSER_DIALOG_SINK"
-  fi
-  if [ -n "${FM_CONTROL_SUBMIT_ERR:-}" ]; then
-    rm -f "$FM_CONTROL_SUBMIT_ERR"
   fi
   if [ "$CONTROL_LOCK_HELD" = 1 ]; then
     CONTROL_LOCK_HELD=0
@@ -289,7 +219,6 @@ control_cleanup() {
   if declare -F fm_lease_guard_release >/dev/null 2>&1; then
     fm_lease_guard_release || true
   fi
-  [ "$status" != 4 ] || [ -z "${LAUNCH_CHECK_RELAUNCH:-}" ] || exit 4
   return "$status"
 }
 
@@ -321,9 +250,6 @@ MODEL_SET=0
 EFFORT_SET=0
 NOTE=
 NOTE_SET=0
-LAUNCH_FALLBACKS=()
-LAUNCH_WINDOW=120
-LAUNCH_WINDOW_SET=0
 control_want_value=
 for control_arg in "$@"; do
   if [ -n "$control_want_value" ]; then
@@ -335,8 +261,6 @@ for control_arg in "$@"; do
       model) NEW_MODEL=$control_arg; MODEL_SET=1 ;;
       effort) NEW_EFFORT=$control_arg; EFFORT_SET=1 ;;
       note) NOTE=$control_arg; NOTE_SET=1 ;;
-      fallback) LAUNCH_FALLBACKS+=("$control_arg") ;;
-      window) LAUNCH_WINDOW=$control_arg; LAUNCH_WINDOW_SET=1 ;;
       note_file)
         [ -f "$control_arg" ] || die "--note-file '$control_arg' is not a readable file"
         NOTE=$(cat "$control_arg")
@@ -355,10 +279,6 @@ for control_arg in "$@"; do
     --effort=*) NEW_EFFORT=${control_arg#--effort=}; EFFORT_SET=1 ;;
     --note) control_want_value=note ;;
     --note=*) NOTE=${control_arg#--note=}; NOTE_SET=1 ;;
-    --fallback) control_want_value=fallback ;;
-    --fallback=*) LAUNCH_FALLBACKS+=("${control_arg#--fallback=}") ;;
-    --window) control_want_value=window ;;
-    --window=*) LAUNCH_WINDOW=${control_arg#--window=}; LAUNCH_WINDOW_SET=1 ;;
     --note-file) control_want_value=note_file ;;
     --note-file=*)
       [ -f "${control_arg#--note-file=}" ] || die "--note-file '${control_arg#--note-file=}' is not a readable file"
@@ -376,21 +296,6 @@ fi
 if [ "$VERB" != relaunch ]; then
   [ "$HARNESS_SET" = 0 ] && [ "$MODEL_SET" = 0 ] && [ "$EFFORT_SET" = 0 ] && [ "$NOTE_SET" = 0 ] \
     || die "--harness, --model, --effort, and --note apply to 'relaunch' only"
-fi
-if [ "$VERB" != launch-check ]; then
-  [ "${#LAUNCH_FALLBACKS[@]}" = 0 ] && [ "$LAUNCH_WINDOW_SET" = 0 ] \
-    || die "--fallback and --window apply to 'launch-check' only"
-fi
-case "$LAUNCH_WINDOW" in
-  ''|*[!0-9]*) die "--window must be a whole number of seconds" ;;
-esac
-if [ "${#LAUNCH_FALLBACKS[@]}" -gt 0 ]; then
-  for launch_fallback in "${LAUNCH_FALLBACKS[@]}"; do
-    case "$launch_fallback" in
-      */?*) [ -n "${launch_fallback%%/*}" ] || die "--fallback '$launch_fallback' must be <harness>/<model>" ;;
-      *) die "--fallback '$launch_fallback' must be <harness>/<model>" ;;
-    esac
-  done
 fi
 [ "$HARNESS_SET" = 0 ] || [ -n "$NEW_HARNESS" ] || die "--harness requires a non-empty value"
 [ "$MODEL_SET" = 0 ] || [ -n "$NEW_MODEL" ] || die "--model requires a non-empty value"
@@ -425,8 +330,6 @@ CONTROL_LOCK_HELD=1
 # only once the lock is held: a process that loses the lock runs the same
 # trap, and would remove the file the lock holder is reading.
 FM_COMPOSER_DIALOG_SINK=$STATE/$ID.composer-dialog
-# The exit submit's captured stderr follows the same parent-owned pattern.
-FM_CONTROL_SUBMIT_ERR=$STATE/$ID.submit-stderr
 META="$STATE/$ID.meta"
 if [ ! -f "$META" ]; then
   case "$RAW_ID" in
@@ -547,41 +450,6 @@ dismiss_interrupt_hazard() {  # <key> <ere>
   INTERRUPT_HAZARD=dismissed
 }
 
-# clear_held_draft <verb>: when the adapter has a verified draft clear
-# (fm_control_draft_clear_key) and its composer visibly holds text, send that
-# clear and require the composer to read empty afterwards, refusing loudly
-# otherwise. Without this, a draft left in an idle composer survives the
-# interrupt key and blocks both the exit command and the doorbell. A non-empty
-# non-pending read is left to the caller's own gate; an adapter without a draft
-# clear is never touched, because its composer text may be the captain's own.
-# A checkpoint picker already open is closed first with one Escape, because
-# typing or Enter into it would restore a checkpoint, and the clear itself
-# never runs on a composer that reads empty (fm_control_clear_draft owns both).
-# Sets HELD_DRAFT to cleared when it sent the clear.
-clear_held_draft() {  # <verb>
-  local state rc=0 key
-  key=$(fm_control_draft_clear_key "$HARNESS" 2>/dev/null) || return 0
-  [ -n "$key" ] || return 0
-  fm_control_dismiss_overlay "$BACKEND" "$T" "$HARNESS" "$LABEL" \
-    || die "task $ID shows the $HARNESS Rewind checkpoint picker, where Enter restores a checkpoint, and one $(fm_control_overlay_dismiss_key "$HARNESS") did not close it; nothing else was sent. Close it with $(fm_control_overlay_dismiss_key "$HARNESS"), never Enter, then retry '$1'"
-  state=$(fm_backend_composer_state "$BACKEND" "$T" "$LABEL" 2>/dev/null) || state=unknown
-  [ "$state" = pending ] || return 0
-  fm_control_clear_draft "$BACKEND" "$T" "$HARNESS" "$LABEL" || rc=$?
-  case "$rc:$FM_CONTROL_CLEAR_WHY" in
-    0:*) ;;
-    *:overlay-stuck)
-      die "task $ID shows the $HARNESS Rewind checkpoint picker after the composer clear, and one $(fm_control_overlay_dismiss_key "$HARNESS") did not close it; nothing else was sent. Close it with $(fm_control_overlay_dismiss_key "$HARNESS"), never Enter, then retry '$1'"
-      ;;
-    *:misread)
-      die "task $ID's $HARNESS composer reads as holding text but is empty: the $(fm_control_draft_clear_presses "$HARNESS") $key presses opened its Rewind checkpoint picker, which one $(fm_control_overlay_dismiss_key "$HARNESS") then closed, and nothing was typed. The composer read is wrong for this pane, so '$1' cannot proceed; do not retry the clear, and capture the pane with its colour escapes for diagnosis"
-      ;;
-    *)
-      die "task $ID's $HARNESS composer holds text and $(fm_control_draft_clear_presses "$HARNESS") $key presses did not leave it reading empty, so '$1' would concatenate onto it or leave it behind; the composer was not cleared by any other means. Clear it by hand, then retry '$1'"
-      ;;
-  esac
-  HELD_DRAFT=cleared
-}
-
 # send_interrupt_keys: deliver the harness's interrupt key the verified number
 # of times, then the composer-clear key when the adapter needs one. Refuses
 # before sending anything when the backend cannot deliver either key, because
@@ -607,7 +475,6 @@ send_interrupt_keys() {
     || die "harness $HARNESS must see its screen between interrupt presses, because a repeated $key on an idle agent opens its revert picker, and the $BACKEND backend has no verified viewport read; refusing to press blind"
   INTERRUPT_ARMED=yes
   INTERRUPT_HAZARD=none
-  HELD_DRAFT=none
   while [ "$i" -lt "$repeat" ]; do
     fm_backend_send_key "$BACKEND" "$T" "$key" "$LABEL" \
       || die "interrupt key $key was not delivered to task $ID on $BACKEND"
@@ -622,7 +489,6 @@ send_interrupt_keys() {
   [ -z "$hazard" ] || dismiss_interrupt_hazard "$key" "$hazard"
   [ -z "$clear" ] || fm_backend_send_key "$BACKEND" "$T" "$clear" "$LABEL" \
     || die "interrupt key $key reached task $ID, but $clear did not, so its composer still holds the cancelled prompt; clear it before the next lifecycle action"
-  clear_held_draft interrupt
 }
 
 prepare_interrupt_ack() {
@@ -661,8 +527,33 @@ interrupt_cancel_claim() {
 # cancellation claim available after delivery. `not-running` means an armed
 # adapter's first press rendered no running turn, so nothing was cancelled; a
 # dismissed revert picker is reported beside the claim.
+# The rest transport (polytoken) takes a typed branch before any key is read:
+# the TUI has no interrupt chord at all (fm_control_interrupt_transport), so
+# POST /turn/cancel on the session daemon is the one verified interrupt, with
+# its typed acknowledgement (cancel_requested plus the turn settling) as the
+# claim, and the busy close written here because a cancelled turn emits no
+# stop hook (verified live).
 deliver_interrupt() {
-  local cancel devin_gen=
+  local cancel devin_gen='' port cred token
+  if [ "$(fm_control_interrupt_transport "$HARNESS")" = rest ]; then
+    port=$(fm_meta_get "$META" polytoken_port)
+    cred=$(fm_meta_get "$META" polytoken_credential)
+    if [ -z "$port" ] || [ -z "$cred" ]; then
+      die "task $ID records no polytoken session binding (port or credential absent from its record); the REST control verbs address the session's own daemon, so an interrupt cannot be delivered without it. The session has likely ended or was launched raw; reconcile the task or relaunch it"
+    fi
+    token=$(fm_polytoken_credential_token "$cred") || token=
+    [ -n "$token" ] || die "task $ID's polytoken credential at $cred is missing or unreadable, so the session cannot be interrupted through its daemon; the session has likely ended. Reconcile the task or relaunch it"
+    # A cancelled turn emits no stop hook (verified live), so the close the
+    # hooks would have written lands with the cancel: the settled turn is the
+    # typed proof this incarnation is no longer busy, unless a queued prompt
+    # has reopened it (fm_polytoken_interrupt_task).
+    cancel=$(fm_polytoken_interrupt_task "$SCRIPT_DIR" "$STATE" "$ID" "$port" "$token" "$SETTLE_WAIT") \
+      || die "task $ID's polytoken turn cancel was not acknowledged on port $port within ${SETTLE_WAIT}s; the interrupt status is unknown, so no further control action is safe here"
+    INTERRUPT_ARMED=yes
+    INTERRUPT_HAZARD=none
+    printf '%s' "$cancel"
+    return 0
+  fi
   # Devin does not emit Stop for cancellation. Capture this incarnation before
   # keys, then invalidate its state conservatively rather than claiming idle.
   if [ "$HARNESS" = devin ]; then
@@ -680,7 +571,6 @@ deliver_interrupt() {
     fi
   fi
   [ "$INTERRUPT_HAZARD" = none ] || cancel="$cancel revert-picker=$INTERRUPT_HAZARD"
-  [ "$HELD_DRAFT" = none ] || cancel="$cancel draft=$HELD_DRAFT"
   printf '%s' "$cancel"
 }
 
@@ -839,7 +729,6 @@ do_exit() {
   if [ -n "$hazard" ] && rendered_matches "$hazard"; then
     die "task $ID shows the $HARNESS revert picker, where typed text becomes a search and Enter reverts file changes; refusing to type the $cmd exit command. Close it with $(fm_control_interrupt_key "$HARNESS"), never Enter, then retry '$VERB'"
   fi
-  clear_held_draft exit
   : > "$FM_COMPOSER_DIALOG_SINK" \
     || die "task $ID's dialog check could not be recorded"
   composer_state=$(fm_backend_composer_state "$BACKEND" "$T" "$LABEL" 2>/dev/null) \
@@ -865,23 +754,10 @@ do_exit() {
   # authoritative proof is the agent-state wait below. The retried Enter still
   # matters, because a slash command opens a completion popup on some TUIs that
   # swallows the first Enter.
-  submit_err=$FM_CONTROL_SUBMIT_ERR
-  : > "$submit_err" \
-    || die "the exit command's submit diagnostics could not be recorded"
-  submit_rc=0
-  verdict=$(fm_backend_send_text_submit "$BACKEND" "$T" "$cmd" "$EXIT_RETRIES" "$POLL" 1.2 "$LABEL" 2>"$submit_err") \
-    || submit_rc=$?
-  if [ "$submit_rc" -ne 0 ] || [ "$verdict" = send-failed ]; then
-    submit_detail=$(head -n 10 "$submit_err" 2>/dev/null || true)
-    rm -f "$submit_err"
-    die "the exit command could not be sent to task $ID on $BACKEND
-  backend=$BACKEND target=$T submit-rc=$submit_rc verdict=${verdict:-<empty>}
-  submit-stderr (first 10 lines):
-${submit_detail:-  <none>}"
-  fi
-  # A successful submit keeps the stderr it always showed the caller.
-  cat "$submit_err" >&2 2>/dev/null || true
-  rm -f "$submit_err"
+  verdict=$(fm_backend_send_text_submit "$BACKEND" "$T" "$cmd" "$EXIT_RETRIES" "$POLL" 1.2 "$LABEL") \
+    || die "the exit command could not be sent to task $ID on $BACKEND"
+  [ "$verdict" != send-failed ] \
+    || die "the exit command could not be sent to task $ID on $BACKEND"
   # The submitting Enter can open the picker. The agent is still alive, and
   # another Enter would confirm the selected row. A dead agent may leave the
   # same text behind; that is not a prompt still waiting.
@@ -922,7 +798,6 @@ META_PRIOR="$JOURNAL.meta-prior"
 BRIEF_PRIOR="$JOURNAL.brief-prior"
 NOTE_FILE="$JOURNAL.note"
 RELAUNCH_META_PUBLISHED=0
-CATALOG_VERIFIED=
 RELAUNCH_AGENT_CONFIRMED=0
 RELAUNCH_TX=
 RELAUNCH_BRIEF=
@@ -955,7 +830,6 @@ journal_write() {  # <phase> [extra-line]...
     echo "to_harness=$TARGET_HARNESS"
     echo "to_model=$TARGET_MODEL"
     echo "to_effort=$TARGET_EFFORT"
-    [ -z "$CATALOG_VERIFIED" ] || echo "catalog_verified=$CATALOG_VERIFIED"
     local line
     for line in "$@"; do
       echo "$line"
@@ -1055,14 +929,9 @@ resolve_relaunch_profile() {
     # and scouts deliberately do NOT resolve config here: their harness comes
     # from firstmate's own dispatch-profile judgment at intake, and silently
     # re-resolving it would bypass that consultation.
-    CONFIG_HARNESS=$("$SCRIPT_DIR/fm-harness.sh" secondmate "$ID") || return
-    CONFIG_MODEL=$("$SCRIPT_DIR/fm-harness.sh" secondmate-model "$ID") || return
-    CONFIG_EFFORT=$("$SCRIPT_DIR/fm-harness.sh" secondmate-effort "$ID") || return
-    CONFIG_PIN=$("$SCRIPT_DIR/fm-harness.sh" secondmate-pin "$ID") || return
-    if [ -n "$CONFIG_PIN" ]; then
-      read -r NEW_HARNESS NEW_MODEL NEW_EFFORT <<< "$CONFIG_PIN"
-      HARNESS_SET=1 MODEL_SET=1 EFFORT_SET=1
-    fi
+    CONFIG_HARNESS=$("$SCRIPT_DIR/fm-harness.sh" secondmate 2>/dev/null || true)
+    CONFIG_MODEL=$("$SCRIPT_DIR/fm-harness.sh" secondmate-model 2>/dev/null || true)
+    CONFIG_EFFORT=$("$SCRIPT_DIR/fm-harness.sh" secondmate-effort 2>/dev/null || true)
     case "$CONFIG_EFFORT" in
       ''|low|medium|high|xhigh|max|ultra) ;;
       *)
@@ -1109,81 +978,37 @@ resolve_relaunch_profile() {
   else
     TARGET_EFFORT=default
   fi
-  if [ "$KIND" = secondmate ]; then
-    "$SCRIPT_DIR/fm-harness.sh" validate-secondmate-model "$TARGET_HARNESS" "$TARGET_MODEL" "$ID" || return 1
-  fi
   if [ "$TARGET_EFFORT" = ultra ]; then
     "$SCRIPT_DIR/fm-harness.sh" validate-native-effort "$TARGET_HARNESS" "$TARGET_MODEL" "$TARGET_EFFORT" || return 1
   fi
   # The launch owner applies this home's worker account pin too, but only after
   # the old agent has been stopped, so a pin that no longer resolves or is
   # signed out must refuse here, while nothing has changed yet.
-  local account_model=$TARGET_MODEL
+  local account_model=$TARGET_MODEL account_mate=
   [ "$account_model" != default ] || account_model=
+  [ "$KIND" != secondmate ] || account_mate=$ID
   fm_worker_account_select "$TARGET_HARNESS" "${FM_CONFIG_OVERRIDE:-$FM_HOME/config}" \
-    "$account_model" "$TARGET_HARNESS" >/dev/null || return 1
+    "$account_model" "$TARGET_HARNESS" "" "$account_mate" >/dev/null || return 1
+  # Likewise polytoken's launch profile and wiring refusals
+  # (bin/fm-polytoken-lib.sh owns them). The launch owner retires the prior
+  # incarnation's own generated hook layer, so only one it did not generate
+  # refuses here.
+  if [ "$TARGET_HARNESS" = polytoken ]; then
+    local polytoken_bin polytoken_state
+    polytoken_bin=$(fm_polytoken_binary) || return 1
+    fm_polytoken_launch_ref "$polytoken_bin" "$TARGET_MODEL" "$TARGET_EFFORT" >/dev/null || return 1
+    polytoken_state=$(cd "$STATE" && pwd -P) || return 1
+    fm_polytoken_require_handler_path "$(fm_polytoken_busy_script "$polytoken_state" "$ID")" || return 1
+    fm_control_harness_wiring_paths "$PRIOR_HARNESS" "$WT" "$STATE" "$ID" "$KIND" \
+        | grep -qxF "$(fm_polytoken_hooks_file "$WT")" \
+      || fm_polytoken_require_hooks_free "$WT" || return 1
+  fi
   # Likewise config/crew-exclude-tools: a malformed file, or a replacement
   # runtime that cannot hide the listed tools, refuses here, before the old
   # agent stops. Secondmate agents are not covered.
   if [ "$KIND" != secondmate ]; then
     fm_exclude_tools_check "$TARGET_HARNESS" 0 "${FM_CONFIG_OVERRIDE:-$FM_HOME/config}" >/dev/null || return 1
   fi
-  # The launch owner's harness catalog check (bin/fm-model-catalog-lib.sh) for
-  # a ship or scout runs here too, before the old agent stops; the journal
-  # carries the verified route so fm-spawn --relaunch does not list it again.
-  # A route this transaction already verified (launch-check's fallback pick) is
-  # not listed again.
-  case "$KIND" in
-    ship|scout)
-      if [ "$CATALOG_VERIFIED" != "$TARGET_HARNESS/$TARGET_MODEL" ]; then
-        CATALOG_VERIFIED=
-        relaunch_catalog_check "$TARGET_HARNESS" "$TARGET_MODEL" "$TARGET_EFFORT" || return 1
-      fi
-      ;;
-    *) CATALOG_VERIFIED= ;;
-  esac
-}
-
-# relaunch_catalog_check: 0 when <harness>'s catalog verifies <model> exactly as
-# fm-spawn's own check would (same executable, account root, and native ultra
-# provider), setting CATALOG_VERIFIED; 0 with nothing set when the check does
-# not apply; 1 with the refusal on stderr otherwise. Cursor runs fm-spawn's own
-# Cursor check (bin/fm-cursor-lib.sh) before the stop, with the same semantics:
-# a readable listing must carry the model, an unreadable one passes, and either
-# pass records the route so fm-spawn does not list it again after the stop.
-relaunch_catalog_check() {  # <harness> <model> <effort>
-  local h=$1 m=$2 effort=$3 bin account root='' provider='' listing
-  if [ "$h" = cursor ]; then
-    bin=$(fm_cursor_resolve_binary) || return 1
-    [ -n "$m" ] && [ "$m" != default ] || return 0
-    if listing=$(fm_cursor_list_models "$bin"); then
-      printf '%s\n' "$listing" | fm_cursor_catalog_has_model "$m" || {
-        echo "error: Cursor model '$m' is not available from '$bin --list-models'; choose an id listed by that command or omit --model" >&2
-        return 1
-      }
-    fi
-    CATALOG_VERIFIED="cursor/$m"
-    return 0
-  fi
-  [ -n "$m" ] && [ "$m" != default ] || return 0
-  case "$h" in
-    pi|pi-signed)
-      bin=$(command -v "$h") || { echo "error: the $h executable is not on PATH, so model '$m' cannot be verified" >&2; return 1; }
-      account=$(fm_worker_account_select "$h" "${FM_CONFIG_OVERRIDE:-$FM_HOME/config}" "$m" "$h" 2>/dev/null) || account=
-      if [ -n "$account" ]; then
-        root=${account#*$'\t'}
-        root=${root%%$'\t'*}
-      fi
-      [ "$effort" != ultra ] || provider=codex-native
-      fm_model_catalog_validate "$h" "$bin" "$m" "$root" "$provider" || return 1
-      ;;
-    opencode)
-      bin=$(command -v opencode) || { echo "error: the opencode executable is not on PATH, so model '$m' cannot be verified" >&2; return 1; }
-      fm_model_catalog_validate opencode "$bin" "$m" || return 1
-      ;;
-    *) return 0 ;;
-  esac
-  CATALOG_VERIFIED="$h/$m"
 }
 
 # safe_checkpoint: prove, before anything is stopped, that the work a relaunch
@@ -1259,7 +1084,7 @@ safe_checkpoint() {
 # never rewritten: a secondmate reconciles its own home's records at startup,
 # so the note stays parent-side audit evidence.
 record_note() {
-  local stamp
+  local stamp inbox_q
   [ -n "$NOTE" ] || return 0
   stamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   printf '%s\n' "$NOTE" > "$NOTE_FILE"
@@ -1274,10 +1099,11 @@ record_note() {
         echo "This task was relaunched. Continue from here; the local copy and every"
         echo "uncommitted change are exactly as the previous worker left them."
         echo
-        echo "First, check your instruction inbox: list $STATE/$ID.inbox/*.msg, act on"
-        echo "each message in numeric order, then acknowledge each handled one with"
-        echo "$FM_ROOT/bin/fm-inbox-ack.sh $ID <seq> (never a raw move). A steer sent before"
-        echo "the relaunch survives there."
+        inbox_q=$(printf '%s' "$STATE/$ID.inbox" | sed "s/'/'\\\\''/g")
+        echo "First, check your instruction inbox: list it with"
+        echo "\`find '$inbox_q' -maxdepth 1 -name '*.msg' 2>/dev/null | sort -V\`, act on"
+        echo "each message in numeric order, then mv each handled file into"
+        echo "'$inbox_q/handled/'. A steer sent before the relaunch survives there."
         echo
         printf '%s\n' "$NOTE"
       } >> "$RELAUNCH_BRIEF" \
@@ -1371,280 +1197,6 @@ do_relaunch() {
   echo "relaunched $ID harness=$TARGET_HARNESS from=$PRIOR_RECORDED_HARNESS model=$TARGET_MODEL effort=$TARGET_EFFORT backend=$BACKEND endpoint=$T worktree=$WT"
 }
 
-# --- launch check -----------------------------------------------------------
-
-# state/<id>.launch-check holds key=value lines for one dispatch: spawn_first=
-# binds the file to it (a fresh spawn of the same id starts over), relaunch=
-# records the one claimed relaunch as "<from-spawn-gen> <harness>/<model>",
-# relaunch_result= its outcome, and verdict= the recorded
-# "<building|completed|held|failed> <spawn-gen>".
-launch_mark_get() {  # <key>
-  [ -f "$LAUNCH_MARK" ] || return 0
-  [ "$(grep '^spawn_first=' "$LAUNCH_MARK" 2>/dev/null | tail -1 | cut -d= -f2-)" = "$LAUNCH_SPAWN_FIRST" ] || return 0
-  grep "^$1=" "$LAUNCH_MARK" 2>/dev/null | tail -1 | cut -d= -f2- || true
-}
-
-launch_mark_set() {  # <key> <value>
-  local tmp="$LAUNCH_MARK.tmp.$$"
-  {
-    echo "spawn_first=$LAUNCH_SPAWN_FIRST"
-    if [ -f "$LAUNCH_MARK" ] \
-       && [ "$(grep '^spawn_first=' "$LAUNCH_MARK" 2>/dev/null | tail -1 | cut -d= -f2-)" = "$LAUNCH_SPAWN_FIRST" ]; then
-      grep -v -e '^spawn_first=' -e "^$1=" "$LAUNCH_MARK" || true
-    fi
-    echo "$1=$2"
-  } > "$tmp" || die "could not record the launch-check state for task $ID at $LAUNCH_MARK"
-  mv -f "$tmp" "$LAUNCH_MARK" || die "could not record the launch-check state for task $ID at $LAUNCH_MARK"
-}
-
-# launch_worker_evidence: fills LW_KIND and LW_REASON from the worker's own acts
-# after <launch-at>. The latest working, done, needs-decision, blocked, paused,
-# or failed declaration stamped at or after it decides: done is `completed`,
-# a decision, custody wait, or failure is `held`, and working is `acted`; with
-# no such declaration, a commit made in the worktree since (its HEAD reflog) is
-# `acted`. LW_KIND is empty when the worker has not acted. The launch check's
-# own failed: lines and the launch owner's (fm-spawn's "failed: launch:") are
-# not the worker's.
-launch_worker_evidence() {  # <launch-at>
-  local launch_at=$1 line verb at entry
-  LW_KIND='' LW_REASON=''
-  if [ -f "$STATE/$ID.status" ]; then
-    while IFS= read -r line || [ -n "$line" ]; do
-      status_line_verb "$line" verb
-      case "$verb" in
-        working|done|needs-decision|blocked|failed|"${FM_CLASSIFY_PAUSED_VERB:-$FM_CLASSIFY_PAUSED_VERB_DEFAULT}") ;;
-        *) continue ;;
-      esac
-      case "$line" in *"]: launch check: "*|*"]: launch: "*) continue ;; esac
-      _fm_status_at_epoch "$line" at || continue
-      [ "$at" -ge "$launch_at" ] || continue
-      case "$verb" in
-        done) LW_KIND=completed ;;
-        working) LW_KIND=acted ;;
-        *) LW_KIND=held ;;
-      esac
-      LW_REASON="the worker declared $verb at $at, after this launch"
-    done < "$STATE/$ID.status"
-  fi
-  [ -z "$LW_KIND" ] || return 0
-  [ -n "$WT" ] && [ -d "$WT" ] || return 0
-  entry=$(git -C "$WT" reflog show --date=unix --format='%gd %gs' HEAD 2>/dev/null \
-    | awk -v t="$launch_at" '{ at = $1; sub(/^.*@[{]/, "", at); sub(/[}]$/, "", at) } $2 ~ /^commit/ && at + 0 >= t + 0 { print; exit }') || entry=
-  [ -n "$entry" ] || return 0
-  LW_KIND=acted LW_REASON="the worker committed in its worktree after this launch ($entry)"
-}
-
-# launch_verdict: fills LV_STATE (building|pending|failed|unproven) and
-# LV_REASON for the incarnation launched at LAUNCH_AT.
-launch_verdict() {
-  local launch_at=$LAUNCH_AT now state sources adapter gen meta_gen rec r_state r_source
-  state=$(agent_state)
-  case "$state" in
-    alive) ;;
-    dead|missing)
-      LV_STATE=failed LV_REASON="the agent process is not running (endpoint reads '$state')"
-      return 0
-      ;;
-    unverified)
-      LV_STATE=unproven LV_REASON="the $BACKEND backend has no recovery-grade agent classifier"
-      return 0
-      ;;
-    *)
-      LV_STATE=unproven LV_REASON="the endpoint reads '$state', so its process cannot be attributed"
-      return 0
-      ;;
-  esac
-  sources=$(fm_busy_sources_for_harness "$HARNESS")
-  adapter=${sources%% fm-spawn *}
-  if [ -z "$sources" ] || [ "$adapter" = "$sources" ]; then
-    LV_STATE=unproven LV_REASON="harness '$HARNESS' has no adapter turn source"
-    return 0
-  fi
-  now=$(date +%s)
-  if [ $((now - launch_at)) -lt "$LAUNCH_WINDOW" ]; then
-    LV_STATE=pending LV_REASON="agent alive $((now - launch_at))s after launch; judged once the launch is ${LAUNCH_WINDOW}s old"
-    return 0
-  fi
-  r_state='' r_source=''
-  meta_gen=$(fm_meta_get "$META" busy_gen)
-  if gen=$(fm_busy_current_gen "$STATE" "$ID") && [ -n "$meta_gen" ] && [ "$gen" = "$meta_gen" ] \
-     && rec=$(fm_busy_record_read "$STATE" "$ID"); then
-    r_state=${rec%% *}
-    r_source=$(printf '%s' "$rec" | awk '{print $2}')
-  fi
-  if [ "$r_state" = busy ]; then
-    case " $adapter " in
-      *" ${r_source:-none} "*)
-        LV_STATE=building LV_REASON="agent alive with a running $r_source turn under this incarnation"
-        return 0
-        ;;
-    esac
-  fi
-  LV_STATE=failed LV_REASON="agent alive but no running $adapter turn ${LAUNCH_WINDOW}s after launch"
-}
-
-launch_fail() {  # <reason>
-  local spawn_gen
-  spawn_gen=$(fm_meta_get "$META" spawn_gen)
-  launch_mark_set verdict "failed $spawn_gen"
-  printf '%s\n' "$(status_stamp_line "failed: launch check: $1; not building")" >> "$STATE/$ID.status"
-  echo "launch-check failed $ID harness=$RECORDED_HARNESS model=$(fm_meta_get "$META" model) reason=$1"
-  exit 4
-}
-
-# launch_check_cleanup_failure: the one relaunch failed after the old agent was
-# stopped, which ended this process through die. Record the failure the same
-# way launch_fail does, from the EXIT trap, while the control lock is held.
-launch_check_cleanup_failure() {
-  local spawn_gen
-  spawn_gen=$(fm_meta_get "$META" spawn_gen)
-  launch_mark_set relaunch_result failed
-  launch_mark_set verdict "failed $spawn_gen"
-  printf '%s\n' "$(status_stamp_line "failed: launch check: $LV_REASON, and the one relaunch onto $LAUNCH_CHECK_RELAUNCH failed (the relaunch journal state/$ID.control-relaunch has the detail); not building")" >> "$STATE/$ID.status"
-  echo "launch-check failed $ID reason=$LV_REASON, and the one relaunch onto $LAUNCH_CHECK_RELAUNCH failed"
-}
-
-# launch_pick_fallback: prints the first eligible "<harness>/<model>" from
-# LAUNCH_FALLBACKS, or nothing; skipped routes are explained on stderr.
-launch_pick_fallback() {
-  local fb h m prior_model
-  prior_model=$(fm_meta_get "$META" model)
-  for fb in "${LAUNCH_FALLBACKS[@]}"; do
-    h=${fb%%/*}
-    m=${fb#*/}
-    if [ "$h" = "$RECORDED_HARNESS" ] && [ "$m" = "$prior_model" ]; then
-      echo "notice: launch-check skips fallback '$fb': it is the route that just failed" >&2
-      continue
-    fi
-    if ! fm_control_harness_supports_kind "$h" "$KIND"; then
-      echo "notice: launch-check skips fallback '$fb': '$h' is not verified to run a $KIND task" >&2
-      continue
-    fi
-    if ! fm_worker_account_select "$h" "${FM_CONFIG_OVERRIDE:-$FM_HOME/config}" "$m" "$h" >/dev/null 2>&1; then
-      echo "notice: launch-check skips fallback '$fb': this home's worker account pin refuses it" >&2
-      continue
-    fi
-    case "$h" in
-      pi|pi-signed|opencode)
-        if ! command -v "$h" >/dev/null; then
-          echo "notice: launch-check skips fallback '$fb': the $h executable is not on PATH" >&2
-          continue
-        fi
-        ;;
-    esac
-    if ! relaunch_catalog_check "$h" "$m" default; then
-      echo "notice: launch-check skips fallback '$fb': its harness catalog refuses the model" >&2
-      continue
-    fi
-    printf '%s' "$fb"
-    return 0
-  done
-}
-
-do_launch_check() {
-  local spawn_gen recorded relaunch relaunch_result chosen prior effort out rc custody
-  case "$KIND" in
-    ship|scout) ;;
-    *) die "launch-check judges ship and scout launches only; task $ID is a $KIND, whose lifecycle stays with its own recovery path" ;;
-  esac
-  LAUNCH_MARK="$STATE/$ID.launch-check"
-  LAUNCH_SPAWN_FIRST=$(fm_meta_get "$META" spawn_first)
-  spawn_gen=$(fm_meta_get "$META" spawn_gen)
-
-  recorded=$(launch_mark_get verdict)
-  if [ -n "$spawn_gen" ] && [ "${recorded#* }" = "$spawn_gen" ]; then
-    echo "launch-check ${recorded%% *} $ID (recorded for this incarnation) harness=$RECORDED_HARNESS model=$(fm_meta_get "$META" model)"
-    [ "${recorded%% *}" = failed ] && exit 4
-    exit 0
-  fi
-  relaunch=$(launch_mark_get relaunch)
-  relaunch_result=$(launch_mark_get relaunch_result)
-
-  LAUNCH_AT=${spawn_gen#s}
-  LAUNCH_AT=${LAUNCH_AT%%.*}
-  case "$spawn_gen" in s[0-9]*) ;; *) LAUNCH_AT= ;; esac
-  case "$LAUNCH_AT" in *[!0-9]*) LAUNCH_AT= ;; esac
-  if [ -z "$LAUNCH_AT" ]; then
-    echo "launch-check unproven $ID harness=$RECORDED_HARNESS model=$(fm_meta_get "$META" model) reason=the record names no launch incarnation (spawn_gen='${spawn_gen:-none}'); not counted as building and nothing acted on"
-    exit 5
-  fi
-  launch_worker_evidence "$LAUNCH_AT"
-  case "$LW_KIND" in
-    completed|held)
-      launch_mark_set verdict "$LW_KIND $spawn_gen"
-      echo "launch-check $LW_KIND $ID harness=$RECORDED_HARNESS model=$(fm_meta_get "$META" model) evidence=$LW_REASON; not building and not relaunched"
-      exit 0
-      ;;
-  esac
-
-  launch_verdict
-  case "$LV_STATE" in
-    building|failed)
-      custody=$("$FM_CREW_STATE_BIN" "$ID" 2>/dev/null) || custody=
-      case "$custody" in
-        *" · source: run-step"*)
-          launch_mark_set verdict "held $spawn_gen"
-          echo "launch-check held $ID harness=$RECORDED_HARNESS model=$(fm_meta_get "$META" model) reason=$LV_REASON, but a no-mistakes run holds the task ($custody); not building and not relaunched"
-          exit 0
-          ;;
-      esac
-      ;;
-  esac
-  case "$LV_STATE" in
-    building)
-      launch_mark_set verdict "building $spawn_gen"
-      echo "launch-check building $ID harness=$RECORDED_HARNESS model=$(fm_meta_get "$META" model) evidence=$LV_REASON"
-      exit 0
-      ;;
-    pending)
-      echo "launch-check pending $ID harness=$RECORDED_HARNESS model=$(fm_meta_get "$META" model) evidence=$LV_REASON"
-      exit 3
-      ;;
-    unproven)
-      echo "launch-check unproven $ID harness=$RECORDED_HARNESS model=$(fm_meta_get "$META" model) reason=$LV_REASON; not counted as building and nothing acted on"
-      exit 5
-      ;;
-  esac
-
-  # LV_STATE=failed from here on.
-  [ "$LW_KIND" != acted ] || launch_fail "$LV_REASON; $LW_REASON, so it is not relaunched"
-  if [ -n "$relaunch" ]; then
-    if [ "${relaunch%% *}" = "$spawn_gen" ] && [ -z "$relaunch_result" ]; then
-      launch_fail "$LV_REASON, and the one relaunch claimed onto ${relaunch#* } never published a new incarnation"
-    fi
-    launch_fail "$LV_REASON after the one allowed relaunch (onto ${relaunch#* }, ${relaunch_result:-no result})"
-  fi
-  chosen=
-  [ "${#LAUNCH_FALLBACKS[@]}" -eq 0 ] || chosen=$(launch_pick_fallback)
-  [ -n "$chosen" ] || launch_fail "$LV_REASON, and no eligible fallback route was given"
-  case "${chosen%%/*}" in pi|pi-signed|opencode|cursor) CATALOG_VERIFIED=$chosen ;; esac
-
-  prior="$RECORDED_HARNESS/$(fm_meta_get "$META" model)"
-  effort=$(fm_meta_get "$META" effort)
-  case "$effort" in ''|ultra) effort=default ;; esac
-  NEW_HARNESS=${chosen%%/*} NEW_MODEL=${chosen#*/} NEW_EFFORT=$effort
-  HARNESS_SET=1 MODEL_SET=1 EFFORT_SET=1
-  NOTE="Launch check: the previous launch on $prior was not a working agent ($LV_REASON), so Firstmate relaunched this task once on $chosen. Nothing from the previous launch needs undoing; start the task from these instructions."
-  NOTE_SET=1
-  # The relaunch's pre-stop refusals run first in a subshell, where a refusal
-  # (die) returns here with nothing changed. The relaunch itself must run in
-  # this process: fm-spawn --relaunch accepts the control lock only from its
-  # direct parent. A failure after the stop ends this process, so the EXIT
-  # trap records it (launch_check_cleanup_failure).
-  rc=0
-  out=$({ resolve_relaunch_profile && safe_checkpoint; } 2>&1) || rc=$?
-  if [ "$rc" -ne 0 ]; then
-    launch_fail "$LV_REASON, and the relaunch onto $chosen was refused before anything changed: $(printf '%s' "$out" | grep -v '^notice:' | tail -1)"
-  fi
-  launch_mark_set relaunch "$spawn_gen $chosen"
-  LAUNCH_CHECK_RELAUNCH=$chosen
-  do_relaunch
-  LAUNCH_CHECK_RELAUNCH=
-  launch_mark_set relaunch_result "ok $(fm_meta_get "$META" spawn_gen)"
-  echo "launch-check relaunched $ID from=$prior to=$chosen reason=$LV_REASON; check again after ${LAUNCH_WINDOW}s"
-  exit 3
-}
-
 # --- verbs ------------------------------------------------------------------
 
 case "$VERB" in
@@ -1670,8 +1222,5 @@ case "$VERB" in
     ;;
   relaunch)
     do_relaunch
-    ;;
-  launch-check)
-    do_launch_check
     ;;
 esac

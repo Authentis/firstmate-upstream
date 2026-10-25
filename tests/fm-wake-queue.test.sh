@@ -805,12 +805,12 @@ install_secondmate_alive_tmux() {  # <fakebin>
 set -u
 case "${1:-}" in
   list-windows) printf '%s\n' 'fm-mate' ;;
-  capture-pane) cat __CLAUDE_IDLE_SCREEN__ ;;
+  capture-pane) exit 0 ;;
   display-message)
     case "$*" in
       *pane_current_command*) printf 'claude\n' ;;
       *pane_tty*) exit 1 ;;
-      *cursor_y*) printf '37\n' ;;
+      *cursor_y*) printf '0\n' ;;
       *) printf '0\n' ;;
     esac
     ;;
@@ -831,9 +831,6 @@ case "${1:-}" in
   *) exit 0 ;;
 esac
 SH
-  # The pane replays a real captured Claude idle prompt (the send guard
-  # requires a positively recognised empty prompt before any ring types).
-  sed -i.bak "s|__CLAUDE_IDLE_SCREEN__|$ROOT/tests/fixtures/send-guard/claude-idle.txt|" "$fakebin/tmux" && rm -f "$fakebin/tmux.bak"
   chmod +x "$fakebin/tmux"
 }
 
@@ -3517,207 +3514,6 @@ SH
   pass "watch liveness: an unreachable remote secondmate is probed, preserved, and never failed over"
 }
 
-# A live mate wedged on a provider quota error is handed to the quota failover
-# library (bin/fm-quota-failover-lib.sh owns its contract and full pilot); this
-# pins only the watcher wiring: an alive probe reads the pane, a sustained
-# signature drives one failover restart, and its success wakes as one check.
-# The watcher runs from a bin/ whose restart owner is a stub answering in
-# bin/fm-secondmate-restart.sh's success vocabulary, since this fixture's fake
-# tmux cannot carry a real agent through a relaunch; that owner's own
-# --failover restart is covered in tests/fm-secondmate-restart.test.sh.
-test_secondmate_liveness_tick_hands_quota_wedged_mate_to_failover() {
-  local dir state pid out bin f appender
-  dir=$(make_secondmate_liveness_case liveness-quota)
-  state="$dir/state"
-  bin="$TMP_ROOT/liveness-quota-bin"
-  mkdir -p "$bin"
-  for f in "$ROOT"/bin/*; do ln -s "$f" "$bin/${f##*/}"; done
-  rm -f "$bin/fm-secondmate-restart.sh"
-  cat > "$bin/fm-secondmate-restart.sh" <<'SH'
-#!/usr/bin/env bash
-[ -n "${FM_HOME:-}" ] || { echo "error: FM_HOME is not set" >&2; exit 1; }
-printf '%s|pin=%s\n' "$*" "$(grep '^sm1 ' "$FM_CONFIG_OVERRIDE/secondmate-harness")" >> "$FM_STATE_OVERRIDE/restart-calls"
-printf 'restarted: %s (stub)\nsummary: 1 of 1 restarted, 0 nudged, 0 unreached, 0 held\n' "${!#}"
-SH
-  chmod +x "$bin/fm-secondmate-restart.sh"
-  printf 'sm1 claude model-one high\nsm1 codex model-two low\n' > "$dir/config/secondmate-quota-chain"
-  # The wedged agent answers every turn it is given with a quota error.
-  : > "$dir/pane"
-  (
-    n=0
-    while [ -d "$dir" ]; do
-      n=$((n + 1))
-      printf '> turn %s\nAPI Error: 429 Too Many Requests\n' "$n" >> "$dir/pane"
-      sleep 0.5
-    done
-  ) &
-  appender=$!
-
-  WATCH="$bin/fm-watch.sh" run_liveness_leg "$dir" quota FM_FAKE_TMUX_CURRENT_COMMAND=claude \
-    FM_FAKE_TMUX_CAPTURE="$dir/pane" FM_QUOTA_FAILOVER_WINDOW_SECS=0; pid=$LIVENESS_PID
-  wait_for_exit "$pid" 600 || { kill "$appender" 2>/dev/null; fail "the watcher did not wake on a quota-wedged secondmate"; }
-  kill "$appender" 2>/dev/null
-  # The killed appender's status is expected; an earlier case may leave errexit on.
-  wait "$appender" 2>/dev/null || true
-  out="$dir/watch-quota.out"
-  [ "$(cat "$state/restart-calls" 2>/dev/null)" = '--failover sm1|pin=sm1 codex model-two low' ] \
-    || fail "the watcher did not restart the mate once, persist-first, on the next chain link: $(cat "$state/restart-calls" 2>&1)"
-  [ "$(grep -c 'check: secondmate sm1 quota' "$out")" -eq 1 ] \
-    || fail "a quota-wedged secondmate did not produce exactly one quota check: $(cat "$out" "$dir/watch-quota.err")"
-  grep -F 'check: secondmate sm1 quota failover from chain link 0 to link 1 after a provider quota error persisted' "$out" >/dev/null \
-    || fail "the quota check did not report a completed failover to the next chain link: $(cat "$out")"
-  [ "$(sed -n 's/^link=//p' "$state/.quota-failover-sm1")" = 1 ] \
-    || fail "the failover did not record the next chain link: $(cat "$state/.quota-failover-sm1")"
-  grep -Fx 'sm1 codex model-two low' "$dir/config/secondmate-harness" >/dev/null \
-    || fail "the failover did not leave the mate pinned to the next chain link: $(cat "$dir/config/secondmate-harness" 2>&1)"
-  grep -F 'secondmate-quota-sm1-' "$state/.wake-queue" >/dev/null \
-    || fail "the quota check row was not queued durably: $(cat "$state/.wake-queue")"
-  pass "watch liveness: a live mate showing a sustained quota error is failed over and restarted"
-}
-
-# A remote round trip on the poll's path once held the liveness beacon for the
-# whole remote job deadline: the pending-reply observation and the secondmate
-# liveness probe each waited on a degraded host in turn, so the watcher neither
-# refreshed its beacon nor scanned any other wake until the stall bound evicted
-# it. Both remote calls hang here; the beacon must keep advancing, both calls
-# must be in flight together, and an unrelated status signal must still surface.
-test_slow_remote_round_trips_keep_the_beacon_fresh() {
-  local dir state pid corr i age calls rc ssh_pid
-  dir=$(make_secondmate_liveness_case liveness-remote-slow)
-  state="$dir/state"
-  rm -f "$state/sm1.meta"
-  cat > "$state/rsm1.meta" <<EOF
-window=remote:rsm1
-kind=secondmate
-harness=claude
-remote_host=lab-host
-remote_backend=herdr
-remote_herdr_session=fm-remote
-remote_target=fm-remote:w1:p1
-home=/remote/rsm1-home
-EOF
-  cat > "$dir/data/secondmates.md" <<EOF
-- rsm1 - Remote mate (host: lab-host; root: /remote/root; home: /remote/rsm1-home; scope: remote work; projects: alpha; added 2026-01-01)
-EOF
-  # The remote command's argv rides as the last ssh argument, base64 encoded.
-  cat > "$dir/fakebin/ssh" <<'SH'
-#!/usr/bin/env bash
-printf '%s\n' "$$" >> "${FM_FAKE_SSH_PIDS:?}"
-for last in "$@"; do :; done
-printf '%s' "$last" | base64 --decode | tr '\0' ' ' >> "${FM_FAKE_SSH_LOG:?}"
-printf '\n' >> "$FM_FAKE_SSH_LOG"
-sleep "${FM_FAKE_SSH_SLEEP:-60}"
-exit 255
-SH
-  chmod +x "$dir/fakebin/ssh"
-  : > "$dir/ssh.log"
-  : > "$dir/ssh.pids"
-  # A delivered request still awaiting its report makes the pending-reply tick
-  # observe the remote mate's busy state every poll.
-  corr=$(FM_HOME="$dir" bash -c '
-    . "$1"
-    c=$(fm_pending_reply_create "$2" "$3" rsm1 "report the slow-remote fixture") || exit 1
-    fm_pending_reply_mark_delivered "$3" "$c" || exit 1
-    printf "%s" "$c"
-  ' _ "$ROOT/bin/fm-pending-reply-lib.sh" "$dir" "$state") \
-    || fail "the pending-reply fixture could not be created"
-  [ -n "$corr" ] || fail "the pending-reply fixture has no correlation"
-
-  run_liveness_leg "$dir" slow FM_SSH_BIN="$dir/fakebin/ssh" FM_FAKE_SSH_LOG="$dir/ssh.log" \
-    FM_FAKE_SSH_PIDS="$dir/ssh.pids" FM_FAKE_SSH_SLEEP=60; pid=$LIVENESS_PID
-  i=0
-  while [ ! -s "$dir/ssh.log" ] && [ "$i" -lt 150 ]; do
-    sleep 0.1
-    i=$((i + 1))
-  done
-  [ -s "$dir/ssh.log" ] || fail "the slow remote mate was never contacted: $(cat "$dir/watch-slow.err")"
-  # Each hung call outlasts the beacon's poll-scale freshness many times over.
-  sleep 6
-  age=$(FM_STATE_OVERRIDE="$state" bash -c '. "$1"; fm_path_age "$2"' _ "$ROOT/bin/fm-wake-lib.sh" "$state/.last-watcher-beat")
-  calls=$(cat "$dir/ssh.log")
-  rc=0
-  is_live_non_zombie "$pid" || rc=1
-  if [ "$rc" -ne 0 ] || [ "$age" -gt 3 ]; then
-    kill -TERM "$pid" 2>/dev/null || true
-    xargs kill -TERM < "$dir/ssh.pids" 2>/dev/null || true
-    [ "$rc" -eq 0 ] || fail "the watcher exited during a slow remote round trip: $(cat "$dir/watch-slow.out" "$dir/watch-slow.err")"
-    fail "a hung remote round trip held the watcher beacon for ${age}s (calls: $calls)"
-  fi
-  assert_contains "$calls" "fm-remote-secondmate-control.sh observe rsm1" \
-    "the pending-reply observation never reached the slow remote mate"
-  assert_contains "$calls" "fm-remote-secondmate-control.sh state rsm1" \
-    "the liveness probe was not in flight alongside the hung observation"
-
-  # Supervision is not blind meanwhile: a fresh blocker still wakes promptly.
-  printf 'blocked: needs a hand\n' > "$state/task.status"
-  rc=0
-  wait_for_exit "$pid" 150 || rc=$?
-  [ "$rc" -eq 0 ] || {
-    xargs kill -TERM < "$dir/ssh.pids" 2>/dev/null || true
-    fail "the watcher did not wake on a signal while remote calls hung (rc=$rc): $(cat "$dir/watch-slow.err")"
-  }
-  grep -F "signal: $state/task.status" "$dir/watch-slow.out" >/dev/null || {
-    xargs kill -TERM < "$dir/ssh.pids" 2>/dev/null || true
-    fail "the blocker signal did not surface during slow remote calls: $(cat "$dir/watch-slow.out")"
-  }
-
-  # The watcher's exit leaves the hung calls to finish, but a run never
-  # outlives its home: removing the state directory ends every one of them.
-  rm -rf "$state"
-  i=0
-  while [ "$i" -lt 100 ]; do
-    calls=0
-    while IFS= read -r ssh_pid; do
-      ! kill -0 "$ssh_pid" 2>/dev/null || calls=$((calls + 1))
-    done < "$dir/ssh.pids"
-    [ "$calls" -gt 0 ] || break
-    sleep 0.1
-    i=$((i + 1))
-  done
-  xargs kill -TERM < "$dir/ssh.pids" 2>/dev/null || true
-  [ "$calls" -eq 0 ] || fail "$calls hung remote calls outlived their deleted home"
-  pass "watch: hung remote round trips stay off the poll, so the beacon stays fresh and signals still surface"
-}
-
-test_secondmate_first_call_failure_wakes_with_model_error() {
-  local dir state pid ledger out
-  dir=$(make_secondmate_liveness_case first-call-failure)
-  state="$dir/state"
-  ledger="$state/.secondmate-relaunch-sm1"
-  mkdir -p "$dir/code/bin"
-  ln -s "$ROOT"/bin/*.sh "$dir/code/bin/"
-  rm "$dir/code/bin/fm-spawn.sh"
-  printf 'pi\nsm1 pi anthropic/claude-opus-5-5 low\n' > "$dir/config/secondmate-harness"
-  printf 'error: 403 forbidden\n' > "$dir/receipt"
-  cat > "$dir/code/bin/fm-spawn.sh" <<'SH'
-#!/usr/bin/env bash
-set -eu
-[ "$1" = sm1 ] && [ "$2" = --secondmate ] || exit 2
-profile=$("$FM_ROOT_OVERRIDE/bin/fm-harness.sh" secondmate-pin "$1")
-read -r harness model effort <<< "$profile"
-[ "$harness" = pi ] && [ "$effort" = low ] || exit 2
-printf 'warning: sync skipped before launch\n' >&2
-"$FM_ROOT_OVERRIDE/bin/fm-pi-first-call.sh" wait "$FM_HOME/receipt" "$model" 1
-SH
-  chmod +x "$dir/code/bin/fm-spawn.sh"
-  run_liveness_leg "$dir" provider-error FM_FAKE_TMUX_CURRENT_COMMAND=zsh FM_ROOT_OVERRIDE="$dir/code"; pid=$LIVENESS_PID
-  wait_for_exit "$pid" 300 || fail "watcher did not wake on first-call failure"
-  out=$(cat "$dir/watch-provider-error.out")
-  assert_contains "$out" 'auto-relaunch failed' 'provider failure was not surfaced as failed recovery'
-  assert_contains "$out" 'model anthropic/claude-opus-5-5 first call failed: error: 403 forbidden' 'watcher hid the model/provider error behind a sync warning'
-  assert_not_contains "$out" 'auto-relaunched' 'watcher claimed a failed model call relaunched successfully'
-  [ "$(awk -F '\t' '$2 == "failed" {n++} END {print n+0}' "$ledger")" = 1 ] || fail 'failed first call was not ledgered'
-  [ "$(grep -c 'secondmate-relaunch-failed-sm1-' "$state/.wake-queue")" = 1 ] || fail 'provider error wake not queued once'
-  pass "watcher first-call failure queues one wake naming the model and provider error after earlier warnings"
-}
-
-if [ "${FM_SM_PIN_TEST_ONLY:-0}" = 1 ]; then
-  test_secondmate_first_call_failure_wakes_with_model_error
-  exit 0
-fi
-
-test_secondmate_first_call_failure_wakes_with_model_error
-
 test_self_held_lock_reclaims_instead_of_deadlocking
 test_subshell_lock_ownership_without_bashpid
 test_bounded_lock_handoff_after_contention
@@ -3786,5 +3582,3 @@ test_secondmate_liveness_tick_error_keeps_scanning_and_wakes
 test_secondmate_liveness_tick_unqueued_outcome_is_an_error_not_a_wake
 test_secondmate_liveness_tick_skips_mate_whose_lock_is_held
 test_secondmate_liveness_tick_preserves_unreachable_remote
-test_secondmate_liveness_tick_hands_quota_wedged_mate_to_failover
-test_slow_remote_round_trips_keep_the_beacon_fresh

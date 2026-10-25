@@ -13,20 +13,18 @@
 # here rather than improvised per harness in agent prose.
 #
 # This file owns three capability tables plus their pure artifact-path tables,
-# and TWO named exceptions to that purity - fm_control_endpoint_absence_verdict,
-# the single owner of the per-backend endpoint-absence proof, and
-# fm_control_clear_draft, the single owner of the verified composer-draft clear
-# (with its checkpoint-picker helpers fm_control_overlay_open and
-# fm_control_dismiss_overlay); both run backend commands. Everything else has no side effects, runs no
-# backend command, and reads no state, so sourcing this file is still free and
-# the tables can be read by a test as a pure contract:
+# and ONE named exception to that purity - fm_control_endpoint_absence_verdict,
+# the single owner of the per-backend endpoint-absence proof, which does run
+# backend reads. Everything else has no side effects, runs no backend command,
+# and reads no state, so sourcing this file is still free and the tables can be
+# read by a test as a pure contract:
 #
 #   1. Verb allowlist. There is no arbitrary-text and no generic raw-key entry
 #      point on the control plane; a caller either names an allowlisted verb or
 #      is refused.
 #   2. Per-harness control mechanics: which key interrupts a running turn, how
 #      many times it must be sent, whether the composer needs clearing after
-#      that key, which key sequence clears a draft an idle composer holds, which adapter-owned cancellation acknowledgement is observable,
+#      that key, which adapter-owned cancellation acknowledgement is observable,
 #      which command exits the agent, and which task kinds the adapter is
 #      verified to run. These are the empirically verified facts previously
 #      carried only in the harness-adapters skill's per-adapter tables; that
@@ -52,13 +50,12 @@ fm_control_verbs() {
 interrupt
 exit
 relaunch
-launch-check
 EOF
 }
 
 fm_control_verb_allowed() {  # <verb>
   case "${1-}" in
-    interrupt|exit|relaunch|launch-check) return 0 ;;
+    interrupt|exit|relaunch) return 0 ;;
   esac
   return 1
 }
@@ -67,7 +64,7 @@ fm_control_verb_allowed() {  # <verb>
 # section 4's verified-adapter list; an unverified adapter is refused rather
 # than guessed at, exactly as a spawn on it would be.
 fm_control_harnesses() {
-  printf '%s\n' claude codex opencode pi pi-signed grok kimi cursor gemini muse rovo omp agy devin commandcode
+  printf '%s\n' claude codex opencode pi pi-signed grok kimi cursor gemini muse rovo omp agy devin commandcode polytoken
 }
 
 fm_control_harness_supported() {  # <harness>
@@ -85,9 +82,8 @@ fm_control_harness_supported() {  # <harness>
 # and friends. This is the one place that prefix rule is stated. `pi` and
 # `pi-signed` are exact because a `pi*` prefix would swallow the signed adapter,
 # `omp` is exact because an `omp*` prefix would claim unrelated commands, `agy`
-# is exact for the same reason on an even shorter name, `commandcode` is exact
-# because a raw `commandcode` launch already records the adapter name, and an
-# unrecognized value returns nonzero rather than being guessed into a family.
+# is exact for the same reason on an even shorter name, `devin` and
+# `commandcode` are exact as well, and an unrecognized value returns nonzero rather than being guessed into a family.
 fm_control_harness_family() {  # <recorded-harness>
   case "${1-}" in
     pi) printf 'pi' ;;
@@ -96,6 +92,7 @@ fm_control_harness_family() {  # <recorded-harness>
     agy) printf 'agy' ;;
     devin) printf 'devin' ;;
     commandcode) printf 'commandcode' ;;
+    polytoken) printf 'polytoken' ;;
     claude*) printf 'claude' ;;
     codex*) printf 'codex' ;;
     opencode*) printf 'opencode' ;;
@@ -110,8 +107,8 @@ fm_control_harness_family() {  # <recorded-harness>
 }
 
 # Which task kinds an adapter is verified to run. muse, gemini, rovo, agy, devin,
-# and commandcode are crewmate/scout adapters only: none has a primary supervision protocol,
-# and bin/fm-spawn.sh refuses a --secondmate launch on any of them. The control
+# commandcode, and polytoken are crewmate/scout adapters only: none has a primary
+# supervision protocol, and bin/fm-spawn.sh refuses a --secondmate launch on any of them. The control
 # plane asks this BEFORE it stops anything, so an incompatible relaunch target is
 # refused while the current agent is still running rather than after it has
 # been stopped.
@@ -119,9 +116,26 @@ fm_control_harness_supports_kind() {  # <harness> <kind>
   local harness=${1-} kind=${2-}
   fm_control_harness_supported "$harness" || return 1
   case "$harness" in
-    muse|gemini|rovo|agy|devin|commandcode) [ "$kind" != secondmate ] || return 1 ;;
+    muse|gemini|rovo|agy|devin|commandcode|polytoken) [ "$kind" != secondmate ] || return 1 ;;
   esac
   return 0
+}
+
+# Which transport a harness's interrupt verb rides: `rest` for a typed API
+# call, `key` for the keyplane sequence the tables below describe. polytoken
+# is the one rest adapter: its TUI has NO interrupt chord at all (verified
+# live on 0.8.19 through the full `print tui-command-actions` inventory:
+# `submit-prompt` is the only Enter action in Prompt scope, a single Escape
+# does nothing in Prompt scope, and Escape Escape opens the rewind picker),
+# so an interrupt MUST be POST /turn/cancel on the session daemon, and the
+# keyplane tables below deliberately refuse it so nothing can improvise a
+# key. Every other verified harness interrupts through the keyplane.
+fm_control_interrupt_transport() {  # <harness>
+  case "${1-}" in
+    polytoken) printf 'rest' ;;
+    claude|codex|opencode|pi|pi-signed|omp|grok|kimi|cursor|gemini|muse|rovo|agy|devin|commandcode) printf 'key' ;;
+    *) return 1 ;;
+  esac
 }
 
 # The key that cancels a running turn. Escape for every adapter except grok,
@@ -133,10 +147,7 @@ fm_control_harness_supports_kind() {  # <harness> <kind>
 # with an idle composer and no repollution (verified live, agy 1.2.0 through
 # Herdr). omp (Oh My Pi) shares Pi's single Escape, empty composer
 # afterwards, and /quit exit (verified omp 18.1.2 in a PTY, re-verified 18.1.11
-# through Herdr). Command Code cancels on a single Escape, records the run as
-# interrupted, and leaves its idle placeholder composer with no restored draft;
-# a lone Escape on an idle Command Code opens nothing (verified, commandcode
-# 1.73.4 in tmux).
+# through Herdr).
 fm_control_interrupt_key() {  # <harness>
   case "${1-}" in
     claude|codex|opencode|pi|pi-signed|omp|kimi|cursor|gemini|muse|rovo|agy|devin|commandcode) printf 'Escape' ;;
@@ -146,7 +157,9 @@ fm_control_interrupt_key() {  # <harness>
 }
 
 # How many times the interrupt key must be delivered. OpenCode and Devin need a double
-# Escape; every other verified adapter interrupts on a single press.
+# Escape; every other verified adapter interrupts on a single press. Command Code
+# cancels a running turn on one Escape (verified live, Command Code 1.74.1), and a
+# second press is exactly what opens its rewind picker, so it gets one.
 fm_control_interrupt_repeat() {  # <harness>
   case "${1-}" in
     opencode|devin) printf '2' ;;
@@ -177,10 +190,14 @@ fm_control_interrupt_arm_signal() {  # <harness>
 # The minimum seconds between two presses of an armed interrupt: several times
 # Devin's observed idle double-tap window, well inside its three-second armed
 # window. A turn that ends between the presses therefore cannot pair them.
+# Command Code sends one press, so its gap is only the settle before the hazard
+# read below: long enough for a rewind picker a stray earlier Escape paired with
+# this press to render (its idle double-tap opened the picker at a 0.3 s gap and
+# did not at 0.6 s, Command Code 1.74.1).
 fm_control_interrupt_press_gap() {  # <harness>
   case "${1-}" in
-    devin) printf '0.5' ;;
-    claude|codex|opencode|pi|pi-signed|omp|grok|kimi|cursor|gemini|muse|rovo|agy|commandcode) printf '0.2' ;;
+    devin|commandcode) printf '0.5' ;;
+    claude|codex|opencode|pi|pi-signed|omp|grok|kimi|cursor|gemini|muse|rovo|agy) printf '0.2' ;;
     *) return 1 ;;
   esac
 }
@@ -190,10 +207,20 @@ fm_control_interrupt_press_gap() {  # <harness>
 # when the adapter has none. Devin's revert picker is recognized by either of
 # two independent rows, its `Revert to step:` title or its `↵ revert` footer,
 # and Escape cancels it without reverting (verified live, devin 3000.11.1).
+# Command Code opens its Rewind checkpoint picker on two Escapes within about
+# half a second on an idle agent, where Enter restores a checkpoint; it is
+# recognized by its `Select a checkpoint to restore your session` subtitle or its
+# `Press Enter to select · Esc to cancel` footer, and one Escape closes it
+# without restoring (verified live, Command Code 1.74.1).
 fm_control_interrupt_hazard_signal() {  # <harness>
   case "${1-}" in
     devin) printf '%s' 'Revert to step:|↵ revert' ;;
-    claude|codex|opencode|pi|pi-signed|omp|grok|kimi|cursor|gemini|muse|rovo|agy|commandcode) ;;
+    commandcode) printf '%s' 'Select a checkpoint to restore your session|Press Enter to select · Esc to cancel' ;;
+    # polytoken's interrupt rides the REST API, never keys, so no key can open
+    # a hazard surface on its path; the /quit exit opens only the slash palette,
+    # where Enter accepts the preselected /quit row (verified live).
+    polytoken) ;;
+    claude|codex|opencode|pi|pi-signed|omp|grok|kimi|cursor|gemini|muse|rovo|agy) ;;
     *) return 1 ;;
   esac
 }
@@ -219,173 +246,6 @@ fm_control_interrupt_clear_key() {  # <harness>
   esac
 }
 
-# The key sequence that clears a DRAFT an idle composer already holds, as
-# distinct from the post-interrupt clear above, which removes a prompt the
-# interrupt itself restored. Prints the key or nothing; a harness with no
-# verified mechanics returns nonzero, matching the tables above, and every
-# other adapter's draft is never touched: a draft there may be the captain's
-# own typing. Command Code is the one adapter with a verified draft clear:
-# Escape pressed twice within about 0.4 s empties the composer, whatever it
-# holds (verified live, commandcode 1.74.0 in tmux: a single-line draft, a
-# three-line draft, a pasted five-line block, and a typed-pasted-typed mix all
-# read empty afterwards; docs/verification/commandcode.md owns the dated
-# result and the live guard). The alternatives fail: Ctrl-U kills only the
-# cursor line of a multi-line draft and Ctrl-A then Ctrl-K only the cursor
-# line as well; one Ctrl-C clears but arms `Press Ctrl+C again to exit`, so a
-# second press would exit the agent; one Escape on a draft changes nothing.
-# The same pair on an idle EMPTY composer opens the Rewind checkpoint picker
-# once the session has a turn (verified live, commandcode 1.74.1), where Enter
-# restores a checkpoint, so fm_control_clear_draft below never sends it to a
-# composer that reads empty and closes the picker with one Escape if it opens.
-# The same pair on a RUNNING turn is an interrupt, so a caller outside the
-# interrupt and exit verbs must prove the agent idle first
-# (bin/fm-task-inbox-lib.sh does).
-fm_control_draft_clear_key() {  # <harness>
-  case "${1-}" in
-    commandcode) printf 'Escape' ;;
-    claude|codex|opencode|pi|pi-signed|omp|grok|kimi|cursor|gemini|muse|rovo|agy|devin) ;;
-    *) return 1 ;;
-  esac
-}
-
-# How many times the draft-clear key is delivered; empty when the adapter has
-# no draft clear.
-fm_control_draft_clear_presses() {  # <harness>
-  case "${1-}" in
-    commandcode) printf '2' ;;
-    claude|codex|opencode|pi|pi-signed|omp|grok|kimi|cursor|gemini|muse|rovo|agy|devin) ;;
-    *) return 1 ;;
-  esac
-}
-
-# Seconds between the presses. Command Code pairs two Escapes only inside a
-# window measured between 0.4 s (paired) and 0.5 s (not paired) including the
-# sender's own process overhead, so the gap is a quarter of that.
-fm_control_draft_clear_gap() {  # <harness>
-  case "${1-}" in
-    commandcode) printf '0.1' ;;
-    claude|codex|opencode|pi|pi-signed|omp|grok|kimi|cursor|gemini|muse|rovo|agy|devin) ;;
-    *) return 1 ;;
-  esac
-}
-
-# The key that closes the overlay a mistimed Escape pair can open. Command Code
-# is the only adapter whose clear sends the pair, so it is the only one with an
-# overlay to close: its Rewind checkpoint picker closes on ONE Escape (verified
-# live, commandcode 1.74.1); Enter would restore a checkpoint.
-fm_control_overlay_dismiss_key() {  # <harness>
-  case "${1-}" in
-    commandcode) printf 'Escape' ;;
-    *) return 1 ;;
-  esac
-}
-
-# fm_control_overlay_open: whether the harness's checkpoint picker is on screen.
-# Prints nothing; returns 0 open, 1 not open, 2 unreadable or no such overlay
-# for the adapter. The picker is two rows, the title `Rewind` directly above
-# `Select a checkpoint to restore your session` (docs/verification/
-# commandcode.md owns the capture), matched as whole trimmed rows so a
-# transcript that merely mentions them is not read as the picker. The viewport
-# is read where the backend has a verified bounded read; elsewhere the last 40
-# rows stand in, because the picker draws at the bottom.
-fm_control_overlay_open() {  # <backend> <target> <harness> [expected-label]
-  local backend=${1-} target=${2-} harness=${3-} label=${4-} screen
-  fm_control_overlay_dismiss_key "$harness" >/dev/null || return 2
-  if fm_backend_visible_capture_supported "$backend"; then
-    screen=$(fm_backend_visible_capture "$backend" "$target" "$label" 2>/dev/null) || return 2
-  else
-    screen=$(fm_backend_capture "$backend" "$target" 40 "$label" 2>/dev/null) || return 2
-  fi
-  [ -n "$screen" ] || return 2
-  printf '%s\n' "$screen" | LC_ALL=C sed $'s/\x1b\\[[0-9;:?]*[A-Za-z]//g; s/\r$//' | LC_ALL=C awk '
-    { line = $0; gsub(/^[ \t]+|[ \t]+$/, "", line) }
-    line == "" { next }
-    title { if (line == "Select a checkpoint to restore your session") found = 1; title = 0 }
-    line == "Rewind" { title = 1 }
-    END { exit(found ? 0 : 1) }
-  '
-}
-
-# fm_control_dismiss_overlay: close the checkpoint picker if it is open, with
-# exactly one Escape, and prove it closed. Returns 0 when nothing was open or it
-# closed, 1 when it is open and the key was not delivered or one Escape did not
-# close it (nothing else is sent: a second key into a picker is how Enter ends
-# up restoring a checkpoint). An unreadable screen is treated as not open,
-# because the composer read that follows it cannot be proven either.
-fm_control_dismiss_overlay() {  # <backend> <target> <harness> [expected-label]
-  local backend=${1-} target=${2-} harness=${3-} label=${4-} key polls=0
-  key=$(fm_control_overlay_dismiss_key "$harness") || return 0
-  fm_control_overlay_open "$backend" "$target" "$harness" "$label" || return 0
-  fm_control_backend_supports_key "$backend" "$key" || return 1
-  fm_backend_send_key "$backend" "$target" "$key" "$label" >/dev/null 2>&1 || return 1
-  while [ "$polls" -lt 8 ]; do
-    polls=$((polls + 1))
-    sleep 0.25
-    fm_control_overlay_open "$backend" "$target" "$harness" "$label" || return 0
-  done
-  return 1
-}
-
-# fm_control_clear_draft: the ONE mechanism that sends the draft-clear keys and
-# proves the result, so the interrupt verb, the exit verb, and the doorbell all
-# empty a composer the same way. Returns 0 only when the composer then reads
-# exactly `empty` and no overlay is open (a verdict of pending-unproven or
-# unknown never counts), 1 when the keys could not be delivered or the composer
-# still reads otherwise after two attempts, and 2 when the adapter has no
-# verified draft clear, in which case nothing was sent. Requires
-# bin/fm-backend.sh.
-# It never sends the clear to a composer that already reads empty, closes an
-# open checkpoint picker with one Escape before and after the pair, and never
-# repeats the pair once a picker has opened: the pair opens it only on an EMPTY
-# composer, so an opened picker proves the text read before was not a draft.
-# On return 1, FM_CONTROL_CLEAR_WHY names why for the caller's refusal:
-#   overlay-stuck  a checkpoint picker is open and one Escape did not close it
-#   misread        the pair opened the picker, which one Escape then closed: the
-#                  composer was empty and still reads as holding text
-#   pending        the composer still reads as holding text after both pairs
-#   keys           a key could not be delivered
-# shellcheck disable=SC2034 # Output global, consumed by sourcing callers.
-FM_CONTROL_CLEAR_WHY=
-fm_control_clear_draft() {  # <backend> <target> <harness> [expected-label]
-  local backend=${1-} target=${2-} harness=${3-} label=${4-} key presses gap attempts=0 polls i
-  FM_CONTROL_CLEAR_WHY=
-  key=$(fm_control_draft_clear_key "$harness") || return 2
-  [ -n "$key" ] || return 2
-  presses=$(fm_control_draft_clear_presses "$harness") || return 2
-  gap=$(fm_control_draft_clear_gap "$harness") || return 2
-  fm_control_backend_supports_key "$backend" "$key" || { FM_CONTROL_CLEAR_WHY=keys; return 1; }
-  fm_control_dismiss_overlay "$backend" "$target" "$harness" "$label" \
-    || { FM_CONTROL_CLEAR_WHY=overlay-stuck; return 1; }
-  [ "$(fm_backend_composer_state "$backend" "$target" "$label" 2>/dev/null)" != empty ] || return 0
-  while [ "$attempts" -lt 2 ]; do
-    attempts=$((attempts + 1))
-    i=0
-    while [ "$i" -lt "$presses" ]; do
-      fm_backend_send_key "$backend" "$target" "$key" "$label" >/dev/null 2>&1 \
-        || { FM_CONTROL_CLEAR_WHY=keys; return 1; }
-      i=$((i + 1))
-      [ "$i" -ge "$presses" ] || sleep "$gap"
-    done
-    polls=0
-    while [ "$polls" -lt 8 ]; do
-      polls=$((polls + 1))
-      sleep 0.25
-      if fm_control_overlay_open "$backend" "$target" "$harness" "$label"; then
-        if fm_control_dismiss_overlay "$backend" "$target" "$harness" "$label"; then
-          FM_CONTROL_CLEAR_WHY=misread
-        else
-          FM_CONTROL_CLEAR_WHY=overlay-stuck
-        fi
-        return 1
-      fi
-      [ "$(fm_backend_composer_state "$backend" "$target" "$label" 2>/dev/null)" != empty ] || return 0
-    done
-  done
-  # shellcheck disable=SC2034 # Output global, consumed by sourcing callers.
-  FM_CONTROL_CLEAR_WHY=pending
-  return 1
-}
-
 fm_control_interrupt_ack_source() {  # <harness>
   case "${1-}" in
     muse) printf 'muse-session-terminal' ;;
@@ -404,8 +264,8 @@ fm_control_interrupt_ack_source() {  # <harness>
 # The command that exits the agent from its own composer.
 fm_control_exit_command() {  # <harness>
   case "${1-}" in
-    claude|opencode|grok|kimi|cursor|muse|rovo|commandcode) printf '/exit' ;;
-    codex|pi|pi-signed|omp|gemini|agy|devin) printf '/quit' ;;
+    claude|opencode|grok|kimi|cursor|muse|rovo) printf '/exit' ;;
+    codex|pi|pi-signed|omp|gemini|agy|devin|commandcode|polytoken) printf '/quit' ;;
     *) return 1 ;;
   esac
 }
@@ -544,9 +404,11 @@ fm_control_endpoint_absence_verdict() {  # <backend> <target>
 # The per-task wiring artifacts a harness leaves behind, so a relaunch that
 # changes harness (or re-arms the same one with a fresh busy generation) can
 # clear the previous incarnation's wiring instead of leaving a stale hook
-# pointing at a retired generation. Prints zero or more absolute paths, one per
-# line: worktree-resident hook files and firstmate-owned state tokens only,
-# never a harness's own managed config.
+# pointing at a retired generation. Teardown's worktree return also reads this
+# table for Polytoken; both consumers preserve git-tracked Polytoken layers.
+# Prints zero or more absolute paths, one per line: worktree-resident
+# hook files and firstmate-owned state tokens only, never a harness's own
+# managed config.
 fm_control_harness_wiring_paths() {  # <harness> <worktree> <state-dir> <id> [kind]
   local harness=${1-} wt=${2-} state=${3-} id=${4-} kind=${5-}
   [ -n "$wt" ] && [ -n "$state" ] && [ -n "$id" ] || return 1
@@ -590,12 +452,49 @@ fm_control_harness_wiring_paths() {  # <harness> <worktree> <state-dir> <id> [ki
     # the project, and nothing global is installed.
     gemini) printf '%s\n' "$state/$id.gemini-settings.json" ;;
     devin) printf '%s\n' "$state/$id.devin-config.json" ;;
-    # Command Code's busy-state mod lives in state/, and its per-task settings
-    # (commit attribution off, taste learning off) are the worktree's
-    # project-local settings file, the same shape as Claude's.
-    commandcode)
-      printf '%s\n' "$state/$id.commandcode-mod.ts"
-      printf '%s\n' "$wt/.commandcode/settings.local.json"
+    # commandcode leaves none: its tracked mod (bin/fm-commandcode-mod.ts) takes
+    # the generation from its own launch command, so the retired process
+    # takes its wiring with it.
+    # polytoken's per-task wiring spans the worktree's project hook and facet
+    # layers (the only hook and facet discovery a task controls, so a relaunch
+    # must retire them rather than leave a stale hook pointing at a retired
+    # busy generation), the generated no-argv busy writer the hooks reference,
+    # and the per-task config and sessions roots, which are DIRECTORIES and
+    # therefore ride fm_control_harness_wiring_dirs below rather than this
+    # file table. The worktree layers are the project's own discovery paths,
+    # so each is named only while it carries this task's generated content
+    # (the hooks reference this task's busy writer, the facet this task's
+    # inbox); a project's own hook layer or facet is never firstmate's to
+    # retire.
+    polytoken)
+      if grep -qsF "/$id.polytoken-busy.sh" "$wt/.polytoken/hooks.json"; then
+        printf '%s\n' "$wt/.polytoken/hooks.json"
+      fi
+      if grep -qsF "/$id.inbox" "$wt/.polytoken/facets/firstmate-worker.md"; then
+        printf '%s\n' "$wt/.polytoken/facets/firstmate-worker.md"
+      fi
+      printf '%s\n' "$state/$id.polytoken-busy.sh"
+      ;;
+  esac
+}
+
+# The firstmate-owned per-task DIRECTORIES a harness mints, one per line:
+# the same retirement contract as fm_control_harness_wiring_paths for
+# artifacts that are directory trees rather than single files. Consumers
+# remove these recursively; nothing here is ever a harness's own managed
+# config. polytoken's config dir holds the mirrored worker config (the
+# one launch-time autonomy surface, so a replacement must regenerate it
+# from the current operator config), and the sessions root holds the
+# versioned `<root>-v1` session tree the launch writes beside it, so both
+# the root and its versioned sibling are named.
+fm_control_harness_wiring_dirs() {  # <harness> <state-dir> <id>
+  local harness=${1-} state=${2-} id=${3-}
+  [ -n "$state" ] && [ -n "$id" ] || return 1
+  case "$harness" in
+    polytoken)
+      printf '%s\n' "$state/$id.polytoken-config"
+      printf '%s\n' "$state/$id.polytoken-sessions"
+      printf '%s\n' "$state/$id.polytoken-sessions-v1"
       ;;
   esac
 }

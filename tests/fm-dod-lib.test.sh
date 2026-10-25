@@ -406,19 +406,6 @@ test_pr_based_dod_draft_check_uses_gh_axi() {
   pass "PR-based DoD draft check uses gh-axi"
 }
 
-# Every ship mode's DoD hands the worker the per-criterion proof contract.
-test_every_ship_dod_carries_proof_contract() {
-  local mode out
-  for mode in no-mistakes direct-PR local-only; do
-    out="$TMP_ROOT/dod-proof-$mode.md"
-    fm_dod_block "$mode" dod-proof-task > "$out"
-    assert_grep 'minimum level' "$out" "$mode: DoD must say the done line shows the minimum proof level"
-    assert_grep 'blocked' "$out" "$mode: DoD must keep blocked criteria"
-    assert_grep 'receipts' "$out" "$mode: DoD must keep receipts authoritative"
-  done
-  pass "every ship DoD carries the proof-per-criterion contract"
-}
-
 # A scout spawned on a named base keeps that base through promotion: the ship
 # instructions start from it and the PR targets it; local-only cannot carry it.
 test_promotion_keeps_the_recorded_base_branch() {
@@ -462,7 +449,6 @@ EOF
 }
 
 test_scout_done_is_not_gated
-test_every_ship_dod_carries_proof_contract
 test_unpushed_ship_done_is_refused
 test_no_mistakes_prevalidation_done_is_not_gated
 test_remote_containing_named_head_is_accepted
@@ -612,36 +598,5 @@ test_external_review_done_without_backup_is_accepted_on_the_url
 test_external_review_done_with_backup_needs_the_copy
 
 test_worker_role_names_skill_and_fallback_file
-
-# The rulings block is worker-composed at run time: the driving contract names
-# it, its narrowing-only wording, its inbox source, and the no-block rule, and
-# the legacy intent overlay must not supersede it. Neither output may carry the
-# block as Captain's intent.
-test_intent_contract_carries_rulings_block() {
-  local out overlay
-  out=$(fm_nm_driving_block github)
-  assert_contains "$out" "Rulings on this PR (supervisor decisions, verbatim; they only narrow what the review may flag and never add a requirement):" \
-    "driving contract did not name the rulings block heading"
-  assert_contains "$out" "Before every \`no-mistakes axi run\` that starts or restarts a run, re-read this brief's Firstmate instruction inbox" \
-    "driving contract did not make the inbox the rulings source before every run and restart"
-  assert_contains "$out" "including messages already acknowledged into its \`handled/\` directory" \
-    "driving contract dropped rulings already acknowledged into handled/"
-  assert_contains "$out" "only the inbox rulings that close, accept, defer, or bound a finding" \
-    "driving contract did not limit the block to narrowing rulings"
-  assert_contains "$out" "each with its message id or timestamp and its author" \
-    "driving contract did not require each ruling's id and author"
-  assert_contains "$out" "Never put your own tradeoffs, any Firstmate spec, or anything that adds a requirement in that block; a ruling may only narrow." \
-    "driving contract let the block add requirements"
-  assert_contains "$out" "When the inbox holds no such ruling, append no block." \
-    "driving contract lost the no-block-when-empty rule"
-  overlay=$(fm_brief_intent_overlay 'Ship the fix.')
-  assert_contains "$overlay" "The Definition of done's final rulings block still follows these words in the string you pass." \
-    "intent overlay superseded the rulings block"
-  assert_not_contains "$overlay" "Rulings on this PR" \
-    "intent overlay embedded the rulings block in the authorized captain intent"
-  pass "--intent contract carries the narrowing-only steering-inbox rulings block"
-}
-
-test_intent_contract_carries_rulings_block
 
 echo "all fm-dod-lib tests passed"

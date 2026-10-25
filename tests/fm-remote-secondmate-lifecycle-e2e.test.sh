@@ -278,7 +278,18 @@ publish_healthy_watcher_identity() { # <state> <home> <watch-script>
   touch "$state/.last-watcher-beat"
 }
 
+# Every remote leg here runs the real entrypoint and job worker on this
+# machine, which on a loaded runner can outlast the production per-mate
+# convergence budget; tests/fm-bootstrap-network-parallel.test.sh owns that
+# budget's behavior, so this suite gives convergence ample time.
+# The inheritance push overlaps its sends to hide real SSH round trips, but
+# this fixture's transport has none and its job worker still runs one home's
+# commands one at a time, so overlap only adds submission overhead to every
+# remote spawn here; the suite sends one item at a time and leaves the
+# overlapped scheduler to tests/fm-bootstrap-network-parallel.test.sh.
 remote_env() {
+  FM_SECONDMATE_CONVERGENCE_TIMEOUT="${FM_SECONDMATE_CONVERGENCE_TIMEOUT:-900}" \
+  FM_REMOTE_INHERIT_PUSH_JOBS=1 \
   FM_HOME="$PARENT" \
   FM_ROOT_OVERRIDE="$REMOTE_ROOT" \
   FM_PROCEVENT_CLAIM_ROOT="$CLAIMS" \
@@ -797,8 +808,7 @@ assert_grep "$REMOTE_HOME/state/parent-replies.status" "$REMOTE_HOME/data/charte
 assert_no_grep "$PARENT/state/ios.status" "$REMOTE_HOME/data/charter.md" "remote charter retained the inaccessible local status path"
 assert_grep "$PARENT_ROUTE_INBOX" "$REMOTE_HOME/data/charter.md" "remote charter did not name its host-local steering inbox"
 assert_no_grep "$PARENT/state/ios.inbox" "$REMOTE_HOME/data/charter.md" "remote charter retained the inaccessible local steering inbox path"
-assert_grep "/bin/fm-inbox-ack.sh" "$REMOTE_HOME/data/charter.md" "remote charter did not render the inbox acknowledgement command host-local"
-assert_no_grep "$PARENT_ROUTE_INBOX/handled/" "$REMOTE_HOME/data/charter.md" "remote charter still instructs a raw move into handled/"
+assert_grep "$PARENT_ROUTE_INBOX'/NNN.msg '$PARENT_ROUTE_INBOX'/handled/" "$REMOTE_HOME/data/charter.md" "remote charter did not render the inbox acknowledgement move host-local"
 if FM_SECONDMATE_CHARTER='Own iOS delivery on the build Mac.' \
   FM_SECONDMATE_SCOPE='iOS implementation and Xcode validation' \
   remote_env "$ROOT/bin/fm-remote-home-seed.sh" ios remote-mac "$REMOTE_ROOT" "$TMP_ROOT/other-home" alpha \
@@ -1299,23 +1309,14 @@ FM_STATE_OVERRIDE="$WATCH_STATE" FM_SECONDMATE_LIVENESS_SECS=1 FM_POLL=1 \
   remote_env exec "$ROOT/bin/fm-watch.sh" \
   > "$TMP_ROOT/watch-liveness.out" 2> "$TMP_ROOT/watch-liveness.err" &
 watch_pid=$!
-# The relaunch is dominated by the inheritance push, which makes one transactional
-# remote write per declared item, so its duration grows with the declared list
-# rather than with host speed. Measured on a portable-lane host with this fixture:
-# about 340 ticks fixed plus 72 per item (14 items ~1350 ticks, 16 items ~1500).
-# The bound allows 35% over that line, so adding an inheritable item does not trip
-# a fixed number while a hang or a per-item slowdown still does.
-inherit_items=$(bash -c '. "$1/bin/fm-config-inherit-lib.sh"; fm_config_inherit_items' _ "$ROOT" | grep -c .)
-[ "$inherit_items" -gt 0 ] || fail "could not count the declared inheritance items"
-relaunch_bound=$((450 + 100 * inherit_items))
 watch_wait=0
-while kill -0 "$watch_pid" 2>/dev/null && [ "$watch_wait" -lt "$relaunch_bound" ]; do
+while kill -0 "$watch_pid" 2>/dev/null && [ "$watch_wait" -lt 1500 ]; do
   sleep 0.02
   watch_wait=$((watch_wait + 1))
 done
 if kill -0 "$watch_pid" 2>/dev/null; then
   kill "$watch_pid" 2>/dev/null || true
-  fail "the watcher did not exit on its auto-relaunch wake within the bound"
+  fail "the watcher did not exit on its auto-relaunch wake within the bound: $(cat "$TMP_ROOT/watch-liveness.out" "$TMP_ROOT/watch-liveness.err" 2>/dev/null)"
 fi
 wait "$watch_pid" \
   || fail "the liveness watcher leg exited non-zero: $(cat "$TMP_ROOT/watch-liveness.err")"

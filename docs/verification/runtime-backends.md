@@ -6,6 +6,12 @@ This record contains reusable version-scoped evidence for active runtime guarant
 The backend guides own current setup, safety boundaries, and limitations.
 Exact task chronology, branch names, temporary homes, local paths, process ids, thread ids, and delivery transcripts remain in private reports or PR evidence.
 
+## Polytoken worker lifecycle
+
+Verified on 2026-10-14 with Polytoken 0.9.0 on macOS arm64 using the tmux worker path.
+[Polytoken verification](polytoken.md) owns the commands, session-model proof, and lifecycle output; its credentialed live guard refreshes the evidence.
+This does not verify a Polytoken primary, secondmate, or native Herdr pane.
+
 ## Harness detection precedence
 
 Firstmate's own harness comes from two kinds of evidence, and `bin/fm-harness.sh` owns how they combine: an environment marker names its harness, and the nearest harness process in the parent chain proves who owns the process tree.
@@ -163,6 +169,10 @@ That is the evidence for treating any single process name as a surface under ven
 The crewmate-only Muse Code 0.1.0-R708.1 adapter was verified separately on 2026-08-05 against tmux on macOS arm64.
 Its installed `muse-bin-0.1.0-R708.1` foreground identity classified `alive`, while `musescore`, `amuse`, `muse-binary`, and `muse-bind` remained ambiguous in the portable regression.
 [`muse.md`](muse.md#process-identity) owns the artifact identity and launcher evidence for that verification.
+
+The crewmate/scout-only Command Code 1.74.1 adapter was verified on 2026-10-05 against tmux 3.7c and a Herdr 0.9.3 lab session on Linux x86_64.
+Its node process sets its title to `command-code`, the anchored foreground identity that classified `alive` on both backends, while `command-code-helper` remained ambiguous in the portable regression.
+[`commandcode.md`](commandcode.md) owns that evidence, and `FM_COMMANDCODE_SIGNALS_LIVE=1 bin/fm-test-run.sh tests/fm-commandcode-signals-live-e2e.test.sh` refreshes it.
 
 The crewmate/scout-only Rovo CLI 202609.1.2 adapter added `*rovo*` to the same glob family as `*grok*`/`*kimi*` in the shared process-name classifier (now `fm_agent_process_classify_name` in `bin/fm-agent-process-lib.sh`), and was relaunched live under tmux 3.6a in an isolated private socket.
 `#{pane_current_command}` reported the truncated on-disk binary name `atlassian_cli_r` - macOS's 15-char `comm` truncation cuts `atlassian_cli_rovodev` off just before the `rovo` substring begins, the same truncation-volatility class codex/kimi's own patch-release name drift shows above - while the foreground ps-based `comm` correctly reported `rovo`, so `fm_backend_tmux_agent_state` returned `alive` through that primary source; the two-independent-name-sources design is exactly why the truncated title does not break the verdict.
@@ -638,26 +648,6 @@ skip-runner: pi-signed is not installed, so its pin check was not exercised
 
 The guard submits no prompt and spends no tokens, so it runs by default wherever a runner is installed; rerun it after every Claude or Pi upgrade.
 
-## Pre-launch model catalog check
-
-`bin/fm-model-catalog-lib.sh` judges a Pi, Pi-signed, or OpenCode `--model` from the vendor listing: the provider and model columns of `pi --list-models`, which lists only authenticated providers, and the `<provider>/<model>` lines of `opencode models`.
-Its Pi rule mirrors Pi 1.2.0's `core/model-resolver.js`, which also refuses a bare id listed under more than one authenticated provider with `Model "<id>" is ambiguous across providers`.
-`tests/fm-model-catalog-live-e2e.test.sh` reads each installed listing, proves its first listed id is accepted and that a fabricated provider-qualified id and a fabricated bare id are both refused.
-
-Verified 2026-10-16 on pi 1.2.0 and opencode 1.19.0 on Linux (bosgame); pi-signed was not installed.
-
-```sh
-bash tests/fm-model-catalog-live-e2e.test.sh
-```
-
-```
-ok - pi 1.2.0: listed 'bai/deepseek-v4-flash' launches; fabricated ids refuse
-ok - opencode 1.19.0: listed 'opencode/big-pickle' launches; fabricated ids refuse
-skip: absent harness: pi-signed
-```
-
-The guard submits no prompt and spends no tokens, so it runs by default wherever a harness is installed; rerun it after every Pi or OpenCode upgrade.
-
 ## Secondmate busy contract
 
 Verified 2026-09-22 on this host with Claude Code 2.1.278, OpenCode 1.18.31, Pi 0.86.1, and Grok 1.0.40.
@@ -882,11 +872,6 @@ The footer zone is a property of any envelope a glyph row inside it proves, not 
 
 The demotion is deliberately ASYMMETRIC: `empty` is the only verdict that authorizes `fm-send` to type into a pane, so the rule may move a verdict toward refusing but never toward `empty`.
 It therefore counts a footer zone only when every row in it is demonstrably furniture - omp's status row, a braille animation row, claude's permission-mode hint row (`⏵⏵ bypass permissions on`), or a row leading with an agent glyph OTHER than the one that proved the envelope, which is what the `→` statusLine is on a `❯` claude pane.
-The one furniture spanning several rows is claude 2.1.296's slash-command menu, counted only for a pane the caller identified as claude, under a rule-bounded `❯`-proven envelope, and only as a coherent block.
-An identity-capable backend asks for the identity through the same lazy `need-identity` pass pi uses; a backend that cannot supply one, and every other harness, keeps menu-looking rows as content.
-Coherent means `/name` entries with a description column all on one column, wrapped continuation rows exactly at that column, at most one selection glyph at any position, and a composer row holding slash text that a lone entry's name prefix-matches.
-A lone `  ❯ /exit  actual payload` row, or a block under an empty composer, is a live draft and stays composer content.
-`test_matrix_claude_slash_menu_is_not_the_composer` pins the menu on the real capture and on a selection at every entry, `test_matrix_indented_live_draft_under_the_pair_is_not_menu_furniture` pins that an indented `❯` or `›` draft below the pair is never read as that menu, and `test_matrix_slash_menu_exemption_is_claude_only` pins that codex, pi, and unidentified panes never get the exemption.
 A run containing unclaimed activity (`Working on request...`, `→ ran npm test (3 failures)`) is not furniture in either row order and keeps invalidating the envelope above it, and a row leading with the SAME glyph the envelope was proven by (`❯ my typed draft`) is a live composer that keeps winning, so a visible draft is never overwritten.
 `test_composer_footer_zone_refuses_rather_than_allows` pins both directions on the bordered-box and separator-pair shapes.
 
@@ -1012,7 +997,7 @@ ok - muse (Muse Code 0.2.1 (0.2.1-R1215.1)): the doorbell reached a real worker,
 ```
 
 All six installed harnesses honored the doorbell contract with real model turns: each listed the inbox named by the doorbell, read its record, executed the instruction inside it, and acknowledged with the atomic `mv`.
-Two findings from the run shaped the shipped behavior: an OpenCode vendor update modal swallowed the first doorbell and the single re-ring recovered it, which is exactly the watcher ladder's job; and grok 1.0.5's idle composer never classifies `empty` (a classifier drift owned by the [Composer classification matrix](#composer-classification-matrix) guard, whose refresh for grok 1.0.5 is still owed), which motivated the ring's advisory pre-check not to skip on ambiguity - a doorbell into an ambiguous composer is a recoverable constant line, while skipping on ambiguity would starve steering for any harness the classifier cannot positively identify (superseded 2026-10-09: the ring now refuses any screen that is not a recognised empty prompt, see [Architecture](../architecture.md)).
+Two findings from the run shaped the shipped behavior: an OpenCode vendor update modal swallowed the first doorbell and the single re-ring recovered it, which is exactly the watcher ladder's job; and grok 1.0.5's idle composer never classifies `empty` (a classifier drift owned by the [Composer classification matrix](#composer-classification-matrix) guard, whose refresh for grok 1.0.5 is still owed), which motivated the ring's advisory pre-check not to skip on ambiguity - a doorbell into an ambiguous composer is a recoverable constant line, while skipping on ambiguity would starve steering for any harness the classifier cannot positively identify.
 The current pending-composer ring contract is owned by `bin/fm-task-inbox-lib.sh`.
 Kimi was not installed on the verification machine; its receive path is the same one-line-plus-shell contract, and the portable ladder and enqueue regressions in `tests/fm-task-inbox.test.sh` and `tests/fm-send-inbox.test.sh` cover every harness-independent half.
 This guard is the refresh command after any harness upgrade; it spends a small number of real tokens per installed harness, reports an absent harness explicitly, and refuses a run that verified nothing.
@@ -2669,14 +2654,6 @@ A throwaway scout was spawned through `bin/fm-spawn.sh --scout --harness omp --m
 
 `FM_OMP_LIVE_E2E=1 tests/fm-omp-primary-live-e2e.test.sh` refreshes the primary evidence; the worker path above is refreshed by repeating the scout dispatch after any omp upgrade.
 
-## opencode composer on Herdr (2026-10-01)
-
-opencode 1.18.33 draws a `tab agents  ctrl+p commands` hint on the row directly under its left bar's `╹▀▀▀` floor.
-That row used to read as a lower live shape, so an idle composer classified `unknown`, and `fm-control exit` and `relaunch` refused it as not proven empty.
-`fm_composer_classify_screen` now treats that hint, only when it sits immediately under the floor, as composer furniture.
-Verified in a named Herdr lab: `herdr pane read --source visible` of an idle `opencode` classifies `empty`, the same pane holding typed text classifies `pending` when styled.
-`tests/fm-composer-lib.test.sh` (`test_opencode_keybind_hint_below_floor`) pins the classifier without a harness.
-
 ## Busy inbox escalation
 
 Verified at `2026-10-03T19:20:07Z` on commit `23b0232908a5adc7fbf7339ef48c34a091a7a799` with Claude Code `2.1.288 (Claude Code)` on Herdr `0.9.1`, protocol `22`, in a named isolated lab session through `bin/fm-herdr-lab.sh`.
@@ -2693,14 +2670,3 @@ Without Firstmate's hooks, Herdr reported the question panel as `blocked`, which
 This live proof covers the watcher and queue boundary; it does not establish live daemon-consumer delivery.
 `bin/fm-test-run.sh tests/fm-daemon.test.sh` exercises that consumer routing separately with portable regressions for busy escalation and busy-bookkeeping failures in away and quiet mode.
 Repeat the hooked-worker check above before publication if watcher or task-inbox busy code changes; `bin/fm-test-run.sh tests/fm-task-inbox.test.sh` refreshes the portable ladder regressions.
-
-### 2026-10-10 send guard on Muse Code 1.4.3, read cursorless
-
-Verified on 2026-10-10 on macOS arm64 in scratch tmux panes launched by the test author, reading each pane the way Herdr does (`styled=1`, `cursor=0`, `identity=1`).
-Muse Code 1.4.3 draws its composer between a titled top rule opening with two dashes (`── Voice input (alt(option)+v to start) ───`) and an untitled closing rule.
-The titled-rule predicate required an eight-dash opener, so the cursorless read of an idle Muse composer was `unknown` and the send guard refused every steer to the lane; the tmux read, which has a cursor row, was unaffected.
-The predicate now also accepts the two-dash opener, still bound to the closing rule's exact width.
-Because that shape carries no registered busy signature, the send guard refuses a Muse or opencode pane that shows `esc to interrupt` in its last rows or an open-menu hint anywhere on the screen before accepting it.
-Claude Code 2.1.296 idle and draft screens read `empty` and `pending` on both the cursor and cursorless paths, and a live ring through `fm_backend_send_text_submit` on tmux submitted the doorbell rather than leaving a draft.
-The Herdr-side Claude draft observed on bosgame was not reproduced without a Herdr lab.
-Portable regressions: `bin/fm-test-run.sh tests/fm-composer-lib.test.sh` and `tests/fm-send-screen-guard.test.sh`.

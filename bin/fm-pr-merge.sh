@@ -46,11 +46,9 @@
 # --match-head-commit, so a push that lands between that read and the merge
 # fails the merge instead of landing commits nothing verified. Reading that
 # state needs gh and jq, and either one absent stops the merge before any
-# state is recorded. An attended --allow-red <check-name> may be repeated, each
-# name a separate argument; it waives only checks with that exact name, still
-# requires every other check green, and still binds the head. A waived name
-# that is not red at the verified head (green, unreported, or nonexistent)
-# refuses the merge, naming it, so a waiver can never go stale unnoticed. Its
+# state is recorded. An attended --allow-red <check-name> may be passed once,
+# with the name as a separate argument; it waives only checks with that exact
+# name, still requires every other check green, and still binds the head. Its
 # twin, an attended --allow-missing <check-name>, follows the same rules for one
 # required check that has not reported: it waives only that exact name, still
 # requires every other required check to have reported and every check to be
@@ -97,29 +95,19 @@
 # is open, detailed_merge_status is mergeable, has_conflicts is false,
 # blocking_discussions_resolved is true, and the head pipeline succeeded at the
 # exact current head commit. Every failing condition is reported, not just the
-# first. The verified head is then passed to glab as --sha, so a push that lands
-# between that read and the merge fails the merge instead of landing commits
-# nothing verified. A recorded pr_head that disagrees with the live head is
+# first. An attended --allow-no-pipeline, for a repository that deliberately
+# runs no merge request pipeline, waives only the pipeline condition and only
+# when GitLab reports head_pipeline as present and null: a failed, running,
+# canceled, or stale pipeline still refuses, every other condition still
+# holds, and a project that requires a pipeline to succeed still refuses
+# through detailed_merge_status. It is refused while the away-posture record
+# exists and on any forge other than GitLab. The verified head is then passed
+# to glab as --sha, so a push that lands between that read and the merge fails
+# the merge instead of landing commits nothing verified. A recorded pr_head that disagrees with the live head is
 # reported rather than trusted, because a rebase moves the head and leaves the
 # recorded value stale. Reading that state needs glab and jq, and either one
 # absent stops the merge before any state is recorded.
 #
-# Opt-in review-receipt gate: when config/merge-receipt-required has a line for
-# this project (docs/configuration.md owns the schema), both forge verifiers add
-# one more refusal after their live conditions and before any forge merge
-# command unless this exact PR number has, for the live head they just read,
-# either a PASS receipt or a waiver in that line's data directory (relative to
-# FM_HOME unless absolute). A receipt is <data-dir>/xreview/<pr-number>.md with
-# an `at=<epoch> ... head=<sha>` header line and `VERDICT: PASS|FAIL` lines, the
-# last verdict counting; its head must equal the live head exactly. A waiver is
-# <data-dir>/xreview-waiver-<pr-number>, free text naming `head=<hex>` or
-# `head <hex>` with 7 or more hex digits that are a prefix of the live head;
-# it satisfies the gate on its own, whatever the receipt says, and only while
-# the live head still starts with that hex. A missing, stale, FAIL, or
-# unparseable receipt with no covering waiver, and an unreadable or malformed
-# requirement file, refuse. --attended-override, --allow-red, --allow-missing,
-# and the away posture never waive it. With no file or no matching line the
-# merge is exactly as it was.
 # A Forgejo merge is refused unless every pre-merge condition holds, each read
 # live at merge time: the pull request is open, not a draft, mergeable is
 # true, and the combined commit status at the exact current head, read across
@@ -174,13 +162,7 @@
 # Extra args must not include --repo or -R in any form, including a bundled
 # short-option cluster such as -yR, because the repository comes only from the
 # URL, nor --sha or --match-head-commit because the head comes only from the
-# live read. A caller that checked one exact head passes --expect-head
-# <40-hex sha>, which refuses with exit 1, naming both shas, when that live read
-# differs, so a PR that moved after the caller's check is never verified or
-# merged; one live head read precedes every state write, so a refusal records
-# no pr= and arms no merge poll. A value that is not 40 lowercase hex
-# characters refuses with exit 2, and without the option behavior is unchanged.
-# An existing task-meta pr= must equal the requested canonical URL,
+# live read. An existing task-meta pr= must equal the requested canonical URL,
 # unless that bound PR has already merged - proven by its recorded merge
 # notification - in which case the task's next PR is accepted so several PRs
 # from one task can each merge in turn; while the bound PR is still unmerged a
@@ -192,7 +174,7 @@
 # explicit captain instruction and never skips the live green check, the
 # away-record read, or a captain hold.
 #
-# Usage: fm-pr-merge.sh <task-id> <pr-url> [--attended-override] [--allow-red <check-name>]... [--allow-missing <check-name>] [--expect-head <sha>] [-- <extra forge merge args>]
+# Usage: fm-pr-merge.sh <task-id> <pr-url> [--attended-override] [--allow-red <check-name>] [--allow-missing <check-name>] [--allow-no-pipeline] [-- <extra forge merge args>]
 #
 # On GitLab, this script confirms the MR is actually merged before reporting it;
 # an auto-merge-queued or unconfirmed request leaves the poll armed and records
@@ -251,9 +233,9 @@ if [ "$PROVIDER" = gerrit ]; then
 fi
 shift 2
 ATTENDED_OVERRIDE=false
+ALLOW_NO_PIPELINE=false
 ALLOW_RED=()
 ALLOW_MISSING=()
-EXPECT_HEAD=
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --attended-override)
@@ -266,6 +248,7 @@ while [ "$#" -gt 0 ]; do
       ;;
     --allow-red)
       [ -n "${2:-}" ] || { echo "error: --allow-red requires a check name" >&2; exit 2; }
+      [ "${#ALLOW_RED[@]}" -eq 0 ] || { echo "error: --allow-red may be specified only once" >&2; exit 2; }
       ALLOW_RED+=("$2")
       shift 2
       ;;
@@ -283,15 +266,12 @@ while [ "$#" -gt 0 ]; do
       echo "error: --allow-missing requires a separate check name argument" >&2
       exit 2
       ;;
-    --expect-head)
-      [ -n "${2:-}" ] || { echo "error: --expect-head requires a 40-character lowercase hex sha" >&2; exit 2; }
-      [ -z "$EXPECT_HEAD" ] || { echo "error: --expect-head may be specified only once" >&2; exit 2; }
-      [[ "$2" =~ ^[0-9a-f]{40}$ ]] || { echo "error: --expect-head must be a 40-character lowercase hex sha" >&2; exit 2; }
-      EXPECT_HEAD=$2
-      shift 2
+    --allow-no-pipeline)
+      ALLOW_NO_PIPELINE=true
+      shift
       ;;
-    --expect-head=*)
-      echo "error: --expect-head requires a separate sha argument" >&2
+    --allow-no-pipeline=*)
+      echo "error: --allow-no-pipeline takes no value" >&2
       exit 2
       ;;
     --) shift; break ;;
@@ -301,13 +281,14 @@ done
 # --allow-red names one check run to waive, which only GitHub's per-check
 # reading can match. GitLab and Forgejo each collapse their checks into a
 # single head verdict - a head pipeline status and a combined commit status -
-# so there is no per-check name to waive there and the green requirement stays
-# absolute. Refuse the combination rather than accept a flag that would be
-# silently dropped into a refusal the caller cannot explain.
+# so there is no per-check name to waive there; GitLab's only waiver is the
+# whole-pipeline absence --allow-no-pipeline covers. Refuse the combination
+# rather than accept a flag that would be silently dropped into a refusal the
+# caller cannot explain.
 if [ "${#ALLOW_RED[@]}" -gt 0 ]; then
   case "$PROVIDER" in
     gitlab)
-      echo "error: --allow-red does not apply to GitLab, where a merge already requires the head pipeline to have succeeded" >&2
+      echo "error: --allow-red does not apply to GitLab, where a merge already requires the head pipeline to have succeeded; --allow-no-pipeline waives only a merge request with no head pipeline at all" >&2
       exit 2
       ;;
     forgejo)
@@ -316,10 +297,17 @@ if [ "${#ALLOW_RED[@]}" -gt 0 ]; then
       ;;
   esac
 fi
+# --allow-no-pipeline waives only GitLab's own reading of a merge request that
+# has no head pipeline at all. GitHub's per-check waivers and Forgejo's
+# combined status have no such state to waive, so it is refused there too.
+if [ "$ALLOW_NO_PIPELINE" = true ] && [ "$PROVIDER" != gitlab ]; then
+  echo "error: --allow-no-pipeline applies only to GitLab, where it waives a merge request that has no head pipeline at all" >&2
+  exit 2
+fi
 if [ "${#ALLOW_MISSING[@]}" -gt 0 ]; then
   case "$PROVIDER" in
     gitlab)
-      echo "error: --allow-missing does not apply to GitLab, where a merge already requires the head pipeline to have succeeded" >&2
+      echo "error: --allow-missing does not apply to GitLab, where a merge already requires the head pipeline to have succeeded; --allow-no-pipeline waives only a merge request with no head pipeline at all" >&2
       exit 2
       ;;
     forgejo)
@@ -411,40 +399,6 @@ reject_head_overrides() {
   done
 }
 
-# Refuses when the caller named the head it checked and the live read moved off
-# it. Called with the live head right after each provider's head read.
-refuse_unexpected_head() {
-  local live_head=$1
-  if [ -z "$EXPECT_HEAD" ] || [ "$live_head" = "$EXPECT_HEAD" ]; then
-    return 0
-  fi
-  printf 'error: refusing to merge %s: the live head %s is not the expected head %s\n' \
-    "$URL" "$live_head" "$EXPECT_HEAD" >&2
-  return 1
-}
-
-# With --expect-head, one cheap live head read before any state write, so a
-# moved head refuses before pr= is recorded or the merge poll is armed. The
-# verify functions re-check the head they bind to the merge.
-precheck_expected_head() {
-  local head=''
-  [ -n "$EXPECT_HEAD" ] || return 0
-  case "$PROVIDER" in
-    github)
-      head=$(gh pr view "$URL" --json headRefOid --jq .headRefOid 2>/dev/null) || head=
-      ;;
-    gitlab)
-      head=$(GITLAB_HOST="$FM_PR_HOST" glab mr view "$PR_NUMBER" -R "$PROJECT_URL" -F json 2>/dev/null \
-        | jq -r '.sha // empty' 2>/dev/null) || head=
-      ;;
-  esac
-  if ! fm_pr_head_valid "$head"; then
-    echo "error: could not read the live head of $URL to compare with the expected head $EXPECT_HEAD" >&2
-    return 1
-  fi
-  refuse_unexpected_head "$head"
-}
-
 reject_protected_forge_args() {
   local arg
   [ "$ATTENDED_OVERRIDE" = true ] && return 0
@@ -509,24 +463,15 @@ META="$STATE/$ID.meta"
 . "$SCRIPT_DIR/fm-lease-lib.sh"
 fm_lease_forbid_branch "PR merge (fm-pr-merge)" --away-relocated
 
-# A retired lane or hand-made branch has no task metadata at all; only a wholly
-# absent record takes that path (bin/fm-pr-check.sh resolves the forge head for
-# it), every other unusable record still refuses. Every gate below is unchanged.
-META_ABSENT=0
-if [ ! -e "$META" ] && [ ! -L "$META" ]; then
-  META_ABSENT=1
-elif [ ! -f "$META" ] || [ -L "$META" ]; then
+if [ ! -f "$META" ] || [ -L "$META" ]; then
   echo "error: task metadata is unavailable" >&2
   exit 1
 fi
-MERGE_EXPECTED_SPAWN_GEN=
-if [ "$META_ABSENT" != 1 ]; then
-  if ! fm_backlog_meta_spawn_gen_optional "$META" "$STATE"; then
-    echo "error: PR merge refused: $FM_BACKLOG_TRANSITION_ERROR" >&2
-    exit 1
-  fi
-  MERGE_EXPECTED_SPAWN_GEN=$FM_BACKLOG_META_SPAWN_GEN
+if ! fm_backlog_meta_spawn_gen_optional "$META" "$STATE"; then
+  echo "error: PR merge refused: $FM_BACKLOG_TRANSITION_ERROR" >&2
+  exit 1
 fi
+MERGE_EXPECTED_SPAWN_GEN=$FM_BACKLOG_META_SPAWN_GEN
 
 MERGE_CONTROL_LOCK=
 MERGE_META_LOCK=
@@ -538,20 +483,13 @@ merge_control_cleanup() {
 trap merge_control_cleanup EXIT
 MERGE_CONTROL_LOCK="$STATE/.control-$ID.lock"
 fm_lock_acquire_wait "$MERGE_CONTROL_LOCK"
-if [ "$META_ABSENT" = 1 ]; then
-  if [ -e "$META" ] || [ -L "$META" ]; then
-    echo "error: task $ID changed while waiting to merge; refusing" >&2
-    exit 1
-  fi
-else
-  if ! fm_backlog_meta_spawn_gen_optional "$META" "$STATE"; then
-    echo "error: task $ID changed while waiting to merge; refusing: $FM_BACKLOG_TRANSITION_ERROR" >&2
-    exit 1
-  fi
-  if [ "$FM_BACKLOG_META_SPAWN_GEN" != "$MERGE_EXPECTED_SPAWN_GEN" ]; then
-    echo "error: task $ID changed incarnation while waiting to merge; refusing" >&2
-    exit 1
-  fi
+if ! fm_backlog_meta_spawn_gen_optional "$META" "$STATE"; then
+  echo "error: task $ID changed while waiting to merge; refusing: $FM_BACKLOG_TRANSITION_ERROR" >&2
+  exit 1
+fi
+if [ "$FM_BACKLOG_META_SPAWN_GEN" != "$MERGE_EXPECTED_SPAWN_GEN" ]; then
+  echo "error: task $ID changed incarnation while waiting to merge; refusing" >&2
+  exit 1
 fi
 
 # Reading the merge request state needs both tools. Report them together and
@@ -604,149 +542,9 @@ fi
 # The recorded head is read before bin/fm-pr-check.sh rewrites the metadata,
 # because that script re-records pr= and drops a pr_head= it cannot resolve.
 RECORDED_HEAD=
-if [ "$META_ABSENT" != 1 ] && { [ "$PROVIDER" = gitlab ] || [ "$PROVIDER" = forgejo ]; }; then
+if [ "$PROVIDER" = gitlab ] || [ "$PROVIDER" = forgejo ]; then
   RECORDED_HEAD=$(grep '^pr_head=' "$META" | tail -1 | cut -d= -f2- || true)
 fi
-
-# Opt-in review-receipt gate; the header above owns its exact receipt and waiver
-# parsing. Sets FM_MERGE_RECEIPT_REFUSAL to the refusal text, empty when the
-# merge may proceed.
-FM_MERGE_RECEIPT_REFUSAL=
-# True only for the retired-lane path, re-read live: a task record that
-# appeared after the first absence check ends the merge instead of letting it
-# keep the retired-lane exemptions for a real lane.
-meta_absent_now() {
-  [ "$META_ABSENT" = 1 ] || return 1
-  if [ -e "$META" ] || [ -L "$META" ]; then
-    echo "error: task $ID gained a task record during the merge; refusing" >&2
-    exit 1
-  fi
-}
-
-# 0 when the pull request changes no code: every path is a *.md file with none
-# under src/, core/, tests/, config/ or scripts/, or the only path is
-# .beads/issues.jsonl. The list is read in one call with its head and total
-# count, and counts only when that head is <live_head> and the list is complete
-# (gh returns at most 100 files); anything unreadable, empty, or partial is not
-# no-code.
-pr_changes_no_code() {  # <live_head>
-  local live_head=$1 out head total path n=0 beads=0
-  [ "$PROVIDER" = github ] || return 1
-  out=$(gh pr view "$URL" --json files,changedFiles,headRefOid \
-    --jq '.headRefOid, .changedFiles, (.files[].path)' 2>/dev/null) || return 1
-  { IFS= read -r head && IFS= read -r total; } <<EOL || return 1
-$out
-EOL
-  [ -z "$live_head" ] || [ "$head" = "$live_head" ] || return 1
-  while IFS= read -r path; do
-    [ -n "$path" ] || continue
-    n=$((n + 1))
-    case "$path" in
-      src/*|core/*|tests/*|config/*|scripts/*) return 1 ;;
-      *.md) ;;
-      .beads/issues.jsonl) beads=1 ;;
-      *) return 1 ;;
-    esac
-  done <<EOL
-$(printf '%s\n' "$out" | sed 1,2d)
-EOL
-  [ "$n" -gt 0 ] && [ "$total" = "$n" ] || return 1
-  [ "$beads" = 0 ] || [ "$n" -eq 1 ]
-}
-
-# Only a no-code pull request may proceed without a task record; any other PR
-# keeps the task-metadata requirement. An empty <live_head> classifies the head
-# the forge reports now, and the receipt gate below reclassifies at the
-# verified head.
-if [ "$META_ABSENT" = 1 ] && ! pr_changes_no_code ""; then
-  echo "error: task metadata is unavailable" >&2
-  exit 1
-fi
-
-merge_receipt_gate() {
-  local live_head=$1 cfg line scope dir extra data='' path_lc receipt waiver
-  local rec_head='' verdict='' token hex waiver_seen=''
-  FM_MERGE_RECEIPT_REFUSAL=
-  # With no task record the PR must be no-code at the verified head, whatever
-  # the receipt configuration says; such a PR then carries no review floor.
-  if meta_absent_now; then
-    if pr_changes_no_code "$live_head"; then
-      return 0
-    fi
-    FM_MERGE_RECEIPT_REFUSAL="  - task metadata is unavailable and the pull request is not a no-code change at head $live_head"
-    return 0
-  fi
-  cfg="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}/merge-receipt-required"
-  { [ -e "$cfg" ] || [ -L "$cfg" ]; } || return 0
-  if [ ! -f "$cfg" ] || [ ! -r "$cfg" ]; then
-    FM_MERGE_RECEIPT_REFUSAL="  - the review-receipt requirement file $cfg could not be read, so whether this merge needs a receipt cannot be ruled out"
-    return 0
-  fi
-  path_lc=$(printf '%s' "$PR_PATH" | tr '[:upper:]' '[:lower:]')
-  while IFS= read -r line || [ -n "$line" ]; do
-    line=${line%%#*}
-    scope='' dir='' extra=''
-    read -r scope dir extra <<EOL || true
-$line
-EOL
-    [ -n "$scope" ] || continue
-    if [ -z "$dir" ] || [ -n "$extra" ]; then
-      FM_MERGE_RECEIPT_REFUSAL="  - $cfg has a malformed line (expected '<scope> <data-dir>'): $line"
-      return 0
-    fi
-    if [ "$scope" = '*' ] || [ "$(printf '%s' "$scope" | tr '[:upper:]' '[:lower:]')" = "$path_lc" ]; then
-      data=$dir
-      break
-    fi
-  done < "$cfg"
-  [ -n "$data" ] || return 0
-  case "$data" in
-    /*) ;;
-    *) data="$FM_HOME/$data" ;;
-  esac
-  receipt="$data/xreview/$PR_NUMBER.md"
-  waiver="$data/xreview-waiver-$PR_NUMBER"
-
-  if [ -f "$waiver" ] && [ -r "$waiver" ]; then
-    while IFS= read -r token; do
-      [ -n "$token" ] || continue
-      hex=$(printf '%s' "${token#head?}" | tr '[:upper:]' '[:lower:]')
-      waiver_seen="${waiver_seen:+$waiver_seen, }$hex"
-      case "$live_head" in
-        "$hex"*) return 0 ;;
-      esac
-    done <<EOT
-$(grep -Eo 'head[= ][0-9a-fA-F]{7,64}' "$waiver" 2>/dev/null || true)
-EOT
-  fi
-
-  if [ ! -f "$receipt" ] || [ ! -r "$receipt" ]; then
-    FM_MERGE_RECEIPT_REFUSAL="  - no review receipt at $receipt for PR $PR_NUMBER at head $live_head"
-  else
-    rec_head=$(grep -Eo -m1 '^at=[0-9]+ .*head=[0-9a-fA-F]{40,64}' "$receipt" 2>/dev/null || true)
-    rec_head=$(printf '%s' "${rec_head##*head=}" | tr '[:upper:]' '[:lower:]')
-    verdict=$(grep -E '^VERDICT: (PASS|FAIL)[[:space:]]*$' "$receipt" 2>/dev/null | tail -n1 || true)
-    verdict=${verdict#VERDICT: }
-    verdict=${verdict%%[[:space:]]*}
-    if ! fm_pr_head_valid "$rec_head" || [ -z "$verdict" ]; then
-      FM_MERGE_RECEIPT_REFUSAL="  - the review receipt $receipt is unparseable (it needs an 'at=<epoch> ... head=<sha>' header and a 'VERDICT: PASS' or 'VERDICT: FAIL' line)"
-    elif [ "$rec_head" != "$live_head" ]; then
-      FM_MERGE_RECEIPT_REFUSAL="  - the review receipt $receipt is stale: it reviewed head $rec_head but the current head is $live_head"
-    elif [ "$verdict" != PASS ]; then
-      FM_MERGE_RECEIPT_REFUSAL="  - the review receipt $receipt for head $live_head is $verdict, not PASS"
-    else
-      return 0
-    fi
-  fi
-  if [ -n "$waiver_seen" ]; then
-    FM_MERGE_RECEIPT_REFUSAL="$FM_MERGE_RECEIPT_REFUSAL
-  - the waiver $waiver names head $waiver_seen, which does not cover the current head $live_head"
-  elif [ -e "$waiver" ]; then
-    FM_MERGE_RECEIPT_REFUSAL="$FM_MERGE_RECEIPT_REFUSAL
-  - the waiver $waiver names no head (it needs 'head=<sha>' or 'head <sha>'), so it covers nothing"
-  fi
-  return 0
-}
 
 # Pre-merge conditions for a GitLab merge request, read from one live view of
 # the merge request. Sets FM_PR_MERGE_HEAD to the verified head on success and
@@ -754,10 +552,10 @@ EOT
 FM_PR_MERGE_HEAD=
 FM_PR_GITLAB_ASYNC_CONFIGURED=false
 gitlab_verify_mergeable() {
-  local json fields line
+  local json fields line pipeline_waived
   local total=0 named=0 refusals=''
   local state='' detail='' conflicts='' discussions=''
-  local live_head='' pipeline_sha='' pipeline_status='' async_configured=''
+  local live_head='' pipeline_sha='' pipeline_status='' pipeline_absent='' async_configured=''
 
   # GITLAB_HOST is set to the same host the project URL already carries, so the
   # instance is taken from the parsed URL by both signals and never from the
@@ -780,6 +578,7 @@ gitlab_verify_mergeable() {
         "head=" + ((.sha // "") | tostring),
         "pipeline_sha=" + ((.head_pipeline.sha // "") | tostring),
         "pipeline_status=" + ((.head_pipeline.status // "") | tostring),
+        "pipeline_absent=" + (if has("head_pipeline") and .head_pipeline == null then "true" else "false" end),
         "async_configured=" + (if .merge_when_pipeline_succeeds == true or (.merge_after != null) then "true" else "false" end)
       else
         error("merge request payload is not an object")
@@ -797,6 +596,7 @@ gitlab_verify_mergeable() {
       head=*) live_head=${line#head=} ;;
       pipeline_sha=*) pipeline_sha=${line#pipeline_sha=} ;;
       pipeline_status=*) pipeline_status=${line#pipeline_status=} ;;
+      pipeline_absent=*) pipeline_absent=${line#pipeline_absent=} ;;
       async_configured=*) async_configured=${line#async_configured=} ;;
       *) continue ;;
     esac
@@ -807,7 +607,7 @@ FIELDS
   # Every field named exactly once and no unnamed line: a value carrying a
   # newline would split into a line no name matches, so it is refused here
   # rather than silently truncated into a value a check could accept.
-  if [ "$named" -ne 8 ] || [ "$total" -ne 8 ]; then
+  if [ "$named" -ne 9 ] || [ "$total" -ne 9 ]; then
     echo "error: could not read the GitLab merge request state before merging" >&2
     return 1
   fi
@@ -816,7 +616,6 @@ FIELDS
     echo "error: could not read the GitLab merge request head commit before merging" >&2
     return 1
   fi
-  refuse_unexpected_head "$live_head" || return 1
   # A rebase moves the head and leaves the recorded value behind, so the
   # disagreement is reported and the live head is what gets verified and merged.
   if [ -n "$RECORDED_HEAD" ] && [ "$RECORDED_HEAD" != "$live_head" ]; then
@@ -836,24 +635,32 @@ FIELDS
   [ "$discussions" = true ] \
     || refusals="$refusals  - blocking_discussions_resolved is \"${discussions:-unreadable}\", not true
 "
-  [ "$pipeline_status" = success ] \
-    || refusals="$refusals  - the head pipeline status is \"${pipeline_status:-none}\", not success
+  # The waiver covers only a head_pipeline GitLab reports as null; a failed,
+  # running, canceled, or stale pipeline is a verdict, not an absence of one.
+  pipeline_waived=false
+  if [ "$ALLOW_NO_PIPELINE" = true ] && [ "$pipeline_absent" = true ]; then
+    pipeline_waived=true
+  else
+    [ "$pipeline_status" = success ] \
+      || refusals="$refusals  - the head pipeline status is \"${pipeline_status:-none}\", not success
 "
-  [ "$pipeline_sha" = "$live_head" ] \
-    || refusals="$refusals  - the head pipeline ran at \"${pipeline_sha:-none}\", not at the current head $live_head
+    [ "$pipeline_sha" = "$live_head" ] \
+      || refusals="$refusals  - the head pipeline ran at \"${pipeline_sha:-none}\", not at the current head $live_head
 "
-
-  merge_receipt_gate "$live_head"
-  [ -z "$FM_MERGE_RECEIPT_REFUSAL" ] || refusals="$refusals$FM_MERGE_RECEIPT_REFUSAL
-"
+  fi
 
   if [ -n "$refusals" ]; then
     printf 'error: refusing to merge %s\n' "$URL" >&2
     printf '%s' "$refusals" >&2
     return 1
   fi
-  printf 'verified: %s is open and mergeable, with a successful pipeline at head %s\n' \
-    "$URL" "$live_head" >&2
+  if [ "$pipeline_waived" = true ]; then
+    printf 'verified: %s is open and mergeable at head %s, with no head pipeline, waived by --allow-no-pipeline\n' \
+      "$URL" "$live_head" >&2
+  else
+    printf 'verified: %s is open and mergeable, with a successful pipeline at head %s\n' \
+      "$URL" "$live_head" >&2
+  fi
   FM_PR_MERGE_HEAD=$live_head
   FM_PR_GITLAB_ASYNC_CONFIGURED=$async_configured
 }
@@ -1245,7 +1052,6 @@ FIELDS
     echo "error: could not read the GitHub pull request head commit before merging" >&2
     return 1
   fi
-  refuse_unexpected_head "$live_head" || return 1
   if ! red=$(github_checks_not_green "$json"); then
     echo "error: could not read the GitHub pull request state before merging" >&2
     return 1
@@ -1282,29 +1088,9 @@ FIELDS
 "
       uncovered="${uncovered:+$uncovered, }$name"
     }
-    done <<EOF
+  done <<EOF
 $red
 EOF
-
-  waived_not_red=''
-  if [ "${#ALLOW_RED[@]}" -gt 0 ]; then
-    for check in "${ALLOW_RED[@]}"; do
-      is_red=0
-      while IFS= read -r name; do
-        [ "$name" = "$check" ] && is_red=1
-      done <<EOF
-$red
-EOF
-      if [ "$is_red" -eq 0 ]; then
-        case ", $waived_not_red, " in
-          *", $check, "*) ;;
-          *) waived_not_red="${waived_not_red:+$waived_not_red, }$check" ;;
-        esac
-      fi
-    done
-  fi
-  [ -z "$waived_not_red" ] || refusals="$refusals  - --allow-red names that are not red at head $live_head: $waived_not_red
-"
 
   unreported=''
   if ! github_read_required_contexts "$base"; then
@@ -1343,10 +1129,6 @@ $missing
 EOF
   fi
 
-  merge_receipt_gate "$live_head"
-  [ -z "$FM_MERGE_RECEIPT_REFUSAL" ] || refusals="$refusals$FM_MERGE_RECEIPT_REFUSAL
-"
-
   if [ -n "$mergeable_refusal" ]; then
     if [ -z "$refusals" ] && [ "$mergeable" = UNKNOWN ]; then
       return 3
@@ -1358,7 +1140,6 @@ EOF
     printf 'error: refusing to merge %s\n' "$URL" >&2
     printf '%s' "$refusals" >&2
     [ -z "$uncovered" ] || printf 'error: these checks are not green: %s\n' "$uncovered" >&2
-    [ -z "$waived_not_red" ] || printf 'error: these --allow-red names are not red: %s\n' "$waived_not_red" >&2
     [ -z "$unreported" ] || printf 'error: these required checks have not reported: %s\n' "$unreported" >&2
     return 1
   fi
@@ -1572,7 +1353,6 @@ record_pr_metadata() {
   if ! FM_PR_CHECK_MERGE=1 "$SCRIPT_DIR/fm-pr-check.sh" "$ID" "$URL"; then
     return 1
   fi
-  meta_absent_now && return 0
   grep -qxF "pr=$URL" "$META" || {
     echo "error: PR metadata recording failed" >&2
     return 1
@@ -1639,9 +1419,6 @@ require_current_away_authority() {
     fi
   fi
   fm_lease_forbid_branch "PR merge (fm-pr-merge)" --away-relocated
-  # Last absence read before the forge is handed the merge: a record that
-  # appeared since the receipt gate ended the retired-lane path.
-  meta_absent_now || :
   resolve_merge_authority || return 1
   if [ "$FM_PR_AWAY_POSTURE" = true ] && [ "${#ALLOW_RED[@]}" -gt 0 ]; then
     echo "error: --allow-red is attended-only; while the away-posture record exists the green check is absolute" >&2
@@ -1651,11 +1428,14 @@ require_current_away_authority() {
     echo "error: --allow-missing is attended-only; while the away-posture record exists every required check must report" >&2
     return 2
   fi
+  if [ "$FM_PR_AWAY_POSTURE" = true ] && [ "$ALLOW_NO_PIPELINE" = true ]; then
+    echo "error: --allow-no-pipeline is attended-only; while the away-posture record exists a GitLab merge requires a successful head pipeline" >&2
+    return 2
+  fi
 }
 
 persist_accepted_merge_authority() {
   local status=0
-  meta_absent_now && return 0
   MERGE_META_LOCK=$(fm_meta_lock_path "$META") || return 1
   fm_lock_acquire_wait "$MERGE_META_LOCK" || return 1
   fm_merge_authority_persist "$STATE" "$ID" "$META" \
@@ -1695,7 +1475,6 @@ refuse_github_queue_while_away() {
 
 require_recorded_pr_identity() {
   local existing
-  meta_absent_now && return 0
   existing=$(grep '^pr=' "$META" | tail -1 | cut -d= -f2- || true)
   [ -n "$existing" ] || return 0
   [ "$existing" = "$URL" ] && return 0
@@ -1861,7 +1640,6 @@ forgejo_confirm_merged() {
 # Record before either forge call. This arms the merge poll without claiming a
 # landed outcome, so even a provider read failure after a real merge cannot
 # leave teardown without the PR identity it needs to verify the result.
-precheck_expected_head || exit 1
 away_status=0
 require_current_away_authority || away_status=$?
 [ "$away_status" -eq 0 ] || exit "$away_status"

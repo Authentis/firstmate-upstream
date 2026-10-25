@@ -87,13 +87,7 @@
 # monitoring on a draft through the same reading bin/fm-pr-merge.sh uses.
 # This file is the one owner of the no-mistakes `--intent` contract: only the
 # brief's `## Captain's intent` subsection plus later captain words, never
-# `## Firstmate spec` and never the worker's own tradeoffs, then at most one
-# worker-composed final block quoting verbatim the steering-inbox rulings that
-# close, accept, defer, or bound a finding on this PR. That block may only
-# narrow what the review flags, is re-read before every run and restart, is
-# omitted when the inbox holds no ruling, and is never part of the brief's
-# `## Captain's intent` subsection, so the spawn and promotion address checks
-# below never see it.
+# `## Firstmate spec` and never the worker's own tradeoffs.
 # Author the subsection body and later relays as the actual words, without
 # adding speaker labels or direct address: the heading supplies provenance and
 # is not part of --intent. A legacy mixed Task instead marks each captain line
@@ -328,7 +322,6 @@ Use everything under `## Captain intent authorized for --intent` through the end
 Preserve those words without adding speaker labels or direct address.
 Firstmate-authored constraints, acceptance criteria, implementation details, decisions, and tradeoffs are specification, not captain intent.
 The Definition of done's rule that `--intent` must be self-sufficient still governs the string you pass: resolve any report, decision, or PR the intent below refers to into its substance rather than passing the pointer.
-The Definition of done's final rulings block still follows these words in the string you pass.
 
 ## Captain intent authorized for --intent
 EOF
@@ -418,11 +411,6 @@ Do not include \`## Firstmate spec\`, later Firstmate build constraints, or your
 The \`--intent\` string you pass must be self-sufficient: that string plus the codebase must let a reader reconstruct roughly the same specification, without depending on a separate report, a PR, or context that lives only in this conversation.
 When the captain's intent refers to a report, decision, or PR ("do items 1, 2, 3, and 7 of the report"), write the substance of the referenced items into \`--intent\` in the captain's terms, not only the pointer; that substance is the captain's ask by reference, while Firstmate's build instructions and your own decisions still stay out.
 This replaces the no-mistakes skill's advice to enrich \`--intent\` with decisions and tradeoffs; that advice does not apply to Firstmate-dispatched work.
-Before every \`no-mistakes axi run\` that starts or restarts a run, re-read this brief's Firstmate instruction inbox, including messages already acknowledged into its \`handled/\` directory, and end \`--intent\` with this one final block, after a blank line:
-\`Rulings on this PR (supervisor decisions, verbatim; they only narrow what the review may flag and never add a requirement):\`
-Under it, list verbatim, each with its message id or timestamp and its author, only the inbox rulings that close, accept, defer, or bound a finding, such as closed by ruling, goes to the follow-up leaf, a size waiver for an exact head, or a scope narrowing.
-Never put your own tradeoffs, any Firstmate spec, or anything that adds a requirement in that block; a ruling may only narrow.
-When the inbox holds no such ruling, append no block.
 Do not hand-edit, commit, or fix findings yourself while a run is active - the pipeline applies every fix.
 
 $drive_block
@@ -457,17 +445,6 @@ Then append \`done [at=<epoch>]: PR {change url} published for review\` to the s
 That \`done:\` is accepted only when the change's current patch set on the server carries this copy's HEAD tree, so commit nothing after publishing; if you must change the work, commit it and publish again before reporting done.
 A \`done:\` whose URL is not the canonical \`https://<host>/c/<project>/+/<number>\` change URL is refused.
 There is no pull request, no \`gh-axi\` call, and no forge CI result to report: a human reviewer approves and submits the change on the server, and firstmate relays that outcome.
-EOF
-}
-
-fm_dod_proof_block() {
-  cat <<'EOF'
-
-Before your first `done:`, record the proof for each acceptance criterion of your task in your own report, one row per criterion.
-Each row carries exactly one level - `live` (exercised in the real running system), `unit` (an automated test), `typecheck` (static checks only), or `none` - or the state `blocked` or `failed`.
-A `blocked` row stays in the list with the environment limit that blocked it stated; never drop it or round it up to a level.
-Your `done:` summary names the minimum level across the rows, so one weak criterion cannot hide behind a strong one.
-The receipts (test output, commands, observed behavior) stay authoritative; the roll-up never replaces them.
 EOF
 }
 
@@ -627,7 +604,6 @@ EOF
       echo "error: fm_dod_block: unknown delivery mode '$mode'" >&2
       return 1 ;;
   esac
-  fm_dod_proof_block
 }
 
 # 0 when <sha> is contained in a ref under <namespace> in <repo>.
@@ -819,7 +795,7 @@ fm_dod_gerrit_change_carries_head() {  # <worktree> <url>
 # change does. 1 when refused; stdout then holds a one-line reason.
 fm_dod_nm_custody_returned() {  # <worktree>
   local wt=$1 out outcome code pipeline_head head_tree pipeline_tree
-  if ! out=$(FM_NM_CACHE_DIR='' fm_nm_run_checked "$wt" 15 axi status) || ! printf '%s\n' "$out" | grep -q '^run:'; then
+  if ! out=$(fm_nm_run_checked "$wt" 15 axi status) || ! printf '%s\n' "$out" | grep -q '^run:'; then
     printf '%s\n' "the no-mistakes run for this copy could not be read, so its fixes cannot be proven recovered"
     return 1
   fi

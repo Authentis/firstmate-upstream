@@ -61,7 +61,7 @@ function stateDir() {
 }
 
 function scopeLines(scope, heartbeat) {
-  const unscoped = dispatch.scopeNamesNoTask(scope, heartbeat);
+  const unscoped = heartbeat || scope.checkSeqs.length > 0 || scope.heartbeatSeqs.length > 0;
   return (
     `status=${scope.status}\n` +
     `corrupted=${scope.corrupted ? 1 : 0}\n` +

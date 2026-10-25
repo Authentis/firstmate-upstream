@@ -41,6 +41,8 @@
 #       provably down (explicit daemon-status probe fails) reads unknown -
 #       "unverified", never failed; the same record with the daemon up stays
 #       failed.
+#   (m) FM_CREW_STATE_*_OVERRIDE guard: a mismatched-basename override is
+#       ignored, a matching one is honoured.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -85,15 +87,6 @@ make_fakebin() {  # <dir> -> echoes fakebin path
   cat > "$fb/no-mistakes" <<'SH'
 #!/usr/bin/env bash
 set -u
-printf '%s|%s\n' "${NO_MISTAKES_NO_UPDATE_CHECK:-}" "$*" >> "${FM_FAKE_NM_LOG:-/dev/null}"
-if [ -n "${FM_FAKE_NM_CONC:-}" ] && [ "${1:-}" = axi ]; then
-  : > "$FM_FAKE_NM_CONC/run.$$"
-  ls "$FM_FAKE_NM_CONC" | grep -c '^run\.' >> "$FM_FAKE_NM_CONC/seen"
-  sleep 0.4
-  rm -f "$FM_FAKE_NM_CONC/run.$$"
-fi
-[ -z "${FM_FAKE_NM_SLEEP:-}" ] || sleep "$FM_FAKE_NM_SLEEP"
-[ -z "${FM_FAKE_NM_LEAVE:-}" ] || { sleep 20 > /dev/null 2>&1 < /dev/null & printf '%s\n' "$!" >> "$FM_FAKE_NM_LEAVE"; }
 case "${1:-}" in
   axi)
     shift
@@ -130,14 +123,17 @@ case "${1:-}" in
   runs)
     printf '%s\n' "${FM_FAKE_RUNS_LIST:-}" ;;
   daemon)
-    # FM_FAKE_DAEMON_DOWN: the explicit down-probe fails, as the real
-    # `no-mistakes daemon status` does when the daemon is not running.
+    # FM_FAKE_DAEMON_DOWN: a missing/refused socket makes the probe fail.
+    # A clean stop instead exits 0 and prints "○ daemon not running".
     # FM_FAKE_DAEMON_TIMEOUT: the probe does not answer at all, which is what
     # the bounded call reports as 124 when `timeout` kills a slow daemon status.
     [ -z "${FM_FAKE_DAEMON_PROBE_LOG:-}" ] || printf 'probe\n' >> "$FM_FAKE_DAEMON_PROBE_LOG"
     [ "${FM_FAKE_DAEMON_TIMEOUT:-0}" = 1 ] && exit 124
-    [ "${FM_FAKE_DAEMON_DOWN:-0}" = 1 ] && exit 1
-    printf '%s\n' 'daemon running (pid 4242)'
+    if [ "${FM_FAKE_DAEMON_DOWN:-0}" = 1 ]; then
+      printf '%s\n' "${FM_FAKE_DAEMON_OUTPUT-connection refused}" >&2
+      exit 1
+    fi
+    printf '%s\n' "${FM_FAKE_DAEMON_OUTPUT-  ● daemon running (pid 4242)}"
     exit 0 ;;
 esac
 exit 0
@@ -323,7 +319,7 @@ make_no_timeout_toolbin() {  # <dir> -> echoes toolbin path
 # Run the helper for one case dir. FM_FAKE_* env (run output, busy flag) are read
 # from the caller's environment by the fakes above.
 run_crew_state() {  # <case-dir> <id>
-  PATH="$1/fakebin:$PATH" FM_STATE_OVERRIDE="$1/state" FM_PR_READ_CACHE_DIR="$1/pr-read-cache" "$CREW_STATE" "$2"
+  PATH="$1/fakebin:$PATH" FM_STATE_OVERRIDE="$1/state" "$CREW_STATE" "$2"
 }
 
 new_case() {  # <name> -> echoes case dir with an empty state/
@@ -367,6 +363,7 @@ reset_fakes() {
   FM_FAKE_CI_LOGS=""
   FM_FAKE_DAEMON_DOWN=0
   FM_FAKE_DAEMON_TIMEOUT=0
+  FM_FAKE_DAEMON_OUTPUT='  ● daemon running (pid 4242)'
   FM_FAKE_DAEMON_PROBE_LOG=
   FM_FAKE_PR_STATE=MERGED
   FM_FAKE_PR_MERGED=true
@@ -389,6 +386,7 @@ reset_fakes() {
   export FM_FAKE_AXI_STATUS FM_FAKE_AXI_STATUS_RUN FM_FAKE_RUNS_LIST FM_FAKE_BUSY FM_FAKE_BUSY_TEXT FM_FAKE_TMUX_MISSING FM_FAKE_TMUX_WINDOW_GONE FM_FAKE_TMUX_UNREADABLE
   export FM_FAKE_HERDR_BUSY FM_FAKE_HERDR_MISSING FM_FAKE_HERDR_READ_FAIL FM_FAKE_HERDR_HUSK FM_FAKE_HERDR_AGENT_STATUS FM_FAKE_HERDR_PROCESS FM_FAKE_HERDR_SHELL_PID FM_FAKE_CI_LOGS
   export FM_FAKE_DAEMON_DOWN FM_FAKE_DAEMON_TIMEOUT FM_FAKE_DAEMON_PROBE_LOG FM_FAKE_AXI_HOME
+  export FM_FAKE_DAEMON_OUTPUT
   export FM_FAKE_AXI_HOME_ERROR FM_FAKE_AXI_STATUS_RUN_ERROR FM_FAKE_AXI_STATUS_ERROR
   export FM_FAKE_PR_STATE FM_FAKE_PR_MERGED FM_FAKE_PR_READ_FAIL FM_FAKE_PR_READ_LOG FM_FAKE_PR_STATE_AXI
   export FM_FAKE_GLAB_STATE FM_FAKE_GLAB_READ_FAIL FM_FAKE_GLAB_READ_LOG
@@ -1483,502 +1481,6 @@ test_terminal_passed_with_skips() {
   pass "terminal passed-with-skips run reads done with the skip kept visible"
 }
 
-# Heartbeat load: repeated reads share a ~2 min cache, skip the CLI's update
-# probe, and never spawn it for a landed lane; FM_NM_LOWLOAD=0 restores the
-# old behavior.
-lowload_case() {  # <name> -> case dir with one live ship lane on a running run
-  local d
-  d=$(new_case "$1")
-  make_repo_on_branch "$d/wt" fm/feat-load
-  make_fakebin "$d" >/dev/null
-  fm_write_meta "$d/state/feat-load.meta" "window=fm:fm-feat-load" "worktree=$d/wt" "kind=ship"
-  : > "$d/nm.log"
-  printf '%s\n' "$d"
-}
-
-lowload_run() {  # <case-dir> [VAR=val ...]
-  local d=$1
-  shift
-  env FM_FAKE_NM_LOG="$d/nm.log" "$@" PATH="$d/fakebin:$PATH" FM_STATE_OVERRIDE="$d/state" "$CREW_STATE" feat-load
-}
-
-test_status_cache_hit_skips_second_spawn_and_update_check() {
-  reset_fakes
-  local d out1 out2 first second
-  d=$(lowload_case lowload-hit)
-  FM_FAKE_AXI_STATUS="$(run_running fm/feat-load)"
-  out1=$(lowload_run "$d")
-  first=$(grep -c '|axi' "$d/nm.log")
-  out2=$(lowload_run "$d")
-  second=$(grep -c '|axi' "$d/nm.log")
-  assert_contains "$out1" "source: run-step" "first read uses the run-step"
-  [ "$out1" = "$out2" ] || fail "cached read changed the verdict: $out1 vs $out2"
-  [ "$first" -ge 1 ] || fail "first read never called axi status"
-  # Run-inventory reads are cached; the daemon liveness probe and an empty
-  # `runs` listing are deliberately re-read.
-  [ "$first" = "$second" ] || fail "second read within the TTL respawned axi ($first -> $second): $(tr '\n' ';' < "$d/nm.log")"
-  # Total spawns: the first read makes every call once; the second adds only
-  # the two uncached ones, `daemon status` and the empty `runs` listing.
-  [ "$(grep -Evc '\|axi|\|daemon status$|\|runs ' "$d/nm.log")" -eq 0 ] || fail "unexpected no-mistakes call: $(tr '\n' ';' < "$d/nm.log")"
-  [ "$(grep -c '|daemon status$' "$d/nm.log")" -le 2 ] || fail "daemon probe ran more than once per read"
-  ! grep -qv '^1|' "$d/nm.log" || fail "a no-mistakes call ran without NO_MISTAKES_NO_UPDATE_CHECK=1"
-  pass "status cache hit skips the second spawn and every call skips the update check"
-}
-
-test_status_reads_across_lanes_are_concurrency_limited() {
-  reset_fakes
-  local d i max
-  d=$(new_case lowload-slots)
-  make_fakebin "$d" >/dev/null
-  mkdir -p "$d/conc"
-  : > "$d/nm.log"
-  for i in 1 2 3 4 5 6; do
-    make_repo_on_branch "$d/wt$i" fm/feat-load
-    fm_write_meta "$d/state/feat-l$i.meta" "window=fm:fm-feat-l$i" "worktree=$d/wt$i" "kind=ship"
-  done
-  FM_FAKE_AXI_STATUS="$(run_running fm/feat-load)"
-  for i in 1 2 3 4 5 6; do
-    env FM_FAKE_NM_LOG="$d/nm.log" FM_FAKE_NM_CONC="$d/conc" FM_CREW_STATE_NM_TIMEOUT=20 \
-      PATH="$d/fakebin:$PATH" FM_STATE_OVERRIDE="$d/state" "$CREW_STATE" "feat-l$i" >"$d/out.$i" &
-  done
-  wait
-  max=$(sort -n "$d/conc/seen" | tail -1)
-  [ -n "$max" ] || fail "no concurrent no-mistakes status read was observed"
-  [ "$max" -le 4 ] || fail "status reads ran $max at once, over the default limit of 4"
-  [ "$(grep -c '|axi' "$d/nm.log")" -ge 6 ] || fail "every lane should have read its own status"
-  grep -q "source: run-step" "$d/out.6" || fail "a queued lane never got its status read: $(cat "$d/out.6")"
-  ! grep -qv '^1|' "$d/nm.log" || fail "a no-mistakes call ran without NO_MISTAKES_NO_UPDATE_CHECK=1"
-  pass "status reads across lanes are limited to four at once with the update check skipped"
-}
-
-# A cold heartbeat: the fleet snapshot reads 8 lanes at once
-# (FM_SNAPSHOT_LOCAL_READ_CONCURRENCY=8), each making 3 sequential cached reads,
-# and kills any lane still running at FM_SNAPSHOT_CREW_STATE_TIMEOUT=10s, ten
-# times a ~1s read. Scaled to 2s reads and a 20s bound, the default slot limit
-# must drain all 24 within it; two slots need over 24s and the back lanes die.
-test_cold_heartbeat_of_eight_lanes_fits_the_snapshot_bound() {
-  reset_fakes
-  local d i
-  d=$(new_case lowload-8x3)
-  make_fakebin "$d" >/dev/null
-  : > "$d/nm.log"
-  FM_FAKE_AXI_STATUS="$(run_running fm/feat-load)"
-  FM_FAKE_AXI_STATUS_RUN="$FM_FAKE_AXI_STATUS"
-  export FM_FAKE_AXI_STATUS FM_FAKE_AXI_STATUS_RUN
-  for i in 1 2 3 4 5 6 7 8; do
-    mkdir -p "$d/wt$i"
-    (
-      # shellcheck source=/dev/null
-      . "$ROOT/bin/fm-nm-run-lib.sh"
-      unset FM_NM_STATUS_SLOTS FM_NM_STATUS_WAIT
-      # shellcheck disable=SC2016  # The inner script expands after bash -c receives positional args.
-      fm_nm_bounded "$d" 20 env FM_NM_LIB="$ROOT/bin/fm-nm-run-lib.sh" FM_FAKE_NM_LOG="$d/nm.log" FM_FAKE_NM_SLEEP=2 \
-        PATH="$d/fakebin:$PATH" bash -c '
-          . "$FM_NM_LIB"
-          fm_nm_cached_checked "$1" "$2" 10 axi status >/dev/null || exit 1
-          fm_nm_cached_checked "$1" "$2" 10 axi >/dev/null || exit 1
-          fm_nm_cached_checked "$1" "$2" 10 axi status --run 01RUN >/dev/null || exit 1
-          : > "$3"
-        ' _ "$d/cache" "$d/wt$i" "$d/done.$i"
-    ) &
-  done
-  wait
-  [ "$(wc -l < "$d/nm.log")" -eq 24 ] || fail "expected 24 status reads, saw $(wc -l < "$d/nm.log")"
-  for i in 1 2 3 4 5 6 7 8; do
-    [ -e "$d/done.$i" ] || fail "lane $i did not finish its 3 reads within the scaled 20s snapshot bound"
-  done
-  pass "a cold heartbeat of 8 lanes x 3 reads fits the snapshot bound"
-}
-
-# The DoD custody gate decides whether a ship done: is safe, so it must read
-# the run live even when the caller exported a status cache that still holds an
-# earlier pass.
-test_dod_custody_gate_bypasses_the_status_cache() {
-  reset_fakes
-  local d out rc=0
-  d=$(cache_case dod-custody-live)
-  FM_FAKE_AXI_STATUS="$(run_passed_no_pr fm/feat-load)"
-  export FM_FAKE_AXI_STATUS
-  # shellcheck disable=SC2016  # The inner script expands after bash -c receives positional args.
-  out=$(env FM_DOD_LIB="$ROOT/bin/fm-dod-lib.sh" FM_FAKE_NM_LOG="$d/nm.log" FM_NM_CACHE_DIR="$d/cache" \
-    PATH="$d/fakebin:$PATH" bash -c '
-      . "$FM_DOD_LIB"
-      fm_nm_run_checked "$1" 15 axi status >/dev/null || exit 9
-      FM_FAKE_AXI_STATUS_ERROR=1 fm_dod_nm_custody_returned "$1"
-    ' _ "$d/wt") || rc=$?
-  [ "$rc" = 1 ] || fail "custody gate accepted a cached pass after the live read failed (rc=$rc): $out"
-  assert_contains "$out" "could not be read" "custody gate did not refuse on the unreadable live status"
-  [ "$(wc -l < "$d/nm.log")" -eq 2 ] || fail "custody gate did not re-read the status live: $(cat "$d/nm.log")"
-  pass "DoD custody gate reads the run live past a cached pass"
-}
-
-test_status_cache_expires_after_ttl() {
-  reset_fakes
-  local d first second
-  d=$(lowload_case lowload-ttl)
-  FM_FAKE_AXI_STATUS="$(run_running fm/feat-load)"
-  lowload_run "$d" >/dev/null
-  first=$(wc -l < "$d/nm.log")
-  touch -t 202001010000 "$d"/state/nm-cache/*.out
-  lowload_run "$d" >/dev/null
-  second=$(wc -l < "$d/nm.log")
-  [ "$second" -gt "$first" ] || fail "expired cache entry was served ($first -> $second)"
-  lowload_run "$d" FM_NM_CACHE_TTL=0 >/dev/null
-  [ "$(wc -l < "$d/nm.log")" -gt "$second" ] || fail "FM_NM_CACHE_TTL=0 still served the cache"
-  pass "status cache expires after the TTL and TTL=0 disables it"
-}
-
-test_landed_lane_skips_every_no_mistakes_spawn() {
-  reset_fakes
-  local d url out
-  d=$(new_case lowload-landed)
-  url=https://github.com/o/r/pull/1
-  make_repo_on_branch "$d/wt" fm/feat-load
-  make_fakebin "$d" >/dev/null
-  fm_write_meta "$d/state/feat-load.meta" "window=fm:fm-feat-load" "worktree=$d/wt" "kind=ship" "pr=$url"
-  seed_retired_pr_receipt "$d/state" feat-load "$url"
-  : > "$d/nm.log"
-  FM_FAKE_AXI_STATUS="$(run_passed_no_pr fm/feat-load)"
-  out=$(lowload_run "$d")
-  assert_contains "$out" "state: done" "landed lane reads done"
-  assert_contains "$out" "PR merged" "landed lane reports the merge"
-  [ ! -s "$d/nm.log" ] || fail "landed lane still spawned no-mistakes: $(cat "$d/nm.log")"
-  out=$(lowload_run "$d" FM_NM_LOWLOAD=0)
-  [ -s "$d/nm.log" ] || fail "FM_NM_LOWLOAD=0 did not restore the run lookup for a landed lane"
-  pass "landed lane skips every no-mistakes spawn"
-}
-
-# Lib-level cache cases drive fm_nm_cached_checked directly against the fake.
-cache_case() {  # <name> -> case dir with a fake no-mistakes and an empty cache
-  local d
-  d=$(new_case "$1")
-  make_repo_on_branch "$d/wt" fm/feat-load
-  make_fakebin "$d" >/dev/null
-  : > "$d/nm.log"
-  printf '%s\n' "$d"
-}
-
-cache_read() {  # <case-dir> [VAR=val ...]
-  local d=$1
-  shift
-  (
-    # shellcheck source=/dev/null
-    . "$ROOT/bin/fm-nm-run-lib.sh"
-    # shellcheck disable=SC2016  # The inner script expands after bash -c receives positional args.
-    env FM_NM_LIB="$ROOT/bin/fm-nm-run-lib.sh" FM_FAKE_NM_LOG="$d/nm.log" "$@" PATH="$d/fakebin:$PATH" \
-      bash -c '. "$FM_NM_LIB"; fm_nm_cached_checked "$1" "$2" "${CACHE_T:-4}" axi status' _ "$d/cache" "$d/wt"
-  )
-}
-
-test_parallel_cold_reads_spawn_once() {
-  reset_fakes
-  local d i
-  d=$(cache_case cache-parallel)
-  FM_FAKE_AXI_STATUS="$(run_running fm/feat-load)"
-  export FM_FAKE_AXI_STATUS
-  for i in 1 2 3 4 5 6; do
-    cache_read "$d" FM_FAKE_NM_SLEEP=1 > "$d/out.$i" &
-  done
-  wait
-  [ "$(wc -l < "$d/nm.log")" -eq 1 ] || fail "parallel cold reads spawned $(wc -l < "$d/nm.log") times: $(cat "$d/nm.log")"
-  for i in 2 3 4 5 6; do
-    cmp -s "$d/out.1" "$d/out.$i" || fail "parallel reader $i saw different output"
-  done
-  [ -s "$d/out.1" ] || fail "parallel readers got no output"
-  pass "parallel cold reads spawn the CLI once"
-}
-
-# The cache lock is a kernel flock owned by the refreshing process. hold_lock
-# starts a background process that holds a key's lock for <secs>.
-cache_lockfile_of() {  # <case-dir> -> lock file of the primed key
-  local f
-  for f in "$1"/cache/*.out; do
-    # Entries are <key>.<generation>.out; the lock is <key>.lock.
-    f=${f##*/}
-    printf '%s' "$1/cache/${f%%.*}.lock"
-    return 0
-  done
-}
-
-# The holder execs sleep under the lock wrapper and records its own pid, because
-# the backgrounded subshell's pid is not the process that owns the flock on every
-# platform, and killing the wrong one would leave the lock held.
-hold_lock() {  # <lockfile> <secs>; prints the holder pid
-  local pidfile=$1.holder i
-  rm -f "$pidfile"
-  (
-    . "$ROOT/bin/fm-nm-run-lib.sh"
-    # shellcheck disable=SC2016  # The inner script expands after bash -c receives positional args.
-    fm_nm_cache_locked "$1" 5 bash -c 'printf "%s" "$$" > "$1"; exec sleep "$2"' _ "$pidfile" "$2" > /dev/null 2>&1 &
-  )
-  for i in $(seq 1 50); do
-    [ -s "$pidfile" ] && { cat "$pidfile"; return 0; }
-    sleep 0.1
-  done
-  fail "background holder never recorded its pid"
-}
-
-wait_for_lock_held() {  # <lockfile>
-  local i
-  for i in $(seq 1 50); do
-    (. "$ROOT/bin/fm-nm-run-lib.sh"; ! fm_nm_cache_locked "$1" 0 true) && return 0
-    sleep 0.1
-  done
-  fail "background holder never took the lock"
-}
-
-# A holder that is dead releases at once: no waiting out any age, one spawn.
-test_dead_holder_releases_the_lock_immediately() {
-  reset_fakes
-  local d lockfile pid start
-  d=$(cache_case cache-dead-holder)
-  FM_FAKE_AXI_STATUS="$(run_running fm/feat-load)"
-  export FM_FAKE_AXI_STATUS
-  cache_read "$d" > /dev/null
-  lockfile=$(cache_lockfile_of "$d")
-  rm -f "$d"/cache/*.out
-  pid=$(hold_lock "$lockfile" 30)
-  wait_for_lock_held "$lockfile"
-  kill "$pid"; wait "$pid" 2>/dev/null
-  : > "$d/nm.log"
-  start=$SECONDS
-  cache_read "$d" > /dev/null
-  [ $((SECONDS - start)) -lt 3 ] || fail "dead holder's lock was not released at once"
-  [ "$(wc -l < "$d/nm.log")" -eq 1 ] || fail "dead-holder recovery spawned $(wc -l < "$d/nm.log") times"
-  pass "a dead holder's lock is released by the kernel and the refresh publishes once"
-}
-
-# Sol's pause-after-grant: the holder is alive but slow, far past the reader's
-# timeout. The reader never takes the lock by age: it serves stale, spawns nothing.
-test_live_holder_past_the_readers_timeout_is_never_overtaken() {
-  reset_fakes
-  local d lockfile pid out rc=0
-  d=$(cache_case cache-live-holder)
-  FM_FAKE_AXI_STATUS="$(run_running fm/feat-load)"
-  export FM_FAKE_AXI_STATUS
-  cache_read "$d" > /dev/null
-  lockfile=$(cache_lockfile_of "$d")
-  touch -t 202001010000 "$d"/cache/*.out
-  pid=$(hold_lock "$lockfile" 20)
-  wait_for_lock_held "$lockfile"
-  : > "$d/nm.log"
-  out=$(cache_read "$d" CACHE_T=1) || rc=$?
-  [ ! -s "$d/nm.log" ] || fail "a reader spawned around a live holder"
-  [ "$rc" -ne 0 ] && [ -z "$out" ] || fail "an expired entry was replayed past the TTL"
-  rc=0
-  rm -f "$d"/cache/*.out
-  out=$(cache_read "$d" CACHE_T=1) || rc=$?
-  [ "$rc" -ne 0 ] && [ -z "$out" ] || fail "no entry and a live holder did not fail cleanly"
-  [ ! -s "$d/nm.log" ] || fail "a reader spawned around a live holder with no stale entry"
-  kill "$pid"; wait "$pid" 2>/dev/null
-  rm -f "$lockfile.unused"
-  pass "a live holder past the reader's timeout is never overtaken, nor an expired entry replayed"
-}
-
-# Sol's same-key-different-timeouts: the lock identity is the key alone, so a
-# short-timeout reader and a long-timeout reader still exclude each other.
-test_different_timeouts_share_one_lock() {
-  reset_fakes
-  local d i
-  d=$(cache_case cache-timeouts)
-  FM_FAKE_AXI_STATUS="$(run_running fm/feat-load)"
-  export FM_FAKE_AXI_STATUS
-  cache_read "$d" FM_FAKE_NM_SLEEP=1 CACHE_T=4 > "$d/out.long" &
-  sleep 0.3
-  cache_read "$d" FM_FAKE_NM_SLEEP=1 CACHE_T=1 > "$d/out.short" &
-  cache_read "$d" FM_FAKE_NM_SLEEP=1 CACHE_T=9 > "$d/out.longer" &
-  wait
-  [ "$(wc -l < "$d/nm.log")" -eq 1 ] || fail "readers with different timeouts spawned $(wc -l < "$d/nm.log") times"
-  for i in short longer; do
-    cmp -s "$d/out.long" "$d/out.$i" || fail "reader $i saw different output"
-  done
-  [ -s "$d/out.long" ] || fail "readers got no output"
-  pass "readers with different timeouts share one lock"
-}
-
-# A process the CLI leaves running must not inherit and pin the key's lock.
-test_leftover_cli_child_does_not_pin_the_lock() {
-  reset_fakes
-  local d start
-  d=$(cache_case cache-leftover)
-  FM_FAKE_AXI_STATUS="$(run_running fm/feat-load)"
-  export FM_FAKE_AXI_STATUS
-  cache_read "$d" FM_FAKE_NM_LEAVE="$d/leftover.pids" > /dev/null
-  touch -t 202001010000 "$d"/cache/*.out
-  : > "$d/nm.log"
-  start=$SECONDS
-  cache_read "$d" FM_FAKE_NM_LEAVE="$d/leftover.pids" > /dev/null
-  [ $((SECONDS - start)) -lt 3 ] || fail "a leftover CLI child held the lock for the next read"
-  [ "$(wc -l < "$d/nm.log")" -eq 1 ] || fail "the expired read did not refresh ($(wc -l < "$d/nm.log") spawns)"
-  xargs kill < "$d/leftover.pids" 2>/dev/null || true
-  pass "a process left by the CLI cannot pin the cache lock"
-}
-
-# The same for a status-read slot: with one slot and no wait, a process the CLI
-# left behind must not keep the slot taken for the next read.
-test_leftover_cli_child_does_not_pin_a_status_slot() {
-  reset_fakes
-  local d
-  d=$(cache_case cache-leftover-slot)
-  FM_FAKE_AXI_STATUS="$(run_running fm/feat-load)"
-  export FM_FAKE_AXI_STATUS
-  cache_read "$d" FM_FAKE_NM_LEAVE="$d/leftover.pids" FM_NM_STATUS_SLOTS=1 FM_NM_STATUS_WAIT=0 > /dev/null
-  touch -t 202001010000 "$d"/cache/*.out
-  : > "$d/nm.log"
-  cache_read "$d" FM_FAKE_NM_LEAVE="$d/leftover.pids" FM_NM_STATUS_SLOTS=1 FM_NM_STATUS_WAIT=0 > /dev/null
-  [ "$(wc -l < "$d/nm.log")" -eq 1 ] || fail "a leftover CLI child kept the only status slot ($(wc -l < "$d/nm.log") spawns)"
-  xargs kill < "$d/leftover.pids" 2>/dev/null || true
-  pass "a process left by the CLI cannot pin a status slot"
-}
-
-# End to end through the executable: concurrent crew-state reads of one lane
-# share one run lookup.
-test_concurrent_crew_state_runs_share_one_status_spawn() {
-  reset_fakes
-  local d i
-  d=$(lowload_case lowload-concurrent)
-  FM_FAKE_AXI_STATUS="$(run_running fm/feat-load)"
-  export FM_FAKE_AXI_STATUS
-  for i in 1 2 3 4; do
-    lowload_run "$d" FM_FAKE_NM_SLEEP=1 > "$d/out.$i" &
-  done
-  wait
-  [ "$(grep -c '|axi status$' "$d/nm.log")" -eq 1 ] || fail "concurrent crew-state runs spawned axi status $(grep -c '|axi status$' "$d/nm.log") times"
-  for i in 2 3 4; do
-    cmp -s "$d/out.1" "$d/out.$i" || fail "concurrent run $i reported a different state"
-  done
-  pass "concurrent crew-state runs share one axi status spawn"
-}
-
-# GNU stat prints filesystem details on stdout for -f before failing; the age
-# helper must still return a bare number there.
-test_cache_mtime_survives_gnu_stat_semantics() {
-  reset_fakes
-  local d got
-  d=$(new_case cache-gnu-stat)
-  mkdir -p "$d/fakebin"
-  printf 'x\n' > "$d/f"
-  cat > "$d/fakebin/stat" <<'SH'
-#!/usr/bin/env bash
-# GNU-like: -c FORMAT FILE works; -f prints filesystem junk then fails.
-if [ "$1" = -c ]; then echo 1234567890; exit 0; fi
-echo "  File: \"$3\""; echo "    ID: 0 Namelen: 255"; exit 1
-SH
-  chmod +x "$d/fakebin/stat"
-  got=$(PATH="$d/fakebin:$PATH" bash -c '. "$1"; fm_nm_cache_mtime "$2"' _ "$ROOT/bin/fm-nm-run-lib.sh" "$d/f")
-  [ "$got" = 1234567890 ] || fail "cache mtime under GNU stat semantics was [$got]"
-  pass "cache mtime survives GNU stat semantics"
-}
-
-# The library must source under a PATH with no external tools, and resolve its
-# own absolute path with shell builtins only.
-test_library_sources_without_external_tools() {
-  reset_fakes
-  local got
-  # shellcheck disable=SC2016  # The inner script expands inside the child shell.
-  got=$(cd "$ROOT/bin" && PATH=/nonexistent "$BASH" -c '. ./fm-nm-run-lib.sh; printf "%s" "$FM_NM_RUN_LIB_PATH"' 2>&1)
-  [ "$got" = "$ROOT/bin/fm-nm-run-lib.sh" ] || fail "library path under an empty PATH was [$got]"
-  pass "the library resolves its own path without external tools"
-}
-
-test_cache_prunes_old_entries_on_publish() {
-  reset_fakes
-  local d
-  d=$(cache_case cache-prune)
-  FM_FAKE_AXI_STATUS="$(run_running fm/feat-load)"
-  export FM_FAKE_AXI_STATUS
-  mkdir -p "$d/cache"
-  printf 'old\n' > "$d/cache/zzz.out"
-  touch -t 202001010000 "$d/cache/zzz.out"
-  cache_read "$d" > /dev/null
-  [ ! -e "$d/cache/zzz.out" ] || fail "publish did not prune an entry older than a few TTLs"
-  pass "publish prunes entries older than a few TTLs"
-}
-
-cache_call() {  # <case-dir> <args...>
-  local d=$1
-  shift
-  # shellcheck disable=SC2016  # The inner script expands after bash -c receives positional args.
-  env FM_FAKE_NM_LOG="$d/nm.log" PATH="$d/fakebin:$PATH" \
-    bash -c '. "$1"; shift; fm_nm_cached_checked "$@"' _ "$ROOT/bin/fm-nm-run-lib.sh" "$d/cache" "$d/wt" 4 "$@"
-}
-
-# A read the cache has never answered goes live, so the sibling reads cached
-# earlier would otherwise keep answering from before it for their whole TTL.
-test_new_key_refreshes_sibling_reads_of_the_same_worktree() {
-  reset_fakes
-  local d old new
-  d=$(cache_case cache-generation)
-  FM_FAKE_AXI_STATUS="$(run_running fm/feat-load)"
-  export FM_FAKE_AXI_STATUS FM_FAKE_AXI_STATUS_RUN
-  old=$(FM_NM_CACHE_INVOCATION=first cache_call "$d" axi status)
-  FM_NM_CACHE_INVOCATION=first cache_call "$d" axi > /dev/null
-  [ "$(FM_NM_CACHE_INVOCATION=second cache_call "$d" axi status)" = "$old" ] || fail "a fresh entry was not served"
-  # No pause: the generation must change even within one clock tick.
-  FM_FAKE_AXI_STATUS="$(run_passed fm/feat-load)"
-  FM_FAKE_AXI_STATUS_RUN=$FM_FAKE_AXI_STATUS
-  new=$(FM_NM_CACHE_INVOCATION=second cache_call "$d" axi status --run 01RUN)
-  [ "$new" != "$old" ] || fail "the never-read key was served from cache"
-  [ "$(FM_NM_CACHE_INVOCATION=second cache_call "$d" axi status)" = "$new" ] || fail "axi status kept its answer from before the live read"
-  [ "$(FM_NM_CACHE_INVOCATION=second cache_call "$d" axi)" = "$new" ] || fail "axi kept its answer from before the live read"
-  [ "$(FM_NM_CACHE_INVOCATION=second cache_call "$d" axi status)" = "$new" ] || fail "the refreshed entry was not served again"
-  [ "$(grep -c '|axi status$' "$d/nm.log")" -eq 2 ] || fail "axi status spawn count: $(tr '\n' ';' < "$d/nm.log")"
-  pass "a never-read key refreshes the sibling reads of the same worktree"
-}
-
-# An invocation that has not declared itself is its own invocation, so a key it
-# adds can never leave a sibling from another process answering from before it.
-test_undeclared_callers_never_share_a_generation() {
-  reset_fakes
-  local d new
-  d=$(cache_case cache-generation-undeclared)
-  FM_FAKE_AXI_STATUS="$(run_running fm/feat-load)"
-  export FM_FAKE_AXI_STATUS FM_FAKE_AXI_STATUS_RUN
-  cache_call "$d" axi status > /dev/null
-  cache_call "$d" axi > /dev/null
-  FM_FAKE_AXI_STATUS="$(run_passed fm/feat-load)"
-  FM_FAKE_AXI_STATUS_RUN=$FM_FAKE_AXI_STATUS
-  new=$(cache_call "$d" axi status --run 01RUN)
-  [ "$(cache_call "$d" axi status)" = "$new" ] || fail "a sibling answered from before the new key in the same clock tick"
-  pass "undeclared callers never share a generation"
-}
-
-# One invocation's reads fill a generation together however long they take, so
-# the next invocation is served all of them rather than respawning the ones a
-# clock tick separated.
-test_one_invocation_fills_a_generation_across_a_clock_tick() {
-  reset_fakes
-  local d
-  d=$(cache_case cache-generation-fill)
-  FM_FAKE_AXI_STATUS="$(run_running fm/feat-load)"
-  FM_FAKE_AXI_STATUS_RUN=$FM_FAKE_AXI_STATUS
-  export FM_FAKE_AXI_STATUS FM_FAKE_AXI_STATUS_RUN
-  FM_NM_CACHE_INVOCATION=first cache_call "$d" axi status > /dev/null
-  sleep 1
-  FM_NM_CACHE_INVOCATION=first cache_call "$d" axi > /dev/null
-  sleep 1
-  FM_NM_CACHE_INVOCATION=first cache_call "$d" axi status --run 01RUN > /dev/null
-  : > "$d/nm.log"
-  FM_NM_CACHE_INVOCATION=second cache_call "$d" axi status > /dev/null
-  FM_NM_CACHE_INVOCATION=second cache_call "$d" axi > /dev/null
-  FM_NM_CACHE_INVOCATION=second cache_call "$d" axi status --run 01RUN > /dev/null
-  [ ! -s "$d/nm.log" ] || fail "the next invocation respawned reads the first had cached: $(tr '\n' ';' < "$d/nm.log")"
-  pass "one invocation fills a generation across a clock tick"
-}
-
-test_lowload_kill_switch_restores_old_behavior() {
-  reset_fakes
-  local d
-  d=$(lowload_case lowload-off)
-  FM_FAKE_AXI_STATUS="$(run_running fm/feat-load)"
-  lowload_run "$d" FM_NM_LOWLOAD=0 >/dev/null
-  lowload_run "$d" FM_NM_LOWLOAD=0 >/dev/null
-  [ ! -d "$d/state/nm-cache" ] || fail "kill switch still wrote a cache"
-  grep -q '^|' "$d/nm.log" || fail "kill switch still set NO_MISTAKES_NO_UPDATE_CHECK"
-  [ "$(grep -c '^|axi status$' "$d/nm.log")" -ge 2 ] || fail "kill switch did not re-run axi status each read"
-  pass "FM_NM_LOWLOAD=0 restores uncached, update-checking calls"
-}
-
 test_terminal_passed_uses_matching_retirement_receipt_without_forge() {
   reset_fakes
   local d url read_log out
@@ -2446,8 +1948,6 @@ EOF
   FM_FAKE_AXI_STATUS="$(run_running fm/cancelled)"
   out=$(FM_HOME="$d" run_crew_state "$d" cancelled)
   assert_contains "$out" 'state: working' 'fixture begins with active validation'
-  # The fixture transitions inside the status cache's TTL, so drop the entry.
-  rm -rf "$d/state/nm-cache"
   # Deliberately transition the external instrument fixture to cancelled.
   # This executes Firstmate end to end; it does not cancel a real daemon run.
   FM_FAKE_AXI_STATUS="$(run_failed fm/cancelled)"
@@ -3878,6 +3378,59 @@ test_missing_meta() {
   assert_contains "$out" "state: unknown" "missing meta -> unknown"
   assert_contains "$out" "source: none" "missing meta -> none source"
   pass "missing meta is handled gracefully"
+}
+
+# (m) override guard: FM_CREW_STATE_*_OVERRIDE is honoured only when its
+# basename is the asked task's own file name. A mismatched override inherited
+# from another task's environment must fall through to $STATE/$ID.*, while the
+# snapshot's own matching-name override keeps steering the read at the captured
+# generation.
+test_mismatched_state_override_is_ignored() {
+  reset_fakes
+  local d out
+  d=$(new_case override-mismatch)
+  make_repo_on_branch "$d/wt" fm/feat-ovr
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/feat-ovr.meta" "window=fm:fm-feat-ovr" "worktree=$d/wt" "kind=ship" "harness=claude"
+  printf 'working: real task log line\n' > "$d/state/feat-ovr.status"
+  # Another task's snapshot capture, under snapshot-style names.
+  fm_write_meta "$d/state/feat-other.meta" "window=fm:fm-feat-other" "worktree=$d/foreign-missing-wt" "kind=ship" "harness=claude"
+  printf 'blocked: other task log line\n' > "$d/state/feat-other.status"
+  FM_FAKE_AXI_STATUS=""
+  FM_FAKE_BUSY=0
+  arm_idle_record "$d/state" feat-ovr
+  out=$(FM_CREW_STATE_META_OVERRIDE="$d/state/feat-other.meta" \
+    FM_CREW_STATE_STATUS_OVERRIDE="$d/state/feat-other.status" \
+    run_crew_state "$d" feat-ovr)
+  assert_contains "$out" "state: working" "a mismatched override must be ignored: the task's own working log line wins"
+  assert_contains "$out" "source: status-log" "a mismatched override must fall through to the task's own status log"
+  assert_not_contains "$out" "worktree gone" "a mismatched metadata override must fall through to the task's live worktree"
+  assert_not_contains "$out" "other task log line" "a mismatched override must never surface the other task's status"
+  pass "override guard: a foreign-named override is ignored and the task's own state files are read"
+}
+
+test_matched_state_override_is_honoured() {
+  reset_fakes
+  local d out
+  d=$(new_case override-match)
+  make_repo_on_branch "$d/wt" fm/feat-ovr2
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/feat-ovr2.meta" "window=fm:fm-feat-ovr2" "worktree=$d/live-missing-wt" "kind=ship" "harness=claude"
+  printf 'working: live log line\n' > "$d/state/feat-ovr2.status"
+  # The fleet snapshot's captured generation for THIS task: matching names.
+  mkdir -p "$d/snapshot"
+  fm_write_meta "$d/snapshot/feat-ovr2.meta" "window=fm:fm-feat-ovr2" "worktree=$d/wt" "kind=ship" "harness=claude"
+  printf 'paused: snapshot captured status\n' > "$d/snapshot/feat-ovr2.status"
+  FM_FAKE_AXI_STATUS=""
+  FM_FAKE_BUSY=0
+  arm_idle_record "$d/state" feat-ovr2
+  out=$(FM_CREW_STATE_META_OVERRIDE="$d/snapshot/feat-ovr2.meta" \
+    FM_CREW_STATE_STATUS_OVERRIDE="$d/snapshot/feat-ovr2.status" \
+    run_crew_state "$d" feat-ovr2)
+  assert_contains "$out" "state: paused" "a matched-name override must be honoured over the live status log"
+  assert_contains "$out" "source: status-log" "a matched-name override reads the captured log through the normal source"
+  assert_not_contains "$out" "worktree gone" "a matched-name metadata override must use the captured worktree"
+  pass "override guard: a matching-name override still steers the read at the captured generation"
 }
 
 # (k) crew_is_provably_working end-to-end over the REAL fm-crew-state.sh (not a
@@ -5789,6 +5342,46 @@ EOF
   pass "a coarse failed record with a dead daemon reads unknown"
 }
 
+# Exit 0 alone does not prove a live daemon: only a positive running answer
+# licenses head-free attribution. A timeout remains unanswered rather than down.
+test_daemon_probe_requires_positive_running_answer() {
+  local probe d rebased out expected
+  for probe in running stopped empty unexpected absent refused timeout; do
+    reset_fakes
+    d=$(new_case "probe-answer-$probe")
+    make_repo_on_branch "$d/wt" fm/feat-probeanswer
+    rebased=$(make_rebased_head "$d/wt")
+    make_fakebin "$d" >/dev/null
+    fm_write_meta "$d/state/feat-probeanswer.meta" "window=fm:fm-feat-probeanswer" "worktree=$d/wt" "kind=ship" "harness=claude"
+    printf 'failed: earlier run failed\n' > "$d/state/feat-probeanswer.status"
+    FM_FAKE_RUN_HEAD=$rebased
+    FM_FAKE_AXI_STATUS="$(run_running fm/feat-probeanswer)
+branch_sync:
+  state: synced"
+    expected=failed
+    case "$probe" in
+      running) expected=working ;;
+      stopped) FM_FAKE_DAEMON_OUTPUT='  ○ daemon not running' ;;
+      empty) FM_FAKE_DAEMON_OUTPUT='' ;;
+      unexpected) FM_FAKE_DAEMON_OUTPUT='unknown daemon status' ;;
+      absent|refused)
+        FM_FAKE_DAEMON_DOWN=1
+        FM_FAKE_DAEMON_OUTPUT="socket $probe"
+        ;;
+      timeout) FM_FAKE_DAEMON_TIMEOUT=1; expected=working ;;
+    esac
+    arm_idle_record "$d/state" feat-probeanswer
+    out=$(run_crew_state "$d" feat-probeanswer)
+    assert_contains "$out" "state: $expected" "$probe: daemon answer controls live-run attribution"
+    if [ "$expected" = working ]; then
+      assert_contains "$out" 'source: run-step' "$probe: live run stays bound"
+    else
+      assert_contains "$out" 'source: status-log' "$probe: stale run cannot override the crew log"
+    fi
+    pass "daemon probe classifies $probe"
+  done
+}
+
 # A probe that does not ANSWER proves nothing about the daemon, so it must not
 # suppress a live rebased run: otherwise a slow `daemon status` on a busy fleet
 # drops the crew back to a stale `failed:` log line, and the crew flaps between
@@ -6155,26 +5748,6 @@ test_terminal_passed
 test_terminal_passed_with_override
 test_terminal_passed_with_skips
 test_terminal_passed_uses_matching_retirement_receipt_without_forge
-test_status_cache_hit_skips_second_spawn_and_update_check
-test_status_cache_expires_after_ttl
-test_landed_lane_skips_every_no_mistakes_spawn
-test_parallel_cold_reads_spawn_once
-test_dead_holder_releases_the_lock_immediately
-test_live_holder_past_the_readers_timeout_is_never_overtaken
-test_different_timeouts_share_one_lock
-test_leftover_cli_child_does_not_pin_the_lock
-test_leftover_cli_child_does_not_pin_a_status_slot
-test_concurrent_crew_state_runs_share_one_status_spawn
-test_cache_mtime_survives_gnu_stat_semantics
-test_library_sources_without_external_tools
-test_cache_prunes_old_entries_on_publish
-test_new_key_refreshes_sibling_reads_of_the_same_worktree
-test_undeclared_callers_never_share_a_generation
-test_one_invocation_fills_a_generation_across_a_clock_tick
-test_status_reads_across_lanes_are_concurrency_limited
-test_cold_heartbeat_of_eight_lanes_fits_the_snapshot_bound
-test_dod_custody_gate_bypasses_the_status_cache
-test_lowload_kill_switch_restores_old_behavior
 test_terminal_passed_no_forge_switch_skips_read_but_keeps_receipt
 test_terminal_passed_with_open_pr_does_not_claim_merged
 test_terminal_passed_run_pr_overrides_stale_metadata
@@ -6236,6 +5809,8 @@ test_remote_alive_idle_is_healthy_not_gone
 test_remote_unreachable_is_unknown_remote_not_dead
 test_remote_dead_reports_remote_verdict
 test_missing_meta
+test_mismatched_state_override_is_ignored
+test_matched_state_override_is_honoured
 test_provably_working_via_runs_list_fallback
 test_not_provably_working_when_stopped
 test_usage_error
@@ -6308,6 +5883,7 @@ test_selected_route_dead_daemon_names_the_run_once
 test_head_tied_row_reads_the_same_whichever_run_axi_names
 test_coarse_head_tied_row_is_exempt_even_when_the_record_head_diverged
 test_unrecognised_ledger_word_keeps_the_ordinary_supersede_note
+test_daemon_probe_requires_positive_running_answer
 test_unanswered_daemon_probe_does_not_suppress_live_run
 test_coarse_live_row_is_exempt_from_the_dead_daemon_verdict
 test_coarse_live_row_keeps_the_original_supersede_note

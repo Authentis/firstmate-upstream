@@ -210,11 +210,8 @@ fm_pending_reply_summarize() {  # <text>
   # Drop an already-present marker/corr prefix so the durable summary stays short.
   cleaned=${cleaned#"$FM_FROMFIRST_MARK"}
   cleaned=$(printf '%s' "$cleaned" | sed -E "s/^corr=[A-Fa-f0-9]{16}[[:space:]]*//")
-  # Long enough for the automatic recovery repost to stand alone: a mate
-  # that missed the original delivery must be able to act from the repost
-  # alone, so the cap must cover a full multi-step order, not one sentence.
-  if [ "${#cleaned}" -gt 2000 ]; then
-    cleaned="${cleaned:0:1997}..."
+  if [ "${#cleaned}" -gt 120 ]; then
+    cleaned="${cleaned:0:117}..."
   fi
   printf '%s' "$cleaned"
 }

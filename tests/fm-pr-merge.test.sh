@@ -207,15 +207,6 @@ case "${1:-} ${2:-}" in
         fi
         exit 0
         ;;
-      *"--json files"*)
-        # Head, total changed-file count, then the listed paths; the head and
-        # count can be overridden to model a moved head or a truncated list.
-        [ -s "${FM_TEST_GH_FILES:-}" ] || exit 0
-        if [ -s "${FM_TEST_GH_FILES}.head" ]; then cat "${FM_TEST_GH_FILES}.head"; else cat "$FM_TEST_GH_HEAD"; fi
-        if [ -s "${FM_TEST_GH_FILES}.total" ]; then cat "${FM_TEST_GH_FILES}.total"; else wc -l < "$FM_TEST_GH_FILES" | tr -d ' '; fi
-        cat "$FM_TEST_GH_FILES"
-        exit 0
-        ;;
       *headRefOid*)
         cat "$FM_TEST_GH_HEAD"
         exit 0
@@ -679,7 +670,6 @@ run_pr_merge() {
   FM_TEST_GH_MERGEABLE_SEQUENCE="${FM_TEST_GH_MERGEABLE_SEQUENCE:-}" \
   FM_TEST_GH_MERGEABLE_CALLS="$case_dir/mergeable-calls" \
   FM_TEST_GH_HEAD="$case_dir/github-head" \
-  FM_TEST_GH_FILES="$case_dir/github-files" \
   FM_TEST_GH_RUNS="$case_dir/github-runs.json" \
   FM_TEST_GH_MERGE_RC_FILE="$case_dir/github-merge-rc" \
   FM_TEST_GH_MERGE_OUTPUT="$(cat "$case_dir/github-merge-output" 2>/dev/null || true)" \
@@ -1730,9 +1720,28 @@ test_extra_merge_args_forwarded() {
   pass "fm-pr-merge refuses branch deletion unless --attended-override is passed"
 }
 
-# An absent task record is no longer a refusal: it is the retired-lane path,
-# covered by test_retired_lane_merges_without_metadata below, while an unusable
-# record (symlink) still refuses.
+test_missing_meta_refuses_before_merge() {
+  local case_dir fakebin rc
+  case_dir="$TMP_ROOT/missing-meta"
+  fakebin="$case_dir/fakebin"
+  mkdir -p "$case_dir/state" "$fakebin"
+  add_gh_mocks "$case_dir" 3333333333333333333333333333333333333333
+  : > "$case_dir/gh-axi.log"
+
+  set +e
+  run_pr_merge "$case_dir" missing-x1 https://github.com/example/repo/pull/21 \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 1 "$rc" "missing-meta: fm-pr-merge should refuse"
+  assert_grep 'error: task metadata is unavailable' "$case_dir/stderr" \
+    "missing-meta: refusal did not explain missing meta"
+  [ ! -s "$case_dir/gh.log" ] || fail "missing-meta: gh pr merge was invoked"
+  assert_absent "$case_dir/state/missing-x1.check.sh" \
+    "missing-meta: fm-pr-check should not arm a poll for an unknown task"
+  pass "fm-pr-merge refuses before merging when task meta is missing"
+}
 
 test_malformed_url_refuses_before_merge() {
   local case_dir rc
@@ -2947,6 +2956,7 @@ test_github_verified_merge_requires_poll_recording
 test_github_queued_outcome_is_verified
 test_github_queue_required_refusal_names_retry_flags
 test_extra_merge_args_forwarded
+test_missing_meta_refuses_before_merge
 test_malformed_url_refuses_before_merge
 test_rejects_unsafe_url_segments_before_recording
 test_repo_override_args_refuse_before_recording
@@ -3417,80 +3427,6 @@ test_undated_runs_never_supersede() {
   pass "fm-pr-merge clears a failure only on a proven later pass of the same check"
 }
 
-# --allow-red repeats, one exact name per occurrence. Every waived name must be
-# red at the verified head, every unwaived check must be green, and the merge
-# stays bound to the verified head.
-test_allow_red_repeatable_requires_every_name_red() {
-  local case_dir rc head
-  head=0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c
-
-  case_dir=$(make_case github-allow-red-two-waived)
-  mkdir -p "$case_dir/wt"
-  add_gh_mocks "$case_dir" "$head"
-  write_github_rollup_json "$case_dir" "$head" \
-    "$(check_run lint COMPLETED FAILURE 2026-01-01T00:00:09Z)" \
-    "$(check_run Behavior-2 COMPLETED FAILURE 2026-01-01T00:00:09Z)" \
-    "$(check_run ci COMPLETED SUCCESS 2026-01-01T00:00:09Z)"
-  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/97 \
-    --allow-red lint --allow-red Behavior-2 --allow-red lint \
-    > "$case_dir/stdout" 2> "$case_dir/stderr" \
-    || fail "allow-red-two-waived: two waived red checks should merge"$'\n'"$(cat "$case_dir/stderr")"
-  assert_logged_gh_merge "$case_dir" 97 example/repo --squash
-
-  case_dir=$(make_case github-allow-red-one-of-two)
-  mkdir -p "$case_dir/wt"
-  add_gh_mocks "$case_dir" "$head"
-  write_github_rollup_json "$case_dir" "$head" \
-    "$(check_run lint COMPLETED FAILURE 2026-01-01T00:00:09Z)" \
-    "$(check_run Behavior-2 COMPLETED FAILURE 2026-01-01T00:00:09Z)"
-  set +e
-  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/98 \
-    --allow-red lint > "$case_dir/stdout" 2> "$case_dir/stderr"
-  rc=$?
-  set -e
-  expect_code 1 "$rc" "allow-red-one-of-two: an unwaived red check must refuse"
-  assert_grep "check 'Behavior-2' is not green" "$case_dir/stderr" \
-    "allow-red-one-of-two: the unwaived red check was not named"
-  assert_no_grep 'pr merge' "$case_dir/gh.log" \
-    "allow-red-one-of-two: gh pr merge ran with an unwaived red check"
-
-  case_dir=$(make_case github-allow-red-name-green)
-  mkdir -p "$case_dir/wt"
-  add_gh_mocks "$case_dir" "$head"
-  write_github_rollup_json "$case_dir" "$head" \
-    "$(check_run lint COMPLETED FAILURE 2026-01-01T00:00:09Z)" \
-    "$(check_run ci COMPLETED SUCCESS 2026-01-01T00:00:09Z)"
-  set +e
-  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/99 \
-    --allow-red lint --allow-red ci > "$case_dir/stdout" 2> "$case_dir/stderr"
-  rc=$?
-  set -e
-  expect_code 1 "$rc" "allow-red-name-green: a waived name that is green must refuse"
-  assert_grep 'not red' "$case_dir/stderr" \
-    "allow-red-name-green: the refusal did not say the name is not red"
-  assert_grep 'ci' "$case_dir/stderr" \
-    "allow-red-name-green: the green waived name was not listed"
-  assert_no_grep 'pr merge' "$case_dir/gh.log" \
-    "allow-red-name-green: gh pr merge ran with a green waived name"
-
-  case_dir=$(make_case github-allow-red-name-absent)
-  mkdir -p "$case_dir/wt"
-  add_gh_mocks "$case_dir" "$head"
-  write_github_rollup_json "$case_dir" "$head" \
-    "$(check_run lint COMPLETED FAILURE 2026-01-01T00:00:09Z)"
-  set +e
-  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/100 \
-    --allow-red lint --allow-red no-such-check > "$case_dir/stdout" 2> "$case_dir/stderr"
-  rc=$?
-  set -e
-  expect_code 1 "$rc" "allow-red-name-absent: a waived name that does not exist must refuse"
-  assert_grep 'no-such-check' "$case_dir/stderr" \
-    "allow-red-name-absent: the nonexistent waived name was not listed"
-  assert_no_grep 'pr merge' "$case_dir/gh.log" \
-    "allow-red-name-absent: gh pr merge ran with a nonexistent waived name"
-  pass "fm-pr-merge repeats --allow-red and refuses a waived name that is not red"
-}
-
 # A superseded failure changes nothing about the waiver: --allow-red still covers
 # exactly the named check, still needs every other check green, and the merge is
 # still bound to the verified head.
@@ -3609,7 +3545,7 @@ test_allow_red_requires_one_separate_name() {
   assert_no_grep 'pr merge' "$case_dir/gh.log" \
     "github-allow-red-equals: gh pr merge ran for the equals alias"
 
-  case_dir=$(make_case github-allow-red-second-name-not-red)
+  case_dir=$(make_case github-allow-red-duplicate)
   mkdir -p "$case_dir/wt"
   add_gh_mocks "$case_dir" "$head"
   write_github_red_json "$case_dir" "$head" lint
@@ -3618,12 +3554,10 @@ test_allow_red_requires_one_separate_name() {
     --allow-red lint --allow-red unit > "$case_dir/stdout" 2> "$case_dir/stderr"
   rc=$?
   set -e
-  expect_code 1 "$rc" "github-allow-red-second-name-not-red: a second waived name that is not red must refuse"
-  assert_grep "unit" "$case_dir/stderr" \
-    "github-allow-red-second-name-not-red: the not-red waived name was not listed"
+  expect_code 2 "$rc" "github-allow-red-duplicate: duplicate waiver must be refused"
   assert_no_grep 'pr merge' "$case_dir/gh.log" \
-    "github-allow-red-second-name-not-red: gh pr merge ran with a not-red waiver"
-  pass "fm-pr-merge takes each red-check waiver as a separate argument and refuses one that is not red"
+    "github-allow-red-duplicate: gh pr merge ran for duplicate waivers"
+  pass "fm-pr-merge accepts exactly one separately named red-check waiver"
 }
 
 test_away_record_permits_any_green_merge_under_away_authority() {
@@ -4470,6 +4404,8 @@ test_allow_missing_follows_the_allow_red_rules() {
   expect_code 2 "$RC" "gitlab-allow-missing: the waiver must not apply on GitLab"
   assert_grep '--allow-missing does not apply to GitLab' "$case_dir/stderr" \
     "gitlab-allow-missing: the refusal did not name GitLab"
+  assert_grep '--allow-no-pipeline waives only a merge request with no head pipeline' "$case_dir/stderr" \
+    "gitlab-allow-missing: the refusal did not point at the GitLab no-pipeline waiver"
   [ ! -s "$case_dir/glab.log" ] || fail "gitlab-allow-missing: glab ran despite the waiver"
   pass "fm-pr-merge --allow-missing is single use, attended-only, and GitHub-only like --allow-red"
 }
@@ -4504,6 +4440,128 @@ test_allow_missing_refused_on_forgejo() {
   pass "fm-pr-merge refuses --allow-missing on Forgejo"
 }
 
+# --allow-no-pipeline is for a GitLab repository that deliberately runs no merge
+# request pipeline: it waives only a head_pipeline GitLab reports as null, and
+# the merge stays bound to the verified head.
+test_allow_no_pipeline_merges_only_a_null_head_pipeline() {
+  local case_dir rc merge_line name spec expected
+  case_dir=$(make_gitlab_case gitlab-no-pipeline-waived pipeline=null)
+  run_pr_merge "$case_dir" task-x1 "$MR_URL" --allow-no-pipeline \
+    > "$case_dir/stdout" 2> "$case_dir/stderr" \
+    || fail "gitlab-no-pipeline-waived: a merge request with no head pipeline should merge: $(cat "$case_dir/stderr")"
+  merge_line=$(glab_merge_line "$case_dir/glab.log")
+  [ "$merge_line" = "GITLAB_HOST=$MR_HOST mr merge 7 -R $MR_PROJECT_URL --sha $MR_HEAD --yes" ] \
+    || fail "gitlab-no-pipeline-waived: unexpected merge invocation: '$merge_line'"
+  assert_grep "at head $MR_HEAD, with no head pipeline, waived by --allow-no-pipeline" "$case_dir/stderr" \
+    "gitlab-no-pipeline-waived: the waived verification was not reported"
+
+  case_dir=$(make_gitlab_case gitlab-no-pipeline-flag-absent pipeline=null)
+  set +e
+  run_pr_merge "$case_dir" task-x1 "$MR_URL" \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+  expect_code 1 "$rc" "gitlab-no-pipeline-flag-absent: no head pipeline must still refuse by default"
+  assert_grep 'the head pipeline status is "none", not success' "$case_dir/stderr" \
+    "gitlab-no-pipeline-flag-absent: the refusal did not name the missing pipeline"
+  [ -z "$(glab_merge_line "$case_dir/glab.log")" ] \
+    || fail "gitlab-no-pipeline-flag-absent: a merge was attempted without the waiver"
+
+  # A pipeline that exists is a verdict, never an absence, so the waiver does
+  # not reach it; and every other condition still holds beside the waiver.
+  set -- \
+    "failed|pipeline_status=failed|the head pipeline status is \"failed\", not success" \
+    "running|pipeline_status=running|the head pipeline status is \"running\", not success" \
+    "canceled|pipeline_status=canceled|the head pipeline status is \"canceled\", not success" \
+    "stale|pipeline_sha=$MR_STALE_HEAD|the head pipeline ran at \"$MR_STALE_HEAD\", not at the current head $MR_HEAD" \
+    "not-mergeable|pipeline=null detail=ci_must_pass|detailed_merge_status is \"ci_must_pass\", not mergeable" \
+    "discussions|pipeline=null discussions=false|blocking_discussions_resolved is \"false\", not true" \
+    "conflicts|pipeline=null conflicts=true|has_conflicts is \"true\", not false"
+  for spec in "$@"; do
+    name=${spec%%|*}
+    expected=${spec##*|}
+    spec=${spec#*|}
+    # shellcheck disable=SC2086 # the field list is deliberately word-split
+    case_dir=$(make_gitlab_case "gitlab-no-pipeline-refuse-$name" ${spec%%|*})
+    set +e
+    run_pr_merge "$case_dir" task-x1 "$MR_URL" --allow-no-pipeline \
+      > "$case_dir/stdout" 2> "$case_dir/stderr"
+    rc=$?
+    set -e
+    expect_code 1 "$rc" "gitlab-no-pipeline-refuse-$name: the waiver must not merge"
+    assert_grep "$expected" "$case_dir/stderr" \
+      "gitlab-no-pipeline-refuse-$name: the refusal did not name the failing condition"
+    [ -z "$(glab_merge_line "$case_dir/glab.log")" ] \
+      || fail "gitlab-no-pipeline-refuse-$name: a merge was attempted despite the refusal"
+  done
+
+  # An absent head_pipeline field is unreadable state, not a reported absence.
+  case_dir=$(make_gitlab_case gitlab-no-pipeline-field-missing)
+  "$JQ_BIN" -c 'del(.head_pipeline)' "$case_dir/mr.json" > "$case_dir/mr.json.new"
+  mv "$case_dir/mr.json.new" "$case_dir/mr.json"
+  set +e
+  run_pr_merge "$case_dir" task-x1 "$MR_URL" --allow-no-pipeline \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+  expect_code 1 "$rc" "gitlab-no-pipeline-field-missing: an unread pipeline field must not be waived"
+  [ -z "$(glab_merge_line "$case_dir/glab.log")" ] \
+    || fail "gitlab-no-pipeline-field-missing: a merge was attempted on an unread pipeline field"
+  pass "fm-pr-merge --allow-no-pipeline waives only a null GitLab head pipeline and keeps every other condition"
+}
+
+test_allow_no_pipeline_is_attended_only_and_gitlab_only() {
+  local case_dir rc head
+  case_dir=$(make_gitlab_case gitlab-no-pipeline-away pipeline=null)
+  write_away_record "$case_dir" --words 'merge task-x1'
+  set +e
+  run_pr_merge "$case_dir" task-x1 "$MR_URL" --allow-no-pipeline \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+  expect_code 2 "$rc" "gitlab-no-pipeline-away: the waiver must be refused while away"
+  assert_grep '--allow-no-pipeline is attended-only' "$case_dir/stderr" \
+    "gitlab-no-pipeline-away: the refusal did not name attended-only"
+  [ -z "$(glab_merge_line "$case_dir/glab.log")" ] \
+    || fail "gitlab-no-pipeline-away: glab merged despite an away waiver"
+
+  case_dir=$(make_gitlab_case gitlab-no-pipeline-equals pipeline=null)
+  set +e
+  run_pr_merge "$case_dir" task-x1 "$MR_URL" --allow-no-pipeline=true \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+  expect_code 2 "$rc" "gitlab-no-pipeline-equals: a value must be refused"
+  [ ! -s "$case_dir/glab.log" ] || fail "gitlab-no-pipeline-equals: glab ran for a valued flag"
+
+  head=abababababababababababababababababababab
+  case_dir=$(make_case github-no-pipeline)
+  mkdir -p "$case_dir/wt"
+  add_gh_mocks "$case_dir" "$head"
+  set +e
+  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/88 --allow-no-pipeline \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+  expect_code 2 "$rc" "github-no-pipeline: the waiver must not apply on GitHub"
+  assert_grep '--allow-no-pipeline applies only to GitLab' "$case_dir/stderr" \
+    "github-no-pipeline: the refusal did not name GitLab"
+  assert_no_grep 'pr merge' "$case_dir/gh.log" \
+    "github-no-pipeline: gh pr merge ran despite the waiver"
+
+  case_dir=$(make_forgejo_case forgejo-no-pipeline)
+  set +e
+  run_pr_merge "$case_dir" task-x1 "$FJ_URL" --allow-no-pipeline \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+  expect_code 2 "$rc" "forgejo-no-pipeline: the waiver must not apply on Forgejo"
+  assert_grep '--allow-no-pipeline applies only to GitLab' "$case_dir/stderr" \
+    "forgejo-no-pipeline: the refusal did not name GitLab"
+  [ ! -s "$case_dir/tea.log" ] || fail "forgejo-no-pipeline: tea ran despite the waiver"
+  pass "fm-pr-merge --allow-no-pipeline is attended-only, takes no value, and applies only to GitLab"
+}
+
 test_gitlab_head_override_args_refuse_before_recording
 test_secondmate_merge_reports_upward_once
 test_secondmate_merge_reports_on_the_local_route
@@ -4534,7 +4592,6 @@ test_unfinished_rerun_keeps_a_check_red
 test_supersession_never_crosses_check_names
 test_undated_runs_never_supersede
 test_allow_red_still_waives_only_the_current_failure
-test_allow_red_repeatable_requires_every_name_red
 test_allow_red_is_refused_while_away
 test_quiet_record_keeps_merges_attended
 test_allow_red_requires_one_separate_name
@@ -4559,529 +4616,7 @@ test_allow_missing_follows_the_allow_red_rules
 test_required_producer_identity
 test_app_bound_required_status_context_matches_by_name
 test_required_partial_reads_report_all_failures
-
-# --- config/merge-receipt-required: the opt-in review-receipt gate -----------
-# The header of bin/fm-pr-merge.sh owns the receipt and waiver formats. The
-# fixtures below reproduce the shapes the decision-os home writes: a header line
-# `at=<epoch> secs=<n> head=<40-hex>` then `VERDICT: PASS|FAIL`, and a free-text
-# waiver that names `head=<hex>` or `head <hex>`.
-RECEIPT_HEAD=1010101010101010101010101010101010101010
-RECEIPT_OLD_HEAD=2020202020202020202020202020202020202020
-
-# write_receipt <case_dir> <pr-number> <head> <verdict-line>...
-write_receipt() {
-  local case_dir=$1 pr=$2 head=$3
-  shift 3
-  mkdir -p "$case_dir/home/data/xreview"
-  {
-    printf '# xreview PR %s via test/model\n' "$pr"
-    printf 'at=1790926043 secs=24 head=%s\n\n' "$head"
-    printf '%s\n' "$@"
-  } > "$case_dir/home/data/xreview/$pr.md"
-}
-
-# receipt_case <name> [config-line]: a GitHub case whose live head is
-# RECEIPT_HEAD, with the gate switched on for every project unless told otherwise.
-receipt_case() {
-  local name=$1 line=${2-'* data'} case_dir
-  case_dir=$(make_case "$name")
-  mkdir -p "$case_dir/wt"
-  add_gh_mocks "$case_dir" "$RECEIPT_HEAD"
-  : > "$case_dir/gh-axi.log"
-  [ -z "$line" ] || printf '%s\n' "$line" > "$case_dir/home/config/merge-receipt-required"
-  printf '%s\n' "$case_dir"
-}
-
-# receipt_merge <case_dir> <pr-number> [args...]: run the merge, set RECEIPT_RC.
-receipt_merge() {
-  local case_dir=$1 pr=$2
-  shift 2
-  set +e
-  run_pr_merge "$case_dir" task-x1 "https://github.com/example/repo/pull/$pr" "$@" \
-    > "$case_dir/stdout" 2> "$case_dir/stderr"
-  RECEIPT_RC=$?
-  set -e
-}
-
-# expect_receipt_refusal <case_dir> <label> <stderr-fragment>
-expect_receipt_refusal() {
-  local case_dir=$1 label=$2 fragment=$3
-  expect_code 1 "$RECEIPT_RC" "$label: the merge should be refused"
-  assert_grep "$fragment" "$case_dir/stderr" "$label: the refusal did not say why"
-  ! grep -q '^pr merge ' "$case_dir/gh.log" \
-    || fail "$label: gh merged a pull request the receipt gate refused"
-}
-
-test_receipt_gate_off_leaves_merges_unchanged() {
-  local case_dir
-  case_dir=$(receipt_case receipt-off '')
-  receipt_merge "$case_dir" 9
-  expect_code 0 "$RECEIPT_RC" "receipt-off: no config file must not change a merge"
-  assert_logged_gh_merge "$case_dir" 9 example/repo --squash
-
-  case_dir=$(receipt_case receipt-other-project 'someone/else data')
-  receipt_merge "$case_dir" 9
-  expect_code 0 "$RECEIPT_RC" "receipt-other-project: a line for another project must not gate this one"
-  assert_logged_gh_merge "$case_dir" 9 example/repo --squash
-
-  case_dir=$(receipt_case receipt-comments-only "# nothing opted in yet")
-  receipt_merge "$case_dir" 9
-  expect_code 0 "$RECEIPT_RC" "receipt-comments-only: a file with no entries must not gate merges"
-  pass "fm-pr-merge is unchanged when the receipt gate is off or names another project"
-}
-
-test_receipt_missing_refuses() {
-  local case_dir
-  case_dir=$(receipt_case receipt-missing)
-  receipt_merge "$case_dir" 9
-  expect_receipt_refusal "$case_dir" receipt-missing "no review receipt at"
-  assert_grep "xreview/9.md" "$case_dir/stderr" "receipt-missing: the refusal did not name the receipt path"
-  pass "fm-pr-merge refuses a merge with no review receipt"
-}
-
-test_receipt_stale_head_refuses() {
-  local case_dir
-  case_dir=$(receipt_case receipt-stale)
-  write_receipt "$case_dir" 9 "$RECEIPT_OLD_HEAD" 'VERDICT: PASS'
-  receipt_merge "$case_dir" 9
-  expect_receipt_refusal "$case_dir" receipt-stale "is stale: it reviewed head $RECEIPT_OLD_HEAD but the current head is $RECEIPT_HEAD"
-  pass "fm-pr-merge refuses a PASS receipt that reviewed an older head"
-}
-
-test_receipt_fail_refuses() {
-  local case_dir
-  case_dir=$(receipt_case receipt-fail)
-  write_receipt "$case_dir" 9 "$RECEIPT_HEAD" 'VERDICT: FAIL' 'FINDING error a.py:1 broken'
-  receipt_merge "$case_dir" 9
-  expect_receipt_refusal "$case_dir" receipt-fail "is FAIL, not PASS"
-  pass "fm-pr-merge refuses a FAIL receipt at the current head"
-}
-
-test_receipt_unparseable_refuses() {
-  local case_dir
-  case_dir=$(receipt_case receipt-unparseable)
-  # The decision-os home also writes receipts that carry a header and no verdict
-  # (a model quota error); they must read as no verdict, never as a pass.
-  write_receipt "$case_dir" 9 "$RECEIPT_HEAD" '403: {"message":"usage limit"}'
-  receipt_merge "$case_dir" 9
-  expect_receipt_refusal "$case_dir" receipt-no-verdict "is unparseable"
-
-  case_dir=$(receipt_case receipt-no-head)
-  mkdir -p "$case_dir/home/data/xreview"
-  printf '%s\n' '# xreview PR 9' 'VERDICT: PASS' > "$case_dir/home/data/xreview/9.md"
-  receipt_merge "$case_dir" 9
-  expect_receipt_refusal "$case_dir" receipt-no-head "is unparseable"
-
-  case_dir=$(receipt_case receipt-another-pr)
-  write_receipt "$case_dir" 8 "$RECEIPT_HEAD" 'VERDICT: PASS'
-  receipt_merge "$case_dir" 9
-  expect_receipt_refusal "$case_dir" receipt-another-pr "no review receipt at"
-  pass "fm-pr-merge refuses an unparseable receipt and never reads another PR's receipt"
-}
-
-test_receipt_pass_at_current_head_merges() {
-  local case_dir
-  case_dir=$(receipt_case receipt-pass)
-  write_receipt "$case_dir" 9 "$RECEIPT_HEAD" 'VERDICT: PASS' 'FINDING info x.py:2 note'
-  receipt_merge "$case_dir" 9
-  expect_code 0 "$RECEIPT_RC" "receipt-pass: a PASS receipt at the live head should merge"
-  assert_logged_gh_merge "$case_dir" 9 example/repo --squash
-
-  # A reviewer that corrects itself ends the file with a second verdict; the
-  # last one counts, as it does for the home that wrote it.
-  case_dir=$(receipt_case receipt-last-verdict)
-  write_receipt "$case_dir" 9 "$RECEIPT_HEAD" 'VERDICT: FAIL' 'I need to correct myself.' 'VERDICT: PASS'
-  receipt_merge "$case_dir" 9
-  expect_code 0 "$RECEIPT_RC" "receipt-last-verdict: the final PASS verdict should count"
-
-  case_dir=$(receipt_case receipt-last-fail)
-  write_receipt "$case_dir" 9 "$RECEIPT_HEAD" 'VERDICT: PASS' 'VERDICT: FAIL'
-  receipt_merge "$case_dir" 9
-  expect_receipt_refusal "$case_dir" receipt-last-fail "is FAIL, not PASS"
-
-  case_dir=$(receipt_case receipt-absolute-dir "* $TMP_ROOT/receipt-shared-data")
-  mkdir -p "$TMP_ROOT/receipt-shared-data/xreview"
-  printf '%s\n' 'at=1 secs=1 head='"$RECEIPT_HEAD" '' 'VERDICT: PASS' \
-    > "$TMP_ROOT/receipt-shared-data/xreview/9.md"
-  receipt_merge "$case_dir" 9
-  expect_code 0 "$RECEIPT_RC" "receipt-absolute-dir: an absolute data directory should be honoured"
-  pass "fm-pr-merge merges on a PASS receipt at the live head, the last verdict counting"
-}
-
-test_receipt_waiver_covering_head_merges() {
-  local case_dir
-  # The real waivers name the head as `head <8 hex>` or `head=<10 hex>` inside prose.
-  case_dir=$(receipt_case waiver-space-form)
-  write_receipt "$case_dir" 9 "$RECEIPT_HEAD" 'VERDICT: FAIL'
-  printf '%s\n' 'PR 9 head 10101010: cross-family review FAIL; chief waiver, land and file a follow-up.' \
-    > "$case_dir/home/data/xreview-waiver-9"
-  receipt_merge "$case_dir" 9
-  expect_code 0 "$RECEIPT_RC" "waiver-space-form: a waiver naming the live head should satisfy the gate"
-  assert_logged_gh_merge "$case_dir" 9 example/repo --squash
-
-  case_dir=$(receipt_case waiver-equals-form)
-  printf '%s\n' 'head=1010101010' 'Chief of staff waiver: provenance wording only.' \
-    > "$case_dir/home/data/xreview-waiver-9"
-  receipt_merge "$case_dir" 9
-  expect_code 0 "$RECEIPT_RC" "waiver-equals-form: a waiver with no receipt at all should satisfy the gate"
-  pass "fm-pr-merge accepts a chief waiver that names the current head"
-}
-
-test_receipt_waiver_for_another_head_refuses() {
-  local case_dir
-  case_dir=$(receipt_case waiver-stale)
-  write_receipt "$case_dir" 9 "$RECEIPT_HEAD" 'VERDICT: FAIL'
-  printf '%s\n' 'PR 9 head 20202020: chief waiver for the earlier push.' \
-    > "$case_dir/home/data/xreview-waiver-9"
-  receipt_merge "$case_dir" 9
-  expect_receipt_refusal "$case_dir" waiver-stale "does not cover the current head $RECEIPT_HEAD"
-  assert_grep "is FAIL, not PASS" "$case_dir/stderr" "waiver-stale: the receipt problem was not reported too"
-
-  case_dir=$(receipt_case waiver-too-short)
-  printf '%s\n' 'PR 9 head 101010: too short to identify a commit.' \
-    > "$case_dir/home/data/xreview-waiver-9"
-  receipt_merge "$case_dir" 9
-  expect_receipt_refusal "$case_dir" waiver-too-short "names no head"
-
-  case_dir=$(receipt_case waiver-no-head)
-  printf '%s\n' 'Chief waiver, no sha given.' > "$case_dir/home/data/xreview-waiver-9"
-  receipt_merge "$case_dir" 9
-  expect_receipt_refusal "$case_dir" waiver-no-head "names no head"
-  pass "fm-pr-merge refuses a waiver that does not name the current head"
-}
-
-test_receipt_gate_is_not_waived_by_attended_flags() {
-  local case_dir
-  case_dir=$(receipt_case receipt-attended)
-  receipt_merge "$case_dir" 9 --attended-override -- --admin
-  expect_receipt_refusal "$case_dir" receipt-attended "no review receipt at"
-  pass "fm-pr-merge does not let --attended-override skip the receipt gate"
-}
-
-test_receipt_gate_reports_with_other_refusals_and_after_green_checks() {
-  local case_dir
-  case_dir=$(receipt_case receipt-with-red)
-  write_github_red_json "$case_dir" "$RECEIPT_HEAD" ci
-  receipt_merge "$case_dir" 9
-  expect_receipt_refusal "$case_dir" receipt-with-red "check 'ci' is not green"
-  assert_grep "no review receipt at" "$case_dir/stderr" \
-    "receipt-with-red: the receipt refusal was not reported alongside the red check"
-  pass "fm-pr-merge reports the receipt refusal together with the existing green-check refusals"
-}
-
-test_receipt_config_errors_refuse() {
-  local case_dir
-  case_dir=$(receipt_case receipt-config-malformed 'data-only-no-scope')
-  write_receipt "$case_dir" 9 "$RECEIPT_HEAD" 'VERDICT: PASS'
-  receipt_merge "$case_dir" 9
-  expect_receipt_refusal "$case_dir" receipt-config-malformed "malformed line"
-
-  case_dir=$(receipt_case receipt-config-dir '')
-  mkdir -p "$case_dir/home/config/merge-receipt-required"
-  receipt_merge "$case_dir" 9
-  expect_receipt_refusal "$case_dir" receipt-config-dir "could not be read"
-  pass "fm-pr-merge refuses rather than skipping an unreadable or malformed requirement file"
-}
-
-test_receipt_first_matching_scope_wins() {
-  local case_dir
-  case_dir=$(receipt_case receipt-scope-order "Example/Repo data-specific")
-  printf '%s\n' '* data' >> "$case_dir/home/config/merge-receipt-required"
-  write_receipt "$case_dir" 9 "$RECEIPT_HEAD" 'VERDICT: PASS'
-  receipt_merge "$case_dir" 9
-  expect_receipt_refusal "$case_dir" receipt-scope-order "data-specific/xreview/9.md"
-  pass "fm-pr-merge matches the project case-insensitively and lets the first matching line win"
-}
-
-test_receipt_gate_covers_gitlab_merges() {
-  local case_dir
-  case_dir=$(make_gitlab_case receipt-gitlab)
-  printf '%s\n' "$MR_PATH data" > "$case_dir/home/config/merge-receipt-required"
-  set +e
-  run_pr_merge "$case_dir" task-x1 "$MR_URL" > "$case_dir/stdout" 2> "$case_dir/stderr"
-  RECEIPT_RC=$?
-  set -e
-  expect_code 1 "$RECEIPT_RC" "receipt-gitlab: a GitLab merge with no receipt should be refused"
-  assert_grep "no review receipt at" "$case_dir/stderr" "receipt-gitlab: the refusal did not say why"
-  [ -z "$(glab_merge_line "$case_dir/glab.log")" ] || fail "receipt-gitlab: glab merged despite the refusal"
-
-  write_receipt "$case_dir" 7 "$MR_HEAD" 'VERDICT: PASS'
-  set +e
-  run_pr_merge "$case_dir" task-x1 "$MR_URL" > "$case_dir/stdout" 2> "$case_dir/stderr"
-  RECEIPT_RC=$?
-  set -e
-  expect_code 0 "$RECEIPT_RC" "receipt-gitlab: a PASS receipt at the live head should merge"
-  [ -n "$(glab_merge_line "$case_dir/glab.log")" ] || fail "receipt-gitlab: glab did not merge"
-  pass "fm-pr-merge applies the receipt gate to GitLab merge requests too"
-}
-
-test_receipt_gate_off_leaves_merges_unchanged
-test_receipt_missing_refuses
-test_receipt_stale_head_refuses
-test_receipt_fail_refuses
-test_receipt_unparseable_refuses
-test_receipt_pass_at_current_head_merges
-test_receipt_waiver_covering_head_merges
-test_receipt_waiver_for_another_head_refuses
-test_receipt_gate_is_not_waived_by_attended_flags
-test_receipt_gate_reports_with_other_refusals_and_after_green_checks
-test_receipt_config_errors_refuse
-test_receipt_first_matching_scope_wins
-test_receipt_gate_covers_gitlab_merges
-
-# --expect-head: a caller that checked one exact head makes a head that moved
-# after that check a refusal rather than a merge of the newer head.
-EXPECT_LIVE_HEAD=deadbeefcafefeed0000000000000000deadbeef
-EXPECT_OLD_HEAD=1111111111111111111111111111111111111111
-
-expect_head_merge() {
-  local case_dir=$1; shift
-  set +e
-  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/9 "$@" \
-    > "$case_dir/stdout" 2> "$case_dir/stderr"
-  EXPECT_HEAD_RC=$?
-  set -e
-}
-
-test_expect_head_equal_merges() {
-  local case_dir
-  case_dir=$(make_case expect-head-equal)
-  mkdir -p "$case_dir/wt"
-  add_gh_mocks "$case_dir" "$EXPECT_LIVE_HEAD"
-  expect_head_merge "$case_dir" --expect-head "$EXPECT_LIVE_HEAD"
-  expect_code 0 "$EXPECT_HEAD_RC" "expect-head-equal: a matching expected head should merge"
-  assert_logged_gh_merge "$case_dir" 9 example/repo --squash
-  pass "fm-pr-merge --expect-head merges when the live head is the expected head"
-}
-
-test_expect_head_moved_refuses() {
-  local case_dir
-  case_dir=$(make_case expect-head-moved)
-  mkdir -p "$case_dir/wt"
-  add_gh_mocks "$case_dir" "$EXPECT_LIVE_HEAD"
-  expect_head_merge "$case_dir" --expect-head "$EXPECT_OLD_HEAD"
-  expect_code 1 "$EXPECT_HEAD_RC" "expect-head-moved: a moved head should be refused"
-  assert_grep "$EXPECT_LIVE_HEAD" "$case_dir/stderr" "expect-head-moved: refusal did not name the live head"
-  assert_grep "$EXPECT_OLD_HEAD" "$case_dir/stderr" "expect-head-moved: refusal did not name the expected head"
-  if grep -q '^pr merge ' "$case_dir/gh.log"; then
-    fail "expect-head-moved: gh pr merge was called despite the moved head"
-  fi
-  if grep -q '^pr=' "$case_dir/state/task-x1.meta"; then
-    fail "expect-head-moved: pr= was recorded despite the moved head"
-  fi
-  if grep -q '^pr_head=' "$case_dir/state/task-x1.meta"; then
-    fail "expect-head-moved: pr_head= was recorded despite the moved head"
-  fi
-  if find "$case_dir/state" -name '.fm-pr-poll*' | grep -q .; then
-    fail "expect-head-moved: a merge poll was armed despite the moved head"
-  fi
-
-  case_dir=$(make_gitlab_case expect-head-moved-gitlab)
-  set +e
-  run_pr_merge "$case_dir" task-x1 "$MR_URL" --expect-head "$EXPECT_OLD_HEAD" \
-    > "$case_dir/stdout" 2> "$case_dir/stderr"
-  EXPECT_HEAD_RC=$?
-  set -e
-  expect_code 1 "$EXPECT_HEAD_RC" "expect-head-moved-gitlab: a moved head should be refused"
-  [ -z "$(glab_merge_line "$case_dir/glab.log")" ] || fail "expect-head-moved-gitlab: glab merged despite the moved head"
-  pass "fm-pr-merge --expect-head refuses a head that moved between check and merge and never merges"
-}
-
-test_expect_head_malformed_refuses() {
-  local case_dir bad
-  case_dir=$(make_case expect-head-malformed)
-  mkdir -p "$case_dir/wt"
-  add_gh_mocks "$case_dir" "$EXPECT_LIVE_HEAD"
-  for bad in short DEADBEEFCAFEFEED0000000000000000DEADBEEF "${EXPECT_LIVE_HEAD}0"; do
-    expect_head_merge "$case_dir" --expect-head "$bad"
-    expect_code 2 "$EXPECT_HEAD_RC" "expect-head-malformed: '$bad' should be refused"
-  done
-  expect_head_merge "$case_dir" --expect-head
-  expect_code 2 "$EXPECT_HEAD_RC" "expect-head-malformed: a missing value should be refused"
-  expect_head_merge "$case_dir" "--expect-head=$EXPECT_LIVE_HEAD"
-  expect_code 2 "$EXPECT_HEAD_RC" "expect-head-malformed: the = spelling should be refused"
-  if [ -e "$case_dir/gh.log" ] && grep -q '^pr merge ' "$case_dir/gh.log"; then
-    fail "expect-head-malformed: gh pr merge was called"
-  fi
-  pass "fm-pr-merge --expect-head refuses a malformed value before any forge call"
-}
-
-test_expect_head_absent_is_unchanged() {
-  local case_dir
-  case_dir=$(make_case expect-head-absent)
-  mkdir -p "$case_dir/wt"
-  add_gh_mocks "$case_dir" "$EXPECT_LIVE_HEAD"
-  expect_head_merge "$case_dir"
-  expect_code 0 "$EXPECT_HEAD_RC" "expect-head-absent: no option should merge as before"
-  assert_logged_gh_merge "$case_dir" 9 example/repo --squash
-  pass "fm-pr-merge without --expect-head behaves as before"
-}
-
-test_expect_head_equal_merges
-test_expect_head_moved_refuses
-test_expect_head_malformed_refuses
-test_expect_head_absent_is_unchanged
 test_allow_red_refused_on_forgejo
 test_allow_missing_refused_on_forgejo
-
-# A retired lane (torn down) or a hand-made branch has no task metadata: the
-# merge proceeds from the forge's live head, writes no metadata, and the normal
-# gates (here the live-head check) still apply.
-RETIRED_URL=https://github.com/example/repo/pull/9
-
-run_pr_check_retired() {
-  local case_dir=$1
-  set +e
-  FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$case_dir/home" FM_STATE_OVERRIDE="$case_dir/state" \
-    FM_TEST_GH_LOG="$case_dir/gh.log" FM_TEST_GH_HEAD="$case_dir/github-head" \
-    FM_TEST_GH_VIEW_JSON="$case_dir/github-view.json" \
-    PATH="$case_dir/fakebin:$BASE_PATH" \
-    "$ROOT/bin/fm-pr-check.sh" task-x1 "$RETIRED_URL" > "$case_dir/stdout" 2> "$case_dir/stderr"
-  RETIRED_CHECK_RC=$?
-  set -e
-}
-
-test_retired_lane_merges_without_metadata() {
-  local case_dir
-  case_dir=$(make_case retired-lane-merge)
-  mkdir -p "$case_dir/wt"
-  rm -f "$case_dir/state/task-x1.meta"
-  add_gh_mocks "$case_dir" "$EXPECT_LIVE_HEAD"
-  printf '%s\n' docs/a.md > "$case_dir/github-files"
-  expect_head_merge "$case_dir" --expect-head "$EXPECT_LIVE_HEAD"
-  expect_code 0 "$EXPECT_HEAD_RC" "retired-lane-merge: a lane with no metadata should merge from the forge head"
-  assert_logged_gh_merge "$case_dir" 9 example/repo --squash
-  [ ! -e "$case_dir/state/task-x1.meta" ] || fail "retired-lane-merge: metadata was created for a retired lane"
-  pass "fm-pr-merge lands a retired lane without task metadata and writes none"
-}
-
-test_retired_lane_still_enforces_expect_head() {
-  local case_dir
-  case_dir=$(make_case retired-lane-moved)
-  mkdir -p "$case_dir/wt"
-  rm -f "$case_dir/state/task-x1.meta"
-  add_gh_mocks "$case_dir" "$EXPECT_LIVE_HEAD"
-  printf '%s\n' docs/a.md > "$case_dir/github-files"
-  expect_head_merge "$case_dir" --expect-head "$EXPECT_OLD_HEAD"
-  expect_code 1 "$EXPECT_HEAD_RC" "retired-lane-moved: a moved head should still be refused"
-  if grep -q '^pr merge ' "$case_dir/gh.log"; then
-    fail "retired-lane-moved: gh pr merge was called despite the moved head"
-  fi
-  pass "fm-pr-merge keeps the exact-head refusal for a retired lane"
-}
-
-test_unusable_metadata_still_refuses() {
-  local case_dir
-  case_dir=$(make_case retired-lane-symlink)
-  mkdir -p "$case_dir/wt"
-  cp "$case_dir/state/task-x1.meta" "$case_dir/real.meta"
-  rm -f "$case_dir/state/task-x1.meta"
-  ln -s "$case_dir/real.meta" "$case_dir/state/task-x1.meta"
-  add_gh_mocks "$case_dir" "$EXPECT_LIVE_HEAD"
-  expect_head_merge "$case_dir"
-  expect_code 1 "$EXPECT_HEAD_RC" "retired-lane-symlink: a symlinked record should still refuse"
-  assert_grep 'task metadata is unavailable' "$case_dir/stderr" "retired-lane-symlink: wrong refusal"
-  pass "fm-pr-merge still refuses a symlinked task record"
-}
-
-test_pr_check_retired_lane_resolves_forge_head() {
-  local case_dir
-  case_dir=$(make_case retired-lane-check)
-  mkdir -p "$case_dir/wt"
-  rm -f "$case_dir/state/task-x1.meta"
-  add_gh_mocks "$case_dir" "$EXPECT_LIVE_HEAD"
-  run_pr_check_retired "$case_dir"
-  expect_code 0 "$RETIRED_CHECK_RC" "retired-lane-check: should arm from the forge head"
-  assert_grep "pr_head: $EXPECT_LIVE_HEAD" "$case_dir/stdout" "retired-lane-check: forge head not reported"
-  [ ! -e "$case_dir/state/task-x1.meta" ] || fail "retired-lane-check: metadata was created"
-  [ ! -e "$case_dir/state/task-x1.check.sh" ] || fail "retired-lane-check: a poll was armed without a task record"
-
-  # A head the forge cannot supply is refused rather than guessed.
-  rm -f "$case_dir/github-head" "$case_dir/state/task-x1.check.sh"
-  run_pr_check_retired "$case_dir"
-  expect_code 1 "$RETIRED_CHECK_RC" "retired-lane-check: an unresolvable forge head should refuse"
-  [ ! -e "$case_dir/state/task-x1.check.sh" ] || fail "retired-lane-check: poll armed without a head"
-  pass "fm-pr-check resolves a retired lane's head from the forge and records no metadata"
-}
-
-test_retired_lane_merges_without_metadata
-test_retired_lane_still_enforces_expect_head
-test_unusable_metadata_still_refuses
-test_pr_check_retired_lane_resolves_forge_head
-
-# The retired-lane fallback carries no review-receipt floor for a no-code PR
-# (only *.md outside code directories, or exactly .beads/issues.jsonl); a mixed
-# PR, or a normal lane with the same docs-only paths, keeps the gate.
-retired_receipt_merge() {  # <name> <retired:0|1> <path>...
-  local name=$1 retired=$2 case_dir
-  shift 2
-  case_dir=$(receipt_case "$name")
-  [ "$retired" != 1 ] || rm -f "$case_dir/state/task-x1.meta"
-  printf '%s\n' "$@" > "$case_dir/github-files"
-  receipt_merge "$case_dir" 9
-  RETIRED_RECEIPT_DIR=$case_dir
-}
-
-test_retired_lane_skips_receipt_for_no_code_pr() {
-  retired_receipt_merge retired-docs-only 1 docs/a.md README.md
-  expect_code 0 "$RECEIPT_RC" "retired-docs-only: a docs-only PR needs no receipt"
-  retired_receipt_merge retired-beads-only 1 .beads/issues.jsonl
-  expect_code 0 "$RECEIPT_RC" "retired-beads-only: the beads file alone needs no receipt"
-  retired_receipt_merge retired-mixed 1 docs/a.md src/x.py
-  expect_receipt_refusal "$RETIRED_RECEIPT_DIR" retired-mixed "task metadata is unavailable"
-  retired_receipt_merge retired-md-under-tests 1 tests/notes.md
-  expect_receipt_refusal "$RETIRED_RECEIPT_DIR" retired-md-under-tests "task metadata is unavailable"
-  retired_receipt_merge retired-beads-plus-md 1 .beads/issues.jsonl a.md
-  expect_receipt_refusal "$RETIRED_RECEIPT_DIR" retired-beads-plus-md "task metadata is unavailable"
-  retired_receipt_merge normal-docs-only 0 docs/a.md
-  expect_receipt_refusal "$RETIRED_RECEIPT_DIR" normal-docs-only "no review receipt"
-  pass "fm-pr-merge skips the receipt floor only for a retired lane's no-code PR"
-}
-
-test_retired_lane_skips_receipt_for_no_code_pr
-
-# The no-code classification is bound to the verified head and to a complete
-# file list; a truncated list or a different head keeps the receipt gate.
-test_no_code_skip_needs_complete_list_at_live_head() {
-  local case_dir
-  case_dir=$(receipt_case retired-truncated '* data')
-  rm -f "$case_dir/state/task-x1.meta"
-  printf '%s\n' a.md b.md > "$case_dir/github-files"
-  printf '3\n' > "$case_dir/github-files.total"
-  receipt_merge "$case_dir" 9
-  expect_receipt_refusal "$case_dir" retired-truncated "task metadata is unavailable"
-
-  case_dir=$(receipt_case retired-other-head '* data')
-  rm -f "$case_dir/state/task-x1.meta"
-  printf '%s\n' a.md > "$case_dir/github-files"
-  printf '%s\n' 9999999999999999999999999999999999999999 > "$case_dir/github-files.head"
-  receipt_merge "$case_dir" 9
-  expect_receipt_refusal "$case_dir" retired-other-head "not a no-code change"
-
-  # The refusal holds with no receipt requirement configured at all.
-  case_dir=$(receipt_case retired-other-head-noconfig '')
-  rm -f "$case_dir/state/task-x1.meta"
-  printf '%s\n' a.md > "$case_dir/github-files"
-  printf '%s\n' 9999999999999999999999999999999999999999 > "$case_dir/github-files.head"
-  receipt_merge "$case_dir" 9
-  expect_receipt_refusal "$case_dir" retired-other-head-noconfig "not a no-code change"
-  pass "fm-pr-merge keeps the receipt gate for a truncated or other-head file list"
-}
-
-test_no_code_skip_needs_complete_list_at_live_head
-
-# A meta-less product PR derives its head from the forge and lands when no
-# review receipt is required.
-test_metaless_product_pr_still_refuses() {
-  local case_dir
-  case_dir=$(receipt_case metaless-product '')
-  rm -f "$case_dir/state/task-x1.meta"
-  printf '%s\n' src/app.py docs/a.md > "$case_dir/github-files"
-  receipt_merge "$case_dir" 9 --expect-head "$RECEIPT_HEAD"
-  expect_code 1 "$RECEIPT_RC" "metaless-product: a product PR must keep the task-metadata requirement"
-  assert_grep 'task metadata is unavailable' "$case_dir/stderr" "metaless-product: wrong refusal"
-  if grep -q '^pr merge ' "$case_dir/gh.log"; then fail "metaless-product: gh pr merge was called"; fi
-  pass "fm-pr-merge still refuses a meta-less product PR"
-}
-
-test_metaless_product_pr_still_refuses
+test_allow_no_pipeline_merges_only_a_null_head_pipeline
+test_allow_no_pipeline_is_attended_only_and_gitlab_only

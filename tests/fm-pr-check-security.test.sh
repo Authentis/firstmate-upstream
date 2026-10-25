@@ -18,12 +18,6 @@ TEARDOWN="$ROOT/bin/fm-teardown.sh"
 REGISTER="$ROOT/bin/fm-check-register.sh"
 TMP_ROOT=$(fm_test_tmproot fm-pr-check-security)
 fm_git_identity fmtest fmtest@example.invalid
-# The poll reads GitHub through the machine-wide read throttle; keep this
-# file's cache private and its per-PR window open so each cycle reads the fake
-# forge afresh. The throttle's own window is covered by its test.
-FM_PR_READ_CACHE_DIR="$TMP_ROOT/pr-read-cache"
-FM_PR_READ_TTL=0
-export FM_PR_READ_CACHE_DIR FM_PR_READ_TTL
 BASE_PATH=${FM_TEST_BASE_PATH:-/usr/bin:/bin:/usr/sbin:/sbin}
 REAL_CP=$(command -v cp)
 REAL_MV=$(command -v mv)
@@ -147,18 +141,6 @@ SH
 printf '%s\n' "$*" >> "$FM_TEST_GH_LOG"
 case "${1:-} ${2:-}" in
   "api graphql")
-    case " $* " in
-      *"pullRequest(number:\$number){state merged}"*)
-        # The shared read throttle's query (bin/fm-pr-lib.sh), which the PR poll
-        # reads through; it answers from the same knobs as the direct state read.
-        [ "${FM_TEST_GH_FAIL:-0}" = 0 ] || exit 1
-        [ -z "${FM_TEST_GH_STATE_STARTED:-}" ] || : > "$FM_TEST_GH_STATE_STARTED"
-        [ "${FM_TEST_GH_SLEEP:-0}" = 0 ] || sleep "$FM_TEST_GH_SLEEP"
-        gh_state=${FM_TEST_GH_STATE:-OPEN}
-        printf 'state=%s\nmerged=%s\n' "$gh_state" "$([ "$gh_state" = MERGED ] && echo true || echo false)"
-        exit 0
-        ;;
-    esac
     printf '%s\n' \
       "state=${FM_TEST_GH_GRAPHQL_STATE:-MERGED}" \
       "merged=${FM_TEST_GH_GRAPHQL_MERGED:-true}" \
@@ -2280,9 +2262,7 @@ seed_canonical_poll() {
 add_stop_custom_check() {
   local dir=$1 state
   state="$dir/home/state"
-  # A per-run prefix keeps each cycle's control output new: the wake fold
-  # queues a byte-identical repeat of a check's output without waking.
-  printf '#!/usr/bin/env bash\nprintf "%%s stop-cycle\\n" "$$"\n' > "$state/z-stop.check.sh"
+  printf '#!/usr/bin/env bash\nprintf "stop-cycle\\n"\n' > "$state/z-stop.check.sh"
   chmod 0700 "$state/z-stop.check.sh"
   FM_HOME="$dir/home" "$REGISTER" z-stop >/dev/null \
     || fail "could not register stop-cycle custom check"
@@ -3392,7 +3372,7 @@ SH
     || fail "re-recorded registration differs from the one published on the live device"
   [ "$(file_mode "$state/task-a.pr-poll-registration")" = 600 ] || fail "re-recorded registration is not private"
   fm_pr_poll_artifacts_valid "$state" task-a "$POLL" || fail "re-recorded poll is not strictly authenticated"
-  grep -F 'api graphql' "$dir/gh.log" >/dev/null \
+  grep -F 'pr view https://github.com/o/r/pull/1 --json state' "$dir/gh.log" >/dev/null \
     || fail "re-recorded poll did not run its validated check in the same cycle"
   grep -F 're-recorded PR poll identity for task-a' "$state/.watch-triage.log" >/dev/null \
     || fail "re-record left no triage evidence"
@@ -3479,7 +3459,7 @@ SH
     esac
     [ "$(fm_pr_sha256 "$state/task-a.pr-poll-registration")" = "$registration_sha" ] \
       || fail "$mutation let the watcher re-record the registration"
-    ! grep -F -- 'api graphql' "$dir/gh.log" >/dev/null 2>&1 \
+    ! grep -F -- '--json state' "$dir/gh.log" >/dev/null 2>&1 \
       || fail "$mutation ran the refused poll"
     ! ls "$state"/.fm-pr-poll-registration.* >/dev/null 2>&1 \
       || fail "$mutation left a staged registration behind"

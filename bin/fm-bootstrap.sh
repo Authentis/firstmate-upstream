@@ -16,7 +16,6 @@
 #                 <stamp>>; <n> failed attempt(s) ... last: <recorded failure>",
 #                 "BACKLOG_RECONCILE: <id>: <what this home could not reconcile>",
 #                 "BACKLOG_RECONCILE: code-root <file> is not this home's <file>; ...",
-#                 "SLOT_SWEEP: <slot>: kept:dirty|kept:unlanded|kept:reassigned|failed (<branch>)",
 #                 "TANGLE: <remediation>",
 #                 "SECONDMATE_SYNC: secondmate <id>: skipped: <reason>",
 #                 "NUDGE_SECONDMATES: secondmate <id>: send failed: <reason>",
@@ -96,12 +95,7 @@
 #          retention an interrupted cleanup recorded, and marks In flight any
 #          item this home already owns a worker for. The worker-record sweep
 #          never starts a captain-held or closed item, and reconciliation never
-#          reads or writes another home. The sweep reads the queued backlog rows
-#          once, not once per record, and stops after
-#          FM_BOOTSTRAP_RECONCILE_BUDGET_SECS (default 60) wall-clock seconds,
-#          reporting how many records it left for the next start; the single
-#          read is bounded by FM_BACKLOG_LIST_TIMEOUT_SECS (default 30). The
-#          fleet snapshot's classifier and
+#          reads or writes another home; the fleet snapshot's classifier and
 #          bin/fm-secondmate-reconcile.sh's nudge stay as backstops. Replayed
 #          transitions and restored In-flight rows print BOOTSTRAP_INFO facts.
 #          The `code-root <file>` variant is a detect-only local check that runs
@@ -144,7 +138,9 @@
 #          remote convergence workers run concurrently, because convergence
 #          consumes respawned ids. Worker output is captured separately and
 #          replayed in spawn order; failure to create that private capture
-#          directory selects the sequential fallback.
+#          directory selects the sequential fallback. Remote tracked-file sync
+#          and inheritance share a per-mate FM_SECONDMATE_CONVERGENCE_TIMEOUT
+#          budget (secondmate_sync_remote_one owns it).
 #          A relaunch that the liveness sweep performs during an `only` run is
 #          always reported, because a digest composed before that run already
 #          printed the superseded endpoint record.
@@ -207,6 +203,8 @@ DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 . "$SCRIPT_DIR/fm-backend.sh"
 # shellcheck source=bin/fm-remote-readiness-lib.sh disable=SC1091
 . "$SCRIPT_DIR/fm-remote-readiness-lib.sh"
+# shellcheck source=bin/fm-timeout-lib.sh disable=SC1091
+. "$SCRIPT_DIR/fm-timeout-lib.sh"
 # Shared secondmate endpoint probe + guarded relaunch; the watcher's poll tick
 # drives the same library so session start and ordinary supervision recover
 # from identical evidence through an identical path.
@@ -241,7 +239,7 @@ network_sweep_authorized() {
   if network_mutation_authorized; then
     return 0
   fi
-  echo "NETWORK_CHECKS: fleet lock ownership changed before $label, so this stale worker skipped that sweep"
+  echo "NETWORK_CHECKS: the recorded fleet lock holder changed before $label, so this stale worker skipped that sweep"
   return 1
 }
 
@@ -344,18 +342,6 @@ fleet_sync_relay_all_output() {
   done < "$tmp"
 }
 
-# Return stranded Treehouse pool slots (available yet still on a branch, clean,
-# landed, no live claim) to leasable; bin/fm-slot-release.sh owns the sweep, its
-# log, and its kill switch. Only a kept or failed slot prints a line.
-slot_sweep() {
-  [ -x "$FM_ROOT/bin/fm-slot-release.sh" ] || return 0
-  if ! command -v fm_run_timed >/dev/null 2>&1; then
-    # shellcheck source=bin/fm-timeout-lib.sh disable=SC1091
-    . "$SCRIPT_DIR/fm-timeout-lib.sh" || return 0
-  fi
-  fm_run_timed "${FM_SLOT_SWEEP_BOOTSTRAP_TIMEOUT:-20}" "$FM_ROOT/bin/fm-slot-release.sh" --sweep 2>/dev/null </dev/null || true
-}
-
 fleet_sync() {
   [ -x "$FM_ROOT/bin/fm-fleet-sync.sh" ] || return 0
   [ -d "$PROJECTS" ] || return 0
@@ -428,8 +414,8 @@ secondmate_sync() {
   }
 
   secondmate_write_nudge_marker() {
-    local id=$1 home=$2 commit=$3 instr=$4 message=${5:-$SECOND_MATE_NUDGE_MESSAGE} remote=${6:-0}
-    fm_secondmate_nudge_write "$STATE" "$id" "$home" "$commit" "$instr" "$message" "$remote"
+    local id=$1 home=$2 commit=$3 instr=$4 message=${5:-$SECOND_MATE_NUDGE_MESSAGE} remote=${6:-0} owed=${7:-1}
+    fm_secondmate_nudge_write "$STATE" "$id" "$home" "$commit" "$instr" "$message" "$remote" "$owed"
   }
 
   secondmate_send_nudge() {
@@ -615,9 +601,27 @@ secondmate_sync() {
   # One remote secondmate's convergence, split out of the loop so each host is
   # individually timed; every `return` here was a `continue` and still means
   # "move on to the next secondmate".
+  # Each mate has its own budget, FM_SECONDMATE_CONVERGENCE_TIMEOUT seconds
+  # (default 75), measured from entry to secondmate_sync_remote_one. Only the
+  # tracked-file sync and inheritance push are timed against that deadline;
+  # lock acquisition, reply-source arming, and nudge delivery are not wrapped
+  # by this budget. The deferred network stage retains its aggregate bound. A
+  # step that hits it, or finds nothing left, fails like any other failed step,
+  # which leaves the mate unconverged with its retry marker kept. A step cut off
+  # by the budget may already have changed the home without reporting it, so it
+  # also keeps the re-read owed under bin/fm-secondmate-nudge-lib.sh's contract.
+  remote_convergence_budget() {
+    local budget=${FM_SECONDMATE_CONVERGENCE_TIMEOUT:-75}
+    case "$budget" in ''|*[!0-9]*|0) budget=75 ;; esac
+    printf '%s' "$budget"
+  }
+
   secondmate_sync_remote_one() {  # <id> <home> <remote-host>
     local id=$1 _home=$2 remote_host=$3
-    local sync_out sync_rc inherit_out nudge_needed remote_marker remote_pending converged out remote_lock remote_generation
+    local sync_out='' sync_rc inherit_out='' inherit_rc nudge_needed remote_marker remote_pending converged out remote_lock remote_generation
+    local budget deadline left
+    budget=$(remote_convergence_budget)
+    deadline=$(( $(date +%s) + budget ))
     remote_lock=$(fm_remote_inherit_transaction_lock_path "$STATE" "$id" 2>/dev/null || true)
     if [ -z "$remote_lock" ] || ! fm_lock_acquire_wait "$remote_lock"; then
       echo "NUDGE_SECONDMATES: secondmate $id: send failed: cannot lock remote inheritance transaction"
@@ -633,32 +637,59 @@ secondmate_sync() {
       return 0
     fi
     remote_marker=$(secondmate_nudge_marker_path "$id" 2>/dev/null || true)
+    # Only a reread a previous attempt left owed carries over. The record is
+    # written owed before any step can change the home (write-ahead), so a kill
+    # at any point leaves it owed; an attempt whose outcome proves nothing
+    # changed writes it back below (bin/fm-secondmate-nudge-lib.sh).
     remote_pending=0
-    if [ -f "$remote_marker" ] && [ "$(fm_meta_get "$remote_marker" remote)" = 1 ]; then remote_pending=1; fi
+    if fm_secondmate_remote_nudge_owed "$STATE" "$id"; then remote_pending=1; fi
     if ! secondmate_write_nudge_marker "$id" "$_home" "" remote \
-      "$REMOTE_SECOND_MATE_NUDGE_MESSAGE" 1; then
+      "$REMOTE_SECOND_MATE_NUDGE_MESSAGE" 1 1; then
       echo "NUDGE_SECONDMATES: secondmate $id: send failed: cannot record remote retry marker"
       fm_lock_release "$remote_lock" || true
       return 0
     fi
-    nudge_needed=0
+    nudge_needed=$remote_pending
     converged=1
-    if sync_out=$("$SCRIPT_DIR/fm-on.sh" "$id" fm-remote-secondmate-control.sh sync "$id" \
+    sync_rc=0
+    left=$(( deadline - $(date +%s) ))
+    if [ "$left" -lt 1 ]; then
+      sync_rc=124
+    elif sync_out=$(fm_run_timed "$left" "$SCRIPT_DIR/fm-on.sh" "$id" fm-remote-secondmate-control.sh sync "$id" \
       "$primary_head" < /dev/null 2>&1); then
-      case "$sync_out" in synced:*) nudge_needed=1 ;; esac
+      :
     else
       sync_rc=$?
+    fi
+    if fm_secondmate_remote_sync_changed "$sync_out" || [ "$sync_rc" -eq 255 ]; then nudge_needed=1; fi
+    if fm_timed_out "$sync_rc"; then
+      echo "SECONDMATE_SYNC: secondmate $id: skipped: remote tracked-file sync failed on $remote_host: no answer within the ${budget}s per-mate convergence budget"
+      converged=0
+      nudge_needed=1
+    elif [ "$sync_rc" -ne 0 ]; then
       echo "SECONDMATE_SYNC: secondmate $id: skipped: remote tracked-file sync failed on $remote_host: $(remote_sync_failure_reason "$sync_rc" "$sync_out")"
       converged=0
     fi
-    if inherit_out=$(FM_CONFIG_INHERIT_LIVE=1 \
-      "$SCRIPT_DIR/fm-remote-inherit-push.sh" "$id" "$remote_generation" 2>&1); then
-      if printf '%s\n' "$inherit_out" | grep -Eq '^(pushed|removed):'; then nudge_needed=1; fi
+    inherit_rc=0
+    left=$(( deadline - $(date +%s) ))
+    if [ "$left" -lt 1 ]; then
+      inherit_rc=124
+    elif inherit_out=$(FM_CONFIG_INHERIT_LIVE=1 \
+      fm_run_timed "$left" "$SCRIPT_DIR/fm-remote-inherit-push.sh" "$id" "$remote_generation" 2>&1); then
+      :
     else
+      inherit_rc=$?
+    fi
+    # Items a failed push applied before it stopped changed the home too.
+    if [ "$inherit_rc" -eq 255 ] || printf '%s\n' "${inherit_out:-}" | grep -Eq '^(pushed|removed):'; then nudge_needed=1; fi
+    if fm_timed_out "$inherit_rc"; then
+      echo "SECONDMATE_SYNC: secondmate $id: skipped: remote inheritance failed on $remote_host: no answer within the ${budget}s per-mate convergence budget"
+      converged=0
+      nudge_needed=1
+    elif [ "$inherit_rc" -ne 0 ]; then
       echo "SECONDMATE_SYNC: secondmate $id: skipped: remote inheritance failed on $remote_host: $(remote_inherit_failure_reason "$inherit_out")"
       converged=0
     fi
-    [ "$remote_pending" -eq 0 ] || nudge_needed=1
     if [ "$converged" -eq 1 ] && [ "$nudge_needed" -eq 1 ]; then
       if out=$(FM_HOME="$FM_HOME" FM_ROOT_OVERRIDE="$FM_ROOT" FM_STATE_OVERRIDE="$STATE" \
         "$SCRIPT_DIR/fm-send.sh" "fm-$id" "$REMOTE_SECOND_MATE_NUDGE_MESSAGE" 2>&1); then
@@ -669,6 +700,9 @@ secondmate_sync() {
       fi
     elif [ "$converged" -eq 1 ]; then
       rm -f "$remote_marker"
+    elif [ "$nudge_needed" -eq 0 ] && ! secondmate_write_nudge_marker "$id" "$_home" "" remote \
+      "$REMOTE_SECOND_MATE_NUDGE_MESSAGE" 1 0; then
+      echo "NUDGE_SECONDMATES: secondmate $id: send failed: cannot record remote retry marker"
     fi
     fm_lock_release "$remote_lock" || true
     return 0
@@ -783,7 +817,7 @@ secondmate_liveness_one() {  # <meta> <id>
       elif [ "$FM_SM_LIVE_STATUS" = skipped ]; then
         echo "SECONDMATE_LIVENESS: secondmate $id: skipped: $FM_SM_LIVE_REASON"
       else
-        echo "SECONDMATE_LIVENESS: secondmate $id: respawn failed after $FM_SM_LIVE_CAUSE: $(fm_sm_live_launch_failure "$FM_SM_LIVE_OUT")"
+        echo "SECONDMATE_LIVENESS: secondmate $id: respawn failed after $FM_SM_LIVE_CAUSE: $(first_line "$FM_SM_LIVE_OUT")"
       fi
       ;;
     skipped)
@@ -1082,7 +1116,7 @@ crew_dispatch_validate() {
   if $typed_active; then
     verified_harnesses=$(fm_control_harnesses | jq -Rsc 'split("\n") | map(select(length > 0))')
   else
-    verified_harnesses='["claude","codex","opencode","pi","pi-signed","grok","kimi","cursor","agy","muse","rovo","omp","devin","commandcode"]'
+    verified_harnesses='["claude","codex","opencode","pi","pi-signed","grok","kimi","cursor","agy","muse","rovo","omp","devin","commandcode","polytoken"]'
   fi
   err=$(jq -r --argjson typed "$typed_active" --argjson verified_harnesses "$verified_harnesses" --arg provider_re "$FM_QUOTA_PROVIDER_ID_RE" '
     def verified($h): $verified_harnesses | index($h);
@@ -1207,17 +1241,8 @@ crew_dispatch_validate() {
 # restart rather than waiting for a parent's cross-home nudge; the fleet
 # snapshot's classifier and bin/fm-secondmate-reconcile.sh's nudge stay as
 # backstops for what this cannot see. Never reads or writes another home.
-#
-# The record sweep reads the backlog ONCE (fm_backlog_queued_rows) rather than
-# probing one row per record, and only takes the lock and re-probes for a record
-# whose row that read showed as a queued, unheld, unblocked row - the one case
-# the sweep can heal. FM_BOOTSTRAP_RECONCILE_BUDGET_SECS (default 60) bounds the
-# whole sweep: past it the sweep stops and names how many records it left for
-# the next start instead of consuming the session-start budget.
 backlog_record_reconcile() {
   local marker meta control_lock meta_lock id row label has_record=0 gate_status
-  local queued_rows='' rows_ok=0 rows_error='' budget=${FM_BOOTSTRAP_RECONCILE_BUDGET_SECS:-60}
-  local sweep_start skipped=0 over_budget=0
   # A fresh home with no state directory has no physical task records to pair.
   # Keep bootstrap diagnostics working without creating state just for a no-op.
   [ -e "$STATE" ] || [ -L "$STATE" ] || return 0
@@ -1293,63 +1318,19 @@ backlog_record_reconcile() {
     break
   done
   [ "$has_record" = 1 ] || return 0
-  case "$budget" in ''|*[!0-9]*) budget=60 ;; esac
-  [ "$budget" -gt 0 ] 2>/dev/null || budget=60
-  sweep_start=$SECONDS
-  # The first record already passed the full authorization above; authorize the
-  # shared state directory once and check the rest with shell tests.
   for meta in "$STATE"/*.meta; do
     [ -e "$meta" ] || [ -L "$meta" ] || continue
-    if ! fm_backlog_record_batch_begin "$meta" "task record" "$STATE"; then
+    if ! fm_backlog_record_present "$meta" "task record" "$STATE"; then
       echo "BACKLOG_RECONCILE: unsafe worker record refused: $FM_BACKLOG_TRANSITION_ERROR"
       return 2
     fi
-    break
-  done
-  if fm_backlog_queued_rows "$DATA"; then
-    rows_ok=1
-    queued_rows=$FM_BACKLOG_QUEUED_ROWS
-  else
-    rows_error=$FM_BACKLOG_ROW_ERROR
-  fi
-  for meta in "$STATE"/*.meta; do
-    [ -e "$meta" ] || [ -L "$meta" ] || continue
-    if [ "$over_budget" = 1 ] || [ $((SECONDS - sweep_start)) -ge "$budget" ]; then
-      over_budget=1
-      skipped=$((skipped + 1))
-      continue
-    fi
-    if ! fm_backlog_record_batch_check "$meta" "task record"; then
-      echo "BACKLOG_RECONCILE: unsafe worker record refused: $FM_BACKLOG_TRANSITION_ERROR"
-      return 2
-    fi
-    id=${meta##*/}
-    id=${id%.meta}
-    # Nothing below changes anything for a record whose row is not queued, so
-    # only a listed queued row is worth a lock. When the listing itself could
-    # not be read, nothing can be healed, but every owned record is still
-    # reported by name, with no lock and no further backend read.
-    if [ "$rows_ok" = 1 ]; then
-      case "$queued_rows" in
-        *$'\n'"$id"$'\t'"queued no no"$'\n'*) ;;
-        *) continue ;;
-      esac
-    else
-      [ -e "$STATE/$id.backlog-close" ] || [ -L "$STATE/$id.backlog-close" ] && continue
-      if [ "$(fm_meta_get "$meta" kind)" != secondmate ] \
-         && [ "$(fm_meta_get "$meta" cleanup_recovery)" != orca ]; then
-        echo "BACKLOG_RECONCILE: $id: worker record exists but its backlog item could not be read: $rows_error"
-      fi
-      continue
-    fi
+    id=$(basename "$meta" .meta)
     meta_lock=$(fm_meta_lock_path "$meta") || continue
     fm_lock_try_acquire "$meta_lock" || continue
     if [ -e "$STATE/$id.backlog-close" ] || [ -L "$STATE/$id.backlog-close" ]; then
       fm_lock_release "$meta_lock"
       continue
     fi
-    # The full authorization, not the batched check: this is the re-verification
-    # that the state boundary did not change between the sweep's check and the lock.
     if ! fm_backlog_record_present "$meta" "task record" "$STATE"; then
       echo "BACKLOG_RECONCILE: $id: post-lock worker record check refused: $FM_BACKLOG_TRANSITION_ERROR"
       fm_lock_release "$meta_lock"
@@ -1358,7 +1339,6 @@ backlog_record_reconcile() {
     if [ "$(fm_meta_get "$meta" kind)" != secondmate ] \
        && [ "$(fm_meta_get "$meta" cleanup_recovery)" != orca ]; then
       row=
-      # Confirm under the lock what the batched read showed before it.
       if fm_backlog_row_probe "$DATA" "$id"; then
         row=$FM_BACKLOG_ROW_STATE
       elif [ "$FM_BACKLOG_ROW_RESULT" != not_found ]; then
@@ -1377,9 +1357,6 @@ backlog_record_reconcile() {
     fi
     fm_lock_release "$meta_lock"
   done
-  if [ "$over_budget" = 1 ]; then
-    echo "BACKLOG_RECONCILE: sweep budget of ${budget}s exhausted; $skipped worker records were not reconciled and are left for the next session start"
-  fi
 }
 
 startup_memory_budget_setup() {
@@ -1644,9 +1621,6 @@ if [ "${FM_BOOTSTRAP_DETECT_ONLY:-0}" != 1 ]; then
   # depend on them, so it starts in the background and overlaps their wall clock.
   fleet_sync_pid=
   fleet_sync_out=
-  if local_phase; then
-    slot_sweep
-  fi
   if network_phase && network_sweep_authorized 'project clone refresh'; then
     fleet_sync_out=$(mktemp "${TMPDIR:-/tmp}/fm-bootstrap-fleet.XXXXXX") || fleet_sync_out=
     if [ -n "$fleet_sync_out" ]; then

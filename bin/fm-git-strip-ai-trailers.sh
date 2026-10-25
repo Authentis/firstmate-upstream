@@ -51,6 +51,9 @@
 # on cursor-agent 2026.09.15 with attribution on: the trailer is already in
 # .git/COMMIT_EDITMSG when the commit-msg hook runs, so the spawn-owned hook is
 # the layer that sees the assembled message before the commit object is written.
+# Command Code adds `Co-authored-by: CommandCodeBot <noreply@commandcode.ai>`
+# to worker commits by default (seen live on 1.74.1); only its settings files can
+# turn that off, with no per-process switch, so this strip is its only layer.
 # Human Co-Authored-By trailers are left untouched. Author identity is not
 # rewritten.
 #

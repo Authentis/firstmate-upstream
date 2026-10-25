@@ -5,16 +5,6 @@
 # scout tasks before reporting success (a secondmate teardown transitions none,
 # since secondmates are not backlog items), then refresh/prune the project's
 # clone for PR-based ship tasks.
-# A task record carrying lease_id= (a slot taken by `treehouse get --lease`, see
-# bin/fm-spawn.sh) is handled in two lease-bound steps. Before any destructive
-# step, a read-only `treehouse status --json` must still show that lease on the
-# slot; a changed, missing, or unreadable lease refuses with nothing touched.
-# The return itself is `treehouse return --if-lease-id <id>`, with --force added
-# only for an explicit --force teardown or a scout; otherwise a slot left with
-# files after the safety checks is refused by treehouse instead of reset. A
-# refusal is reported with the slot, lease, and blocking files, aborts teardown
-# with the record kept, and is never retried or forced; a record with no
-# lease_id= returns unbound (`--force`) as before.
 # An endpoint whose close could not do its job REFUSES before any record naming
 # it is removed: those records are the only thing that names what survived, so
 # reporting such a close as a completed cleanup strands the endpoint instead of
@@ -54,9 +44,7 @@
 # REFUSES if the worktree holds work that has not LANDED, because cleanup
 # hard-resets/removes the worktree and kills its processes. Work has landed when it is
 # reachable from any remote-tracking branch (a fork counts as a remote, so
-# upstream-contribution PRs pushed to a fork satisfy this in any mode) other than
-# the no-mistakes validation mirror (refs/remotes/no-mistakes/*, a local copy the
-# pipeline pushes to before anything reaches a real remote), OR - for a
+# upstream-contribution PRs pushed to a fork satisfy this in any mode), OR - for a
 # normal ship task whose commits are not so reachable - when its PR is merged and
 # GitHub reports a PR head that contains the current local work, or its content is
 # already present in the up-to-date default branch. This recognizes the common
@@ -79,13 +67,6 @@
 # by itself causes a false refusal of landed work.
 # A gh lookup error falls back to the content check; if that is also inconclusive,
 # teardown refuses rather than risk discarding unlanded work.
-# One more path applies only when the PR is verified MERGED on the forge, origin
-# exists, and the lane's commits are on no remote and not provably inside the
-# merged PR (earlier iterations a squash merge superseded): teardown bundles the
-# commits (data/bundles/<task-id>.bundle, verified and kept), pushes them to a new
-# refs/heads/preserve/<branch> on origin (plain push, never forced; an existing
-# ref with different content refuses), re-runs the remote-reachability test, and
-# proceeds. See preserve_merged_lane_commits.
 # Uncommitted changes are never landed; dirty refusals distinguish untracked-only
 # leftovers from tracked edits and list at most ten non-exempt untracked paths.
 # local-only projects additionally accept work merged into the local default
@@ -321,19 +302,6 @@
 #     roots are unique per task and never
 #     shared, so this can never reach another task's or the primary's
 #     processes. Idempotent: nothing left to find is a silent no-op.
-#   Custody - refuse while the pipeline holds this copy's branch custody. A
-#     finished lane's run can end with fix commits only in no-mistakes' own
-#     gate repository, the branch still pipeline-held
-#     (branch_sync.next_action.code recover_custody), and the cleanup below
-#     deletes the branch: the unpublished fixes would be stranded (observed
-#     2026-10-11: custody resets needed a manual ruling).
-#     refuse_branch_custody_held runs after Fix 1 and Fix 2, only when the
-#     structured status names THIS branch, reports this copy's HEAD as its
-#     local head, and offers recover_custody. `axi sync` has no run selector,
-#     so teardown never runs it; it refuses with the exact manual command
-#     (`cd <worktree, shell-quoted> && no-mistakes axi sync --recover`) and
-#     deletes nothing, --force included. Retrying after the custody is
-#     returned proceeds through the ordinary landed-work proofs above.
 #   Fix 3 - sweep abandoned remote job workers. A remote job worker started
 #     from a worktree's own bin/ outlives that worktree's removal without
 #     being reachable by Fix 2, because its working directory is wherever it
@@ -350,21 +318,6 @@
 # ledger. It runs before the task branch it attributes runs by is deleted and
 # before state/<id>.meta is removed, and is best effort: a failure warns and
 # never blocks cleanup.
-# Immediately before a task's state/<id>.meta is removed on any of this home's
-# removal paths, teardown copies it into data/lane-meta-archive/<id>.meta
-# (archive_task_meta below), overwriting any earlier copy for that same id. The
-# record is the only account of a lane's builder, model, and effort, so this
-# keeps those available to the quality counts after the live record is gone.
-# It is best effort like the pipeline-spend step: a copy that cannot be made
-# warns and never blocks or changes the teardown result. data/ is gitignored and
-# private, so nothing archived is ever committed.
-# The ordinary removal path also copies a lane's state/<id>.control-relaunch and
-# state/<id>.control-relaunch.meta-prior beside it as
-# data/lane-meta-archive/<id>.control-relaunch[.meta-prior]
-# (archive_control_relaunch below) before it removes them, because the archived
-# meta keeps only the final model and the relaunch record is what attributes an
-# attempt to the model that started it. It has the same best-effort,
-# overwrite, and regular-non-symlink-only contract.
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -448,8 +401,6 @@ unset _teardown_source
 . "$SCRIPT_DIR/fm-pending-reply-lib.sh"
 # shellcheck source=bin/fm-nm-run-lib.sh
 . "$SCRIPT_DIR/fm-nm-run-lib.sh"
-# Teardown's abort decisions read live; never inherit the status cache.
-unset FM_NM_CACHE_DIR
 if [ "$#" -lt 1 ] || ! fm_task_id_path_safe "$1"; then
   echo "error: invalid teardown request" >&2
   exit 2
@@ -517,44 +468,6 @@ if [ -f "$META" ] && [ ! -L "$META" ]; then
     TREEHOUSE_PROJECT_LOCK_HELD=1
   fi
 fi
-# Copy a task's lane metadata into this home's data/lane-meta-archive/<id>.meta
-# before teardown removes the live record (see the header's archive step). Best
-# effort: a failure warns and never blocks cleanup, and an earlier copy for the
-# same id is overwritten. A missing or non-regular record has nothing to keep.
-archive_task_meta() {  # <meta-path> <task-id>
-  local meta=$1 task_id=$2 dir="$DATA/lane-meta-archive"
-  [ -f "$meta" ] && [ ! -L "$meta" ] || return 0
-  if ! mkdir -p "$dir"; then
-    echo "warning: could not create $dir to archive $task_id's lane meta; cleanup continues" >&2
-    return 0
-  fi
-  cp -f -- "$meta" "$dir/$task_id.meta" \
-    || echo "warning: could not archive $task_id's lane meta to $dir/$task_id.meta; cleanup continues" >&2
-  return 0
-}
-
-# Copy a task's control-relaunch record and its meta-prior beside the archived
-# lane meta before teardown removes them. Same contract as archive_task_meta:
-# best effort, overwrites an earlier copy, copies only regular non-symlink
-# files, and a missing file is not an error.
-archive_control_relaunch() {  # <task-id>
-  local task_id=$1 dir="$DATA/lane-meta-archive" suffix src made=0
-  for suffix in control-relaunch control-relaunch.meta-prior; do
-    src="$STATE/$task_id.$suffix"
-    [ -f "$src" ] && [ ! -L "$src" ] || continue
-    if [ "$made" = 0 ]; then
-      if ! mkdir -p "$dir"; then
-        echo "warning: could not create $dir to archive $task_id's control-relaunch record; cleanup continues" >&2
-        return 0
-      fi
-      made=1
-    fi
-    cp -f -- "$src" "$dir/$task_id.$suffix" \
-      || echo "warning: could not archive $task_id's $suffix to $dir/$task_id.$suffix; cleanup continues" >&2
-  done
-  return 0
-}
-
 CONTROL_LOCK="$STATE/.control-$ID.lock"
 CONTROL_LOCK_HELD=0
 SM_LIVENESS_LOCK=
@@ -1182,7 +1095,6 @@ remote_secondmate_teardown() {
   mv -f -- "$tmp" "$SECONDMATE_REG"
   [ ! -e "$CONFIG/fleet-ledger" ] || FM_HOME=$FM_HOME FM_STATE_OVERRIDE=$STATE FM_CONFIG_OVERRIDE=$CONFIG "$SCRIPT_DIR/fm-fleet-ledger.sh" cleaned_up "$ID" || true
   status_retire_presentation_task "$STATE" "$ID" || return 1
-  archive_task_meta "$STATE/$ID.meta" "$ID"
   fm_backlog_atomic_transition remove "$STATE/$ID.meta" "task record" "$STATE" || return 1
   rm -f -- "$STATE/$ID.turn-ended" "$STATE/$ID.progress" \
     "$(fm_wake_signal_seen_path "$STATE" "$STATE/$ID.turn-ended")" \
@@ -1475,6 +1387,21 @@ meta_value() {
   fm_meta_get "$meta" "$key"
 }
 
+# Remove only Polytoken's firstmate-generated worktree wiring, as named by
+# fm_control_harness_wiring_paths. Its tracked hook and facet layers belong to
+# the project. Other harnesses retain their existing worktree-return cleanup.
+remove_harness_worktree_wiring() {  # <worktree>
+  local wt=$1 path
+  [ "$(meta_value "$META" harness)" = polytoken ] || return 0
+  while IFS= read -r path; do
+    case "$path" in "$wt"/*) ;; *) continue ;; esac
+    git -C "$wt" ls-files --error-unmatch -- "$path" >/dev/null 2>&1 && continue
+    rm -f "$path"
+  done <<EOF
+$(fm_control_harness_wiring_paths "$(meta_value "$META" harness)" "$wt" "$STATE" "$ID")
+EOF
+}
+
 require_orca_worktree_id() {
   local meta=$1 id
   id=$(meta_value "$meta" orca_worktree_id)
@@ -1628,11 +1555,6 @@ patch_id_for_commit() {
     | awk 'NR == 1 { print $1 }'
 }
 
-# The remote-tracking refs that count as "on a remote": every remote except the
-# no-mistakes validation mirror, which is a local copy and never proves work saved
-# or landed. Use as `--not "${REAL_REMOTES[@]}"`.
-REAL_REMOTES=(--exclude='no-mistakes/*' --remotes)
-
 unpushed_patches_are_in_pr_head() {
   local pr_head=$1 current base pr_patch_ids commit patch_id unpushed
   current=$(git -C "$WT" rev-parse --verify HEAD 2>/dev/null) || return 1
@@ -1646,7 +1568,7 @@ unpushed_patches_are_in_pr_head() {
       | sort -u
   ) || return 1
   [ -n "$pr_patch_ids" ] || return 1
-  unpushed=$(git -C "$WT" log --format=%H HEAD --not "${REAL_REMOTES[@]}" -- 2>/dev/null) || return 1
+  unpushed=$(git -C "$WT" log --format=%H HEAD --not --remotes -- 2>/dev/null) || return 1
   [ -n "$unpushed" ] || return 1
   while IFS= read -r commit; do
     [ -n "$commit" ] || continue
@@ -1734,7 +1656,7 @@ content_in_default() {
 }
 
 # Has the worktree's committed work actually LANDED, though its commits are not
-# reachable from any real remote (REAL_REMOTES)? True when a merged PR proves the
+# reachable from any remote-tracking branch? True when a merged PR proves the
 # current local work is contained in the PR head, OR the content is already in the
 # default branch (fallback, which also covers the no-PR and gh-error paths). False
 # only for genuinely unlanded work.
@@ -1742,86 +1664,6 @@ work_is_landed() {
   local branch=$1
   pr_is_merged "$branch" && return 0
   content_in_default
-}
-
-# A lane whose PR is verified MERGED on the forge but whose local commits sit on
-# no remote and are not provably inside the merged PR (typically earlier
-# iterations a squash merge superseded) has nothing left to protect except those
-# commits themselves. Preserve them instead of asking for a discard: keep a
-# verified bundle under data/bundles/ and push the exact commits to a NEW
-# refs/heads/preserve/<branch> ref on origin (creation-only, never advancing an
-# existing ref, never the default or PR branch). Succeeds only when the PR is proved merged, origin
-# exists, the bundle verifies, the push lands, and a fresh remote-reachability
-# test then sees no unpushed commits; every other outcome returns non-zero and
-# the caller refuses exactly as before. A preserve ref already holding different
-# content is a refusal, never an overwrite.
-preserve_merged_lane_commits() {
-  local branch=$1 target view state head ref bundle tmp remote_line remote_sha left
-  [ -n "$branch" ] && [ "$branch" != HEAD ] || return 1
-  git -C "$WT" remote get-url origin >/dev/null 2>&1 || return 1
-  if [ -n "$PR_URL" ]; then
-    target=$PR_URL
-  else
-    target=$(pr_number_from_branch "$branch") || return 1
-  fi
-  [ -n "$target" ] || return 1
-  view=$(cd "$WT" && gh pr view "$target" --json state,headRefOid,url -q '.state + "\t" + .headRefOid + "\t" + .url' 2>/dev/null) || return 1
-  state=${view%%$'\t'*}
-  case "$state" in
-    MERGED|merged) ;;
-    *) return 1 ;;
-  esac
-  head=$(git -C "$WT" rev-parse --verify HEAD 2>/dev/null) || return 1
-  ref="refs/heads/preserve/$branch"
-  git check-ref-format "$ref" >/dev/null 2>&1 || return 1
-  remote_line=$(git -C "$WT" ls-remote origin "$ref" 2>/dev/null) || return 1
-  remote_sha=${remote_line%%[[:space:]]*}
-  if [ -n "$remote_sha" ] && [ "$remote_sha" != "$head" ]; then
-    echo "Preserve ref $ref already exists on origin with different content; not overwriting it." >&2
-    return 1
-  fi
-  mkdir -p "$DATA/bundles" 2>/dev/null || return 1
-  tmp="$DATA/bundles/$ID.bundle.tmp.$$"
-  if ! git -C "$WT" bundle create "$tmp" HEAD >/dev/null 2>&1 \
-      || ! git -C "$WT" bundle verify "$tmp" >/dev/null 2>&1; then
-    rm -f "$tmp"
-    return 1
-  fi
-  # Publish to a name that does not exist (no file, directory or symlink), with
-  # an exclusive create so a name taken in between is skipped, never overwritten.
-  bundle=
-  for candidate in "$DATA/bundles/$ID.bundle" "$DATA/bundles/$ID-${head:0:12}.bundle" \
-      "$DATA/bundles/$ID-${head:0:12}".{1..9}.bundle; do
-    if [ -e "$candidate" ] || [ -L "$candidate" ]; then
-      continue
-    fi
-    if ( set -o noclobber; cat "$tmp" > "$candidate" ) 2>/dev/null; then
-      bundle=$candidate
-      break
-    fi
-  done
-  rm -f "$tmp"
-  [ -n "$bundle" ] || return 1
-  if [ -L "$bundle" ] || [ ! -f "$bundle" ] \
-      || ! git -C "$WT" bundle verify "$bundle" >/dev/null 2>&1 \
-      || ! git -C "$WT" bundle list-heads "$bundle" 2>/dev/null | awk -v h="$head" '$1 == h && $2 == "HEAD" { found = 1 } END { exit !found }'; then
-    # The final pathname is shared, so another writer may have replaced it since
-    # the exclusive create; keep it in place and refuse rather than delete it.
-    echo "Preserve bundle $bundle failed verification; leaving it in place and refusing." >&2
-    return 1
-  fi
-  if [ -z "$remote_sha" ]; then
-    # Creation-only: an empty expected value makes the remote accept the push
-    # only while the ref is absent, so a ref that appeared after the lookup above
-    # is rejected rather than advanced. This is a lease, not an unrestricted force.
-    git -C "$WT" push --quiet --no-verify --force-with-lease="$ref:" origin "$head:$ref" >/dev/null 2>&1 || return 1
-  fi
-  [ "$(git -C "$WT" rev-parse --verify "refs/remotes/origin/preserve/$branch" 2>/dev/null)" = "$head" ] \
-    || git -C "$WT" update-ref "refs/remotes/origin/preserve/$branch" "$head" 2>/dev/null || return 1
-  left=$(git -C "$WT" log --oneline HEAD --not "${REAL_REMOTES[@]}" -- 2>/dev/null) || return 1
-  [ -z "$left" ] || return 1
-  echo "Preserved unpublished commits of merged-PR lane $ID: ref origin/preserve/$branch, bundle $bundle"
-  return 0
 }
 
 # The completion links this teardown already holds locally. A scout's
@@ -2009,84 +1851,21 @@ cleanup_stale_lock_for_safety_check() {
   return "$TEARDOWN_TREEHOUSE_LOCK_REFUSED"
 }
 
-TEARDOWN_RETURN_LEASE_ID=
-# A leased slot (lease_id= in the record) is verified read-only BEFORE any
-# destructive step: treehouse must still report this task's lease on this path.
-# A slot re-leased outside Firstmate, or no longer leased, belongs to someone
-# else now, so teardown stops with a report instead of reaping processes,
-# detaching HEAD, deleting the branch, or removing hooks inside it.
-teardown_verify_slot_lease() {
-  local lease path_in_pool lease_in_pool real json found=0
-  lease=$(meta_value "$META" lease_id)
-  [ -n "$lease" ] || return 0
-  case "$lease" in
-  *[!A-Za-z0-9_-]*)
-    echo "REFUSED: the task record's lease_id is not a valid lease identity; nothing was changed" >&2
-    return 1
-    ;;
-  esac
-  [ -d "$WT" ] || return 0
-  real=$(canonical_existing_dir "$WT") || real=$WT
-  if ! command -v jq >/dev/null 2>&1 || ! json=$( cd "$PROJ" && treehouse status --json 2>/dev/null </dev/null ); then
-    echo "REFUSED: cannot read the Treehouse pool status to confirm lease $lease still holds $WT; nothing was changed" >&2
-    return 1
-  fi
-  while IFS=$'\t' read -r path_in_pool lease_in_pool; do
-    [ -n "$path_in_pool" ] || continue
-    [ "$(canonical_existing_dir "$path_in_pool" 2>/dev/null || printf '%s' "$path_in_pool")" = "$real" ] || continue
-    found=1
-    [ "$lease_in_pool" = "$lease" ] && { TEARDOWN_RETURN_LEASE_ID=$lease; return 0; }
-  done < <(printf '%s' "$json" | jq -r '.[] | [.path, (.lease_id // "")] | @tsv' 2>/dev/null)
-  if [ "$found" = 1 ]; then
-    echo "REFUSED: Treehouse no longer reports lease $lease on $WT (the slot's lease changed); the slot may belong to someone else now, so nothing was reaped, detached, deleted, or returned" >&2
-  else
-    echo "REFUSED: Treehouse does not list $WT in its pool, so lease $lease cannot be confirmed; nothing was changed" >&2
-  fi
-  return 1
-}
-
-# Return a worktree/home via `treehouse return` (see return_args), tolerating a transient or
+# Return a worktree/home via `treehouse return --force`, tolerating a transient or
 # stale git index.lock left by a killed crew process. See the script header.
 teardown_treehouse_return() {
   local dir=$1 cd_dir=$2 label=$3 post_cleanup_check=${4:-}
   local out lock attempt=0 max_retries lock_desc
-  # A task whose slot was taken as a lease (lease_id= in its record) returns
-  # exactly that lease, so a slot since handed to anyone else is refused rather
-  # than released. TEARDOWN_RETURN_LEASE_ID is set only for the task's own slot
-  # and, during a forced secondmate cleanup, for each child's own slot.
-  # A lease-bound return forces only for an explicit --force teardown or a scout
-  # (declared scratch); otherwise treehouse keeps its own confirmation before
-  # discarding changes, which a non-interactive teardown cannot give, so a slot
-  # left with files after the safety checks is refused rather than reset.
-  local -a return_args=(--force)
-  if [ -n "$TEARDOWN_RETURN_LEASE_ID" ]; then
-    return_args=(--if-lease-id "$TEARDOWN_RETURN_LEASE_ID")
-    if [ "$FORCE" = --force ] || [ "$KIND" = scout ]; then
-      return_args=(--force --if-lease-id "$TEARDOWN_RETURN_LEASE_ID")
-    fi
-  fi
 
   # Capture stdout+stderr so non-lock failures stay visible and lock failures can
   # be matched by signature even when the lock file is already gone mid-check.
-  if out=$( ( cd "$cd_dir" && treehouse return "${return_args[@]}" "$dir" </dev/null ) 2>&1 ); then
+  if out=$( ( cd "$cd_dir" && treehouse return --force "$dir" ) 2>&1 ); then
     [ -n "$out" ] && printf '%s\n' "$out"
     return 0
   fi
   [ -n "$out" ] && printf '%s\n' "$out" >&2
 
   if ! treehouse_return_is_index_lock_error "$out"; then
-    if [ -n "$TEARDOWN_RETURN_LEASE_ID" ]; then
-      if [ "${return_args[0]}" = --force ]; then
-        echo "teardown: $label return was not performed; treehouse refused the forced lease-bound return of slot $dir under lease $TEARDOWN_RETURN_LEASE_ID (its lease changed); the slot was not released" >&2
-      else
-        echo "teardown: $label return was not performed; treehouse refused the lease-bound return of slot $dir under lease $TEARDOWN_RETURN_LEASE_ID (its lease changed, or the slot was no longer clean); the slot was not released and nothing was forced" >&2
-        local blocking
-        blocking=$(git -C "$dir" status --porcelain --untracked-files=all 2>/dev/null) || blocking=
-        if [ -n "$blocking" ]; then
-          printf 'files blocking the return of %s:\n%s\n' "$dir" "$blocking" >&2
-        fi
-      fi
-    fi
     return 1
   fi
 
@@ -2105,7 +1884,7 @@ teardown_treehouse_return() {
     echo "teardown: $label return failed with transient git lock ($lock_desc); waiting ${TREEHOUSE_RETURN_LOCK_RETRY_WAIT_SECS}s and retrying ($attempt/${max_retries})" >&2
     sleep "$TREEHOUSE_RETURN_LOCK_RETRY_WAIT_SECS"
 
-    if out=$( ( cd "$cd_dir" && treehouse return "${return_args[@]}" "$dir" </dev/null ) 2>&1 ); then
+    if out=$( ( cd "$cd_dir" && treehouse return --force "$dir" ) 2>&1 ); then
       [ -n "$out" ] && printf '%s\n' "$out"
       echo "teardown: $label return succeeded on retry; lock cleared on its own" >&2
       return 0
@@ -2132,7 +1911,7 @@ teardown_treehouse_return() {
           return 1
         fi
       fi
-      if out=$( ( cd "$cd_dir" && treehouse return "${return_args[@]}" "$dir" </dev/null ) 2>&1 ); then
+      if out=$( ( cd "$cd_dir" && treehouse return --force "$dir" ) 2>&1 ); then
         [ -n "$out" ] && printf '%s\n' "$out"
         echo "teardown: $label return succeeded after stale-lock cleanup" >&2
         return 0
@@ -2216,7 +1995,7 @@ validate_worktree_teardown_safety() {
   fi
   dirty=$(printf '%s\n' "$dirty_raw" | grep -vE '^\?\? (\.claude/|\.fm-(grok|kimi)-turnend$)' || true)
 
-  if ! unpushed_raw=$(git -C "$WT" log --oneline HEAD --not "${REAL_REMOTES[@]}" -- 2>/dev/null); then
+  if ! unpushed_raw=$(git -C "$WT" log --oneline HEAD --not --remotes -- 2>/dev/null); then
     if worktree_safety_blocked_by_lock "commits not on a remote"; then
       return "$TEARDOWN_WORKTREE_SAFETY_LOCK_BLOCKED"
     fi
@@ -2255,7 +2034,7 @@ validate_worktree_teardown_safety() {
       branch=$(git -C "$WT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo HEAD)
       TEARDOWN_WORKTREE_BRANCH_FOR_SAFETY=$branch
     fi
-    if ! work_is_landed "$branch" && ! preserve_merged_lane_commits "$branch"; then
+    if ! work_is_landed "$branch"; then
       echo "REFUSED: worktree $WT has work not on any remote and not landed." >&2
       printf 'unpushed commits:\n%s\n' "$unpushed" >&2
       echo "Push the branch, land its PR, or get the captain's explicit OK to discard, then --force." >&2
@@ -2375,37 +2154,6 @@ conclude_task_no_mistakes_run() {  # <worktree>
     return 0
   fi
   echo "REFUSED: no-mistakes run for $ID is still parked after axi abort; confirm it stopped (no-mistakes axi status) or abort it manually (no-mistakes axi abort --run <id>) before retrying teardown." >&2
-  return 1
-}
-
-# Custody step (see script header): a finished lane must not be cleaned up
-# while the pipeline still holds the branch custody for this copy, because the
-# fix commits the pipeline made in its own gate repository are not here and
-# deleting the branch would strand them. The structured status must name THIS
-# branch, report this copy's own HEAD as the local head, and offer
-# recover_custody as its next action. `axi sync` has no run selector
-# (no-mistakes axi sync --help), so a teardown that ran it could act on a run
-# other than the one it just checked; it never runs the sync. It refuses with
-# the exact manual command instead and deletes nothing. --force does not lift
-# it: it authorizes discarding this lane's own earlier work, not the
-# pipeline's unpublished fix commits.
-refuse_branch_custody_held() {  # <worktree>
-  local wt=$1 out branch run_id run_branch local_head wt_head
-  [ "$KIND" = ship ] || return 0
-  [ -d "$wt" ] || return 0
-  command -v no-mistakes >/dev/null 2>&1 || return 0
-  branch=$(git -C "$wt" symbolic-ref --quiet --short HEAD 2>/dev/null) || return 0
-  [ -n "$branch" ] || return 0
-  wt_head=$(git -C "$wt" rev-parse HEAD 2>/dev/null) || return 0
-  out=$(fm_nm_run "$wt" "$NM_TEARDOWN_TIMEOUT" axi status)
-  [ "$(fm_nm_branch_sync_nested "$out" next_action code)" = recover_custody ] || return 0
-  run_id=$(fm_nm_strip_quotes "$(fm_nm_field "$out" id)")
-  run_branch=$(fm_nm_strip_quotes "$(fm_nm_field "$out" branch)")
-  [ -n "$run_id" ] && [ "$run_branch" = "$branch" ] || return 0
-  local_head=$(fm_nm_branch_sync_nested "$out" local head)
-  [ -n "$local_head" ] && [ "$(fm_nm_resolve_commit "$wt" "$local_head")" = "$wt_head" ] || return 0
-  echo "REFUSED: no-mistakes run $run_id still holds the branch custody for $ID (next action recover_custody): the pipeline's fix commits are not in this copy, and cleaning it up would strand them. Teardown does not run the sync itself, because axi sync cannot be bound to this run; nothing was deleted." >&2
-  echo "Recover the custody by hand, then retry teardown:  cd $(printf '%q' "$wt") && no-mistakes axi sync --recover" >&2
   return 1
 }
 
@@ -3537,7 +3285,7 @@ endpoint_close_refusal() {  # <subject> <backend> <target> <honors-force>
 }
 
 cleanup_firstmate_home_children() {
-  local home=$1 sub_state child_meta child_id child_t child_wt child_proj child_kind child_home child_backend child_orca_worktree_id child_return_rc child_busy_gen child_owner_rc child_lease child_pool_slot
+  local home=$1 sub_state child_meta child_id child_t child_wt child_proj child_kind child_home child_backend child_orca_worktree_id child_return_rc child_busy_gen child_owner_rc child_pool_slot
   sub_state="$home/state"
   [ -d "$sub_state" ] || return 0
   for child_meta in "$sub_state"/*.meta; do
@@ -3614,20 +3362,17 @@ cleanup_firstmate_home_children() {
           "$child_wt/.opencode/plugins/fm-busy-state.js" \
           "$child_wt/.fm-grok-turnend" "$child_wt/.fm-kimi-turnend"
         if [ -n "$child_proj" ] && [ -d "$child_proj" ] && command -v treehouse >/dev/null 2>&1; then
-          child_lease=$(meta_value "$child_meta" lease_id)
           teardown_scrub_scratch_copy "$child_wt" || return 1
           child_pool_slot=0
           fm_treehouse_pool_slot "$child_proj" "$child_wt" && child_pool_slot=1
-          child_return_rc=0
-          TEARDOWN_RETURN_LEASE_ID=$child_lease
-          teardown_treehouse_return "$child_wt" "$child_proj" "child worktree" || child_return_rc=$?
-          TEARDOWN_RETURN_LEASE_ID=
-          if [ "$child_return_rc" -eq 0 ]; then
+          if teardown_treehouse_return "$child_wt" "$child_proj" "child worktree"; then
             [ "$child_pool_slot" = 0 ] || teardown_note_dirty_return "$child_wt"
             fm_treehouse_slot_owner_release "$child_wt" "$child_id"
-          elif [ "$child_return_rc" -eq "$TEARDOWN_TREEHOUSE_LOCK_REFUSED" ] || [ -n "$child_lease" ]; then
-            return "$child_return_rc"
           else
+            child_return_rc=$?
+            if [ "$child_return_rc" -eq "$TEARDOWN_TREEHOUSE_LOCK_REFUSED" ]; then
+              return "$child_return_rc"
+            fi
             safe_rm_rf_child_worktree "$child_wt" "$child_proj"
           fi
         else
@@ -3648,15 +3393,18 @@ cleanup_firstmate_home_children() {
     fm_backlog_atomic_transition remove "$sub_state/$child_id.meta" "task record" "$sub_state" || return 1
     rm -f "$sub_state/$child_id.turn-ended" "$sub_state/$child_id.progress" \
       "$(fm_wake_signal_seen_path "$sub_state" "$sub_state/$child_id.turn-ended")" \
-      "$sub_state/$child_id.pi-ext.ts" "$sub_state/$child_id.pi-first-call.ts" "$sub_state/$child_id.omp-ext.ts" \
+      "$sub_state/$child_id.pi-ext.ts" "$sub_state/$child_id.omp-ext.ts" \
       "$sub_state/$child_id.grok-turnend-token" "$sub_state/$child_id.kimi-turnend-token" \
       "$sub_state/$child_id.muse-session" "$sub_state/$child_id.muse-session-current" \
       "$sub_state/$child_id.cursor-session" "$sub_state/$child_id.reconcile-nudged" \
       "$sub_state/$child_id.claude-settings.json" "$sub_state/$child_id.devin-config.json" \
-      "$sub_state/$child_id.commandcode-mod.ts" \
+      "$sub_state/$child_id.polytoken-busy.sh" \
       "$sub_state/.$child_id.branch-outcome-index"
     chmod u+w "$sub_state/$child_id.git-hooks" 2>/dev/null || true
-    rm -rf "$sub_state/$child_id.git-hooks" "$sub_state/$child_id.push-guard"
+    rm -rf "$sub_state/$child_id.git-hooks" "$sub_state/$child_id.push-guard" \
+      "$sub_state/$child_id.polytoken-config" \
+      "$sub_state/$child_id.polytoken-sessions" \
+      "$sub_state/$child_id.polytoken-sessions-v1"
   done
 }
 
@@ -3786,12 +3534,6 @@ if [ "$BACKEND" = orca ] && [ "$KIND" != scout ] && [ "$KIND" != secondmate ] &&
   ORCA_PATH_MATCH_VERIFIED=1
 fi
 
-# The lease is confirmed before ANY slot mutation, including the stale index
-# lock removal inside the safety check below.
-if [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ] && teardown_owns_worktree; then
-  teardown_verify_slot_lease || exit 1
-fi
-
 if teardown_owns_worktree && [ -d "$WT" ] && [ "$FORCE" != "--force" ]; then
   if validate_worktree_teardown_safety; then
     :
@@ -3901,17 +3643,15 @@ else
 fi
 
 # Every landed/discard-work refusal above has now passed (or --force skipped
-# them). Fix 1, Fix 2 and the custody refusal (see script header) run here,
-# unconditionally on --force, and before ANY destructive step below - a
-# still-parked run, a leaked process, or custody held by the pipeline can own
-# live work in this exact worktree. Not for
+# them). Fix 1 and Fix 2 (see script header) run here, unconditionally on
+# --force, and before ANY destructive step below - a still-parked run or a
+# leaked process can own live work in this exact worktree. Not for
 # kind=secondmate: a secondmate home's own runtime lifecycle is owned by the
 # dedicated process-event and firstmate-home removal machinery further below,
 # not by task-worktree cleanup.
 if [ "$KIND" != secondmate ] && teardown_owns_worktree; then
   conclude_task_no_mistakes_run "$WT"
   reap_task_worktree_processes worktree "$WT" "$TASK_TMP"
-  refuse_branch_custody_held "$WT"
 elif [ "$KIND" != secondmate ]; then
   reap_task_worktree_processes tasktmp "$TASK_TMP"
 fi
@@ -3941,6 +3681,7 @@ if [ "$BACKEND" = orca ] && [ "$KIND" != secondmate ]; then
     rm -f "$WT/.claude/settings.local.json" "$WT/.opencode/plugins/fm-turn-end.js" \
       "$WT/.opencode/plugins/fm-busy-state.js" \
       "$WT/.fm-grok-turnend" "$WT/.fm-kimi-turnend"
+    remove_harness_worktree_wiring "$WT"
   fi
   if [ -n "$T_ORCA" ]; then
     fm_backend_kill "$BACKEND" "$T" "$(meta_value "$META" zellij_tab_id)" "fm-$ID" \
@@ -3959,6 +3700,7 @@ elif [ -d "$WT" ] && [ "$KIND" != secondmate ]; then
   # Remove our hook file so a reused pool worktree cannot fire signals for a dead task.
   rm -f "$WT/.claude/settings.local.json" "$WT/.opencode/plugins/fm-turn-end.js" \
     "$WT/.fm-grok-turnend" "$WT/.fm-kimi-turnend"
+  remove_harness_worktree_wiring "$WT"
   # Kills remaining processes in the worktree (including the agent), resets, returns
   # to pool. treehouse resolves the pool from the working directory, so run it from
   # the project. teardown_treehouse_return tolerates transient and stale git locks
@@ -3972,24 +3714,16 @@ elif [ -d "$WT" ] && [ "$KIND" != secondmate ]; then
   fi
   wt_pool_slot=0
   fm_treehouse_pool_slot "$PROJ" "$WT" && wt_pool_slot=1
-  # The pool return and the release of this task's claim go through the one
-  # retire owner (fm_treehouse_slot_retire, bin/fm-wake-lib.sh): the return runs
-  # first, and the claim is dropped only after a return that succeeded, so a
-  # returned slot stays unclaimed until its next holder claims it and the claim
-  # stays in place whenever the return did not actually happen. The landed-work
-  # gate already ran above (and runs again under the return lock through
-  # post_lock_cleanup_check), so the owner's own gate step is a no-op here.
-  teardown_slot_retire_gate() { return 0; }
-  teardown_slot_retire_return() {
-    teardown_treehouse_return "$WT" "$PROJ" "worktree" "$post_lock_cleanup_check"
-  }
-  FM_SLOT_RETIRE_GATE=teardown_slot_retire_gate FM_SLOT_RETIRE_RETURN=teardown_slot_retire_return \
-    fm_treehouse_slot_retire "$WT" "$ID" || {
+  teardown_treehouse_return "$WT" "$PROJ" "worktree" "$post_lock_cleanup_check" || {
     echo "error: treehouse return failed for worktree $WT; teardown aborted" >&2
     exit 1
   }
   [ "$wt_pool_slot" = 0 ] || teardown_note_dirty_return "$WT"
-  TEARDOWN_RETURN_LEASE_ID=
+  # The slot is back in the pool, so this task's claim on it is spent. Dropping
+  # it here - and only after a return that succeeded - keeps a returned slot
+  # unclaimed until its next holder claims it, and leaves the claim in place
+  # whenever the return did not actually happen.
+  fm_treehouse_slot_owner_release "$WT" "$ID"
 fi
 
 HERDR_PRESENTATION_JOURNAL="$STATE/$ID.herdr-presentation"
@@ -4146,17 +3880,16 @@ retire_busy_state "$STATE" "$ID" "$BUSY_GEN" || exit 1
 [ ! -e "$CONFIG/fleet-ledger" ] || FM_HOME=$FM_HOME FM_STATE_OVERRIDE=$STATE FM_CONFIG_OVERRIDE=$CONFIG "$SCRIPT_DIR/fm-fleet-ledger.sh" cleaned_up "$ID" || true
 status_retire_presentation_task "$STATE" "$ID" || exit 1
 fm_wake_queue_prune_task "$STATE" "$ID" "$T" 2>/dev/null || true
-archive_control_relaunch "$ID"
 rm -f "$STATE/$ID.turn-ended" "$STATE/$ID.progress" \
   "$(fm_wake_signal_seen_path "$STATE" "$STATE/$ID.turn-ended")" \
-  "$STATE/$ID.pi-ext.ts" "$STATE/$ID.pi-first-call.ts" "$STATE/$ID.omp-ext.ts" "$STATE/$ID.grok-turnend-token" \
+  "$STATE/$ID.pi-ext.ts" "$STATE/$ID.omp-ext.ts" "$STATE/$ID.grok-turnend-token" \
   "$STATE/$ID.kimi-turnend-token" "$STATE/$ID.muse-session" \
   "$STATE/$ID.muse-session-current" "$STATE/$ID.cursor-session" \
   "$STATE/$ID.control-relaunch" "$STATE/$ID.control-relaunch.meta-prior" \
   "$STATE/$ID.control-relaunch.brief-prior" "$STATE/$ID.control-relaunch.note" \
   "$STATE/$ID.reconcile-nudged" "$STATE/$ID.gemini-settings.json" \
   "$STATE/$ID.claude-settings.json" "$STATE/$ID.devin-config.json" \
-  "$STATE/$ID.commandcode-mod.ts" "$STATE/$ID.launch-check" \
+  "$STATE/$ID.polytoken-busy.sh" \
   "$STATE/.$ID.branch-outcome-index" \
   "$STATE/.secondmate-relaunch-$ID" "$STATE/.secondmate-relaunch-bound-$ID"
 # The steering inbox (bin/fm-task-inbox-lib.sh) is runtime state for the
@@ -4166,7 +3899,13 @@ rm -f "$STATE/$ID.turn-ended" "$STATE/$ID.progress" \
 # read-only by its installer, and state/<id>.push-guard is a forge=external
 # task's read-only push guard record (bin/fm-git-push-guard.sh).
 chmod u+w "$STATE/$ID.git-hooks" 2>/dev/null || true
-rm -rf "$STATE/$ID.inbox" "$STATE/$ID.git-hooks" "$STATE/$ID.push-guard"
+# A task's polytoken config dir and sessions roots are directory trees (the
+# mirrored worker config and the versioned session tree the launch wrote
+# beside its sessions root), so they are removed recursively with the inbox
+# and the git-hooks dir rather than the flat file list above.
+rm -rf "$STATE/$ID.inbox" "$STATE/$ID.git-hooks" "$STATE/$ID.push-guard" \
+  "$STATE/$ID.polytoken-config" \
+  "$STATE/$ID.polytoken-sessions" "$STATE/$ID.polytoken-sessions-v1"
 # A presentation journal the close path left behind is orphaned once the
 # recorded pane is proven gone (the Herdr gate above) unless it still names a
 # live projected workspace - a version 2 binding of some other pane, or a
@@ -4184,9 +3923,6 @@ fi
 # racing the same id stays serialized exactly as it was before. A captain-held
 # row takes the retain transition here instead of the close: same record, same
 # ordering, the row returns to Queued with its deliverable recorded.
-# Both branches below remove $STATE/$ID.meta - the atomic close/retain and the
-# plain record removal - so the lane meta is archived once, here, before either.
-archive_task_meta "$META" "$ID"
 if [ "$BACKLOG_CLOSED" = 1 ]; then
   BACKLOG_CLOSE_MARKER=$(fm_backlog_close_marker_path "$STATE" "$ID") || exit 1
   if ! fm_backlog_atomic_transition "$BACKLOG_TRANSITION" "$STATE/$ID.meta" "$BACKLOG_CLOSE_MARKER" \

@@ -171,242 +171,6 @@ assert_screen() {
   [ "$out" = "$want" ] || fail "$label under LC_ALL=C: expected $want, got '$out'"
 }
 
-# slash_menu_screen <composer-row-text> <selected-index> [glyph]: a claude
-# composer pair holding <composer-row-text>, with a four-entry slash menu
-# below its closing rule and the selection glyph on entry <selected-index>.
-# Entry 1's description wraps onto a continuation row at the description column
-# (column 50 here, the same column every entry's description starts at).
-slash_menu_screen() {
-  local typed=$1 sel=$2 glyph=${3:-❯} rule i
-  local names=(/context /context-audit /context-restore /context-save)
-  local descs=('Visualize current context usage as a colored grid'
-    'Token-hygiene audit of the always-loaded context stack -'
-    'Restore working context saved earlier by /context-save.'
-    'Save working context.')
-  rule='────────────────────────────────────────────────────────────'
-  printf 'transcript\n%s\n%s\n%s\n' "$rule" "$typed" "$rule"
-  for i in 0 1 2 3; do
-    if [ "$i" = "$sel" ]; then
-      printf '  %s %-46s%s\n' "$glyph" "${names[$i]}" "${descs[$i]}"
-    else
-      printf '    %-46s%s\n' "${names[$i]}" "${descs[$i]}"
-    fi
-    if [ "$i" = 1 ]; then printf '%50s%s\n' '' 'CLAUDE.md, AGENTS.md, auto-memory MEMORY.md'; fi
-  done
-}
-
-test_matrix_claude_slash_menu_is_not_the_composer() {
-  # Real capture, claude 2.1.296, /exit typed and not submitted. The composer is
-  # `❯`+NBSP+`/exit` between two rules; the slash menu below draws its selected
-  # row as an indented `❯ /exit` over the command list. That row used to win as
-  # the bare composer, so the extracted content was `/exit` plus the whole menu
-  # and the post-send payload proof refused a payload that had landed.
-  local fx=$ROOT/tests/fixtures/send-guard styled plain out screen i claude_idle
-  claude_idle=$(printf 'claude\tidle')
-  styled=$(cat "$fx/claude296-slash-menu.ansi")
-  plain=$(cat "$fx/claude296-slash-menu.plain")
-  out=$(FM_COMPOSER_GHOST_LUMA_MAX=0 fm_composer_extract_selected_content "$CAPS_STYLED" "$styled" claude)
-  [ "$out" = '/exit' ] || fail "styled slash-menu capture should extract only the typed /exit, got '$out'"
-  out=$(LC_ALL=C fm_composer_extract_selected_content "$CAPS_PLAIN" "$plain" claude)
-  [ "$out" = '/exit' ] || fail "plain slash-menu capture should extract only the typed /exit under LC_ALL=C, got '$out'"
-  assert_screen "claude 2.1.296 typed /exit with slash menu" pending "$CAPS_STYLED" "$styled" '' "$claude_idle"
-  # The selection may sit on any entry, not only the first.
-  for i in 0 1 2 3; do
-    screen=$(slash_menu_screen "❯ /context" "$i")
-    out=$(fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen" claude)
-    [ "$out" = '/context' ] || fail "selection on entry $i should leave the typed /context, got '$out'"
-    out=$(LC_ALL=C fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen" claude)
-    [ "$out" = '/context' ] || fail "selection on entry $i under LC_ALL=C should leave the typed /context, got '$out'"
-    assert_screen "typed /context, menu selection on entry $i" pending "$CAPS_STYLED" "$screen" '' "$claude_idle"
-  done
-  # A menu is opened by typing `/`: the same block under an EMPTY composer is
-  # not a menu, so its rows stay content and the composer can never read empty.
-  for i in 0 2; do
-    screen=$(slash_menu_screen "❯$NBSP" "$i")
-    out=$(fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen" claude)
-    [ -n "$out" ] || fail "menu-shaped rows under an empty composer (selection $i) must not read empty"
-    out=$(fm_composer_classify_screen "$CAPS_STYLED" "$screen" '' "$claude_idle")
-    [ "$out" != empty ] || fail "menu-shaped rows under an empty composer (selection $i) must never read empty"
-  done
-  # A multi-line draft keeps its indented continuation rows with the menu below.
-  screen=$'transcript\n────────────────────────\n❯ /context\n  and a second line\n────────────────────────\n  ❯ /context        Visualize current context usage\n    /context-save   Save working context.'
-  out=$(fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen" claude)
-  [ "$out" = '/context and a second line' ] || fail "a multi-line draft over a slash menu should keep both draft rows, got '$out'"
-  # A one-entry menu stands when its name prefix-matches the typed text, and a
-  # wrapped description at its column is kept out of the composer.
-  screen=$'transcript\n────────────────────────\n❯ /ex\n────────────────────────\n  ❯ /exit        Exit the CLI and\n                 end the session'
-  out=$(fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen" claude)
-  [ "$out" = '/ex' ] || fail "a one-entry menu matching the typed /ex should leave only /ex, got '$out'"
-  out=$(LC_ALL=C fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen" claude)
-  [ "$out" = '/ex' ] || fail "a one-entry menu matching the typed /ex under LC_ALL=C should leave only /ex, got '$out'"
-  assert_screen "typed /ex over a one-entry menu" pending "$CAPS_STYLED" "$screen" '' "$claude_idle"
-  pass "matrix: claude 2.1.296's slash menu is furniture whichever entry is selected, never the composer"
-}
-
-test_matrix_indented_live_draft_under_the_pair_is_not_menu_furniture() {
-  # A row below the closing rule that merely LOOKS like the menu's selection (an
-  # indented glyph row) is a live draft unless the whole block is positively a
-  # claude slash menu: `/name` entries with a description column, under a
-  # claude-proven envelope, on a pane identified as claude. A draft read as
-  # furniture reads the composer EMPTY, which authorizes the next send to type
-  # over it. This test runs every shape as a claude pane; the next one runs them
-  # as every other harness.
-  local rule out screen glyph claude_idle
-  claude_idle=$(printf 'claude\tidle')
-  rule='────────────────────────────────────────────────────────────'
-  for glyph in '›' '❯'; do
-    screen=$'transcript\n'"$rule"$'\n'"$glyph$NBSP"$'\n'"$rule"$'\n  '"$glyph"' actual payload'
-    out=$(fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen" claude)
-    [ "$out" = 'actual payload' ] || fail "an indented '$glyph' draft under the pair must stay the extracted content, got '$out'"
-    out=$(fm_composer_classify_screen "$CAPS_STYLED" "$screen" '' "$claude_idle")
-    [ "$out" != empty ] || fail "an indented '$glyph' draft under the pair must never read empty"
-    out=$(LC_ALL=C fm_composer_classify_screen "$CAPS_STYLED" "$screen" '' "$claude_idle")
-    [ "$out" != empty ] || fail "an indented '$glyph' draft under the pair must never read empty under LC_ALL=C"
-    # Its own indented continuation rows are part of that draft, not menu rows.
-    screen+=$'\n    and the rest of it'
-    out=$(fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen" claude)
-    [ "$out" = 'actual payload and the rest of it' ] || fail "continuation rows of an indented '$glyph' draft must be kept, got '$out'"
-    out=$(fm_composer_classify_screen "$CAPS_STYLED" "$screen" '' "$claude_idle")
-    [ "$out" != empty ] || fail "an indented '$glyph' multi-row draft under the pair must never read empty"
-  done
-  # Reviewer repro: ONE `/name` plus two spaces plus text under an empty composer
-  # is a live draft, and its wrapped continuation row is part of it.
-  for glyph in '  ❯' '❯'; do
-    screen=$'transcript\n'"$rule"$'\n❯'"$NBSP"$'\n'"$rule"$'\n'"$glyph /exit  actual payload"$'\n             continuation payload'
-    out=$(fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen" claude)
-    case "$out" in *'actual payload'*'continuation payload'*) ;; *) fail "a lone '$glyph /exit  actual payload' draft must keep its text and continuation, got '$out'" ;; esac
-    out=$(LC_ALL=C fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen" claude)
-    case "$out" in *'actual payload'*'continuation payload'*) ;; *) fail "a lone '$glyph /exit  actual payload' draft must keep its continuation under LC_ALL=C, got '$out'" ;; esac
-    out=$(fm_composer_classify_screen "$CAPS_STYLED" "$screen" '' "$claude_idle")
-    [ "$out" != empty ] || fail "a lone '$glyph /exit  actual payload' draft must never read empty"
-    out=$(LC_ALL=C fm_composer_classify_screen "$CAPS_STYLED" "$screen" '' "$claude_idle")
-    [ "$out" != empty ] || fail "a lone '$glyph /exit  actual payload' draft must never read empty under LC_ALL=C"
-  done
-  # The same lone entry over a typed composer that does not prefix-match it.
-  screen=$'transcript\n'"$rule"$'\n❯ /context\n'"$rule"$'\n  ❯ /exit  actual payload\n             continuation payload'
-  out=$(fm_composer_classify_screen "$CAPS_STYLED" "$screen" '' "$claude_idle")
-  [ "$out" != empty ] || fail "a lone entry that is not a prefix match of the typed text must never read empty"
-  out=$(fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen" claude)
-  case "$out" in *'continuation payload'*) ;; *) fail "a lone non-matching entry must not swallow its continuation, got '$out'" ;; esac
-  # Entries on two different description columns are two drafts, not one menu.
-  screen=$'transcript\n'"$rule"$'\n❯ /ex\n'"$rule"$'\n  ❯ /exit      Exit the CLI\n    /extra         Something else'
-  out=$(fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen" claude)
-  case "$out" in *'/extra'*) ;; *) fail "misaligned entries must not be read as one menu, got '$out'" ;; esac
-  # Entries split by furniture are two blocks, not one menu: neither stands, so
-  # both payload rows stay content.
-  screen=$'transcript\n'"$rule"$'\n❯ /context\n'"$rule"$'\n  ❯ /exit  actual payload\n  ⏵⏵ bypass permissions on (shift+tab to cycle)\n    /help  more payload'
-  out=$(fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen" claude)
-  case "$out" in *'actual payload'*'more payload'*) ;; *) fail "entries split by the mode hint must not be read as one menu, got '$out'" ;; esac
-  out=$(LC_ALL=C fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen" claude)
-  case "$out" in *'actual payload'*'more payload'*) ;; *) fail "entries split by the mode hint must keep both payloads under LC_ALL=C, got '$out'" ;; esac
-  out=$(fm_composer_classify_screen "$CAPS_STYLED" "$screen" '' "$claude_idle")
-  [ "$out" != empty ] || fail "entries split by the mode hint must never read empty"
-  # A continuation not at the entries' description column is not a wrap.
-  screen=$'transcript\n'"$rule"$'\n❯ /ex\n'"$rule"$'\n  ❯ /exit      Exit the CLI\n                          stray words'
-  out=$(fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen" claude)
-  case "$out" in *'stray words'*) ;; *) fail "an off-column row must not be swallowed as a wrap, got '$out'" ;; esac
-  # Menu-shaped rows under a pair another harness proved are not claude's menu.
-  screen=$'transcript\n'"$rule"$'\n›'"$NBSP"$'\n'"$rule"$'\n  › /exit        Exit the CLI'
-  out=$(fm_composer_classify_screen "$CAPS_STYLED" "$screen" '' "$(printf 'codex\tidle')")
-  [ "$out" != empty ] || fail "a codex pair with menu-shaped rows below must never read empty"
-  # Two selected rows are two composers, not one menu.
-  screen=$'transcript\n'"$rule"$'\n❯ /context\n'"$rule"$'\n  ❯ /context        Visualize\n  ❯ /context-save   Save'
-  out=$(fm_composer_classify_screen "$CAPS_STYLED" "$screen" '' "$claude_idle")
-  [ "$out" != empty ] || fail "two selected rows under the pair must never read empty"
-  # A selected row that is not a `/name` entry with a description column.
-  screen=$'transcript\n'"$rule"$'\n❯'"$NBSP"$'\n'"$rule"$'\n  ❯ /exit\n    /context        Visualize'
-  out=$(fm_composer_classify_screen "$CAPS_STYLED" "$screen" '' "$claude_idle")
-  [ "$out" != empty ] || fail "a selected '/exit' row with no description column must never read empty"
-  # A deeper row with no entry directly above it is unclaimed activity.
-  screen=$'transcript\n'"$rule"$'\n❯'"$NBSP"$'\n'"$rule"$'\n                        ❯ stray draft'
-  out=$(fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen" claude)
-  [ "$out" = 'stray draft' ] || fail "a far-indented glyph row under the pair must stay the extracted content, got '$out'"
-  pass "matrix: an indented live draft under the pair is never read as slash-menu furniture"
-}
-
-test_matrix_indented_continuation_rows_of_a_draft_are_kept() {
-  # Claude indents the continuation rows of a multi-line draft inside its own
-  # envelope; codex does the same on its bare `›` row. Neither is menu furniture.
-  local rule out screen
-  rule='────────────────────────────────────────────────────────────'
-  screen=$'transcript\n'"$rule"$'\n❯ first line\n  second line\n  third line\n'"$rule"
-  out=$(fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen" claude)
-  [ "$out" = 'first line second line third line' ] || fail "claude multi-line draft should keep its indented rows, got '$out'"
-  screen=$'transcript\n'"$rule"$'\n❯ first line\n  second line\n  third line\n'"$rule"$'\n  ⏵⏵ bypass permissions on (shift+tab to cycle)'
-  out=$(fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen" claude)
-  [ "$out" = 'first line second line third line' ] || fail "claude multi-line draft over the mode hint should keep its rows, got '$out'"
-  screen=$'transcript\n›'"$NBSP"$'first line\n  second line\n  third line'
-  out=$(fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen" claude)
-  [ "$out" = 'first line second line third line' ] || fail "codex bare multi-line draft should keep its indented rows, got '$out'"
-  pass "matrix: indented continuation rows of a real multi-line draft are kept"
-}
-
-# menu_lookalike_screens: the menu-shaped screens every non-claude pane must
-# keep reading as live content, one per line of output (rows joined with `\n`
-# escapes so one screen is one line; expanded by the caller with printf %b).
-menu_lookalike_screens() {
-  local rule='────────────────────────────────────────────────────────────' g
-  for g in '›' '❯'; do
-    printf '%s\n' "transcript\\n$rule\\n$g$NBSP\\n$rule\\n  $g actual payload"
-    printf '%s\n' "transcript\\n$rule\\n$g$NBSP\\n$rule\\n  $g actual payload\\n    and the rest of it"
-  done
-  for g in '  ❯' '❯' '  ›'; do
-    printf '%s\n' "transcript\\n$rule\\n❯$NBSP\\n$rule\\n$g /exit  actual payload\\n             continuation payload"
-  done
-  printf '%s\n' "transcript\\n$rule\\n❯ /context\\n$rule\\n  ❯ /exit  actual payload\\n             continuation payload"
-  printf '%s\n' "transcript\\n$rule\\n❯ /context\\n$rule\\n  ❯ /exit  actual payload\\n  ⏵⏵ bypass permissions on (shift+tab to cycle)\\n    /help  more payload"
-  printf '%s\n' "transcript\\n$rule\\n❯ /unrelated\\n$rule\\n  ❯ /exit    actual payload\\n             continuation payload\\n    /help    more payload"
-  printf '%s\n' "transcript\\n$rule\\n›$NBSP\\n$rule\\n  › /exit        Exit the CLI\\n    /context       Visualize"
-}
-
-test_matrix_slash_menu_exemption_is_claude_only() {
-  # The slash-menu exemption reads rows as furniture, which can only ever move a
-  # verdict toward `empty`, so it is scoped to the one harness that draws that
-  # menu: the pane must be IDENTIFIED as claude (the caller passes it, as the
-  # classifier's identity probe already does for pi). Any other harness - codex
-  # `›`, pi, or one nobody identified - keeps every menu-looking row as content.
-  local fx=$ROOT/tests/fixtures/send-guard agent line screen out n=0 plain styled
-  plain=$(cat "$fx/claude296-slash-menu.plain")
-  styled=$(cat "$fx/claude296-slash-menu.ansi")
-  while IFS= read -r line; do
-    screen=$(printf '%b' "$line")
-    for agent in codex pi probe-absent ''; do
-      out=$(fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen" "$agent")
-      [ -n "$out" ] || fail "menu lookalike #$n must not extract empty for agent '$agent'"
-      out=$(LC_ALL=C fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen" "$agent")
-      [ -n "$out" ] || fail "menu lookalike #$n must not extract empty for agent '$agent' under LC_ALL=C"
-      if [ -n "$agent" ] && [ "$agent" != probe-absent ]; then
-        out=$(fm_composer_classify_screen "$CAPS_STYLED" "$screen" '' "$(printf '%s\tidle' "$agent")")
-        [ "$out" != empty ] || fail "menu lookalike #$n must never read empty for agent '$agent'"
-        out=$(LC_ALL=C fm_composer_classify_screen "$CAPS_STYLED" "$screen" '' "$(printf '%s\tidle' "$agent")")
-        [ "$out" != empty ] || fail "menu lookalike #$n must never read empty for agent '$agent' under LC_ALL=C"
-      fi
-      out=$(fm_composer_classify_screen "$CAPS_PLAIN" "$screen")
-      [ "$out" != empty ] || fail "menu lookalike #$n must never read empty without an identity capability"
-    done
-    n=$((n + 1))
-  done < <(menu_lookalike_screens)
-  # The real capture, run as a non-claude pane or an unidentified one, is NOT
-  # exempted: the menu text stays in the extracted content.
-  for agent in codex pi probe-absent ''; do
-    out=$(fm_composer_extract_selected_content "$CAPS_PLAIN" "$plain" "$agent")
-    case "$out" in *'Exit the CLI'*) ;; *) fail "the real capture must not be exempted for agent '$agent', got '$out'" ;; esac
-    out=$(FM_COMPOSER_GHOST_LUMA_MAX=0 fm_composer_extract_selected_content "$CAPS_STYLED" "$styled" "$agent")
-    case "$out" in *'Exit the CLI'*) ;; *) fail "the real styled capture must not be exempted for agent '$agent', got '$out'" ;; esac
-  done
-  # An identity-capable backend with no identity yet is asked for it, once; a
-  # backend that cannot supply one never gets the exemption and never asks.
-  out=$(fm_composer_classify_screen "$CAPS_STYLED" "$styled")
-  [ "$out" = need-identity ] || fail "the real capture on an identity-capable backend must ask for the identity, got '$out'"
-  out=$(fm_composer_classify_screen "$CAPS_PLAIN" "$plain")
-  [ "$out" != need-identity ] || fail "a backend without an identity capability must never ask for one"
-  # A menu-shaped block under a composer that is not rule-bounded is never read.
-  screen=$'transcript\n╭──────────────────────────────╮\n│ ❯ /exit                      │\n╰──────────────────────────────╯\n  ❯ /exit        Exit the CLI\n    /context       Visualize the grid'
-  out=$(fm_composer_extract_selected_content "$CAPS_PLAIN" "$screen" claude)
-  case "$out" in *'Visualize the grid'*) ;; *) fail "a boxed composer must not exempt a menu-shaped block even for claude, got '$out'" ;; esac
-  pass "matrix: the slash-menu exemption needs a claude identity and a rule-bounded composer; every other pane keeps its rows as content"
-}
-
 test_matrix_claude_bare_nbsp_row() {
   # Real idle claude: `❯` + U+00A0, borderless, between horizontal rules.
   # The audit's headline defect: this row read `pending` under LC_ALL=C
@@ -1012,171 +776,6 @@ test_matrix_opencode_leftbar_signals() {
   pass "matrix: opencode's left-bar composer reads empty everywhere and scans the full active run"
 }
 
-test_matrix_opencode_wrapped_label() {
-  # opencode's right panel draws a right-aligned `cwd:branch` label beside the
-  # composer; with a long worktree path and branch id it wraps over one or more
-  # rows directly above the Build row (live capture 2026-10-11, pane w66:p2,
-  # data/local/pi-refused-capture-mac-1011). Those rows carry no left-column
-  # content, so the strict reading counted them as a draft and refused a
-  # visibly empty composer. They are furniture only when the whole contiguous
-  # block above a PROVEN Build/Plan footer is bounded by a blank or edge row on
-  # top, and the native identity reports opencode idle/done; a working/blocked
-  # identity defers, a draft in the left column stays pending, a right-column
-  # row that is not label-shaped stays pending, and a run that lost its top
-  # bound or its Build footer is not empty. A newer opencode also extends the
-  # keybind-hint row under the floor with cwd/context/cost cells and a trailing
-  # `• OpenCode <version>` cell, which must still read as furniture.
-  local pad floor build i
-  local done_id idle_id work_id block_id pi_id
-  local oldhint newhint s3 s2 s1 s3new s3new_plain typed notlabel broken
-  local e1a e1b e2blank e2del e1c menu mb mreason r4a r4b r4c r4d r4e r5a r5b r5c r5m
-  done_id=$(printf 'opencode\tdone'); idle_id=$(printf 'opencode\tidle')
-  work_id=$(printf 'opencode\tworking'); block_id=$(printf 'opencode\tblocked')
-  pi_id=$(printf 'pi\tdone')
-  pad=$(printf '%39s' '')
-  floor='  ╹'
-  for ((i = 0; i < 39; i++)); do floor+='▀'; done
-  # The old-style hint row keeps the parent's own selection working, so these
-  # fixtures exercise the NEW label/identity logic (the parent reads the label
-  # rows as content -> pending) instead of the extended-hint fix.
-  oldhint='  /Users/x/proj  tab agents  ctrl+p commands'
-  # shellcheck disable=SC2016 # literal captured row text, never expanded
-  newhint='  /Users/x/proj  315.8K (32%) · $0.16  ctrl+p commands    • OpenCode 1.18.35'
-  build='  ┃  Build · DeepSeek V4.1 Flash OpenCode Go'
-  s3=$(printf '%s\n' '  ┃' "  ┃${pad}~/.treehouse/firstmate-fa5015/1/" \
-    "  ┃${pad}firstmate:fm/fm-pi-opencodego-empty-" \
-    "${build}${pad}composer-1011" "$floor" "$oldhint")
-  s2=$(printf '%s\n' '  ┃' "  ┃${pad}firstmate:fm/fm-pi-opencodego-empty-" \
-    "${build}${pad}composer-1011" "$floor" "$oldhint")
-  s1=$(printf '%s\n' '  ┃' \
-    "  ┃${pad}~/.treehouse/firstmate-fa5015/1/firstmate:fm/fm-branch-1011" \
-    "$build" "$floor" "$oldhint")
-  assert_screen "opencode wrapped label 3 rows done" empty "$CAPS_STYLED" "$s3" '' "$done_id"
-  assert_screen "opencode wrapped label 3 rows idle" empty "$CAPS_STYLED" "$s3" '' "$idle_id"
-  assert_screen "opencode wrapped label 2 rows done" empty "$CAPS_STYLED" "$s2" '' "$done_id"
-  assert_screen "opencode wrapped label 1 row done" empty "$CAPS_STYLED" "$s1" '' "$done_id"
-  # Identity idle/done is required: working/blocked defer, a foreign agent's
-  # identity cannot prove the opencode shape, and no identity capability or a
-  # lazy probe that has not run yet is not empty either.
-  assert_screen "opencode wrapped label working defers" unknown "$CAPS_STYLED" "$s3" '' "$work_id"
-  assert_screen "opencode wrapped label blocked defers" unknown "$CAPS_STYLED" "$s3" '' "$block_id"
-  assert_screen "opencode wrapped label foreign identity" unknown "$CAPS_STYLED" "$s3" '' "$pi_id"
-  assert_screen "opencode wrapped label no identity capability" unknown "$CAPS_STYLED_NOID" "$s3" '' "$done_id"
-  [ "$(fm_composer_classify_screen "$CAPS_STYLED" "$s3")" = need-identity ] \
-    || fail "an identity-capable profile should request the lazy probe for the wrapped-label shape"
-  # The real capture's extended hint row is what the parent rejected; the new
-  # hint pattern consumes it and the label block reads empty.
-  s3new=$(printf '%s\n' '  ┃' "  ┃${pad}~/.treehouse/firstmate-fa5015/1/" \
-    "  ┃${pad}firstmate:fm/fm-pi-opencodego-empty-" \
-    "${build}${pad}composer-1011" "$floor" "$newhint")
-  assert_screen "opencode wrapped label extended hint done" empty "$CAPS_STYLED" "$s3new" '' "$done_id"
-  assert_screen "opencode wrapped label extended hint working" unknown "$CAPS_STYLED" "$s3new" '' "$work_id"
-  # A draft typed in the left content column stays pending, never empty.
-  typed=$(printf '%s\n' '  ┃' '  ┃  please delete this draft' "$build" "$floor" "$oldhint")
-  assert_screen "opencode wrapped label typed left column" pending "$CAPS_STYLED" "$typed" '' "$done_id"
-  # Right-column text that is not a path/branch token is not a label.
-  notlabel=$(printf '%s\n' '  ┃' "  ┃${pad}hello world not a label" "$build" "$floor" "$oldhint")
-  assert_screen "opencode wrapped label right column non-label" pending "$CAPS_STYLED" "$notlabel" '' "$done_id"
-  # A non-label right-column row breaks the contiguous block: the label row
-  # below it is no longer proven furniture, so the screen stays pending.
-  broken=$(printf '%s\n' '  ┃' "  ┃${pad}not a label here" \
-    "  ┃${pad}firstmate:fm/branch-" "${build}${pad}tail-1011" "$floor" "$oldhint")
-  assert_screen "opencode wrapped label broken block" pending "$CAPS_STYLED" "$broken" '' "$done_id"
-  # E1: the run's top must be positively bounded. A visible draft row whose bar
-  # was lost directly above the selected suffix is not a bounded composer, so
-  # the run refuses rather than hiding that draft as empty.
-  e1a=$(printf '%s\n' '  ┃' '     please delete this draft' \
-    "  ┃${pad}firstmate:fm/fm-branch-" "${build}${pad}tail-1011" "$floor" "$oldhint")
-  assert_screen "opencode wrapped label unbounded run with barless draft" unknown "$CAPS_STYLED" "$e1a" '' "$done_id"
-  # E1: a barred draft row inside the label rows stays content.
-  e1b=$(printf '%s\n' '  ┃' "  ┃${pad}~/.treehouse/firstmate-fa5015/1/" \
-    '  ┃  please delete this draft' "  ┃${pad}firstmate:fm/fm-branch-" "$build" "$floor" "$oldhint")
-  assert_screen "opencode wrapped label barred draft inside labels" pending "$CAPS_STYLED" "$e1b" '' "$done_id"
-  # E2: the Build/Plan footer is the boundary the label block is defined
-  # against; blanking or deleting it keeps the label-looking rows as content.
-  e2blank=$(printf '%s\n' '  ┃' "  ┃${pad}~/.treehouse/firstmate-fa5015/1/" \
-    "  ┃${pad}firstmate:fm/fm-branch-" '  ┃' "$floor" "$oldhint")
-  assert_screen "opencode wrapped label Build blanked" pending "$CAPS_STYLED" "$e2blank" '' "$done_id"
-  e2del=$(printf '%s\n' '  ┃' "  ┃${pad}~/.treehouse/firstmate-fa5015/1/" \
-    "  ┃${pad}firstmate:fm/fm-branch-" "$floor" "$oldhint")
-  assert_screen "opencode wrapped label Build deleted" pending "$CAPS_STYLED" "$e2del" '' "$done_id"
-  # E1: with every label bar gone the selected run is Build-only; the barless
-  # label rows above it leave the top unbounded, so it refuses (never empty).
-  e1c=$(printf '%s\n' '  ┃' "${pad}~/.treehouse/firstmate-fa5015/1/" \
-    "${pad}firstmate:fm/fm-branch-" "$build" "$floor" "$oldhint")
-  assert_screen "opencode wrapped label all label bars removed" unknown "$CAPS_STYLED" "$e1c" '' "$done_id"
-  # Round 4: the run's top must be a positive padding row (bar glyph and
-  # nothing else); edge glyphs on a draft row prove nothing.
-  r4a=$(printf '%s\n' '  ┃' '     please delete this draft+' \
-    "  ┃${pad}firstmate:fm/fm-branch-" "${build}${pad}tail-1011" "$floor" "$oldhint")
-  assert_screen "opencode label barless draft ending + not empty" unknown "$CAPS_STYLED" "$r4a" '' "$done_id"
-  r4b=$(printf '%s\n' '  ┃' '     please delete this draft┃' \
-    "  ┃${pad}firstmate:fm/fm-branch-" "${build}${pad}tail-1011" "$floor" "$oldhint")
-  assert_screen "opencode label barless draft ending bar not empty" unknown "$CAPS_STYLED" "$r4b" '' "$done_id"
-  r4c=$(printf '%s\n' '  ┃' '  ┃  please delete this draft' '' \
-    "  ┃${pad}firstmate:fm/fm-branch-" "${build}${pad}tail-1011" "$floor" "$oldhint")
-  assert_screen "opencode label draft then blank then residual run not empty" "$(printf unknown)" "$CAPS_STYLED" "$r4c" '' "$done_id"
-  r4d=$(printf '%s\n' '     please delete this draft' '' \
-    "  ┃${pad}firstmate:fm/fm-branch-" "${build}${pad}tail-1011" "$floor" "$oldhint")
-  assert_screen "opencode label barless draft blank residual run not empty" unknown "$CAPS_STYLED" "$r4d" '' "$done_id"
-  # Transcript above a padding-topped run is ignored.
-  r4e=$(printf '%s\n' 'earlier transcript line+' '' '  ┃' \
-    "  ┃${pad}firstmate:fm/fm-branch-" "${build}${pad}tail-1011" "$floor" "$oldhint")
-  assert_screen "opencode label transcript above padding ignored" empty "$CAPS_STYLED" "$r4e" '' "$done_id"
-  assert_screen "opencode label transcript above padding working" unknown "$CAPS_STYLED" "$r4e" '' "$work_id"
-  assert_screen "opencode label transcript above padding blocked" unknown "$CAPS_STYLED" "$r4e" '' "$block_id"
-  # Round 5: the padding top must also be set off from the transcript. A draft
-  # row, a blank, then a later padding row + label + Build is an interrupted
-  # draft in an unclosed box, not a new composer (report review4, error).
-  r5a=$(printf '%s\n' '  ┃' '  ┃  please delete this draft' '' '  ┃' \
-    "  ┃${pad}~/.treehouse/firstmate-fa5015/1/" "  ┃${pad}firstmate:fm/fm-pi-opencodego-empty-" \
-    "${build}${pad}composer-1011" "$floor" "$oldhint")
-  assert_screen "opencode label later padding after barred draft" unknown "$CAPS_STYLED" "$r5a" '' "$done_id"
-  assert_screen "opencode label later padding after barred draft idle" unknown "$CAPS_STYLED" "$r5a" '' "$idle_id"
-  r5b=$(printf '%s\n' '  ┃' '     please delete this draft' '  ┃' \
-    "  ┃${pad}~/.treehouse/firstmate-fa5015/1/" "  ┃${pad}firstmate:fm/fm-pi-opencodego-empty-" \
-    "${build}${pad}composer-1011" "$floor" "$oldhint")
-  assert_screen "opencode label barless draft directly above padding" unknown "$CAPS_STYLED" "$r5b" '' "$done_id"
-  # The capture's own separation: barless transcript, one blank, then padding.
-  r5c=$(printf '%s\n' '     ▣  Build · DeepSeek V4.1 Flash' '' '  ┃' \
-    "  ┃${pad}~/.treehouse/firstmate-fa5015/1/" "  ┃${pad}firstmate:fm/fm-pi-opencodego-empty-" \
-    "${build}${pad}composer-1011" "$floor" "$oldhint")
-  assert_screen "opencode label capture-shaped transcript separation" empty "$CAPS_STYLED" "$r5c" '' "$done_id"
-  assert_screen "opencode label capture-shaped working defers" unknown "$CAPS_STYLED" "$r5c" '' "$work_id"
-  # A menu, a blank, then a padding-topped composer: classifier reads the
-  # composer, and the all-screen send guard independently refuses the send.
-  r5m=$(printf '%s\n' '  Enter to select · Esc to cancel' '' '  ┃' \
-    "  ┃${pad}~/.treehouse/firstmate-fa5015/1/" "  ┃${pad}firstmate:fm/fm-branch-" \
-    "${build}${pad}tail-1011" "$floor" "$oldhint")
-  mreason=$(fm_composer_send_refusal "$r5m" empty opencode)
-  [ -n "$mreason" ] \
-    || fail "a separated picker above the box must be refused by the send guard, got no reason"
-  # KNOWN RESIDUAL of the label proof: a barless continuation row, a barred
-  # draft with a barless continuation, or a glyph-only row followed by a blank
-  # row and a later padding row + label + Build + floor still classify empty
-  # for opencode idle/done. These are malformed/interrupted lost-bar screens,
-  # never observed in ordinary typing. Consequence: a doorbell line typed
-  # after an unsent draft; the durable inbox message is unaffected. A
-  # follow-up replaces the per-row proofs with an exact-template match.
-  # A picker drawn directly over the box leaves the run unbounded: the
-  # classifier refuses, and the opencode/muse all-screen menu check in
-  # fm_composer_send_refusal independently refuses the send.
-  menu=$(printf '%s\n' '  ┃' '  Enter to select · Esc to cancel' \
-    "  ┃${pad}~/.treehouse/firstmate-fa5015/1/" "  ┃${pad}firstmate:fm/fm-branch-" "$build" "$floor" "$oldhint")
-  assert_screen "opencode wrapped label menu over box" unknown "$CAPS_STYLED" "$menu" '' "$done_id"
-  mreason=$(fm_composer_send_refusal "$menu" empty opencode)
-  [ -n "$mreason" ] \
-    || fail "a picker over the box must be refused by the send guard, got no reason"
-  # A non-ASCII path is not in the label alphabet: fail safe to non-empty.
-  mb=$(printf '%s\n' '  ┃' "  ┃${pad}/π/项目:branch" "$build" "$floor" "$oldhint")
-  assert_screen "opencode wrapped label multibyte path stays non-empty" pending "$CAPS_STYLED" "$mb" '' "$done_id"
-  # The extended hint row under the floor is furniture on the ordinary shape.
-  s3new_plain=$(printf '%s\n' '  ┃' '  ┃  Ask anything… "Fix broken tests"' '  ┃' \
-    '  ┃  Build · MiMo-V2.6-Flash Free OpenCode Zen' "$floor" "$newhint")
-  assert_screen "opencode extended hint row under floor" empty "$CAPS_STYLED" "$s3new_plain"
-  pass "matrix: opencode's wrapped cwd:branch label reads empty only for a bounded run over a proven Build footer; drafts, broken runs, and unbounded tops stay non-empty"
-}
-
 test_matrix_opencode_leftbar_cwd_furniture() {
   # Real idle OpenCode 1.18.31, captured live on 2026-09-18 from a firstmate
   # tmux worker pane (fixtures/opencode-1.18.31-cwd/opencode-1.18.31-idle-cwd.ansi,
@@ -1310,11 +909,7 @@ test_matrix_opencode_leftbar_cwd_furniture() {
   # tolerance.
   fixture="$ROOT/tests/fixtures/opencode-1.18.31-cwd/opencode-1.18.31-idle-short-cwd.ansi"
   screen=$(<"$fixture")
-  # Under a padding row the fragment is the wrapped-label shape, whose empty
-  # verdict needs the native idle/done identity.
-  assert_screen "opencode 1.18.31 idle short cwd:branch furniture on tmux asks for identity" need-identity "$CAPS_TMUX" "$screen" 14
-  assert_screen "opencode 1.18.31 idle short cwd:branch furniture on tmux" empty "$CAPS_TMUX" "$screen" 14 "$(printf 'opencode\tidle')"
-  assert_screen "opencode 1.18.31 short cwd:branch furniture on a working tmux pane" unknown "$CAPS_TMUX" "$screen" 14 "$(printf 'opencode\tworking')"
+  assert_screen "opencode 1.18.31 idle short cwd:branch furniture on tmux" empty "$CAPS_TMUX" "$screen" 14
   composer=$(printf '%s\n' "$screen" | tail -n 9 | head -n 6)
   assert_screen "opencode 1.18.31 short cwd furniture on herdr" empty "$CAPS_STYLED" "$composer"
   assert_screen "opencode 1.18.31 short cwd furniture on zellij" empty "$CAPS_STYLED_NOID" "$composer"
@@ -1348,11 +943,8 @@ test_matrix_opencode_leftbar_abs_cwd_furniture() {
   local busy idle composer start typed typed_row long_gap out rail_row footer_row
   busy=$(<"$ROOT/tests/fixtures/opencode-1.18.31-cwd/opencode-1.18.31-busy-wide-abs-cwd.ansi")
   idle=$(<"$ROOT/tests/fixtures/opencode-1.18.31-cwd/opencode-1.18.31-idle-wide-abs-cwd.ansi")
-  # Under a padding row the rail is the wrapped-label shape: its empty verdict
-  # needs the native idle/done identity, and a working pane defers.
-  assert_screen "opencode 1.18.31 busy wide absolute cwd rail on tmux asks for identity" need-identity "$CAPS_TMUX" "$busy" 14
-  assert_screen "opencode 1.18.31 busy wide absolute cwd rail on tmux" unknown "$CAPS_TMUX" "$busy" 14 "$(printf 'opencode\tworking')"
-  assert_screen "opencode 1.18.31 idle wide absolute cwd rail on tmux" empty "$CAPS_TMUX" "$idle" 14 "$(printf 'opencode\tidle')"
+  assert_screen "opencode 1.18.31 busy wide absolute cwd rail on tmux" empty "$CAPS_TMUX" "$busy" 14
+  assert_screen "opencode 1.18.31 idle wide absolute cwd rail on tmux" empty "$CAPS_TMUX" "$idle" 14
   composer=$(printf '%s\n' "$busy" | sed -n '14,17p')
   assert_screen "opencode wide absolute cwd rail on herdr" empty "$CAPS_STYLED" "$composer"
   assert_screen "opencode wide absolute cwd rail on cmux/orca" empty "$CAPS_PLAIN" "$composer"
@@ -1464,42 +1056,6 @@ test_matrix_claude_titled_top_rule() {
   assert_screen "untitled claude idle on herdr" empty "$CAPS_STYLED" \
     "$bottom"$'\n❯'"$NBSP"$'\n'"$bottom"$'\n'"$footer" '' "$claude_idle"
   pass "matrix: claude's titled top rule proves an idle composer empty and a draft pending (#5601, #5558)"
-}
-
-test_matrix_live_idle_prompts_read_cursorless() {
-  # Real idle panes captured 2026-10-10 from claude 2.1.296 and Muse Code 1.4.3,
-  # read the way Herdr reads them (cursorless, styled, identity from
-  # the native probe). Muse draws its composer between a TITLED top rule that
-  # opens with a two-dash lead-in (`── Voice input (...) ───`) and an untitled
-  # closing rule; the titled-rule predicate required an eight-dash opener, so
-  # a visibly empty Muse composer read `unknown` and every steer to a Muse
-  # lane was refused as an unrecognised prompt.
-  local fx=$ROOT/tests/fixtures/send-guard idle draft titled plain mismatched
-  idle=$(cat "$fx/claude296-idle.txt")
-  draft=$(cat "$fx/claude296-draft.txt")
-  assert_screen "claude 2.1.296 idle on herdr" empty "$CAPS_STYLED" "$idle" '' "$(printf 'claude\tidle')"
-  assert_screen "claude 2.1.296 draft on herdr" pending "$CAPS_STYLED" "$draft" '' "$(printf 'claude\tidle')"
-  assert_screen "claude 2.1.296 idle on tmux" empty "$CAPS_TMUX" "$idle" "$(cat "$fx/claude296-idle.cursor")" probe-absent
-  assert_screen "claude 2.1.296 draft on tmux" pending "$CAPS_TMUX" "$draft" "$(cat "$fx/claude296-draft.cursor")" probe-absent
-  idle=$(cat "$fx/muse-idle.txt")
-  draft=$(cat "$fx/muse-draft.txt")
-  # Muse is not a Herdr-registered agent, so its native probe is absent.
-  assert_screen "muse 1.4.3 idle on herdr" empty "$CAPS_STYLED" "$idle" '' probe-absent
-  assert_screen "muse 1.4.3 idle on herdr, probe says muse" empty "$CAPS_STYLED" "$idle" '' "$(printf 'muse\tidle')"
-  assert_screen "muse 1.4.3 idle on zellij" empty "$CAPS_STYLED_NOID" "$idle"
-  assert_screen "muse 1.4.3 draft on herdr" pending "$CAPS_STYLED" "$draft" '' probe-absent
-  assert_screen "muse 1.4.3 draft on zellij" pending "$CAPS_STYLED_NOID" "$draft"
-  assert_screen "muse 1.4.3 idle on tmux" empty "$CAPS_TMUX" "$idle" "$(cat "$fx/muse-idle.cursor")" probe-absent
-  assert_screen "muse 1.4.3 draft on tmux" pending "$CAPS_TMUX" "$draft" "$(cat "$fx/muse-draft.cursor")" probe-absent
-  # The two-dash opener is still held to the width proof: a titled rule that
-  # is narrower than its closing rule is not that composer's top edge.
-  titled='── Voice input (alt(option)+v to start) ──────────'
-  plain='──────────────────────────────────────────────────────────────────────'
-  assert_screen "muse-style titled rule of matching width" empty "$CAPS_STYLED_NOID" \
-    "${titled}"$'\n❯'"$NBSP"$'\n'"${plain:0:${#titled}}"
-  mismatched="${titled}"$'\n❯'"$NBSP"$'\n'"${plain}"
-  assert_screen "muse-style titled rule narrower than its closing rule" unknown "$CAPS_STYLED_NOID" "$mismatched"
-  pass "matrix: live claude 2.1.296 and Muse 1.4.3 idle prompts read empty and their drafts pending, cursorless and with a cursor"
 }
 
 test_matrix_kimi_bordered_shell_glyph_box() {
@@ -1647,27 +1203,6 @@ test_cursorless_container_rejects_contiguous_lower_activity() {
   pass "fm_composer_classify_screen: cursorless containers reject only contiguous unclaimed activity"
 }
 
-test_opencode_keybind_hint_below_floor() {
-  # opencode 1.18.33 (captured live in a Herdr lab) draws `tab agents  ctrl+p
-  # commands` on the row directly under the left bar's half-block floor, which
-  # used to read as a lower live shape and made an empty composer `unknown`.
-  local hint idle typed activity
-  hint='                                                                      tab agents  ctrl+p commands'
-  idle=$'\n                      ┃\n                      ┃  Ask anything… "Fix broken tests"\n                      ┃\n                      ┃  Build · MiMo-V2.6-Flash Free OpenCode Zen\n                      ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀\n'"$hint"$'\n\n\n   ● Tip Run /connect to add an AI provider and start coding\n\n  /tmp/work   1.18.33'
-  typed=${idle/'Ask anything… "Fix broken tests"'/'FM doorbell: read the inbox'}
-  assert_screen "opencode hint row under floor, idle, on herdr" empty "$CAPS_STYLED" "$idle"
-  assert_screen "opencode hint row under floor, idle, plain" empty "$CAPS_PLAIN" "$idle"
-  assert_screen "opencode hint row under floor, typed, styled" pending "$CAPS_STYLED" "$typed"
-  assert_screen "opencode hint row under floor, typed, plain stays unproven" unknown "$CAPS_PLAIN" "$typed"
-  # The hint row is only furniture when it IS the hint: live activity directly
-  # under the floor, or under the floor plus a hint, still refuses.
-  activity=${idle/"$hint"/'Working on request...'}
-  assert_screen "opencode activity row under floor still refuses" unknown "$CAPS_STYLED" "$activity"
-  activity=${idle/"$hint"/"$hint"$'\nWorking on request...'}
-  assert_screen "opencode live row under the hint row still refuses" unknown "$CAPS_STYLED" "$activity"
-  pass "fm_composer_classify_screen: opencode's keybind hint under the left-bar floor is furniture, not a lower shape"
-}
-
 test_bottom_most_candidate_wins() {
   # The one ranking rule: the live composer is bottom-anchored, so a stale
   # decorative box (codex's startup banner) can never outrank the real row
@@ -1773,17 +1308,10 @@ test_matrix_codex_idle_starfield_furniture
 test_matrix_pi_separated_needs_identity
 test_matrix_pi_dollar_status_footer_is_empty
 test_matrix_opencode_leftbar_signals
-test_matrix_opencode_wrapped_label
-test_opencode_keybind_hint_below_floor
 test_matrix_opencode_leftbar_cwd_furniture
 test_matrix_opencode_leftbar_abs_cwd_furniture
 test_matrix_grok_titled_bottom_border
 test_matrix_claude_titled_top_rule
-test_matrix_live_idle_prompts_read_cursorless
-test_matrix_claude_slash_menu_is_not_the_composer
-test_matrix_indented_live_draft_under_the_pair_is_not_menu_furniture
-test_matrix_indented_continuation_rows_of_a_draft_are_kept
-test_matrix_slash_menu_exemption_is_claude_only
 test_matrix_kimi_bordered_shell_glyph_box
 test_matrix_claude_inside_zellij_ansi_dump
 test_strict_blank_row_divergence

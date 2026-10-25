@@ -120,7 +120,6 @@ import {
   FM_BRANCH_DISPATCH_EVENT,
   releaseEligibleRowsSnapshot,
   scopeForUnreadWake,
-  scopeNamesNoTask,
   writeEligibleRowsSnapshot,
   type BranchDispatchOffer,
 } from "./lib/fm-branch-dispatch.ts";
@@ -1556,7 +1555,7 @@ ${context.command}
         const entryOffset = sessionManager.getEntries().length;
         // A claimed check row names no task, so a prompt carrying one is not
         // scoped by task (only possible in the away posture).
-        wakeTaskScope = scopeNamesNoTask(scope, heartbeat)
+        wakeTaskScope = heartbeat || scope.checkSeqs.length > 0 || scope.heartbeatSeqs.length > 0
           ? null
           : { rows: [...scope.eligibleSeqs], tasks: new Set(scope.eligibleTasks) };
         // Same residual: archive during snapshot publish or read-back still
@@ -1697,17 +1696,9 @@ ${context.command}
     // getEntries() here loses the captain request that the next wake may answer.
     // Stage it verbatim and remember the future persisted index for turn_end's
     // duplicate suppression. Operational extension injections are not dialog.
-    // BeforeAgentStartEvent is a union: only the user-prompt variant has .prompt.
-    const prompt = "prompt" in event ? event.prompt : undefined;
-    processingOpenedThisRun = queuedProcessingContent !== null && typeof prompt === "string" && prompt === queuedProcessingContent;
-    // pi 1.2.0 builds before_agent_start as {...trigger, ...} and trigger
-    // carries no .prompt on continuation turns: fall back to the trigger
-    // message text so a missing prompt can never throw and skip the mirror
-    // staging below again.
-    const triggerMessage = (event as { trigger?: { message?: { content?: unknown } }; message?: { content?: unknown } }).trigger?.message
-      ?? (event as { message?: { content?: unknown } }).message;
-    const promptText = typeof prompt === "string" ? prompt : textOfContent(triggerMessage?.content);
-    const trimmed = promptText.trim();
+    const prompt = event.prompt;
+    processingOpenedThisRun = queuedProcessingContent !== null && prompt === queuedProcessingContent;
+    const trimmed = prompt.trim();
     if (!trimmed || isOperationalUserText(trimmed)) return;
     const file = currentMainSession.getSessionFile() ?? "";
     const index = mirrorCollection.collectAnchor?.index ?? currentMainSession.getEntries().length;

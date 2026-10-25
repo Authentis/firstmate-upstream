@@ -52,14 +52,13 @@
 #     that is unsafe or holds nothing for the branch) stay main's. That
 #     pass-through starts the successor watcher cycle and leaves it running
 #     before the close is printed, so supervision continues when the session
-#     drops the handoff. It hands its own confirmed handoff back to downtime
-#     and confirms no handling handoff, so the re-arm owner delivers the close
-#     to main (hand_downtime_to_main). The host records that successor's arm
-#     before relinquishing it (detach_successor owns the persistence check
-#     and failure path). The session's next park without --restart requests
-#     a take-over of its cycle rather than an ordinary attach;
-#     bin/fm-watch-arm.sh's --take-over header owns the conditions under
-#     which that restores a single owner and the fallback;
+#     drops the handoff. It confirms no handling handoff, so the recovery
+#     marker still reads downtime and the re-arm owner delivers the close to
+#     main. The host records that successor's arm before relinquishing it
+#     (detach_successor owns the persistence check and failure path). The
+#     session's next park without --restart requests a take-over of its cycle
+#     rather than an ordinary attach; bin/fm-watch-arm.sh's --take-over header owns the
+#     conditions under which that restores a single owner and the fallback;
 #   - away (an away record exists): every close goes to the engine.
 # Every turn that starts attended meets that rule again at its start, so a
 # close accepted away whose turn starts attended (the captain returned in
@@ -170,11 +169,7 @@
 # monotonic-clock guarantee. Arm exit probes use ordinary 0.5-second child
 # sleeps within the unchanged POLL-cadence maintenance and boundary checks;
 # close observation and a shell-only caught signal may wait that interval plus
-# work/scheduling time. A builtin timed read was tried in place of the sleep and
-# left out: a TERM landing during the exit cleanup crashed Bash 5.3 about one
-# run in six. The parked arm's recorded process identity is re-read every poll
-# until two reads agree, then every 15 seconds, so a late change reaches the
-# record within 15 seconds. No stop-signal disposition or cleanup bound changes.
+# work/scheduling time. No stop-signal disposition or cleanup bound changes.
 # FM_TEST_SUPERVISION_HOST_CLOCK names a file holding the park's elapsed
 # seconds, which the park and turn boundary checks read in place of SECONDS
 # only when FM_TEST_SEAM=1; tests/lib.sh arms the marker for isolated suites.
@@ -280,12 +275,6 @@ TURN_ERRORS=
 # (header, OUTPUT) and left out of that cycle's close.
 READY_PENDING=1
 READY_LINE=
-# refresh_process remembers the last identity it verified for one pid.
-REFRESH_RECHECK=15
-REFRESH_PID=
-REFRESH_IDENTITY=
-REFRESH_STABLE=0
-REFRESH_NEXT=0
 
 log_line() {  # <text>
   local tmp
@@ -312,23 +301,8 @@ record_process() {  # <role> <pid>
 refresh_process() {  # <pid>
   local pid=$1 identity tmp
   [ -n "$pid" ] && [ -f "$HOST_RECORD" ] || return 0
-  # A pid whose identity read the same on two consecutive refreshes is past its
-  # fork-to-exec window, so it is verified again only every REFRESH_RECHECK
-  # seconds instead of on every poll.
-  if [ "$pid" = "$REFRESH_PID" ] && [ "$REFRESH_STABLE" -ge 2 ] && [ "$SECONDS" -lt "$REFRESH_NEXT" ]; then
-    return 0
-  fi
   identity=$(identity_of "$pid")
   [ -n "$identity" ] || return 0
-  if [ "$pid" = "$REFRESH_PID" ] && [ "$identity" = "$REFRESH_IDENTITY" ]; then
-    REFRESH_STABLE=$((REFRESH_STABLE + 1))
-    REFRESH_NEXT=$((SECONDS + REFRESH_RECHECK))
-    return 0
-  fi
-  REFRESH_PID=$pid
-  REFRESH_IDENTITY=$identity
-  REFRESH_STABLE=1
-  REFRESH_NEXT=$((SECONDS + REFRESH_RECHECK))
   awk -F '\t' -v pid="$pid" -v id="$identity" '$2 == pid && $3 != id { found = 1 } END { exit !found }' "$HOST_RECORD" 2>/dev/null || return 0
   tmp=$(mktemp "$HOST_RECORD.tmp.XXXXXX" 2>/dev/null) || return 0
   awk -F '\t' -v OFS='\t' -v pid="$pid" -v id="$identity" '$2 == pid { $3 = id } { print }' "$HOST_RECORD" > "$tmp" 2>/dev/null \
@@ -728,36 +702,11 @@ detach_successor() {
   SUCCESSOR_PID=
 }
 
-# Main, not the engine, handles an attended pass-through, and the re-arm owner
-# delivers it only while the recovery marker reads downtime (autoarm_commit in
-# bin/fm-claude-stop-autoarm.sh). Restoring is required, not just harmless: a
-# close surfaced from a row queued before an earlier close's handling handoff
-# appends nothing, so the marker can still read that handoff's handling, and
-# the re-arm owner would then drop the close in silence beside a healthy
-# successor. Only the handoff this host confirmed (SUCCESSOR_GENERATION, still
-# set from the handled close whose successor delivered this one) is handed
-# back; a marker of any other generation belongs to another owner and is left
-# as it is (fm_recovery_marker_restore_downtime). An absent or unparseable
-# marker is no episode to restore, so the main-only successor still starts and
-# its arm transition repairs the marker before the re-arm owner reads it. A
-# failed restore (lock or write failure, or a marker that is not a regular
-# file) returns 1, and the caller then leaves no successor and adds a
-# "supervision-host:" line. The re-arm owner's lost hand-back notice reaches
-# main only while a readable handling token remains in the marker. A marker
-# that is a directory, a symlink, or another non-regular file carries no such
-# token, so the re-arm owner exits 0 and main gets no notice: a known,
-# pre-existing limit of the re-arm owner.
-hand_downtime_to_main() {
-  fm_recovery_marker_restore_downtime "$STATE/.watcher-down" "$SUCCESSOR_GENERATION" \
-    >/dev/null 2>&1 && return 0
-  log_line "pass-through	downtime-unrestored	$(printf '%s\n' "$REASON" | head -n 1)"
-  return 1
-}
-
 # Start the same successor a handled wake starts and leave it running. It
-# confirms no handling handoff, so the marker hand_downtime_to_main restored
-# still reads downtime. A failed start returns 1; the caller still prints the
-# close unchanged.
+# confirms no handling handoff: main, not the engine, handles this close, and
+# the re-arm owner delivers it only while the recovery marker still reads
+# downtime (autoarm_commit in bin/fm-claude-stop-autoarm.sh). A failed start
+# returns 1; the caller still prints the close unchanged.
 leave_successor_for_main() {
   if ! ARM_OWN_GROUP=1 start_successor "$CLOSED_ARM_PID"; then
     log_line "pass-through	successor-unverified	$(printf '%s\n' "$REASON" | head -n 1)"
@@ -1145,14 +1094,7 @@ while :; do
   if ! fm_afk_contract_away_present "$STATE"; then
     if ! attended_acceptor "$(printf '%s\n' "$REASON" | head -n 1)"; then
       log_line "pass-through	attended	$ATTENDED_WHY	$(printf '%s\n' "$REASON" | head -n 1)"
-      # A superseded host must not touch the marker or arm a cycle that now
-      # belongs to another generation.
-      host_still_owner || stand_down "this session no longer owns supervision"
-      if ! hand_downtime_to_main; then
-        emit "supervision-host: watcher downtime could not be restored for the main hand-back"
-        exit 1
-      fi
-      if [ "$ATTENDED_WHY" = main-only ] && host_still_owner; then
+      if [ "$ATTENDED_WHY" = main-only ]; then
         leave_successor_for_main || true
       fi
       emit

@@ -55,7 +55,7 @@ FM_SUPERVISION_ENGINES_VERIFIED='claude'
 fm_supervision_host_primary() {
   if [ "${FM_TEST_SEAM:-}" = 1 ]; then
     case "${FM_TEST_HARNESS:-}" in
-      claude | codex | opencode | pi | pi-signed | grok | kimi | cursor | gemini | muse | rovo | omp | agy | devin | commandcode | unknown)
+      claude | codex | opencode | pi | pi-signed | grok | kimi | cursor | gemini | muse | rovo | omp | agy | devin | commandcode | polytoken | unknown)
         printf '%s\n' "$FM_TEST_HARNESS"
         return
         ;;
@@ -258,8 +258,7 @@ _fm_engine_identity() {  # <pid>
   local identity
   identity=$(fm_pid_identity "$1" 2>/dev/null) || return 1
   [ -n "$identity" ] || return 1
-  identity=${identity//[$'\t\n']/ }
-  printf '%s\n' "${identity%"${identity##*[! ]}"}"
+  printf '%s\n' "$identity" | tr '\t\n' '  ' | sed 's/ *$//'
 }
 
 # Print "<pid> <ppid>" for every process.

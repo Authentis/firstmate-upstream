@@ -208,9 +208,7 @@ test_agent_state_dispatcher_and_compatibility() {
 make_toolchain() {
   local dir=$1 fakebin
   fakebin=$(fm_fakebin "$dir")
-  fm_fake_exit0 "$fakebin" chrome-devtools-axi pi-signed
-  # Pi readiness executes a generated event hook, so Node must interpret it.
-  ln -sf "$(command -v node)" "$fakebin/node"
+  fm_fake_exit0 "$fakebin" node chrome-devtools-axi pi-signed
   fm_fake_version_tool "$fakebin" lavish-axi FM_FAKE_LAVISH_AXI_VERSION 0.1.80
   cat > "$fakebin/gh-axi" <<'SH'
 #!/usr/bin/env bash
@@ -278,14 +276,15 @@ mode=${FM_TEST_PANE_CMD:-zsh}
 windows="${FM_TMUX_CALL_LOG:?}.windows"
 case "${1:-}" in
   send-keys)
-    if [ "${!#}" = Enter ]; then
-      for ext in "${FM_STATE_OVERRIDE:-$FM_HOME/state}"/*.pi-first-call.ts; do
-        [ -f "$ext" ] || continue
-        node "$FM_TEST_PI_FIRST_CALL_FAKE" "$ext" || exit
+    if [ -n "${FM_FAKE_LAUNCH_LOG:-}" ]; then
+      for arg in "$@"; do
+        case "$arg" in
+          ". '"*"'") staged=${arg#". '"}; staged=${staged%"'"}; [ ! -f "$staged" ] || cat "$staged" >> "$FM_FAKE_LAUNCH_LOG" ;;
+          *'encode launch-brief'*|*'Firstmate operational input waiting: read'*) printf '%s\n' "$arg" >> "$FM_FAKE_LAUNCH_LOG" ;;
+        esac
       done
     fi
-    exit 0
-    ;;
+    exit 0 ;;
   display-message)
     for a in "$@"; do
       case "$a" in
@@ -382,7 +381,7 @@ add_sm_home() {
 run_bootstrap() {  # <fakebin> <home> <pane-cmd> <call-log> [extra env...] -> stdout
   local fb=$1 home=$2 cmd=$3 log=$4; shift 4
   PATH="$fb:$BASE_PATH" TMUX='' FM_BACKEND=tmux FM_HOME="$home" \
-    FM_TEST_PANE_CMD="$cmd" FM_TMUX_CALL_LOG="$log" FM_TEST_PI_FIRST_CALL_FAKE="$ROOT/tests/assets/pi-first-call-fake.mjs" \
+    FM_TEST_PANE_CMD="$cmd" FM_TMUX_CALL_LOG="$log" \
     env "$@" "$ROOT/bin/fm-bootstrap.sh" 2>&1
 }
 
@@ -404,6 +403,32 @@ test_sweep_respawns_confirmed_dead_secondmate() {
   assert_grep 'relaunched' "$w/home/state/.secondmate-relaunch-sm1" \
     "the shared library did not leave the durable per-mate relaunch record"
   pass "sweep: a confirmed-dead secondmate endpoint is killed and respawned"
+}
+
+test_sweep_recovers_the_durable_secondmate_account() {
+  local w fb tmuxfb log out
+  w=$(new_world sweep-account)
+  add_sm_home "$w" sm1 firstmate:fm-sm1
+  fb=$(make_toolchain "$w"); tmuxfb=$(make_liveness_tmux "$w")
+  mkdir -p "$w/home/config/secondmate-accounts/sm1" "$w/mate-account" "$w/primary-account" "$w/user-home"
+  printf 'claude\n' > "$w/home/config/secondmate-harness"
+  printf '%s\n' "$w/primary-account" > "$w/home/config/claude-account"
+  printf '%s\n' "$w/mate-account" > "$w/home/config/secondmate-accounts/sm1/claude-account"
+  : > "$w/mate-account/.credentials.json"
+  cat > "$fb/claude" <<'SH'
+#!/usr/bin/env bash
+[ "${1:-}" = auth ] && [ "${2:-}" = status ] || exit 0
+[ -f "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/.credentials.json" ]
+SH
+  chmod +x "$fb/claude"
+  log="$w/calls.log"; : > "$log"
+  out=$(run_bootstrap "$tmuxfb:$fb" "$w/home" zsh "$log" \
+    HOME="$w/user-home" CLAUDE_CONFIG_DIR="$w/ambient-account" FM_FAKE_LAUNCH_LOG="$w/launch.log")
+  assert_not_contains "$out" 'SECONDMATE_LIVENESS: secondmate sm1:' "account recovery should succeed: $out"
+  assert_grep 'relaunched' "$w/home/state/.secondmate-relaunch-sm1" "recovery must finish"
+  assert_grep "account=$w/mate-account" "$w/home/state/sm1.meta" "recovery must record the configured mate account"
+  assert_grep "CLAUDE_CONFIG_DIR='$w/mate-account'" "$w/launch.log" "recovery must launch on the durable mate pin, not the ambient account"
+  pass "sweep: secondmate recovery resolves its durable account despite a different ambient login"
 }
 
 test_sweep_serializes_distinct_secondmate_relaunches() {
@@ -563,7 +588,7 @@ test_sweep_respawns_authoritatively_missing_pi_secondmate() {
 test_sweep_respawns_authoritatively_missing_pi_signed_secondmate() {
   local w fb tmuxfb log out
   w=$(new_world sweep-missing-pi-signed)
-  printf '%s\n' 'pi-signed openai/gpt-6.1-sol' > "$w/home/config/secondmate-harness"
+  printf '%s\n' pi-signed > "$w/home/config/secondmate-harness"
   add_sm_home "$w" sm1 firstmate:fm-sm1 pi-signed
   fb=$(make_toolchain "$w"); tmuxfb=$(make_liveness_tmux "$w")
   log="$w/calls.log"; : > "$log"
@@ -795,32 +820,12 @@ test_remote_poll_probe_unreachable_preserves_route() {
   pass "poll probe: unreachable or inconclusive remote reads preserve the route"
 }
 
-test_sweep_relaunches_keyed_signed_pi_after_first_call_success() {
-  local w fb tmuxfb log out
-  w=$(new_world sweep-keyed-pi-signed)
-  printf 'codex\nsm1 pi-signed openai/gpt-6.1-sol low\n' > "$w/home/config/secondmate-harness"
-  add_sm_home "$w" sm1 firstmate:fm-sm1 pi-signed
-  printf 'model=default\neffort=default\n' >> "$w/home/state/sm1.meta"
-  fb=$(make_toolchain "$w"); tmuxfb=$(make_liveness_tmux "$w")
-  log="$w/calls.log"; : > "$log"
-  out=$(run_bootstrap "$tmuxfb:$fb" "$w/home" missing "$log")
-  assert_not_contains "$out" 'respawn failed' "signed Pi fake first-call gate failed: $out"
-  assert_grep 'model=openai/gpt-6.1-sol' "$w/home/state/sm1.meta" 'bootstrap retained the stale model'
-  assert_grep 'effort=low' "$w/home/state/sm1.meta" 'bootstrap retained the stale effort'
-  assert_grep 'relaunched' "$w/home/state/.secondmate-relaunch-sm1" 'signed Pi first-call success was not confirmed'
-  pass "bootstrap signed Pi recovery resolves the id pin and requires a successful fake first model call"
-}
-if [ "${FM_SM_PIN_TEST_ONLY:-0}" = 1 ]; then
-  test_sweep_relaunches_keyed_signed_pi_after_first_call_success
-  exit 0
-fi
-test_sweep_relaunches_keyed_signed_pi_after_first_call_success
-
 test_tmux_agent_state_classifies
 test_tmux_agent_state_rejects_malformed_targets_before_probe
 test_herdr_agent_state_preserves_husk_classifier
 test_agent_state_dispatcher_and_compatibility
 test_sweep_respawns_confirmed_dead_secondmate
+test_sweep_recovers_the_durable_secondmate_account
 test_sweep_serializes_distinct_secondmate_relaunches
 test_sweep_leaves_alive_secondmate_untouched
 test_sweep_respawns_authoritatively_missing_pi_secondmate

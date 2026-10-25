@@ -91,13 +91,11 @@
 # just killed. fm_remote_job_stop_worker_tree owns that stop and refuses to
 # signal a group whose leader is not itself a worker, so a worker inherited
 # from an older build or from launchd's own session is still stopped safely as
-# a single process. The start path also never launches a second tree while a
-# live supervisor holds the queue's single-instance claim
-# (fm_remote_job_supervisor_claim_alive). fm_remote_job_root_is_live is the
-# shared predicate for whether a worker's code root still exists;
-# bin/fm-remote-job-worker.sh uses it to stop itself once its root is pruned,
-# and bin/fm-remote-job-reap-orphans.sh uses it to reap workers that were
-# already orphaned that way.
+# a single process. fm_remote_job_root_is_live is the shared predicate for
+# whether a worker's code root still exists; bin/fm-remote-job-worker.sh uses
+# it to stop itself once its root is pruned, and
+# bin/fm-remote-job-reap-orphans.sh uses it to reap workers that were already
+# orphaned that way.
 
 FM_REMOTE_JOB_LABEL=dev.firstmate.remote-job
 FM_REMOTE_JOB_MAX_BYTES=${FM_REMOTE_JOB_MAX_BYTES:-1048576}
@@ -969,56 +967,33 @@ fm_remote_job_worker_pid_path() { printf '%s\n' "$FM_REMOTE_JOB_STATE/worker.pid
 fm_remote_job_worker_ready_path() { printf '%s\n' "$FM_REMOTE_JOB_STATE/worker.ready"; }
 fm_remote_job_worker_identity_path() { printf '%s\n' "$FM_REMOTE_JOB_STATE/worker.identity"; }
 fm_remote_job_worker_lock_path() { printf '%s\n' "$FM_REMOTE_JOB_STATE/worker.lock"; }
-fm_remote_job_worker_supervisor_path() { printf '%s\n' "$FM_REMOTE_JOB_STATE/worker.supervisor"; }
 
-# One process field. Recorded identities are compared across processes started
-# from different login environments - every remote call carries the caller's
-# forwarded LANG and LC_* and whatever COLUMNS its session exports - and ps
-# renders lstart by locale and truncates command to COLUMNS. Pin both, as
-# bin/fm-wake-lib.sh does, so a healthy owner never reads as a stranger.
-fm_remote_job_ps_field() { # <pid> <field>
-  local ps_bin
-  if [ -x /bin/ps ]; then ps_bin=/bin/ps; elif [ -x /usr/bin/ps ]; then ps_bin=/usr/bin/ps; else return 1; fi
-  COLUMNS=10000 LC_ALL=C "$ps_bin" -p "$1" -o "$2=" 2>/dev/null
-}
-
-# A process's start identity, compared for equality only. Linux ps derives
-# lstart from the wall-clock boot time, which moves whenever the clock is
-# stepped, so a live owner recorded before a step read as a stranger after it
-# and its lock, claims, and running jobs were reclaimed from under it. Where
-# procfs exists the identity is therefore the kernel's own start tick, counted
-# from boot and immune to clock changes, qualified by the boot id; elsewhere
-# (macOS) lstart is the kernel's fixed start time and stays as it is.
+# Pin LC_ALL=C so lstart's date format is locale-invariant: a lock or claim
+# owner recorded under one locale (de_DE renders "Fr. 16 Okt. ...") must still
+# verify under another, or the checker declares the live owner dead and a
+# second worker splits the queue.
 fm_remote_job_process_start() {
-  local pid=$1 value boot='-' stat
-  local -a fields
-  case "$pid" in ''|*[!0-9]*) return 1 ;; esac
-  if [ -r /proc/self/stat ]; then
-    IFS= read -r stat 2>/dev/null < "/proc/$pid/stat" || return 1
-    read -r -a fields <<< "${stat##*) }"
-    value=${fields[19]:-}
-    case "$value" in ''|*[!0-9]*) return 1 ;; esac
-    IFS= read -r boot 2>/dev/null < /proc/sys/kernel/random/boot_id || boot='-'
-    printf 'boot %s tick %s\n' "$boot" "$value"
-    return 0
-  fi
-  value=$(fm_remote_job_ps_field "$pid" lstart) || return 1
+  local pid=$1 ps_bin value
+  if [ -x /bin/ps ]; then ps_bin=/bin/ps; elif [ -x /usr/bin/ps ]; then ps_bin=/usr/bin/ps; else return 1; fi
+  value=$(LC_ALL=C "$ps_bin" -p "$pid" -o lstart= 2>/dev/null) || return 1
   [ -n "$value" ] || return 1
   case "$value" in *$'\n'*|*$'\r'*) return 1 ;; esac
   printf '%s\n' "$value"
 }
 
 fm_remote_job_process_command() {
-  local pid=$1 value
-  value=$(fm_remote_job_ps_field "$pid" command) || return 1
+  local pid=$1 ps_bin value
+  if [ -x /bin/ps ]; then ps_bin=/bin/ps; elif [ -x /usr/bin/ps ]; then ps_bin=/usr/bin/ps; else return 1; fi
+  value=$("$ps_bin" -p "$pid" -o command= 2>/dev/null) || return 1
   [ -n "$value" ] || return 1
   case "$value" in *$'\n'*|*$'\r'*) return 1 ;; esac
   printf '%s\n' "$value"
 }
 
 fm_remote_job_process_pgid() { # <pid>
-  local pid=$1 value
-  value=$(fm_remote_job_ps_field "$pid" pgid) || return 1
+  local pid=$1 ps_bin value
+  if [ -x /bin/ps ]; then ps_bin=/bin/ps; elif [ -x /usr/bin/ps ]; then ps_bin=/usr/bin/ps; else return 1; fi
+  value=$("$ps_bin" -p "$pid" -o pgid= 2>/dev/null) || return 1
   value=$(printf '%s' "$value" | tr -d '[:space:]')
   case "$value" in ''|*[!0-9]*) return 1 ;; esac
   printf '%s\n' "$value"
@@ -1085,36 +1060,6 @@ fm_remote_job_stop_worker_tree() { # <pid>
   fi
 }
 
-# The Linux restart supervisor's single-instance claim is the worker.supervisor
-# symlink, whose target text is "<pid>|<process start>" rather than a path, so
-# creating it is one atomic ln -s that needs no flock or perl. The start time
-# keeps a reused pid from impersonating a dead claimant. The worker header owns
-# how the supervisor takes, re-verifies, and releases the claim.
-fm_remote_job_supervisor_token() { # <pid>
-  local pid=$1 start
-  start=$(fm_remote_job_process_start "$pid") || return 1
-  printf '%s|%s\n' "$pid" "$start"
-}
-
-fm_remote_job_supervisor_token_alive() { # <token>
-  local token=$1 pid start
-  pid=${token%%|*}
-  start=${token#*|}
-  case "$pid" in ''|*[!0-9]*) return 1 ;; esac
-  [ "$pid" -gt 1 ] && [ -n "$start" ] && [ "$start" != "$token" ] || return 1
-  [ "$(fm_remote_job_process_start "$pid" 2>/dev/null || true)" = "$start" ]
-}
-
-# True while a live supervisor holds this queue's claim, so a caller must not
-# start a second worker tree beside it.
-fm_remote_job_supervisor_claim_alive() {
-  local claim token
-  claim=$(fm_remote_job_worker_supervisor_path)
-  [ -L "$claim" ] || return 1
-  token=$(readlink "$claim" 2>/dev/null) || return 1
-  fm_remote_job_supervisor_token_alive "$token"
-}
-
 fm_remote_job_read_single_line() {
   local file=$1 max=$2 value extra
   fm_remote_job_regular_bounded "$file" "$max" || return 1
@@ -1151,7 +1096,7 @@ fm_remote_job_lock_owner_matches_process() {
 }
 
 fm_remote_job_worker_owned_alive() {
-  local root=$1 account_home=$2 lock pid pid_file identity_file command
+  local root=$1 account_home=$2 lock pid pid_file identity_file command ps_bin
   [ "${FM_REMOTE_JOB_ACTIVE:-}" != 1 ] || return 0
   fm_remote_job_prepare_state "$account_home" || return 1
   lock=$(fm_remote_job_worker_lock_path)
@@ -1170,7 +1115,8 @@ fm_remote_job_worker_owned_alive() {
   [ ! -e "$lock/pid" ] && [ ! -L "$lock/pid" ] &&
     [ ! -e "$lock/start" ] && [ ! -L "$lock/start" ] &&
     [ ! -e "$lock/command" ] && [ ! -L "$lock/command" ] || return 1
-  command=$(fm_remote_job_ps_field "$pid" command) || return 1
+  if [ -x /bin/ps ]; then ps_bin=/bin/ps; elif [ -x /usr/bin/ps ]; then ps_bin=/usr/bin/ps; else return 1; fi
+  command=$("$ps_bin" -p "$pid" -o command= 2>/dev/null) || return 1
   case "$command" in *"$root/bin/fm-remote-job-worker.sh"*) FM_REMOTE_JOB_OWNER_PID=$pid; return 0 ;; esac
   return 1
 }
@@ -1476,14 +1422,6 @@ fm_remote_job_start_linux_worker() { # <remote-root> <account-home>
     wait "$pid" 2>/dev/null || true
     FM_REMOTE_JOB_REPAIRED=1
   fi
-  # A live supervisor already owns this queue, whether its serving child is
-  # starting, restarting, or merely slow to refresh its heartbeat. Starting
-  # another tree beside it on every call is how a stale heartbeat once grew
-  # dozens of competing supervisors, so leave it to report ready on its own.
-  if fm_remote_job_supervisor_claim_alive; then return 0; fi
-  # Likewise a live, verified owner of the worker lock whose heartbeat is only
-  # late, as under load: a new tree could only wait out that owner and fail.
-  if fm_remote_job_lock_owner_matches_process "$account_home"; then return 0; fi
   # Job control puts the worker tree in its own process group, so a later stop
   # can signal every descendant at once without ever reaching the caller's own
   # group. Without this the group of a leaked worker is the launching command's.

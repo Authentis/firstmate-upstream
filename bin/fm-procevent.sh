@@ -220,16 +220,14 @@
 # group once that lease can no longer be proved fresh. Owner-presence operations
 # refresh the lease, an attached public start keeps it fresh while its caller
 # remains attached, and the watcher's reconcile cycle keeps it fresh in a live
-# home; a registered secondmate's reply source is exempt from its expiry
-# (secondmate_reply_lease_exempt). A runner exports the inherited
-# FM_PROCEVENT_IN_RUNNER marker and every refresh is skipped under it, so a
-# runner and its ordinary children do not certify their own owner. That rule
-# is CONFUSED-AGENT-GRADE, the grade bin/fm-lease-lib.sh documents: a source
-# that DELIBERATELY strips the marker can still refresh, and adversarial-grade
-# unforgeability is out of scope (see docs/configuration.md). Scope is the
-# owning state root and one runner generation, never a script or process name,
-# so a live source in another home is untouched. See bin/fm-procevent-lib.sh
-# for the lease itself.
+# home. A runner exports the inherited FM_PROCEVENT_IN_RUNNER marker and every
+# refresh is skipped under it, so a runner and its ordinary children do not
+# certify their own owner. That rule is CONFUSED-AGENT-GRADE, the grade
+# bin/fm-lease-lib.sh documents: a source that DELIBERATELY strips the marker
+# can still refresh, and adversarial-grade unforgeability is out of scope (see
+# docs/configuration.md). Scope is the owning state root and one runner
+# generation, never a script or process name, so a live source in
+# another home is untouched. See bin/fm-procevent-lib.sh for the lease itself.
 #
 # Ownership is machine-wide per canonical source, because separate Firstmate
 # homes can share one underlying source store. A live owner is never displaced;
@@ -259,8 +257,6 @@ STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 . "$SCRIPT_DIR/fm-task-inbox-lib.sh"
 # shellcheck source=bin/fm-backend.sh
 . "$SCRIPT_DIR/fm-backend.sh"
-# shellcheck source=bin/fm-secondmate-registry-lib.sh
-. "$SCRIPT_DIR/fm-secondmate-registry-lib.sh"
 
 die() { printf 'error: %s\n' "$1" >&2; exit 1; }
 usage() { sed -n '2,/^set -u$/p' "${BASH_SOURCE[0]}" | sed '$d; s/^# \{0,1\}//'; exit 2; }
@@ -868,7 +864,7 @@ EOF
           ring_backend=$(fm_backend_of_meta "$ring_meta" 2>/dev/null || true)
           ring_target=$(fm_backend_target_of_meta "$ring_meta" 2>/dev/null || true)
           if [ -n "$ring_backend" ] && [ -n "$ring_target" ]; then
-            fm_task_inbox_ring "$ring_backend" "$ring_target" "$record" "fm-$owner_task" "$(fm_meta_get "$ring_meta" harness)" >/dev/null 2>&1 || true
+            fm_task_inbox_ring "$ring_backend" "$ring_target" "$record" "fm-$owner_task" >/dev/null 2>&1 || true
           fi
         fi
       fi
@@ -1521,34 +1517,6 @@ start_owner_guard() {  # <source-id>
 # matches on a script name, a command line, or a process name: those are shared
 # by every home running the same adapter, and a live source in another home
 # proves its own owner through that home's own lease.
-#
-# One exemption keeps a registered secondmate reachable. The lease is refreshed
-# by the watcher's reconcile, so a home whose watcher died - while its session
-# sits idle with nothing to re-arm it - would otherwise lose every secondmate's
-# reply source one lease later, and with it the only path that secondmate's
-# status has to the parent. A source is exempt from lease expiry only when its
-# whole registration is exactly the one the remote-reply adapter's arm writes
-# for remote-reply-<id> - that adapter's own `source <id>` command, beside this
-# script - and <id> is registered in the home's data/secondmates.md, because
-# that registration, not the watcher, is what says the home still wants it. A
-# lookalike name or adapter label around any other command keeps the lease.
-# The state-root identity check still applies, so a home that is gone still
-# stops it, and retiring either the source or the secondmate ends the
-# exemption at the next check. A present config/procevent-secondmate-lease-off,
-# read on every check, turns the exemption off (docs/configuration.md "Keep and
-# guard the lease").
-secondmate_reply_lease_exempt() {  # <source-id>
-  local id=$1 mate source expected
-  [ ! -e "${FM_CONFIG_OVERRIDE:-$FM_HOME/config}/procevent-secondmate-lease-off" ] || return 1
-  case "$id" in remote-reply-?*) mate=${id#remote-reply-} ;; *) return 1 ;; esac
-  source="$REG/$id.source"
-  [ -f "$source" ] && [ ! -L "$source" ] || return 1
-  expected=$(printf 'adapter=remote-reply\nargc=3\nargv:\n%s\nsource\n%s' \
-    "$SCRIPT_DIR/fm-procevent-remote-reply.sh" "$mate")
-  [ "$(cat "$source" 2>/dev/null)" = "$expected" ] || return 1
-  secondmate_registry_line_for_id "${FM_DATA_OVERRIDE:-$FM_HOME/data}/secondmates.md" "$mate"
-}
-
 cmd_owner_watchdog() {  # <source-id> <runner-pid> <runner-identity> <ready-file> <state-device> <state-inode>
   local id=${1-} pid=${2-} identity=${3-} ready=${4-} state_device=${5-} state_inode=${6-}
   local lease tick half misses=0 pid_state state_identity current_device current_inode
@@ -1604,8 +1572,7 @@ cmd_owner_watchdog() {  # <source-id> <runner-pid> <runner-identity> <ready-file
       || IFS=$'\t' read -r _ current_device current_inode _ _ <<< "$state_identity"
     if [ "$current_device" = "$state_device" ] \
       && [ "$current_inode" = "$state_inode" ] \
-      && { fm_procevent_owner_alive "$STATE" "$lease" \
-        || secondmate_reply_lease_exempt "$id"; }; then
+      && fm_procevent_owner_alive "$STATE" "$lease"; then
       misses=0
       continue
     fi

@@ -2101,36 +2101,6 @@ test_same_kind_escalation_reopens_after_operator_close() {
   pass "a same-kind escalation after an operator close opens the decision again"
 }
 
-test_recovery_repost_carries_the_full_request_text() {
-  local text summary rec msg d
-  # A mate that missed the original delivery must be able to act from the
-  # repost alone: the stored summary has to cover a full multi-step order,
-  # not one 120-char sentence.
-  text='Planning reset (chief): start a SECOND planning lane on your side on Muse Wonder via the lane path (like dos-planning1035-bosgame-1015). Own unused partition - coordinate with the busy set so the two lanes do not share one. Same planner prompt + Done-when. Leaves through the normal tracker PR. Report lane id + partition.'
-  summary=$(fm_pending_reply_summarize "$text")
-  [ "$summary" = "$text" ] || fail "summarize truncated the request: got ${#summary} of ${#text} chars"
-  d=$(mktemp -d "$TMP_ROOT/fulltext.XXXXXX")
-  rec=$d/record
-  cat > "$rec" <<EOF
-schema=fm-pending-reply.v1
-corr_id=0123456789abcdef
-task_id=somepane
-parent_home=$d
-parent_status=$d/status.log
-request_summary=$summary
-created_epoch=1
-delivered_epoch=1
-phase=awaiting_report
-turn_seen_busy=0
-EOF
-  msg=$(fm_pending_reply_recovery_message "$rec")
-  case "$msg" in
-    *"$text"*) ;;
-    *) fail "recovery repost lost the full request text" ;;
-  esac
-  pass "recovery repost carries the full request text"
-}
-
 # --- run --------------------------------------------------------------------
 
 test_normal_correlated_reply_resolves_once
@@ -2142,7 +2112,6 @@ test_recovery_fresh_status_read_resolves_before_firing
 test_partial_resolve_write_blocks_firing
 test_escalation_grace_measures_from_recovery_turn_completion
 test_recovery_attempt_is_never_reinjected
-test_recovery_repost_carries_the_full_request_text
 test_recovery_reply_resolves_original
 test_second_missed_turn_escalates_once_and_stays_durable
 test_escalation_wakes_and_its_close_stays_quiet

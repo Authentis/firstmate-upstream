@@ -2,7 +2,7 @@
 # Restart second mates onto the current instruction surface and launch-time
 # wiring, persisting their open records first.
 #
-# Usage: fm-secondmate-restart.sh [--failover | --no-nudge] <secondmate-id>... [--help]
+# Usage: fm-secondmate-restart.sh <secondmate-id>... [--help]
 #
 # This is the executable half of /updatefirstmate's reload step. A running agent
 # holds AGENTS.md and every skill it has loaded frozen from launch, and no
@@ -36,29 +36,10 @@
 #      open loop owned by the ordinary pending-reply recovery ladder, not state
 #      this restart pass may close.
 #
-# --failover is the provider-quota exception, used only by
-# bin/fm-quota-failover-lib.sh after a sustained quota error: that mate's
-# runtime answers every turn with the error, so it cannot write anything down
-# and waiting on it would leave it wedged. The request still goes out first and
-# an answer that lands still gates the restart; when none lands within the
-# bound, the restart proceeds and is reported as made without a persist answer.
-# --failover implies --no-nudge.
-#
-# --no-nudge is for a restart that is not an instruction update, such as the
-# quota library's return to a mate's first chain link: a mate this pass does
-# not restart is reported as "held: <id>: <reason>" and is sent nothing, since
-# the re-read message would claim an update that never happened. A held mate
-# was never stopped: that includes a relaunch the control plane refused before
-# touching the agent - one that never opened its relaunch journal
-# (state/<id>.control-relaunch) or rolled it back from a pre-stop phase, or a
-# remote host's report of that rollback. Under --failover or --no-nudge every
-# id is taken exactly as registered, with no fm- selector stripping, so a mate
-# whose own id begins with fm- is never mistaken for another.
-#
 # A mate whose persist answer did not arrive or whose runtime cannot prove a
 # restart gets the ordinary re-read nudge and is reported as a nudge, never as a
-# clean reload. Any failed or ambiguous relaunch other than the held pre-stop
-# refusal above is reported as unknown, never attributed to either incarnation.
+# clean reload. Once a relaunch is attempted, any failed or ambiguous result is
+# reported as unknown rather than attributing it to either incarnation.
 #
 # Placement changes the transport and nothing else. A local mate is restarted
 # with bin/fm-control.sh <id> relaunch, which republishes this home's own
@@ -82,8 +63,8 @@
 #   FM_SECONDMATE_PERSIST_WAIT  seconds to wait for one mate's persist answer (900)
 #   FM_SECONDMATE_PERSIST_POLL  seconds between checks of that answer (5)
 #
-# Exit status: 0 every named mate restarted; 3 at least one was nudged, held, or
-# left unreached and every mate was still accounted for; 1 the input itself is
+# Exit status: 0 every named mate restarted; 3 at least one was nudged or left
+# unreached and every mate was still accounted for; 1 the input itself is
 # unusable; 2 invalid use.
 set -u
 
@@ -91,20 +72,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 
 usage() {
-  sed -n '2,84{s/^# \{0,1\}//;p;}' "$0"
+  sed -n '2,65{s/^# \{0,1\}//;p;}' "$0"
 }
 
 case "${1:-}" in
   -h|--help) usage; exit 0 ;;
   '') usage >&2; exit 2 ;;
 esac
-FAILOVER=0
-NO_NUDGE=0
-case "$1" in
-  --failover) FAILOVER=1 NO_NUDGE=1; shift ;;
-  --no-nudge) NO_NUDGE=1; shift ;;
-esac
-[ "$#" -gt 0 ] || { usage >&2; exit 2; }
 
 if [ -z "${FM_HOME:-}" ]; then
   echo "error: FM_HOME is not set; fm-secondmate-restart refuses to resolve second mates without an explicit firstmate home" >&2
@@ -132,10 +106,8 @@ for arg in "$@"; do
     -*) echo "error: unexpected argument '$arg'" >&2; usage >&2; exit 2 ;;
   esac
   # /updatefirstmate's action line names each mate by its fm-<id> selector; the
-  # bare id is equally acceptable so a hand-run stays natural. The quota
-  # library's modes name the exact registered id.
-  id=$arg
-  [ "$NO_NUDGE" = 1 ] || id=${arg#fm-}
+  # bare id is equally acceptable so a hand-run stays natural.
+  id=${arg#fm-}
   case "$id" in ''|*[!A-Za-z0-9._-]*) echo "error: invalid second mate id: $arg" >&2; exit 2 ;; esac
   case " ${IDS[*]:-} " in
     *" $id "*) continue ;;
@@ -161,7 +133,6 @@ RESTART_RESULT=()
 
 restarted_count=0
 nudged_count=0
-held_count=0
 unreached_count=0
 
 # The first line of a command's output that carries anything, flattened to one
@@ -173,14 +144,8 @@ first_reported_line() {  # <text>
 
 # Send the ordinary re-read steer to a mate this pass will not restart, and say
 # plainly which it was. A nudge is a partial reload and is never reported as more.
-# Under --no-nudge the mate is only reported as held.
 fall_back_to_nudge() {  # <id> <reason>
   local id=$1 reason=$2 out
-  if [ "$NO_NUDGE" = 1 ]; then
-    held_count=$((held_count + 1))
-    printf 'held: %s: %s\n' "$id" "$reason"
-    return
-  fi
   if out=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
     "$SCRIPT_DIR/fm-send.sh" "$id" "$FM_SECOND_MATE_NUDGE_MESSAGE" 2>&1); then
     nudged_count=$((nudged_count + 1))
@@ -197,29 +162,9 @@ report_unreached() {  # <id> <reason>
   printf 'unreached: %s: %s\n' "$1" "$2"
 }
 
-# Succeeds when a failed relaunch of mate <array-index> provably never touched
-# its agent: the local control plane left its relaunch journal as it was
-# (<journal-before>) or rolled it back from a pre-stop phase, or the remote
-# host's output (<output>) reports that rollback.
-relaunch_refused_before_stop() {  # <array-index> <journal-before> <output>
-  local id=${IDS[$1]} journal after=''
-  if [ "${PLACEMENT[$1]}" = remote ]; then
-    printf '%s\n' "$3" | grep -qF "relaunch of $id was refused before its agent was touched; nothing changed"
-    return
-  fi
-  journal="$STATE/$id.control-relaunch"
-  [ ! -f "$journal" ] || after=$(cat "$journal")
-  [ "$after" != "$2" ] || return 0
-  case "$(printf '%s\n' "$after" | sed -n 's/^phase=//p' | tail -1)" in
-    failed:checkpoint|failed:noted) return 0 ;;
-  esac
-  return 1
-}
-
 restart_mate() {  # <array-index>
-  local i=$1 id restart_out restart_rc restart_reason ran_on journal_before=''
+  local i=$1 id restart_out restart_rc restart_reason ran_on
   id=${IDS[$i]}
-  [ ! -f "$STATE/$id.control-relaunch" ] || journal_before=$(cat "$STATE/$id.control-relaunch")
   if [ "${PLACEMENT[i]}" = remote ]; then
     restart_out=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
       "$SCRIPT_DIR/fm-remote-secondmate-relaunch.sh" \
@@ -243,10 +188,6 @@ restart_mate() {  # <array-index>
 
   restart_reason=$(first_reported_line "$restart_out")
   [ -n "$restart_reason" ] || restart_reason="the restart failed without a reported reason"
-  if [ "$NO_NUDGE" = 1 ] && relaunch_refused_before_stop "$i" "$journal_before" "$restart_out"; then
-    printf 'held: %s: the restart was refused before its agent was touched: %s\n' "$id" "$restart_reason"
-    return
-  fi
   report_unreached "$id" "the restart outcome is unknown: $restart_reason"
 }
 
@@ -294,7 +235,6 @@ harvest_restarts() {
     case "$out" in
       restarted:*) restarted_count=$((restarted_count + 1)) ;;
       nudged:*) nudged_count=$((nudged_count + 1)) ;;
-      held:*) held_count=$((held_count + 1)) ;;
       *) unreached_count=$((unreached_count + 1)) ;;
     esac
     PLAN[i]="done"
@@ -334,19 +274,10 @@ while [ "$i" -lt "${#IDS[@]}" ]; do
     # the file on that host belongs to a different home and re-resolving there
     # would silently move the mate onto another runtime. Resolve the pin here and
     # pass it explicitly, so both placements land on the same decision.
-    if ! HARNESS[i]=$("$SCRIPT_DIR/fm-harness.sh" secondmate "$id") ||
-       ! MODEL[i]=$("$SCRIPT_DIR/fm-harness.sh" secondmate-model "$id") ||
-       ! EFFORT[i]=$("$SCRIPT_DIR/fm-harness.sh" secondmate-effort "$id"); then
-      REASON[i]="the configured secondmate pin is invalid; restart refused"
-      i=$((i + 1))
-      continue
-    fi
+    HARNESS[i]=$("$SCRIPT_DIR/fm-harness.sh" secondmate 2>/dev/null || true)
     [ -n "${HARNESS[i]}" ] || HARNESS[i]=$FM_SECONDMATE_RESTART_HARNESS
-    if ! profile_error=$("$SCRIPT_DIR/fm-harness.sh" validate-secondmate-model "${HARNESS[i]}" "${MODEL[i]}" "$id" 2>&1); then
-      REASON[i]=$profile_error
-      i=$((i + 1))
-      continue
-    fi
+    MODEL[i]=$("$SCRIPT_DIR/fm-harness.sh" secondmate-model 2>/dev/null || true)
+    EFFORT[i]=$("$SCRIPT_DIR/fm-harness.sh" secondmate-effort 2>/dev/null || true)
     case "${EFFORT[i]}" in
       ''|low|medium|high|xhigh|max|ultra) ;;
       *) EFFORT[i]="" ;;
@@ -425,11 +356,6 @@ while [ "$((pending_count + restart_active_count))" -gt 0 ]; do
       if fm_pending_reply_try_resolve "$STATE" "${CORR[i]}"; then
         pending_count=$((pending_count - 1))
         launch_restart "$i"
-      elif [ "$FAILOVER" = 1 ]; then
-        printf 'unpersisted: %s: no persist answer within %ss after a sustained provider quota error; restarting anyway\n' \
-          "${IDS[$i]}" "$PERSIST_WAIT"
-        pending_count=$((pending_count - 1))
-        launch_restart "$i"
       else
         fall_back_to_nudge "${IDS[$i]}" \
           "it did not confirm within ${PERSIST_WAIT}s that its open work is written down, so its conversation was not spent"
@@ -448,7 +374,7 @@ done
 
 # --- summary ---------------------------------------------------------------
 
-printf 'summary: %d of %d restarted, %d nudged, %d unreached, %d held\n' \
-  "$restarted_count" "${#IDS[@]}" "$nudged_count" "$unreached_count" "$held_count"
-[ "$((nudged_count + unreached_count + held_count))" -eq 0 ] || exit 3
+printf 'summary: %d of %d restarted, %d nudged, %d unreached\n' \
+  "$restarted_count" "${#IDS[@]}" "$nudged_count" "$unreached_count"
+[ "$((nudged_count + unreached_count))" -eq 0 ] || exit 3
 exit 0

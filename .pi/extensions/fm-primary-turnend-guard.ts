@@ -54,8 +54,33 @@ function lockOwnership(): LockOwnership {
   return pidAlive(lockPid) ? "other" : "missing";
 }
 
+// A Pi command started from inside the live session, such as the `pi --help`
+// capability probe in bin/fm-spawn.sh, auto-loads this extension too and passes
+// lockOwnership() through the same ancestor walk. Its pid dies at once, so the
+// marker must keep naming the live session above it (#5202). Pid equality with
+// the lock is not required because a wrapper such as pi-signed may hold the lock
+// while the extension host runs as its child.
+function markerNamesLiveAncestor(): boolean {
+  let markerPid = "";
+  try {
+    markerPid = readFileSync(marker, "utf8").split(/\r?\n/)[1] ?? "";
+  } catch {
+    return false;
+  }
+  if (!/^[0-9]+$/.test(markerPid) || markerPid === String(process.pid) || !pidAlive(markerPid)) {
+    return false;
+  }
+  let pid = String(process.pid);
+  for (let i = 0; i < 8; i += 1) {
+    pid = parentPid(pid);
+    if (!pid || pid === "1") return false;
+    if (pid === markerPid) return true;
+  }
+  return false;
+}
+
 function markLoaded(): void {
-  if (!existsSync(state) || lockOwnership() === "other") return;
+  if (!existsSync(state) || lockOwnership() === "other" || markerNamesLiveAncestor()) return;
   writeFileSync(marker, `${extensionVersion}\n${process.pid}\n`);
 }
 
@@ -100,10 +125,6 @@ function startupRebuildSource(ctx: SessionStartContext): "resume" | "fork" | und
 const sessionstartTruncatedMarker =
   "\n\nPI SESSION-START DELIVERY TRUNCATED - the digest exceeded 512 KiB. " +
   "Treat omitted context as unread and inspect the named files directly before acting on it.";
-// A compaction keeps the previous nudge as a valid cut point, so copies stack.
-// Capping each one bounds the stack at any digest size; the full output is
-// saved for an on-demand read.
-const sessionstartCompactMaxChars = 40_000;
 const sessionstartManualFallback =
   "Run `bin/fm-session-start.sh` now, exactly once, before executing any other instructions.";
 const sessionstartIneligibleExit = 3;
@@ -419,19 +440,6 @@ function sessionstartMessage(
     raw = sessionstartManualFallback;
   }
   if (!raw) return undefined;
-  if (generation.source === "compact" && raw.length > sessionstartCompactMaxChars) {
-    const saved = `${state}/.reemit-latest.txt`;
-    let pointer = "run `bin/fm-session-start.sh --reemit` for the rest";
-    try {
-      writeFileSync(saved, raw);
-      pointer = `read ${saved} for the rest, or run \`bin/fm-session-start.sh --reemit\``;
-    } catch {
-    }
-    raw = `${raw.slice(0, sessionstartCompactMaxChars)}\n\n` +
-      `CONTEXT RE-EMIT TRUNCATED - the compaction digest was ${raw.length} characters and was cut at ` +
-      `${sessionstartCompactMaxChars} so repeated compactions cannot stack past the context window. ` +
-      `Treat the omitted tail (later fleet records and curated context) as unread; ${pointer}.`;
-  }
   try {
     // The wrapper already returns an encoded nudge on a context-preserving
     // open, so only an unencoded digest or fallback needs the marker added.

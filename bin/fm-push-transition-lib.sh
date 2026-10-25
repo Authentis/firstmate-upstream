@@ -99,9 +99,6 @@ wake() {
   [ -z "$FM_WAKE_POST_OUTPUT_ACTION" ] || trap '' PIPE
   if echo "$1"; then
     output_status=0
-    # The wake-turn measurement (bin/fm-wake-classify-lib.sh) counts every wake
-    # that starts a model turn; a library not loaded here records nothing.
-    ! declare -F fm_wake_measure_turn >/dev/null || fm_wake_measure_turn "$1" || true
     watch_delivery_publish "$1" || true
     # shellcheck disable=SC2034 # Read by bin/fm-watch.sh's EXIT cleanup.
     FM_WATCH_DELIVERED_REASON=$1
