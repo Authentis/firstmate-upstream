@@ -1213,7 +1213,7 @@ EOF
 
   out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
 
-  heading='Work under way (one line per lane; raw record: state/<id>.meta, full status log: state/<id>.status)'
+  heading='Work under way (one line per lane; raw record: state/<id>.meta, full status log: state/<id>.status; last status is a wake EVENT, not current state - bin/fm-crew-state.sh <id> owns current state)'
   lanes=$(printf '%s\n' "$out" | awk -v h="$heading" '
     $0 == h { flag = 1; getline; next }
     flag && /^$/ { exit }

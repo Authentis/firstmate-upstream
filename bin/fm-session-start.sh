@@ -739,7 +739,7 @@ print_fleet_records_full() {
   local meta id kind status record found=0
   print_backlog_compact "$DATA/backlog.md" "data/backlog.md"
 
-  subsection "Work under way (one line per lane; raw record: state/<id>.meta, full status log: state/<id>.status)"
+  subsection "Work under way (one line per lane; raw record: state/<id>.meta, full status log: state/<id>.status; last status is a wake EVENT, not current state - bin/fm-crew-state.sh <id> owns current state)"
   # A home can hold hundreds of finished ship records. Full detail is kept for
   # secondmates, records with a status file, and any endpoint that is not
   # provably dead; a dead-endpoint record with no status file is only counted and
