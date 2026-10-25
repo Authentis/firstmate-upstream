@@ -1,0 +1,6 @@
+== base
+ci-workflow: commands.test not configured in .no-mistakes.yaml
+exit=1
+== target
+ci-workflow: commands.test not configured in .no-mistakes.yaml
+exit=1

@@ -1,0 +1,4 @@
+ci-workflow: commands.test not configured in .no-mistakes.yaml
+exit=1
+ls: .github/workflows: No such file or directory
+head: .github/workflows/ci.yml: No such file or directory
