@@ -671,6 +671,18 @@
     {
       "path": ".agents/skills/validation-supervision/SKILL.md",
       "audience": "agent-runtime"
+    },
+    {
+      "path": "router-v31/INSTALL-NOTE.md",
+      "audience": "operator-current"
+    },
+    {
+      "path": "router-v31/data/bin/router-planning-contract.md",
+      "audience": "operator-current"
+    },
+    {
+      "path": "router-v31/data/bin/router-remote-restore.md",
+      "audience": "operator-current"
     }
   ]
 }
