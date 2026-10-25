@@ -1,11 +1,21 @@
 
 ================================================================================
-SESSION START - /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-lab.b4UlAy
+SESSION START - /tmp/fm-lab-01M5-axi
 ================================================================================
 
 LOCK
 --------------------------------------------------------------------------------
-lock acquired: harness pid 2211
+error: cannot locate harness process in ancestry
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  READ-ONLY SESSION - FLEET LOCK OWNERSHIP WAS NOT VERIFIED
+●  error: cannot locate harness process in ancestry
+●  Skipping every mutating step: stale Herdr child cleanup,
+●  secondmate convergence, secondmate liveness, pending remote handoff retry,
+●  X-mode artifacts, fleet sync, and wake-queue drain. Detect-only bootstrap
+●  diagnostics and the rest of this read-only-safe digest still ran below.
+●  Operate read-only until this resolves - do not spawn, steer, merge, or
+●  otherwise mutate fleet state from this session.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 HOME ROLE
 --------------------------------------------------------------------------------
@@ -17,63 +27,36 @@ BOOTSTRAP
 
 WAKE QUEUE
 --------------------------------------------------------------------------------
-STATUS OUTCOME BACKSTOP (newest captain-facing task event has no covering branch outcome):
-lane-a 2026-10-25T10:09 done: LAST-EVENT-A xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx [truncated]
-WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+skipped (read-only session) - 0 record(s) remain queued because this session lacks verified fleet-lock ownership.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  5 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  This read-only session should report the lapse, not repair it.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  Watcher repair belongs to the session holding the fleet lock; do not drain, arm, or repair from this read-only session.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ================================================================================
-SUPERVISION OPERATING INSTRUCTIONS - primary harness: claude
+SUPERVISION OPERATING INSTRUCTIONS - primary harness: unknown
 ================================================================================
 Current state:
-- Lock: held by this session; this session owns normal supervision unless away mode says otherwise.
+- Lock: read-only; do not drain, arm, spawn, steer, merge, or repair fleet state here.
 - Away/quiet mode: inactive.
 - X mode: inactive; use the default watcher cadence.
-- Supervision host: on; it takes away-posture wakes and, where the dialog mirror is verified, eligible attended wakes itself, and hands the rest to you (protocol at the end of this block).
-- Ordinary wake: the Stop-owned auto-arm (bin/fm-claude-stop-autoarm.sh) already owns watcher continuity; drain and handle the wake, and do not arm another cycle yourself.
+- Ordinary wake: follow the continuation in the harness protocol below; do not use shell &.
 
-Mode: Claude Stop-hook-owned supervision.
+Mode: Unknown harness fallback.
 
-When this session owns supervision and away mode is not active:
-1. Drain first with `bin/fm-wake-drain.sh --ack-if-routine`; a `ROUTINE:` line means the presentation held only folded routine rows and is already acknowledged, so nothing remains to acknowledge ([wake fold](../configuration.md#wake-fold-configwake-fold)).
-   After handling all emitted wakes and reconciling open decisions and unread status lines, run the exact `--ack-through` command printed as `WAKE_ACK_REQUIRED`; until then the work remains durable for idempotent re-handling after interruption.
-2. Routine watcher arm and re-arm are owned by the Stop `asyncRewake` hook (`bin/fm-claude-stop-autoarm.sh`), never by you.
-   Every turn end while supervision is needed launches or attaches one home-scoped watcher cycle with no model command and no model tokens.
-   An actionable close wakes you through the hook's exit-2 rewake, delivered as a `Stop hook feedback` message.
-3. On a `Stop hook feedback` wake (`signal:`, `stale:`, `check:`, or `heartbeat`), run the step 1 drain first and handle the wake.
-   Do not run `bin/fm-watch-arm.sh` after an ordinary wake; the next turn end re-arms automatically when supervision is still needed.
-   Do not invent a wake from an attach-status line alone; drain and act only on real wake records, the drain's `OPEN DECISIONS` and `UNREAD STATUS` entries, or a real watcher reason line.
-4. On the one `Stop hook feedback` automatic-mechanism failure notice (`firstmate watcher auto-arm FAILED ...`), drain, inspect the automatic mechanism failure, and do not turn the notice into a repeating manual-arm loop.
-5. If the Stop hook does not claim the home or reports an exhausted failure, inspect its registration and watcher startup path before ending blind.
-   Keep the Stop-owned automatic mechanism as the only Claude arm owner.
-6. Treat `watcher: started ...` and `watcher: attached ...` inside automatic arm output as proof that one live cycle exists.
-   On attach, the arm follows verified identity-matched successors instead of exiting when the first cycle ends.
-7. The durable wake queue preserves actionable events between a rewake and the next Stop-launched arm, while the bounded turn-end guard prevents a blind Stop when recovery did not start.
-   No PreToolUse hook denies fleet commands based on watcher status.
-   [`watcher-continuity.md`](../watcher-continuity.md) owns the exact session-lock recovery boundary.
-8. The turn-end guard (`bin/fm-turnend-guard.sh --claude`) remains the final backstop.
-   It requires the PID-strict live-watcher and fresh-beacon predicate at the Stop boundary, except for the Claude-specific foreign-live-owner safe exit owned by [`turnend-guard.md`](../turnend-guard.md#guard-predicates); that document also owns the distinct model-aware mid-turn pull-guard rules.
-   Otherwise, it allows the stop when a watcher is healthy or an open auto-arm generation claim owns recovery, while fresh failure epochs advance the bounded one-time attended fail-open progression described there.
-9. Waiting on the hook-owned cycle is silent: do not send idle progress while the watcher is parked.
+This primary harness does not have a verified watcher wake adapter.
+Follow the generic supervision contract in `AGENTS.md`.
+First cycle: drain queued wakes, then choose a supervision wait that the harness can actually wake from.
+Ordinary wake: drain, handle all emitted wakes, reconcile open decisions and unread status lines, and run the exact `--ack-through` command printed as `WAKE_ACK_REQUIRED`, then repeat that verified wait while supervision is still required.
+Before that acknowledgement, interruption leaves the work durable for idempotent re-handling.
+Use `bin/fm-watch-arm.sh` only when the harness has a tracked background mechanism that survives the tool call and notifies the model on process exit.
+Use a bounded foreground wait over `bin/fm-watch.sh` when that wake mechanism is not verified.
+Never use shell `&` for watcher supervision.
+Failure or missing cycle only: inspect the failure and restore the same verified wait shape.
 
-The watcher itself remains `bin/fm-watch.sh`, and `bin/fm-watch-arm.sh` remains the verified arm wrapper that the Stop hook foregrounds on a home that opted out of the [supervision host](../supervision-host.md) (`config/supervision-host-off`).
-Re-arm attaches to an existing healthy cycle when one is already present and follows its verified successor chain.
-See [`watcher-continuity.md`](../watcher-continuity.md) for the arm-layer successor and clean-close failure contract and the Claude ownership model.
-
-Supervision host: on for this home (`config/supervision-host-off` turns it off; [`supervision-host.md`](../supervision-host.md) owns the design).
-The Stop hook runs the supervision host in the arm's place, and everything above still holds with these additions:
-1. Attended (no away record, including a quiet-mode record; see [Postures](../supervision-host.md#postures)): a headless supervision session takes the wakes the supervision branch may take and never wakes you for a routine outcome, so fewer wakes reach you; check wakes, decision wakes, and whatever it cannot take still reach you exactly as above.
-   `supervision-host: branch-outcome: ...` means it handled a wake and recorded captain outcomes for you: run `bin/fm-wake-drain.sh`, process each entry of its `BRANCH OUTCOMES` section as firstmate from the task's current state, because each entry says how long ago it was recorded (tell the captain, land or merge what is ready, answer or escalate a decision, or act on a blocker; your reply covers only entries still open, as if a settled one, such as a PR since merged, had never been listed), then run the `mark-processed` acknowledgement it prints; every drain presents them again until you do.
-   `supervision-host: the supervision session could not take this wake ...` means the wake is yours: handle it as above.
-   A failing turn may include a `supervision-host:` health note about repeated engine errors: tell the captain when it matters and handle the handed-back wake as usual; during cooldown later attended closes reach you unchanged.
-   Routine outcomes never wake you; your next drain lists only visible routine outcomes under `BRANCH OUTCOMES, ROUTINE` for awareness, with nothing to acknowledge. Silent rows do not appear there, but remain available through `bin/fm-branch-outcome.sh list`.
-2. Away (an away record exists and no daemon runs): the host hands each wake to a headless away session that runs the supervision branch's contract under the record, and you are parked.
-   Only a wake the host hands back reaches you, as `Stop hook feedback` carrying the close plus one `supervision-host: <why>` line.
-   That wake is automatic supervision, not the captain's return: drain and handle it under the away posture, and never run the return from it.
-   After the return, a `supervision-host:` line naming the captain's return during a turn means that turn has visible outcomes missing from the return brief, whether the wake was handled or handed back: relay every following `supervision-host: outcome ...` line to the captain (the rows also remain in `bin/fm-branch-outcome.sh list`), then drain and handle any queued wake before acknowledging.
-   Each such visible outcome is also a queued `check: supervision-host outcome <n> ... was recorded after the captain returned` wake, which the drain presents until acknowledged: relay each outcome once, whichever arrives first, and acknowledge its `BRANCH OUTCOMES` entry too when it has one. Silent outcomes remain in the store but do not generate a handoff line or check wake.
-3. `supervision-host: cycle boundary ...` means the host ended its park at its bound: run `bin/fm-wake-drain.sh`, handle whatever it presents, run its printed acknowledgement (an empty queue prints `--ack-through 0`), and end the turn; the next park starts at that turn end.
-4. A guarded command that exits 6 naming the branch actor's lease means the supervision session is handling that task right now: leave the lease alone and retry after it releases, which it does when its turn ends.
-5. Captain outcomes the away session records stay in the outcome store until the return drain presents them; the return brief (`bin/fm-afk-return.sh`) counts them and points you to the `BRANCH OUTCOMES` section for processing and acknowledgement ([Captain outcomes](../supervision-host.md#captain-outcomes)).
-6. `/afk` writes only the record here (`bin/fm-afk-launch.sh start-native` refuses the away daemon on this home); for `/quiet`, follow the [quiet skill](../../.agents/skills/quiet/SKILL.md).
+Record new verification evidence before promoting an unknown harness to a named snippet.
 
 
 ================================================================================
@@ -118,13 +101,14 @@ compact backlog listing (tasks-axi; done rows omitted; every in-flight, held, an
 in flight:
 count: 1
 tasks[1]{id,state,kind,repo,title,blocked_by,hold_kind,hold_reason,hold_until}:
-  lane-a,in_flight,ship,firstmate,Healthy lane,none,"-","-","-"
+  lane-alive,in_flight,ship,firstmate,Alive lane work,none,captain,"rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr\n... (truncated, 1200 chars total - use show lane-alive --full to see complete text)",2026-11-01
 
 held (captain- or time-gated; an in-flight item that is also held appears in both groups):
-count: 2
-tasks[2]{id,state,kind,repo,title,blocked_by,hold_kind,hold_reason,hold_until}:
-  long-held,queued,ship,firstmate,Long held work,none,captain,"rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr\n... (truncated, 311 chars total - use show long-held --full to see complete text)",2026-11-01
-  short-held,queued,ship,firstmate,Short held work,none,captain,captain choice pending,"-"
+count: 3
+tasks[3]{id,state,kind,repo,title,blocked_by,hold_kind,hold_reason,hold_until}:
+  lane-alive,in_flight,ship,firstmate,Alive lane work,none,captain,"rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr\n... (truncated, 1200 chars total - use show lane-alive --full to see complete text)",2026-11-01
+  short-held,queued,ship,firstmate,Short held,none,captain,captain choice pending,"-"
+  exact-200,queued,ship,firstmate,Exact two hundred,none,captain,eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee,"-"
 
 blocked queued:
 count: 0
@@ -138,25 +122,26 @@ ready_public_followups: 0 delivery-ready obligations
 (shown 1 of 1 ready queued item(s))
 Full task bodies remain available on demand: bin/fm-tasks-axi.sh show <id> --full when compatible tasks-axi is available, or data/backlog.md.
 
-Work under way (one line per lane; raw record: state/<id>.meta, full status log: state/<id>.status)
+Work under way (one line per lane; raw record: state/<id>.meta, full status log: state/<id>.status; last status is a wake EVENT, not current state - bin/fm-crew-state.sh <id> owns current state)
 --------------------------------------------------------------------------------
-lane-a | kind=ship mode=pr | endpoint: alive (backend=tmux window=fm-sess:live) | last status: 2026-10-25T10:09 done: LAST-EVENT-A xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx [truncated]
-lane-b | kind=scout mode=- | endpoint: unknown (no window recorded) | last status: 2026-10-25T09:00 scouting: LAST-EVENT-B | record missing: window
-lane-c | kind=? mode=- | endpoint: alive (backend=tmux window=fm-sess:live) | last status: (no status file yet) | record missing: kind, mode
+lane-alive | kind=ship mode=no-mistakes | endpoint: alive (backend=tmux window=fm-sess:live) | last status: needs-decision: [key=db] pick the migration strategy
+lane-dead | kind=ship mode=direct | endpoint: dead (backend=tmux window=fm-sess:gone) | last status: working: ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ [truncated]
+lane-scout | kind=scout mode=- | endpoint: unknown (no window recorded) | last status: paused: waiting on validation | record missing: window
+lane-thin | kind=? mode=- | endpoint: alive (backend=tmux window=fm-sess:live) | last status: (no status file yet) | record missing: kind, mode
 
-1 record(s) with a dead endpoint and no status file collapsed (finished or never started): lane-d
-Read one on demand: cat /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-lab.b4UlAy/state/<id>.meta
+1 record(s) with a dead endpoint and no status file collapsed (finished or never started): lane-collapsed
+Read one on demand: cat /tmp/fm-lab-01M5-axi/state/<id>.meta
 
 Orphan status logs (state/*.status without matching .meta)
 --------------------------------------------------------------------------------
 
 --- orphan-x ---
-status tail (last 5 line(s), each capped at 220 characters, wake-EVENT history, not current state; full log: /var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T//fm-lab.b4UlAy/state/orphan-x.status):
-orphan line 8 ORPHAN-8
-orphan line 9 ORPHAN-9
-orphan line 10 ORPHAN-10
-orphan line 11 ORPHAN-11
-orphan final yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy [truncated]
+status tail (last 5 line(s), each capped at 220 characters, wake-EVENT history, not current state; full log: /tmp/fm-lab-01M5-axi/state/orphan-x.status):
+working: orphan step 9
+working: orphan step 10
+working: orphan step 11
+working: orphan step 12
+working: orphan long ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ [truncated]
 
 AFK
 --------------------------------------------------------------------------------
@@ -165,8 +150,10 @@ absent
 ================================================================================
 NETWORK CHECKS
 ================================================================================
-completed off the startup path in 8s: GitHub authentication, dead-secondmate relaunch, secondmate convergence, pending handoff delivery, project clone refresh with its drift reporting, and inactive terminal-outcome reconciliation.
-(silent - no problems found)
+skipped (read-only session) - GitHub authentication, project clone refresh,
+secondmate liveness and convergence, and pending handoff delivery were not run.
+They need the fleet lock, and this session must not spawn, steer, or merge, so it
+has no action they would gate. The session holding the lock runs them.
 
 ================================================================================
 CONTEXT
@@ -195,8 +182,10 @@ ABSENT
 ================================================================================
 NEXT STEP
 ================================================================================
-Follow the supervision operating instructions block above for harness 'claude'.
-This script never starts supervision itself.
+This session did not acquire the fleet lock. Stay read-only: do not arm,
+drain, spawn, steer, merge, or repair fleet state from here. Only a session
+with verified fleet-lock ownership may perform mutable follow-up.
 
 The digest above is complete for this session start. The READ-ONCE CONTRACT
 section near the top of it governs what may still be read from disk.
+exit=0
