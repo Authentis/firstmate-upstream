@@ -292,6 +292,96 @@ test_persist_gates_and_asks_only_for_open_records() {
   pass "T1 persist is a gate, and asks for open records and task status only"
 }
 
+# --- T1b: --failover restarts a mate that cannot answer, after asking -------
+test_failover_restarts_without_an_answer() {
+  local dir out rc doorbell_line exit_line
+  dir=$(new_case failover)
+  add_local_mate "$dir" sm1
+  # No answer armed: a mate wedged on a provider quota error cannot answer.
+  out=$(FM_TEST_PERSIST_WAIT=0 run_restart "$dir" --failover sm1); rc=$?
+
+  expect_code 0 "$rc" "a failover restart proceeds without a persist answer"$'\n'"$out"
+  assert_contains "$out" "unpersisted: sm1: no persist answer" "the missing persist answer must be reported"
+  assert_contains "$out" "restarted: sm1 (claude)" "the wedged mate must be restarted"
+  doorbell_line=$(grep -n '^: Firstmate instruction waiting: ' "$dir/fake/literal" | head -1 | cut -d: -f1)
+  exit_line=$(grep -n '^/exit$' "$dir/fake/literal" | head -1 | cut -d: -f1)
+  [ -n "$doorbell_line" ] && [ -n "$exit_line" ] && [ "$doorbell_line" -lt "$exit_line" ] \
+    || fail "the failover restart must still ask for the persist before stopping the agent"
+  pass "T1b --failover asks to persist first, then restarts a mate that cannot answer"
+}
+
+# --- T1c: --no-nudge holds a mate it will not restart, and sends it nothing --
+test_no_nudge_holds_without_the_reread_message() {
+  local dir out rc
+  dir=$(new_case nonudge)
+  add_local_mate "$dir" sm1
+  out=$(FM_TEST_PERSIST_WAIT=0 run_restart "$dir" --no-nudge sm1); rc=$?
+
+  expect_code 3 "$rc" "an unconfirmed persist under --no-nudge is still not a success"$'\n'"$out"
+  assert_contains "$out" "held: sm1:" "the mate that was not restarted must be reported as held"
+  assert_not_contains "$out" "nudged: sm1" "--no-nudge must not report a nudge"
+  assert_contains "$out" "summary: 0 of 1 restarted, 0 nudged, 0 unreached, 1 held" "the summary must count the held mate"
+  assert_no_grep '^/exit$' "$dir/fake/literal" "a held mate must not be stopped"
+  assert_not_contains "$(cat "$dir/home/state/sm1.inbox"/*.msg)" "re-read your AGENTS.md" \
+    "a held mate must not be told firstmate was updated"
+
+  out=$(FM_TEST_PERSIST_WAIT=0 run_restart "$dir" --failover ghost); rc=$?
+  expect_code 3 "$rc" "a failover restart of an unknown mate is not a success"$'\n'"$out"
+  assert_contains "$out" "held: ghost:" "--failover must hold, not nudge, a mate it cannot restart"
+  pass "T1c --no-nudge and --failover hold a mate they do not restart without the re-read message"
+}
+
+# --- T1d: under --failover a pre-stop refusal is held, a post-stop one unknown
+# The quota library restores the mate's prior pin only on a "held:" line, so a
+# relaunch the control plane refused before touching the agent must say so
+# instead of claiming an unknown outcome; a failure after the stop stays
+# unknown.
+test_failover_refusal_before_stop_is_held() {
+  local dir out rc
+  dir=$(new_case failover-refused)
+  add_local_mate "$dir" sm1
+  # muse is a crewmate-only adapter, so the control plane refuses a secondmate
+  # relaunch onto it BEFORE stopping anything.
+  printf 'muse\n' > "$dir/home/config/secondmate-harness"
+  out=$(FM_TEST_PERSIST_WAIT=0 run_restart "$dir" --failover sm1); rc=$?
+
+  expect_code 3 "$rc" "a refused failover restart is not a success"$'\n'"$out"
+  assert_contains "$out" "held: sm1: the restart was refused before its agent was touched:" \
+    "a pre-stop refusal must be reported as held"
+  assert_not_contains "$out" "unreached: sm1" "a pre-stop refusal must not be reported as an unknown outcome"
+  assert_contains "$out" "summary: 0 of 1 restarted, 0 nudged, 0 unreached, 1 held" "the summary must count the held mate"
+  assert_no_grep '^/exit$' "$dir/fake/literal" "a pre-stop refusal must not have stopped the agent"
+
+  dir=$(new_case failover-post-stop)
+  add_local_mate "$dir" sm1
+  printf 'zsh' > "$dir/fake/becomes"
+  out=$(FM_TEST_PERSIST_WAIT=0 run_restart "$dir" --failover sm1); rc=$?
+
+  expect_code 3 "$rc" "a failed failover relaunch is not a success"$'\n'"$out"
+  assert_contains "$out" "unreached: sm1: the restart outcome is unknown" \
+    "a failure after the agent was stopped must stay an unknown outcome"
+  assert_not_contains "$out" "held: sm1" "a stopped mate must never be reported as held"
+  pass "T1d --failover reports a pre-stop refusal as held and a post-stop failure as unknown"
+}
+
+# --- T1e: the quota modes restart the exact registered id --------------------
+test_failover_restarts_exact_id() {
+  local dir out rc
+  dir=$(new_case exact-id)
+  add_local_mate "$dir" alpha
+  add_local_mate "$dir" fm-alpha
+  out=$(FM_TEST_PERSIST_WAIT=0 run_restart "$dir" --failover fm-alpha); rc=$?
+
+  expect_code 0 "$rc" "the exact mate must be restarted"$'\n'"$out"
+  assert_contains "$out" "restarted: fm-alpha (claude)" "the mate registered as fm-alpha must be the one restarted"
+  assert_not_contains "$out" ": alpha" "no other mate may be named"
+  assert_contains "$(cat "$dir/home/state/fm-alpha.inbox"/*.msg)" "Open-record persistence" "the persist request must reach fm-alpha"
+  [ ! -d "$dir/home/state/alpha.inbox" ] || [ -z "$(ls "$dir/home/state/alpha.inbox")" ] \
+    || fail "the mate registered as alpha must not be asked to persist"
+  [ ! -e "$dir/home/state/alpha.control-relaunch" ] || fail "the mate registered as alpha must not be relaunched"
+  pass "T1e --failover restarts the mate registered as fm-alpha, never alpha"
+}
+
 # --- T2: persist THEN restart, in that order --------------------------------
 test_persist_precedes_restart() {
   local dir out rc doorbell_line exit_line
@@ -898,6 +988,10 @@ test_remote_restart_uses_id_specific_profile
 test_remote_restart_refuses_unpinned_pi_model
 
 test_persist_gates_and_asks_only_for_open_records
+test_failover_restarts_without_an_answer
+test_no_nudge_holds_without_the_reread_message
+test_failover_refusal_before_stop_is_held
+test_failover_restarts_exact_id
 test_persist_precedes_restart
 test_arrived_answer_precedes_deadline_check
 test_answer_between_resolution_and_timeout_wins

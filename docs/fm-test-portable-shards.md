@@ -14,6 +14,7 @@ Use the slowest successful `duration_ms` per script across their uploaded portab
 All artifact records were cross-checked against the corresponding job's markers.
 This covers all 24 parallel and 201 serial members; an existing live-capability skip is a portable-runner measurement, not a timing claim for the unavailable live integration.
 Observed maxima provide conservative packing weights, not an upper bound on future durations.
+Serial scripts added after that refresh carry the duration their first completed Ubuntu run measured, from [Authentis/firstmate-upstream run 39967337279](https://github.com/Authentis/firstmate-upstream/actions/runs/39967337279), instead of the unmeasured default.
 
 Two serial-5 jobs were cancelled at their 30-minute cap and uploaded no artifact.
 Their completed log markers supplement the complete runs, but a cancelled job's wall time is only a lower bound and its unfinished or never-started scripts have no completed sample.

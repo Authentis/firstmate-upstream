@@ -23,6 +23,7 @@ set -u
 
 CHECK="$ROOT/bin/fm-tool-update-check.sh"
 CHECKPOINT="$ROOT/bin/fm-watch-checkpoint.sh"
+DRAIN="$ROOT/bin/fm-wake-drain.sh"
 TMP_ROOT=$(fm_test_tmproot fm-tool-update-check)
 
 # Exported here, at the top level, because git_fixture runs inside a command
@@ -1032,9 +1033,12 @@ test_arm_resolves_a_relative_home_into_the_shim() {
 }
 
 test_armed_check_wakes_the_watcher_with_the_skew_report() {
-  local home stale fresh out err status
-  # End to end through the real watcher: the armed check must reach it as a
-  # `check:` wake carrying the same PATH skew line, with no new machinery.
+  local home stale fresh out err status drained
+  # End to end through the real watcher: tool-updates is a batched reporter
+  # check (bin/fm-wake-classify-lib.sh), so the armed check queues its PATH
+  # skew line durably and wakes through the `check: wake digest`; a one-second
+  # batch window lets that digest fire inside the checkpoint, and the drain
+  # then presents the queued row carrying the same skew line.
   home=$(make_home wake)
   stale="$TMP_ROOT/wake/mise/installs/herdr/latest/bin"
   fresh="$TMP_ROOT/wake/local/bin"
@@ -1047,12 +1051,13 @@ test_armed_check_wakes_the_watcher_with_the_skew_report() {
   err="$home/err.txt"
   status=0
   env FM_HOME="$home" PATH="$(fixture_path "$stale:$fresh")" FM_CHECK_TIMEOUT=30 FM_TOOL_UPDATE_INTERVAL=0 \
-    FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=1 \
+    FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=1 FM_WAKE_BATCH_SECS=1 \
     "$CHECKPOINT" --seconds 10 >"$out" 2>"$err" || status=$?
   expect_code 0 "$status" "watcher checkpoint exit"
-  assert_contains "$(cat "$out")" "check:" "the armed check did not reach the watcher as a check wake"
-  assert_contains "$(cat "$out")" "tool updates: herdr update not in effect" "the wake did not carry the PATH skew report"
-  pass "the armed check reaches the watcher as an ordinary check wake"
+  assert_contains "$(cat "$out")" "check: wake digest: 1 batched non-urgent" "the armed check did not reach the watcher as a batched digest wake"
+  drained=$(FM_HOME="$home" "$DRAIN" 2>&1) || fail "wake drain failed: $drained"
+  assert_contains "$drained" "tool updates: herdr update not in effect" "the queued wake did not carry the PATH skew report"
+  pass "the armed check reaches the watcher as a batched check wake carrying the skew report"
 }
 
 test_path_skew_is_reported_from_every_copy

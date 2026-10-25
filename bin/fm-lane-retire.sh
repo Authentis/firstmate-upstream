@@ -123,12 +123,15 @@ bundle_lane() {  # <id> <worktree> <base> <head-sha>
   [ "$DRY" != 1 ] || return 0
   file="$BUNDLES/$id.bundle"
   mkdir -p "$BUNDLES" 2>/dev/null || return 1
-  git -C "$wt" bundle create -q "$file.tmp" HEAD "^$base" >/dev/null 2>&1 \
+  if git -C "$wt" bundle create -q "$file.tmp" HEAD "^$base" >/dev/null 2>&1 \
     && git -C "$wt" bundle verify -q "$file.tmp" >/dev/null 2>&1 \
     && mv -f "$file.tmp" "$file" 2>/dev/null \
     && git -C "$wt" bundle verify -q "$file" >/dev/null 2>&1 \
-    && git -C "$wt" bundle list-heads "$file" 2>/dev/null | grep -q "^$head HEAD" \
-    || { rm -f "$file.tmp"; return 1; }
+    && git -C "$wt" bundle list-heads "$file" 2>/dev/null | grep -q "^$head HEAD"; then
+    return 0
+  fi
+  rm -f "$file.tmp"
+  return 1
 }
 
 # Right before teardown: the record still names the lane that was inspected, the

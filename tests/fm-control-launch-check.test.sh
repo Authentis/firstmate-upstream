@@ -670,6 +670,7 @@ test_cursor_relaunch_to_unlisted_model_is_refused_before_the_stop() {
   arm "$dir" lc30 >/dev/null
   cat > "$dir/fakebin/cursor-agent" <<'SH'
 #!/usr/bin/env bash
+[ "${1:-}" != --help ] || { printf '%s\n' 'Start the Cursor Agent'; exit 0; }
 [ "${1:-}" != --list-models ] || printf '%s\n' 'Available models' 'cursor-grok-4.5-high - Grok 4.5 High'
 exit 0
 SH
@@ -701,6 +702,7 @@ test_verified_cursor_relaunch_lists_no_catalog_after_the_stop() {
   arm "$dir" lc31 >/dev/null
   cat > "$dir/fakebin/cursor-agent" <<'SH'
 #!/usr/bin/env bash
+[ "${1:-}" != --help ] || { printf '%s\n' 'Start the Cursor Agent'; exit 0; }
 [ "${1:-}" = --list-models ] || exit 0
 cat "$FM_FAKE_DIR/command" >> "$FM_FAKE_DIR/catalog-calls"
 echo >> "$FM_FAKE_DIR/catalog-calls"
