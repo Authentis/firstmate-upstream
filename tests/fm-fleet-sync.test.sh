@@ -37,6 +37,15 @@ fm_git_identity fmtest fmtest@example.invalid
 TMP_ROOT=$(fm_test_tmproot fm-fleet-sync-tests)
 HOME_N=0
 
+# Every treehouse call this test makes (build_pair clones, the full bootstrap)
+# runs against a root under TMP_ROOT, so the host's real pool is never written.
+# REAL_TREEHOUSE_ROOT is the root the run would have used before the override.
+REAL_TREEHOUSE_ROOT=${TREEHOUSE_ROOT:-$HOME/.treehouse}
+treehouse_listing() { ls -A "$1" 2>/dev/null | LC_ALL=C sort; }
+TREEHOUSE_BEFORE=$(treehouse_listing "$REAL_TREEHOUSE_ROOT")
+export TREEHOUSE_ROOT="$TMP_ROOT/treehouse"
+mkdir -p "$TREEHOUSE_ROOT"
+
 # --- fixtures ---------------------------------------------------------------
 
 # new_home: fresh isolated FM_HOME with an empty projects/ dir. Each test gets its
@@ -774,3 +783,11 @@ test_non_clone_dir_never_syncs_the_enclosing_repo
 test_non_clone_dir_named_directly_never_syncs_the_enclosing_repo
 test_symlinked_clone_still_syncs
 test_clone_root_named_by_another_spelling_still_syncs
+
+test_real_treehouse_root_gained_no_entries() {
+  local after
+  after=$(treehouse_listing "$REAL_TREEHOUSE_ROOT")
+  assert_equals "$after" "$TREEHOUSE_BEFORE" "the real treehouse root gained no entries during the run"
+  pass "the real treehouse root is untouched by the run"
+}
+test_real_treehouse_root_gained_no_entries
