@@ -119,6 +119,10 @@ test_own_outbound_report_is_not_scanned_and_folded_rows_deliver() {
 
   fold_append "$dir" check "$state/x.check.sh" "check: $state/x.check.sh: same" check-repeat \
     || fail "could not queue a folded row"
+  # With classification on the watcher acknowledges aged routine rows itself
+  # (tests/fm-wake-classify.test.sh); this case keeps the fold digest and the
+  # drain's one-call acknowledgement covered through the switch-off path.
+  printf 'off\n' > "$dir/config/wake-classify"
   watch_fold_bg "$dir" FM_WAKE_FOLD_DIGEST_SECS=1
   wait_for_exit "$WATCH_PID" 100 || fail "digest did not wake for the folded row"
   WATCH_PID=
@@ -157,11 +161,11 @@ test_check_repeat_folds_and_new_text_wakes() {
   local dir state
   dir=$(make_fold_case check-repeat)
   state="$dir/state"
-  register_check "$dir" tool-updates 'tool updates: br update available'
+  register_check "$dir" tool-updates 'tool updates: br update FAILED'
   watch_fold_bg "$dir" FM_CHECK_INTERVAL=0
   wait_for_exit "$WATCH_PID" 100 || fail "first check output did not wake"
   WATCH_PID=
-  grep -q 'tool updates: br update available' "$dir/watch.out" || fail "first check output was not the wake"
+  grep -q 'tool updates: br update FAILED' "$dir/watch.out" || fail "first check output was not the wake"
   drain "$dir" || fail "drain after first check failed"
   ack_drain_err "$state" "$dir/drain.err" >/dev/null 2>&1 || fail "could not acknowledge the first check"
 
@@ -171,11 +175,11 @@ test_check_repeat_folds_and_new_text_wakes() {
   stop_watcher
   grep -q $'\tcheck-repeat$' "$state/.wake-fold" || fail "identical check output was not recorded as folded"
 
-  register_check "$dir" tool-updates 'tool updates: dcg update available'
+  register_check "$dir" tool-updates 'tool updates: dcg update FAILED'
   watch_fold_bg "$dir" FM_CHECK_INTERVAL=0
   wait_for_exit "$WATCH_PID" 100 || fail "changed check output did not wake"
   WATCH_PID=
-  grep -q 'tool updates: dcg update available' "$dir/watch.out" || fail "changed check output was not the wake"
+  grep -q 'tool updates: dcg update FAILED' "$dir/watch.out" || fail "changed check output was not the wake"
   [ "$(queue_rows "$dir")" -eq 2 ] || fail "the folded repeat was not still queued beside the real wake"
   drain "$dir" --ack-if-routine || fail "drain after changed check failed"
   grep -q WAKE_ACK_REQUIRED "$dir/drain.err" || fail "a changed check output was acknowledged as routine"

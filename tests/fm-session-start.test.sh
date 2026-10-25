@@ -34,6 +34,13 @@
 #     network result surfaces exactly once (inline or as a wake, never both), a
 #     read-only session declares the checks it skipped, and the tasks-axi
 #     compatibility verdict is paid for once per session start
+#   - the locked context re-emit's FLEET STATE as capped state: identical
+#     status events collapsed to counts, superseded history and closed logs
+#     dropped, the default byte cap with disclosed cuts, a mandatory
+#     open-items section carrying exact heads, every receipt path, and PR
+#     states (merge record, retirement receipt, armed poll, unwatched), and a
+#     byte tally that counts the whole summary, itself included, so a budget
+#     of exactly its size fits and one byte less cuts or reports the overrun
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -302,11 +309,10 @@ SH
   chmod +x "$fakebin/ps"
 }
 
-# make_fake_tmux <fakebin> <live-target>: display-message succeeds only for
-# the given "session:window" target - the exact primitive
-# fm_backend_target_exists uses for a tmux endpoint liveness read.
+# make_fake_tmux <fakebin> <live-target>: the window inventory contains only
+# the given live target's window.
 make_fake_tmux() {
-  local fakebin=$1 live=$2
+  local fakebin=$1 live=$2 live_window=${2#*:}
   cat > "$fakebin/tmux" <<SH
 #!/usr/bin/env bash
 set -u
@@ -320,6 +326,10 @@ case "\${1:-}" in
     done
     [ "\$target" = "$live" ] && { printf '%%1\n'; exit 0; }
     exit 1
+    ;;
+  list-windows)
+    printf '%s\n' "$live_window"
+    exit 0
     ;;
 esac
 exit 1
@@ -830,6 +840,7 @@ EOF
     || fail "a locked session start did not publish the home summary ledger"
   assert_contains "$out" "data/projects.md" "digest did not label the projects.md section"
   assert_contains "$out" "- demo [no-mistakes] - a demo project (added 2026-07-01)" "digest did not print projects.md content"
+  assert_contains "$out" "fm-role: user (default)" "digest did not report the home's firstmate-repository role"
 
   assert_contains "$out" "data/captain.md" "digest did not label the captain.md section"
   assert_contains "$out" "data/captain-shared.md (shared, main-authoritative, read-only in secondmate homes)" \
@@ -1060,6 +1071,8 @@ $rec
 EOF
   make_fake_toolchain "$fakebin"
   make_fake_ps_claude "$fakebin"
+  # A live endpoint keeps task-a out of the dead-record collapse.
+  make_fake_tmux "$fakebin" fm-sess:w1
   # Force a MISSING diagnostic line so the bootstrap section is non-trivial.
   rm -f "$fakebin/node"
 
@@ -1543,7 +1556,7 @@ EOF
 }
 
 test_reemit_work_under_way_is_size_bounded() {
-  local rec root home fakebin out i
+  local rec root home fakebin holder_pid out i
   rec=$(new_world work-reemit-cap)
   IFS='|' read -r root home fakebin <<EOF
 $rec
@@ -1560,10 +1573,20 @@ EOF
   done
   fm_write_secondmate_meta "$home/state/zz-sm.meta" "$home/other-secondmate" "firstmate:fm-zz-sm" alpha
 
-  out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$root" FM_FAKE_HARNESS_PID=$$ PATH="$fakebin:$BASE_PATH" \
-    FM_SESSION_START_REEMIT_WORK_MAX_BYTES=1500 \
+  # A locked re-emit prints the capped state summary instead of the record
+  # dump, so the dump's size bound is exercised on the read-only re-emit: another
+  # live holder owns the session lock.
+  sleep 300 &
+  holder_pid=$!
+  printf '%s\n' "$holder_pid" > "$home/state/.lock"
+  out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$root" PATH="$fakebin:$BASE_PATH" \
+    FM_SESSION_START_REEMIT_WORK_MAX_BYTES=3000 \
     env -u CLAUDECODE -u PI_CODING_AGENT -u FM_PI_HARNESS -u GROK_AGENT \
-    "$SESSION_START" --reemit)
+    "$SESSION_START" --reemit) || true
+  kill "$holder_pid" 2>/dev/null || true
+  wait "$holder_pid" 2>/dev/null || true
+  rm -f "$home/state/.lock"
+  assert_contains "$out" "READ-ONLY SESSION" "the re-emit did not take the read-only path"
   assert_contains "$out" "CONTEXT RE-EMIT TRUNCATED" "the capped re-emit carried no truncation banner"
   assert_contains "$out" "bin/fm-crew-state.sh" "the banner did not say how to read the omitted records"
   assert_contains "$out" "zz-sm | kind=" "a secondmate record was dropped by the size bound"
@@ -1574,7 +1597,7 @@ EOF
   assert_not_contains "$out" "CONTEXT RE-EMIT TRUNCATED" "a full session start was size-capped"
   assert_contains "$out" "ship-30 | kind=" "a full session start dropped a record"
 
-  pass "a context re-emit bounds its work-under-way section with a truncation banner and always keeps secondmates"
+  pass "a read-only context re-emit bounds its work-under-way section with a truncation banner and always keeps secondmates"
 }
 
 test_endpoint_liveness_herdr() {
@@ -2722,6 +2745,31 @@ SH
 
 # --- context re-emit (--reemit) ----------------------------------------------
 
+test_reemit_cue_survives_the_hook_output_preview() {
+  local rec root home fakebin reemit normal head2k
+  rec=$(new_world reemit-cue)
+  IFS='|' read -r root home fakebin <<FIXTURE
+$rec
+FIXTURE
+  make_fake_toolchain "$fakebin"
+  make_fake_ps_claude "$fakebin"
+  mkdir -p "$home/data"
+  awk 'BEGIN { for (i = 0; i < 400; i++) printf "preference line %04d padding padding padding\n", i }' > "$home/data/captain.md"
+
+  normal=$(FM_FAKE_HARNESS_PID=$$ run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
+  assert_not_contains "$normal" "RE-EMIT CUE" "a normal start printed the re-emit cue"
+
+  reemit=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$root" FM_FAKE_HARNESS_PID=$$ PATH="$fakebin:$BASE_PATH" \
+    env -u CLAUDECODE -u PI_CODING_AGENT -u FM_PI_HARNESS -u GROK_AGENT \
+    "$SESSION_START" --reemit)
+  [ "${#reemit}" -gt 10000 ] || fail "re-emit fixture did not exceed the hook output limit"
+  head2k=$(printf '%s' "$reemit" | head -c 2000)
+  assert_contains "$head2k" "RE-EMIT CUE" "the re-emit cue is not inside the first 2000 characters"
+  assert_contains "$head2k" "Full output saved to" "the re-emit cue does not point at the saved output"
+
+  pass "--reemit puts its read cue in the first 2000 characters and a normal start omits it"
+}
+
 test_reemit_skips_startup_sweeps_but_keeps_the_wake_drain() {
   local rec root home fakebin network_report reemit sequence generation
   rec=$(new_world reemit)
@@ -2763,6 +2811,322 @@ EOF
   assert_contains "$reemit" "NEXT STEP" "--reemit dropped the closing reminder"
 
   pass "--reemit reprints the digest without repeating startup's mutating sweeps and still drains queued wakes"
+}
+
+# reemit_state_summary <digest>: the charged state summary a locked --reemit
+# prints under FLEET STATE, from its lede through its closing tally.
+reemit_state_summary() {
+  printf '%s\n' "$1" | sed -n '/^Context re-emit: CURRENT STATE/,/^STATE SUMMARY:/p'
+}
+
+run_reemit() {  # <home> <root> <path>
+  env -u CLAUDECODE -u PI_CODING_AGENT -u FM_PI_HARNESS -u GROK_AGENT \
+    FM_FAKE_HARNESS_PID="$SESSION_START_TEST_HARNESS_PID" \
+    FM_HOME="$1" FM_ROOT_OVERRIDE="$2" PATH="$3" \
+    "$SESSION_START" --reemit
+}
+
+reemit_summary_bytes() {  # <summary>: its real serialized size, tally line included
+  printf '%s\n' "$1" | LC_ALL=C wc -c | tr -d ' '
+}
+
+# assert_reemit_tally_exact <summary> <context>: the closing tally's byte count
+# is the summary's real size, its own line included.
+assert_reemit_tally_exact() {
+  local actual tally
+  actual=$(reemit_summary_bytes "$1")
+  tally=$(printf '%s\n' "$1" | sed -n 's/^STATE SUMMARY: \([0-9][0-9]*\) .*/\1/p' | tail -1)
+  [ -n "$tally" ] && [ "$tally" -eq "$actual" ] \
+    || fail "$2: the tally counts ${tally:-nothing} bytes but the summary is $actual: $1"
+}
+
+# reemit_summary_at <home> <root> <fakebin> <budget>: the state summary a
+# locked --reemit prints under that byte budget, over 40 fake ready rows.
+reemit_summary_at() {
+  local reemit
+  reemit=$(FM_FAKE_TASKS_AXI_READY=40 FM_SESSION_START_REEMIT_STATE_BYTES="$4" \
+    run_reemit "$1" "$2" "$3:$BASE_PATH")
+  reemit_state_summary "$reemit"
+}
+
+# write_retirement_receipt <state> <id> <number>: a private
+# fm-pr-poll-retirement-v1 receipt recording github.com/o/r PR <number> merged,
+# in the 14-line shape bin/fm-pr-lib.sh validates.
+write_retirement_receipt() {
+  local hash
+  hash=$(printf '%064d' 0)
+  printf '%s\n' fm-pr-poll-retirement-v1 "$2" github "https://github.com/o/r/pull/$3" github.com o/r "$3" \
+    "$hash" "$hash" 1:1 1:2 "$hash" 1:3 merged > "$1/$2.pr-poll-retirement"
+  chmod 600 "$1/$2.pr-poll-retirement"
+}
+
+test_reemit_state_summary_is_capped_state_not_a_log() {
+  local rec root home fakebin full full_fleet reemit summary bytes log i
+  rec=$(new_world reemit-state-cap)
+  IFS='|' read -r root home fakebin <<EOF
+$rec
+EOF
+  make_fake_toolchain "$fakebin"
+  make_fake_tasks_axi_compact "$fakebin"
+  make_fake_ps_claude "$fakebin"
+  printf '# Backlog\n\n## Queued\n- [ ] placeholder - answered by the fake tasks-axi\n' > "$home/data/backlog.md"
+  printf 'window=default:w1:p1\nbackend=tmux\nkind=ship\nmode=no-mistakes\nyolo=off\nbranch=fm/cap-a\n' \
+    > "$home/state/cap-a.meta"
+  {
+    printf 'working [at=1700000000]: implementing the fix\n'
+    i=1
+    while [ "$i" -le 150 ]; do
+      printf 'paused [at=%s]: waiting on CI run 42 for fm/cap-a\n' $((1700000000 + i))
+      i=$((i + 1))
+    done
+  } > "$home/state/cap-a.status"
+  i=1
+  while [ "$i" -le 40 ]; do
+    printf 'done [at=1690000000]: closed task %s landed long ago with its own long evidence line\n' "$i" \
+      > "$home/state/closed-$i.status"
+    i=$((i + 1))
+  done
+
+  # The same records as a full startup dump: what the re-emit replaced.
+  full=$(FM_FAKE_TASKS_AXI_READY=600 FM_SESSION_START_QUEUED_LIMIT=600 FM_FAKE_HARNESS_PID=$$ \
+    run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
+  full_fleet=$(printf '%s\n' "$full" | sed -n '/^FLEET STATE$/,/^NETWORK CHECKS$/p' | LC_ALL=C wc -c | tr -d ' ')
+  [ "$full_fleet" -gt 20000 ] || fail "the cap fixture is vacuous: the full record dump is only $full_fleet bytes"
+  assert_contains "$full" "Work under way (state/*.meta)" "a full startup stopped printing the record dump"
+  assert_not_contains "$full" "OPEN ITEMS (mandatory" "a full startup printed the re-emit state summary"
+  # Let the full startup's deferred network stage publish before the re-emit,
+  # as the sibling re-emit test does, so the two never race.
+  wait_for_network_stage "$home" "$root" \
+    || fail "the cap fixture's full startup never published its deferred network stage"
+
+  log="$home/tasks-axi.log"
+  reemit=$(FM_FAKE_TASKS_AXI_LOG="$log" FM_FAKE_TASKS_AXI_READY=600 run_reemit "$home" "$root" "$fakebin:$BASE_PATH")
+  grep -q '^ready --file ' "$log" 2>/dev/null \
+    || fail "the re-emit never asked the fake tasks-axi for its 600 ready rows, so the cap was not under test: $(cat "$log" 2>/dev/null)"
+  summary=$(reemit_state_summary "$reemit")
+  [ -n "$summary" ] || fail "the locked re-emit printed no state summary: $reemit"
+  bytes=$(reemit_summary_bytes "$summary")
+  [ "$bytes" -le 15000 ] || fail "the re-emit state summary is $bytes bytes, over its default 15000-byte cap"
+  assert_reemit_tally_exact "$summary" "the default-budget summary"
+  assert_contains "$summary" "Budget: 15000 bytes for this whole summary" "the summary did not state its default cap"
+  assert_contains "$summary" "more omitted by the state budget - bin/fm-tasks-axi.sh ready" \
+    "the cap cut ready rows without disclosing the remainder and its command"
+  assert_not_contains "$reemit" "Work under way (state/*.meta)" "the locked re-emit still printed the record dump"
+  assert_not_contains "$reemit" "status tail (last" "the locked re-emit still printed status-tail log lines"
+
+  # Repeated wake events collapse to one line and a count; superseded history to a count.
+  assert_contains "$summary" "latest event x150 (+1 earlier): paused [at=1700000150]: waiting on CI run 42 for fm/cap-a" \
+    "identical repeats and superseded status history were not collapsed to counts"
+  [ "$(printf '%s\n' "$summary" | grep -c 'waiting on CI run 42')" -eq 1 ] \
+    || fail "a repeated status event was replayed instead of counted: $summary"
+  assert_not_contains "$summary" "implementing the fix" "a superseded status line was replayed"
+
+  # Cleaned-up work is counted and named, never replayed.
+  assert_contains "$summary" "closed task logs (state/*.status with no task record, not replayed): 40" \
+    "closed task logs were not collapsed to a count"
+  assert_not_contains "$reemit" "landed long ago" "a closed task's log text was replayed"
+
+  pass "--reemit prints FLEET STATE as capped state: repeats counted, history and closed logs dropped, cuts disclosed"
+}
+
+test_reemit_open_items_keep_heads_receipts_and_pr_states() {
+  local rec root home fakebin wt wt_head reemit summary pad i
+  rec=$(new_world reemit-open-items)
+  IFS='|' read -r root home fakebin <<EOF
+$rec
+EOF
+  make_fake_toolchain "$fakebin"
+  make_fake_ps_claude "$fakebin"
+  wt="$TMP_ROOT/reemit-open-items/wt"
+  git init -q -b main "$wt"
+  git -C "$wt" commit -q --allow-empty -m wt
+  wt_head=$(git -C "$wt" rev-parse HEAD)
+
+  printf 'window=default:w1:p1\nbackend=tmux\nworktree=%s\nkind=ship\nmode=no-mistakes\nyolo=off\nbranch=fm/merged-a\npr=https://github.com/o/r/pull/11\npr_head=%s\n' \
+    "$wt" "$wt_head" > "$home/state/merged-a.meta"
+  chmod 600 "$home/state/merged-a.meta"
+  (
+    # shellcheck source=bin/fm-pr-lib.sh
+    . "$ROOT/bin/fm-pr-lib.sh"
+    fm_pr_poll_merge_mark_notified "$home/state" merged-a github github.com o/r 11
+  ) || fail "could not record the merge-notified fixture"
+  pad=$(printf '%0230d' 0)
+  {
+    printf 'needs-decision [key=old-call] [at=1700000001]: settled question\n'
+    printf 'resolved [key=old-call] [at=1700000002]: answered\n'
+    printf 'done [at=1700000003]: PR https://github.com/o/r/pull/11 ready %s evidence at /tmp/receipts/merged-a/proof.log\n' "$pad"
+  } > "$home/state/merged-a.status"
+
+  printf 'window=default:w2:p1\nbackend=tmux\nworktree=%s/gone\nkind=ship\nmode=direct-PR\nyolo=on\nbranch=fm/watch-b\npr=https://github.com/o/r/pull/12\npr_head=%s\n' \
+    "$TMP_ROOT" "$wt_head" > "$home/state/watch-b.meta"
+  : > "$home/state/watch-b.pr-poll"
+  : > "$home/state/watch-b.check.sh"
+  {
+    i=1
+    while [ "$i" -le 5 ]; do
+      printf 'needs-decision [key=call-%s] [at=17000001%s]: choose option %s, notes in data/watch-b/call-%s.md\n' "$i" "$i" "$i" "$i"
+      i=$((i + 1))
+    done
+  } > "$home/state/watch-b.status"
+
+  printf 'window=default:w3:p1\nbackend=tmux\nkind=ship\nmode=no-mistakes\nyolo=off\nbranch=fm/bare-c\npr=https://github.com/o/r/pull/13\n' \
+    > "$home/state/bare-c.meta"
+  printf 'window=remote:box\nbackend=tmux\nremote_host=box\nworktree=/home/x/wt\nkind=ship\nmode=no-mistakes\nyolo=off\nbranch=fm/remote-d\n' \
+    > "$home/state/remote-d.meta"
+  printf 'window=default:w4:p1\nbackend=tmux\nkind=secondmate\nmode=secondmate\nhome=%s/sm\n' "$TMP_ROOT" > "$home/state/sm-e.meta"
+  printf 'window=default:w5:p1\nbackend=tmux\nkind=scout\nmode=no-mistakes\nyolo=off\nbranch=fm/scout-f\n' > "$home/state/scout-f.meta"
+  mkdir -p "$home/data/scout-f"
+  printf '# findings\n' > "$home/data/scout-f/report.md"
+  # A retirement receipt bound to the recorded PR proves its merge; one bound
+  # to another PR proves nothing.
+  printf 'window=default:w6:p1\nbackend=tmux\nkind=ship\nmode=no-mistakes\nyolo=off\nbranch=fm/retired-g\npr=https://github.com/o/r/pull/14\n' \
+    > "$home/state/retired-g.meta"
+  write_retirement_receipt "$home/state" retired-g 14
+  printf 'window=default:w7:p1\nbackend=tmux\nkind=ship\nmode=no-mistakes\nyolo=off\nbranch=fm/retired-h\npr=https://github.com/o/r/pull/15\n' \
+    > "$home/state/retired-h.meta"
+  write_retirement_receipt "$home/state" retired-h 99
+
+  # A budget far below the open items proves they are mandatory, never cut.
+  reemit=$(FM_SESSION_START_REEMIT_STATE_BYTES=400 run_reemit "$home" "$root" "$fakebin:$BASE_PATH")
+  summary=$(reemit_state_summary "$reemit")
+  [ -n "$summary" ] || fail "the locked re-emit printed no state summary: $reemit"
+  assert_contains "$summary" "OPEN ITEMS (mandatory: every state/*.meta record, never cut by the budget)" \
+    "the re-emit state summary has no mandatory open-items section"
+  assert_contains "$summary" "bytes with this line, over the 400-byte budget, so only its mandatory lines printed: the lede, OPEN ITEMS (" \
+    "the over-budget tally did not say that only the mandatory lines printed"
+  assert_reemit_tally_exact "$summary" "the over-budget summary"
+  for i in merged-a watch-b bare-c remote-d sm-e scout-f retired-g retired-h; do
+    assert_contains "$summary" "- $i [" "the open-items section dropped task $i under a tight budget"
+  done
+
+  # Exact heads.
+  assert_contains "$summary" "branch=fm/merged-a head=$wt_head pr=https://github.com/o/r/pull/11 pr_head=head" \
+    "an open item lost its exact worktree head or its PR head's match to it"
+  assert_contains "$summary" "head=unknown(worktree on box)" "a remote worktree head was guessed instead of disclosed"
+  assert_contains "$summary" "head=unknown(worktree missing)" "a missing worktree head was not disclosed"
+
+  # PR states from local merge evidence only.
+  assert_contains "$summary" "pr_state=merged(merge record)" "a locally recorded merge was not reported"
+  assert_contains "$summary" "pr=https://github.com/o/r/pull/12 pr_head=$wt_head pr_state=watching(merge poll armed, no merge recorded)" \
+    "an armed merge poll was not reported as the PR's state"
+  assert_contains "$summary" "pr=https://github.com/o/r/pull/13 pr_head=none pr_state=unwatched(" \
+    "a recorded PR without local merge evidence was not disclosed as unwatched"
+  assert_contains "$summary" "pr=https://github.com/o/r/pull/14 pr_head=none pr_state=merged(retirement receipt)" \
+    "a retirement receipt bound to the recorded PR was not reported as its merge"
+  assert_contains "$summary" "pr=https://github.com/o/r/pull/15 pr_head=none pr_state=unwatched(" \
+    "a retirement receipt for another PR was accepted as this PR's merge"
+
+  # Receipt paths stay exact even when the event line that cites them is capped,
+  # and every cited receipt is listed, never a count of the rest.
+  assert_contains "$summary" "[truncated]" "the receipt fixture's latest event was not long enough to be capped"
+  assert_contains "$summary" "receipts: /tmp/receipts/merged-a/proof.log" \
+    "a receipt path cited past the line cap was lost"
+  assert_contains "$summary" "receipts: data/scout-f/report.md" "a scout report receipt was not listed"
+  assert_contains "$summary" "Relative paths are under $home;" "the summary did not anchor its relative receipt paths"
+  assert_contains "$summary" "receipts: data/watch-b/call-5.md data/watch-b/call-4.md data/watch-b/call-3.md data/watch-b/call-2.md data/watch-b/call-1.md" \
+    "a receipt cited by an open decision was dropped or reordered"
+  assert_not_contains "$summary" "more in state/" "receipts were cut to a count"
+
+  # Open decisions: newest first, bounded, closed ones dropped.
+  assert_contains "$summary" "open decisions (5): call-5(needs-decision), call-4(needs-decision), call-3(needs-decision), call-2(needs-decision), +1 more" \
+    "open decision keys were not listed newest first with a bounded remainder"
+  assert_not_contains "$summary" "old-call" "a resolved decision was carried into the state summary"
+
+  pass "--reemit open items keep exact heads, every receipt path, and local PR states under any budget"
+}
+
+test_reemit_state_cap_counts_every_byte_at_the_boundary() {
+  local rec root home fakebin summary full tight mandatory mid bytes i
+  # An empty home: every line is mandatory, so one byte under its size overruns.
+  rec=$(new_world reemit-cap-empty)
+  IFS='|' read -r root home fakebin <<EOF
+$rec
+EOF
+  make_fake_toolchain "$fakebin"
+  make_fake_ps_claude "$fakebin"
+  summary=$(reemit_summary_at "$home" "$root" "$fakebin" 900)
+  assert_reemit_tally_exact "$summary" "an empty home under a 900-byte budget"
+  assert_contains "$summary" "over the 900-byte budget, so only its mandatory lines printed" \
+    "an empty home's mandatory lines overran 900 bytes without the tally saying so"
+  summary=$(reemit_summary_at "$home" "$root" "$fakebin" 100000)
+  full=$(reemit_summary_bytes "$summary")
+  tight=$(reemit_summary_bytes "$(reemit_summary_at "$home" "$root" "$fakebin" "$full")")
+  summary=$(reemit_summary_at "$home" "$root" "$fakebin" "$tight")
+  assert_reemit_tally_exact "$summary" "an empty home under a budget of exactly its size"
+  assert_contains "$summary" "STATE SUMMARY: $tight of $tight bytes, this line included." \
+    "an empty home whose mandatory lines exactly fill the budget did not fit it"
+  summary=$(reemit_summary_at "$home" "$root" "$fakebin" $((tight - 1)))
+  assert_reemit_tally_exact "$summary" "an empty home one byte under its size"
+  assert_contains "$summary" "over the $((tight - 1))-byte budget, so only its mandatory lines printed" \
+    "an empty home one byte over its budget was reported within it"
+
+  # A home with optional rows: backlog groups, then closed-log ids.
+  rec=$(new_world reemit-cap-rows)
+  IFS='|' read -r root home fakebin <<EOF
+$rec
+EOF
+  make_fake_toolchain "$fakebin"
+  make_fake_tasks_axi_compact "$fakebin"
+  make_fake_ps_claude "$fakebin"
+  printf '# Backlog\n\n## Queued\n- [ ] placeholder - answered by the fake tasks-axi\n' > "$home/data/backlog.md"
+  printf 'window=default:w1:p1\nbackend=tmux\nkind=ship\nmode=no-mistakes\nyolo=off\nbranch=fm/cap-b\n' \
+    > "$home/state/cap-b.meta"
+  printf 'working [at=1700000000]: implementing the fix\n' > "$home/state/cap-b.status"
+  i=1
+  while [ "$i" -le 30 ]; do
+    printf 'done [at=1690000000]: closed task %s\n' "$i" > "$home/state/closed-$i.status"
+    i=$((i + 1))
+  done
+
+  # Under a one-byte budget only the mandatory lines print, every cut disclosed.
+  summary=$(reemit_summary_at "$home" "$root" "$fakebin" 1)
+  assert_reemit_tally_exact "$summary" "the mandatory-only summary"
+  mandatory=$(reemit_summary_bytes "$summary")
+  assert_contains "$summary" "over the 1-byte budget, so only its mandatory lines printed" \
+    "a summary whose mandatory lines overran the budget did not say so"
+  assert_contains "$summary" "- cap-b [ship no-mistakes yolo=off]" "an open item was cut by the budget"
+  assert_contains "$summary" "counts: 1 in flight, 1 held, 1 blocked queued, 40 ready queued" "the backlog counts were cut"
+  assert_contains "$summary" "held: 1 row(s) omitted by the state budget - bin/fm-tasks-axi.sh list --state held" \
+    "a cut held row was not disclosed"
+  assert_contains "$summary" "ready queued: 40 row(s) omitted by the state budget - bin/fm-tasks-axi.sh ready" \
+    "cut ready rows were not disclosed"
+  assert_contains "$summary" "(+30 more ids omitted by the state budget - ls state/*.status)" \
+    "cut closed-log ids were not disclosed"
+  assert_not_contains "$summary" "Ready item 1" "an optional row printed past an overrun budget"
+  assert_not_contains "$summary" "ids: closed" "an optional id printed past an overrun budget"
+
+  # With room for everything nothing is cut, a budget of exactly that size
+  # still prints everything, and one byte less cuts the last group's ids first.
+  summary=$(reemit_summary_at "$home" "$root" "$fakebin" 100000)
+  assert_reemit_tally_exact "$summary" "the uncut summary"
+  assert_not_contains "$summary" "omitted by the state budget" "an ample budget still cut rows"
+  full=$(reemit_summary_bytes "$summary")
+  tight=$(reemit_summary_bytes "$(reemit_summary_at "$home" "$root" "$fakebin" "$full")")
+  summary=$(reemit_summary_at "$home" "$root" "$fakebin" "$tight")
+  assert_reemit_tally_exact "$summary" "the summary under a budget of exactly its size"
+  assert_contains "$summary" "STATE SUMMARY: $tight of $tight bytes, this line included." \
+    "a summary that exactly fills its budget was not printed whole"
+  assert_not_contains "$summary" "omitted by the state budget" "a budget of exactly the summary's size cut rows"
+  summary=$(reemit_summary_at "$home" "$root" "$fakebin" $((tight - 1)))
+  assert_reemit_tally_exact "$summary" "the summary one byte under its size"
+  bytes=$(reemit_summary_bytes "$summary")
+  [ "$bytes" -le $((tight - 1)) ] || fail "one byte under its size, the summary still took $bytes bytes"
+  assert_contains "$summary" "Ready item 40" "the budget cut a ready row before the later closed-log ids"
+  assert_contains "$summary" "more ids omitted by the state budget - ls state/*.status)" \
+    "the one-byte cut was not disclosed"
+
+  # Between the mandatory size and the whole, ready rows are cut and disclosed
+  # and the summary stays within its budget.
+  mid=$(((mandatory + tight) / 2))
+  summary=$(reemit_summary_at "$home" "$root" "$fakebin" "$mid")
+  assert_reemit_tally_exact "$summary" "the partly cut summary"
+  bytes=$(reemit_summary_bytes "$summary")
+  [ "$bytes" -le "$mid" ] || fail "under a $mid-byte budget the summary took $bytes bytes"
+  assert_contains "$summary" "Ready item 1" "a partly cut budget printed no ready row"
+  assert_contains "$summary" "more omitted by the state budget - bin/fm-tasks-axi.sh ready)" \
+    "partly cut ready rows were not disclosed"
+
+  pass "--reemit state cap counts every byte, tally included: exact size fits, one byte less cuts, mandatory-only overruns say so"
 }
 
 test_agents_baseline_stays_at_true_start_and_reemits_on_every_drifted_pi_compact() {
@@ -3019,6 +3383,12 @@ EOF
     "--reemit assumed lock ownership instead of re-verifying it"
   assert_contains "$readonly_out" "must leave restore work to the session holding the fleet lock" \
     "a lock-refused --reemit still claimed repair ownership"
+  # Only a lock-holding drain refreshes the fold the state summary reads.
+  assert_contains "$reemit" "OPEN ITEMS (mandatory" "a locked --reemit did not print the state summary"
+  assert_contains "$readonly_out" "Work under way (state/*.meta)" \
+    "a lock-refused --reemit replaced the full record dump with an unrefreshed state summary"
+  assert_not_contains "$readonly_out" "OPEN ITEMS (mandatory" \
+    "a lock-refused --reemit printed a state summary no drain refreshed"
 
   pass "--reemit re-verifies lock ownership and keeps repair ownership with whoever holds it"
 }
@@ -3446,6 +3816,10 @@ test_portable_timeout_escalates_term_resistant_process
 test_runtime_bound_leaves_a_healthy_digest_untouched
 test_runtime_bound_leaves_harness_ancestry_headroom
 test_reemit_skips_startup_sweeps_but_keeps_the_wake_drain
+test_reemit_cue_survives_the_hook_output_preview
+test_reemit_state_summary_is_capped_state_not_a_log
+test_reemit_open_items_keep_heads_receipts_and_pr_states
+test_reemit_state_cap_counts_every_byte_at_the_boundary
 test_agents_baseline_stays_at_true_start_and_reemits_on_every_drifted_pi_compact
 test_sourceless_rerun_after_truncated_startup_writes_the_baseline_once
 test_read_only_pi_compact_refreshes_against_its_own_session_identity

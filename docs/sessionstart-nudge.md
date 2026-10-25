@@ -115,6 +115,7 @@ The requested session start remains idempotent.
 `bin/fm-session-start.sh --reemit` owns these re-emit details:
 
 - Which work a re-emit skips.
+- Its capped FLEET STATE summary of current state, which replaces the record dump.
 - Its true-start AGENTS.md baseline.
 - Its supported stale-instruction refresh pairs.
 
@@ -238,6 +239,9 @@ Claude is a run-tier harness.
 `.claude/settings.json` registers one unmatched `SessionStart` hook, invoked through `CLAUDE_PROJECT_DIR` with a 180s timeout.
 The wrapper reads `source` from the hook payload.
 Native stdout context injection is supported.
+Claude caps one hook output string at 10,000 characters.
+Above the cap the model receives a preview of the first 2,000 characters plus the path of a saved file, and is not asked to read that file.
+A context re-emit therefore prints a short `RE-EMIT CUE` first, which tells the model to read the saved file.
 
 ### Codex exec
 

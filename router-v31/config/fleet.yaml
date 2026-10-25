@@ -1,0 +1,72 @@
+# Router v3.1 fleet policy. Runtime quota observations live only in state/quota.json.
+models:
+  beam-free:     {id: beam-free, family: beam, billing: free, pool: beam-free}
+  kimi-build:    {id: kimi-k2.7-code, family: kimi, billing: flat, pool: kimi, via: kimi}
+  kimi-closure:  {id: kimi-k2.7-code, family: kimi, billing: flat, pool: kimi, via: kimi}
+  claude-top:    {id: claude-opus-5-5, family: claude, billing: flat, pool: claude, via: claude}
+  codex-top:     {id: gpt-6.1-sol, family: codex, billing: flat, pool: codex, via: codex}
+  muse-top:      {id: muse-spark-1.3-contributor, family: muse, billing: flat, pool: muse, via: muse}
+  grok-top:      {id: grok-4.7, family: grok, billing: flat, pool: grok, via: grok}
+  sol-plan:      {id: openai-codex/gpt-6.1-sol, family: codex, billing: flat, pool: codex}
+  muse-wonder-plan: {id: muse-wonder, family: muse, billing: flat, pool: muse}
+  kimi-k3-plan:  {id: kimi-code/k3, family: kimi, billing: flat, pool: kimi}
+  sonnet-cloud:  {id: claude-sonnet-5-5, family: claude, billing: flat, pool: claude}
+
+bindings:
+  beam-free@opencode-go: {model: beam-free, provider: opencode-go, harness: opencode, pool: beam-free, weight: 1}
+  kimi-build@kimi:       {model: kimi-build, provider: kimi, harness: kimi, pool: kimi}
+  kimi-closure@kimi:     {model: kimi-closure, provider: kimi, harness: kimi, pool: kimi}
+  claude-top@claude:     {model: claude-top, provider: claude, harness: claude, pool: claude}
+  codex-top@codex:       {model: codex-top, provider: codex, harness: codex, pool: codex}
+  muse-top@muse:         {model: muse-top, provider: muse, harness: muse, pool: muse}
+  grok-top@grok:         {model: grok-top, provider: grok, harness: grok, pool: grok}
+  sol-plan@pi:           {model: sol-plan, provider: openai-codex, harness: pi, pool: codex, effort: high}
+  muse-wonder-plan@muse: {model: muse-wonder-plan, provider: muse, harness: muse, pool: muse, effort: high}
+  kimi-k3-plan@pi:       {model: kimi-k3-plan, provider: kimi-code, harness: pi, pool: kimi, effort: high}
+  sonnet-cloud@claude:   {model: sonnet-cloud, provider: anthropic, harness: claude, pool: claude, cloud_capable: true}
+
+roles:
+  build:     {models: [beam-free@opencode-go, kimi-build@kimi]}
+  manager:   {models: [muse-top@muse, claude-top@claude]}
+  review:    {models: [codex-top@codex, muse-top@muse, grok-top@grok]}
+  plan:      {models: [sol-plan@pi, muse-wonder-plan@muse, kimi-k3-plan@pi]}
+  t3:        {models: [claude-top@claude, codex-top@codex, muse-top@muse, grok-top@grok]}
+  gate-step: {models: [kimi-build@kimi]}
+  closure:   {models: [kimi-closure@kimi]}
+  cloud:     {models: [sonnet-cloud@claude]}
+
+pools:
+  beam-free: {period_days: 1, scarce: false}
+  kimi:      {period_days: 7, scarce: false}
+  claude:    {period_days: 7, reserve: 30, scarce: true}
+  codex:     {period_days: 7, reserve: 30, scarce: true}
+  muse:      {period_days: 7, reserve: 30, scarce: true}
+  grok:      {period_days: 7, reserve: 30, scarce: true}
+
+bans:
+  - {billing: free, live_data: true}
+  - {family: kimi, live_data: true}
+  - {family: muse, host: netcup}
+  - {family: claude, via: cline}
+  - {id_pattern: "(?:haiku)"}
+  - {role: manager, family: codex}
+  - {role: manager, family: claude, host: '!netcup'}
+  - {role: manager, id_pattern: '(?:astra|[-_/]sol(?:$|[-_.\d]))'}
+  - {id_pattern: "^opencode-go/(?!beam-free$)", hard: false}
+  - {role: gate-step, family: codex}
+  - {role: review, family: claude}
+  - {role: review, billing: free}
+  - {role: review, family: kimi}
+
+catalogs:
+  netcup: {path: state/catalog-netcup.json, max_age_seconds: 86400}
+  bosgame: {path: state/catalog-bosgame.json, max_age_seconds: 86400}
+
+routing_state:
+  bench: state/route-bench.json
+  funds_bench_seconds: 86400
+  pending_reservation_seconds: 900
+  cloud_simultaneous_max: 5
+  claude_cloud_per_day: 3
+  # Explicit exception: no non-Claude adapter currently implements the Claude cloud command.
+  cloud_claude_exception: true

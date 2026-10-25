@@ -1,0 +1,217 @@
+#!/usr/bin/env bash
+# Behavior tests for bin/fm-unified-exec-contain.sh: the installer's anchored,
+# idempotent patching of a pi-unified-exec package copy, and the patched
+# runtime behavior - exited records are reaped with a log line each, while a
+# live session or one with an armed on_exit wake is never reaped or evicted.
+# The behavior checks run the patched SessionStore and reap module in node
+# against duck-typed sessions; nothing asserts source bytes.
+set -u
+
+# shellcheck source=tests/lib.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+
+ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+TMP_ROOT=$(fm_test_tmproot fm-unified-exec-contain-tests)
+FIX="$ROOT/tests/fixtures/unified-exec-contain"
+SCRIPT="$ROOT/bin/fm-unified-exec-contain.sh"
+
+if ! node --experimental-strip-types --no-warnings -e 'process.exit(0)' >/dev/null 2>&1; then
+  echo "SKIP: node without --experimental-strip-types"
+  exit 0
+fi
+
+new_pkg() {  # <name>
+  mkdir -p "$TMP_ROOT/$1"
+  cp -R "$FIX/." "$TMP_ROOT/$1/"
+  echo "$TMP_ROOT/$1"
+}
+
+PKG=$(new_pkg ok)
+assert_equals "unpatched" "$("$SCRIPT" check "$PKG")" "fresh package reports unpatched"
+assert_equals "applied" "$("$SCRIPT" apply "$PKG")" "first apply patches"
+assert_equals "already applied" "$("$SCRIPT" apply "$PKG")" "second apply is a no-op"
+assert_equals "patched" "$("$SCRIPT" check "$PKG")" "check reports patched"
+assert_present "$PKG/src/session-store.ts.fm-orig" "original kept once"
+
+DRIFT=$(new_pkg drift)
+sed -i.bak 's/lruProtectedCount: number;/lruProtectedCount: bigint;/' "$DRIFT/src/session-store.ts"
+before=$(cksum <"$DRIFT/src/index.ts")
+"$SCRIPT" apply "$DRIFT" >/dev/null 2>&1
+expect_code 2 "$?" "anchor drift refuses apply"
+assert_equals "$before" "$(cksum <"$DRIFT/src/index.ts")" "anchor drift writes nothing"
+assert_absent "$DRIFT/src/reap.ts" "anchor drift installs no module"
+
+FOREIGN=$(new_pkg foreign)
+echo "// someone else's module" >"$FOREIGN/src/reap.ts"
+"$SCRIPT" apply "$FOREIGN" >/dev/null 2>&1
+expect_code 2 "$?" "a foreign src/reap.ts is not overwritten"
+assert_equals "// someone else's module" "$(cat "$FOREIGN/src/reap.ts")" "foreign module untouched"
+
+DUP=$(new_pkg dup)
+"$SCRIPT" apply "$DUP" >/dev/null
+cp "$DUP/src/session-store.ts" "$TMP_ROOT/dup-copy.ts"
+cat "$TMP_ROOT/dup-copy.ts" >>"$DUP/src/session-store.ts"
+"$SCRIPT" check "$DUP" >/dev/null 2>&1
+expect_code 2 "$?" "a duplicated patched block is not reported as patched"
+
+BARE=$(new_pkg bare)
+"$SCRIPT" apply "$BARE" >/dev/null
+printf '// extra\n\t\tctx.shuttingDown = true;\n' >>"$BARE/src/index.ts"
+"$SCRIPT" check "$BARE" >/dev/null 2>&1
+expect_code 2 "$?" "a bare unpatched anchor beside a patched one is refused"
+
+cat >"$TMP_ROOT/behavior.mjs" <<JS
+import assert from "node:assert/strict";
+import { SessionStore } from "$PKG/src/session-store.ts";
+import { createReaper, isPinnedSession, isWatchTimerCommand } from "$PKG/src/reap.ts";
+
+assert.ok(isWatchTimerCommand("bash /x/bin/fm-watch-arm.sh --restart"));
+assert.ok(isWatchTimerCommand("/x/bin/fm-watch.sh"));
+assert.ok(!isWatchTimerCommand("grep fm-watch.sh README.md; sleep 9999"), "a mention is not the timer");
+assert.ok(!isWatchTimerCommand("cat bin/fm-watch.sh"));
+
+let t = 1000;
+const mk = (id, o = {}) => ({
+  id, hasExited: false, exitCode: null, signal: null, lastUsed: t++,
+  displayCommand: "sleep 1", terminate() { this.terminated = true; }, ...o,
+});
+const exited = (id, o = {}) => mk(id, { hasExited: true, exitCode: 0, ...o });
+
+// Retained exited records are reaped; live sessions never are.
+{
+  const sessions = new Map();
+  for (let i = 1; i <= 12; i++) sessions.set(i, exited(i));
+  sessions.set(13, mk(13));
+  sessions.set(14, mk(14, { displayCommand: "bash bin/fm-watch-arm.sh --restart" }));
+  const lines = [];
+  const reaper = createReaper({
+    list: () => [...sessions.values()],
+    armed: () => false,
+    remove: (id) => sessions.delete(id),
+    log: (l) => lines.push(l),
+    env: { PI_UNIFIED_EXEC_REAP_KEEP: "3" },
+  });
+  const reaped = reaper.reapOnce();
+  assert.equal(reaped.length, 9, "keeps the newest 3 exited records");
+  assert.deepEqual([...sessions.keys()].filter((id) => id <= 12), [10, 11, 12], "newest exited kept");
+  assert.ok(sessions.has(13) && sessions.has(14), "live sessions untouched");
+  assert.equal(lines.length, 9, "every reap is logged");
+  assert.match(lines[0], /reaped session=1 exit_code=0/);
+}
+
+// Exit not yet known, or wake still armed: never reaped.
+{
+  const sessions = new Map([
+    [1, exited(1, { exitCode: null, signal: null })],
+    [2, exited(2)],
+    [3, exited(3)],
+    [4, exited(4)],
+  ]);
+  const reaper = createReaper({
+    list: () => [...sessions.values()],
+    armed: (id) => id === 2,
+    remove: (id) => sessions.delete(id),
+    log: () => {},
+    env: { PI_UNIFIED_EXEC_REAP_KEEP: "0" },
+  });
+  assert.deepEqual(reaper.reapOnce().sort(), [3, 4], "unknown exit and armed wake are skipped");
+  assert.ok(sessions.has(1) && sessions.has(2));
+}
+
+// A live session with an armed on_exit wake survives every pass.
+{
+  const live = mk(1);
+  const sessions = new Map([[1, live]]);
+  const reaper = createReaper({
+    list: () => [...sessions.values()],
+    armed: () => true,
+    remove: (id) => sessions.delete(id),
+    log: () => {},
+    env: { PI_UNIFIED_EXEC_REAP_KEEP: "0" },
+  });
+  for (let i = 0; i < 3; i++) assert.deepEqual(reaper.reapOnce(), []);
+  assert.ok(sessions.has(1) && !live.terminated, "armed on_exit session survives");
+}
+
+// The LRU never evicts the watch timer or a wake-armed live session.
+{
+  const armedIds = new Set([2]);
+  const pinned = (s) => isPinnedSession(s, (id) => armedIds.has(id));
+  const store = new SessionStore({ maxSessions: 4, lruProtectedCount: 1, isPinned: pinned });
+  const watch = mk(1, { displayCommand: "bash /x/bin/fm-watch-arm.sh --restart" });
+  const armedLive = mk(2);
+  const plain = mk(3);
+  const newest = mk(4);
+  for (const s of [watch, armedLive, plain, newest]) store.insert(s);
+  const { pruned } = store.insert(mk(5));
+  assert.equal(pruned?.id, 3, "the unpinned older session is the victim");
+  assert.ok(!watch.terminated && !armedLive.terminated);
+  // Only pinned sessions are eligible: nothing is evicted and the cap is exceeded.
+  const store2 = new SessionStore({ maxSessions: 2, lruProtectedCount: 1, isPinned: pinned });
+  const w2 = mk(1, { displayCommand: "fm-watch.sh" });
+  store2.insert(w2);
+  store2.insert(mk(9));
+  armedIds.add(9);
+  const res = store2.insert(mk(10));
+  assert.equal(res.pruned, undefined, "nothing evicted when only pinned sessions are eligible");
+  assert.equal(store2.size, 3);
+  assert.ok(!w2.terminated);
+}
+// An exited session whose wake is still armed keeps its slot under pressure.
+{
+  const armedIds = new Set([1]);
+  const pinned = (s) => isPinnedSession(s, (id) => armedIds.has(id));
+  const store = new SessionStore({ maxSessions: 3, lruProtectedCount: 1, isPinned: pinned });
+  store.insert(exited(1));
+  store.insert(exited(2));
+  store.insert(mk(3));
+  const { pruned } = store.insert(mk(4));
+  assert.equal(pruned?.id, 2, "exited unarmed record is evicted before the exited armed one");
+  assert.ok(store.get(1), "exited armed session keeps its slot");
+}
+
+// The timer reaps on its own and stop() cancels it.
+{
+  const sessions = new Map([[1, exited(1)], [2, exited(2)]]);
+  const reaper = createReaper({
+    list: () => [...sessions.values()],
+    armed: () => false,
+    remove: (id) => sessions.delete(id),
+    log: () => {},
+    env: { PI_UNIFIED_EXEC_REAP_KEEP: "1", PI_UNIFIED_EXEC_REAP_INTERVAL_MS: "1000" },
+  });
+  reaper.start();
+  await new Promise((r) => setTimeout(r, 1400));
+  assert.equal(sessions.size, 1, "timer reaped the older exited record");
+  reaper.stop();
+  sessions.set(3, exited(3));
+  sessions.set(4, exited(4));
+  await new Promise((r) => setTimeout(r, 1400));
+  assert.equal(sessions.size, 3, "stopped timer reaps nothing");
+}
+// The patched entry point wires the reaper to the session lifecycle.
+{
+  process.env.PI_UNIFIED_EXEC_REAP_KEEP = "0";
+  process.env.PI_UNIFIED_EXEC_REAP_INTERVAL_MS = "1000";
+  process.env.PI_UNIFIED_EXEC_REAP_LOG = "$TMP_ROOT/wired-reap.log";
+  const mod = await import("$PKG/src/index.ts");
+  const handlers = {};
+  mod.default({ on: (name, fn) => (handlers[name] = fn) });
+  const ctx = mod.lastCtx;
+  ctx.store.insert(exited(1));
+  ctx.store.insert(mk(2));
+  await handlers.session_start({}, { ui: undefined });
+  await new Promise((r) => setTimeout(r, 1400));
+  assert.equal(ctx.store.get(1), undefined, "session_start armed the reaper");
+  assert.ok(ctx.store.get(2), "live session survived the reaper");
+  await handlers.session_shutdown();
+  ctx.store.insert(exited(3));
+  await new Promise((r) => setTimeout(r, 1400));
+  assert.ok(ctx.store.get(3), "session_shutdown stopped the reaper");
+}
+console.log("behavior ok");
+JS
+out=$(node --experimental-strip-types --no-warnings "$TMP_ROOT/behavior.mjs" 2>&1)
+assert_equals "behavior ok" "$out" "patched runtime behavior"
+
+pass "unified-exec containment installs idempotently and reaps without touching live sessions"

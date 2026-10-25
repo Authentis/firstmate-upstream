@@ -62,7 +62,8 @@ The shared no-mistakes gate lifecycle boundary is summarized in [architecture.md
 | `fm-remote-readiness-lib.sh` | Shared remote second-mate readiness gate: check and, when needed, repair then re-check through `fm-remote-doctor.sh` |
 | [`fm-project-origin-lib.sh`](../bin/fm-project-origin-lib.sh) | Accepted origin-form owner shared by both remote provisioning boundaries |
 | `fm-spawn.sh`            | Spawn crewmates, scouts, `id=repo` batches, and secondmates on the resolved harness and runtime backend |
-| `fm-git-strip-ai-trailers.sh` | Strip known AI commit trailers at commit-msg time and install that hook for a fleet launch |
+| `fm-git-strip-ai-trailers.sh` | Strip known AI commit trailers at commit-msg time and install that hook, plus any forge=external push guard, for a fleet launch |
+| `fm-git-push-guard.sh`  | Refuse a forge=external task's pushes to the shared origin and of task-prefixed branches, and write its per-task guard record ([design](external-review-forge.md)) |
 | `fm-backend.sh`          | Runtime-backend selection, meta helpers, selector resolution, and operation dispatch |
 | `fm-backend-hometag-lib.sh` | Shared per-installation home-tag derivation for zellij tab and cmux workspace titles |
 | `fm-composer-lib.sh`     | Single fleet-wide owner of composer shapes, capability-aware screen classification, and verdicts |
@@ -93,6 +94,7 @@ The shared no-mistakes gate lifecycle boundary is summarized in [architecture.md
 | `fm-watch-checkpoint.sh` | Run one bounded foreground watcher checkpoint for Codex-style supervision            |
 | `fm-watch.sh`            | Singleton-safe watcher: absorb benign wakes, detect stalled local-secondmate wake queues, and exit on actionable ones |
 | `fm-inactive-reconcile.sh` | Reconcile long-inactive direct crewmate terminal outcomes without forge access |
+| `fm-lane-reaper.sh` | End the agent of an idle done or paused lane under five joint conditions, dry-run by default, keeping the branch |
 | `fm-pr-discover.sh`      | Find a ship task's open or merged PR on the forge when its record never got `pr=`, and record it through `fm-pr-check.sh` |
 | `fm-afk-contract.sh`     | Own the away-or-quiet record's posture, schema, entry, read-back, archive, and cross-subsystem authority lock |
 | `fm-afk-start.sh`        | Run the common sourceable away-mode daemon entry in the foreground                      |
@@ -141,6 +143,8 @@ The shared no-mistakes gate lifecycle boundary is summarized in [architecture.md
 | `fm-pr-poll.sh`          | Provide the byte-static watcher program for validated pull-request, merge-request, and Gerrit-change poll sidecars |
 | `fm-contributions.sh`    | Observe owned publications, retain exact-head judgments, measure required actors, and wake on maintainer signals |
 | `fm-pr-check.sh`         | Record validated task `pr=` and `pr_head=` values, then atomically arm a static merge poll; refuses GitHub drafts and persistent secondmate records (see [architecture.md](architecture.md)) |
+| `fm-review-check.sh`    | Record a forge=external task's validated `review=` and `review_head=` without arming a merge watch ([design](external-review-forge.md)) |
+| `fm-external-review-lib.sh` | Shared readers for the forge=external review tool adapter, ready-URL pattern, backup remote, and remote URLs |
 | `fm-pr-merge.sh`         | Record PR metadata, merge a task's canonical full GitHub, GitLab, or Forgejo URL, refuse a Gerrit change because firstmate never submits one, then refuse an outcome it cannot prove landed or queued |
 | `fm-pr-state.sh`         | Read-only: print one line per GitHub pull-request blocker it can see, reporting on checks that have reported rather than verdicting merge-readiness |
 | `fm-pr-read.sh`          | Read-only: print one GitHub pull request's state through the shared throttle (one provider read per PR per 5 minutes, serialized, backoff on rate limit) |

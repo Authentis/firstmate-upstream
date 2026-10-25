@@ -463,7 +463,7 @@ family_for_basename() {
     fm-tool-update-check.test.sh|\
     fm-mail.test.sh|fm-mail-check.test.sh|\
     fm-turnend-foreign-owner-arm-fix.test.sh|\
-    fm-wake-fold.test.sh|fm-wake-queue.test.sh|fm-watch-arm.test.sh|fm-watch-checkpoint.test.sh|fm-watch-recovery-loop.test.sh|\
+    fm-wake-classify.test.sh|fm-wake-fold.test.sh|fm-wake-queue.test.sh|fm-watch-arm.test.sh|fm-watch-checkpoint.test.sh|fm-watch-recovery-loop.test.sh|\
     fm-watch-triage.test.sh|fm-task-inbox.test.sh|\
     fm-watcher-lock.test.sh|fm-inactive-reconcile.test.sh)
       printf '%s\n' watcher-wake-lock
@@ -714,9 +714,8 @@ portable_parallel_lane_weight() {
 
 # Portable parallel shard 1: LPT balance of the proven-isolated set over the
 # hints above. Stored order agrees with this lane's --list-scheduled output.
-# tests/fm-pi-primary-types.test.sh belongs to this lane because
-# this is the parallel job that installs the Pi package; moving it needs that
-# workflow step moved with it.
+# tests/fm-pi-primary-types.test.sh runs the production-consumer typecheck here;
+# its own header owns temporary dependency provisioning.
 list_portable_parallel_1() {
   cat <<'EOF'
 tests/fm-pr-merge.test.sh
@@ -925,6 +924,7 @@ tests/fm-host-mirror-live-e2e.test.sh 79
 tests/fm-host-mirror.test.sh 11587
 tests/fm-inactive-reconcile.test.sh 60823
 tests/fm-inbox.test.sh 6062
+tests/fm-lane-reaper.test.sh 5000
 tests/fm-jev-mem-guard.test.sh 336
 tests/fm-kimi-harness.test.sh 58917
 tests/fm-launch-prompt-signals-live-e2e.test.sh 50
@@ -1035,6 +1035,7 @@ tests/fm-turnend-guard.test.sh 34727
 tests/fm-update.test.sh 11894
 tests/fm-vendor-auth-probe.test.sh 43278
 tests/fm-voice-relay.test.sh 28917
+tests/fm-wake-classify.test.sh 120000
 tests/fm-wake-daemon-lifecycle-e2e.test.sh 7345
 tests/fm-wake-drain-open-decisions-cursor.test.sh 47677
 tests/fm-wake-drain-open-decisions.test.sh 8781
