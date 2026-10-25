@@ -1,0 +1,3 @@
+ok - compatible tasks-axi backlog rendering drops done rows and keeps every in-flight, held, and blocked row
+# compact-only: passed
+exit=0

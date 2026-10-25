@@ -1,0 +1,2 @@
+not ok - re-send landing on a handled record should exit 4 (already-delivered), got 0
+exit=1

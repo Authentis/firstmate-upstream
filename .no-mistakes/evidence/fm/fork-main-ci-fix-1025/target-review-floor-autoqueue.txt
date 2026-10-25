@@ -1,0 +1,36 @@
+ok - refused lone sub-30 s PASS queues one second-family review
+ok - a 30 s or longer review passes the floor and queues nothing
+ok - an exact-head second-family PASS passes the floor and queues nothing
+ok - the kill switch keeps the refusal but queues nothing
+ok - the second PR takes the next free family while the first holds muse
+ok - GPT-family entries are never queued
+ok - the primary reviewer's family is never queued, even when configured
+ok - a family whose queue command fails is skipped and not counted
+ok - at most 2 automatic queues per head, each on a different family
+ok - a refusal while a review is already queued does not queue another
+ok - a head that moves while queued cancels the old review and does not re-queue
+ok - the new head is judged on a later pass with its own queues
+ok - a finished second-family review clears its queue record without a cancel
+bosgame-autoland: PR 7 head moved 11111111 -> 22222222; cancelled queued muse floor review
+ok - an older second-family record does not count as completion of a newer queue
+ok - a review that finishes before the queue command returns still clears its record
+ok - two overlapping refusals of one PR launch a single review
+ok - a launcher that reads stdin does not swallow the remaining families
+ok - a sweep never mutates the queue records while another pass holds the lock
+ok - a head that moved while the pass waited for the lock is not queued
+ok - a pass holding a superseded head neither cancels nor replaces the newer head's review
+ok - a failed or empty forge head lookup queues nothing
+ok - a lock whose holder was killed is released by the kernel and the queue proceeds
+ok - a cancel earlier in the pass keeps the new head from queuing in the same pass
+ok - the Sol-high fallback is not used while a non-GPT family is free
+ok - with no free non-GPT family one Sol-high exact-head review is queued with a 30 s minimum
+ok - the fallback stamp counts toward the 2 per head and a third attempt is refused
+ok - the fallback is not retried for the same head
+ok - a head move cancels a queued fallback review
+ok - the kill switch suppresses the fallback
+ok - a dry run suppresses the fallback
+ok - cascade: a non-Muse, non-Claude author gets the bosgame Muse review first
+ok - cascade: a Muse-authored head skips Muse and Sonnet and lands on Sol-high
+ok - cascade: a Claude-authored head still gets Muse, never Sonnet
+ok - cascade: Sonnet is next when the Muse route is unavailable for a non-Claude author
+ok - cascade: an unknown author goes straight to Sol-high

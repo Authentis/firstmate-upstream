@@ -1,0 +1,20 @@
+ok - a spawn takes a durable lease and records its identity beside the worktree
+ok - retire detaches the slot, keeps the branch, drops the claim, and the slot leases again
+ok - retire keeps dirty, unlanded and reassigned slots exactly as found
+ok - the sweep returns a hard-killed leftover to leasable and logs it
+ok - the sweep leaves dirty, unlanded, live-claimed and kill-switched slots alone
+ok - the sweep rechecks the slot under the lock and stands down when it was leased or re-claimed meanwhile
+ok - an explicit release refuses a slot a process still holds, and a task id beats a same-named directory
+ok - teardown retires through the one owner and drops its claim after the return
+ok - a treehouse without get --lease keeps today's interactive acquire and records no lease
+ok - a spawn that aborts before its record exists returns the lease it took
+ok - teardown returns the slot bound to its recorded lease, without --force
+ok - a record with no lease id keeps today's unbound return
+ok - a changed lease stops teardown before it touches the branch, hooks, or slot
+ok - a changed lease stops teardown before a stale index lock is removed
+ok - a lease treehouse does not list or cannot report stops teardown before anything destructive
+ok - a slot treehouse will not return unforced is reported and left, never forced
+ok - an explicit --force teardown and a scout return a dirty slot forced, still lease-bound
+ok - a forced lease-bound return refused for a lease change is reported as a lease change
+ok - a malformed lease id is refused before any treehouse call or destructive step
+# all fm-treehouse-lease tests passed

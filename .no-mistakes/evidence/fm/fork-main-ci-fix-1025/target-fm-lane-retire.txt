@@ -1,0 +1,10 @@
+ok - merged PR retires its lane after a verified bundle
+ok - closed PR retires its lane after a verified bundle
+ok - open PR leaves its lane untouched
+ok - no verified bundle refuses retirement
+ok - dirty worktree refuses retirement
+ok - kill switch stops the pass
+ok - dry run reports without acting
+ok - unwritable log refuses retirement
+ok - reopened PR aborts retirement
+ok - moved head aborts retirement
