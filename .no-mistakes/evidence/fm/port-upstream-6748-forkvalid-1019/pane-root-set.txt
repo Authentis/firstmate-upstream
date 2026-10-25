@@ -1,0 +1,7 @@
+bash-5.3$ export TREEHOUSE_ROOT='/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-lab.PUy3aP/pool '\''$HOME $(touch SHOULD-NOT-EXIST); `false` \ end'
+bash-5.3$ treehouse get
+bash-5.3$ cd -- '/private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-lab.PUy3aP/pool '\''$HOME $(touch SHOULD-NOT-EXIST); `false` \ end/proj-1'
+bash-5.3$ export GOTMPDIR=/tmp/fm-root-set-b2/gotmp
+bash-5.3$ export COMPACT_ADVISER_DISABLE=1
+bash-5.3$ export FM_TASK_ID=root-set-b2
+bash-5.3$ . '/tmp/fm-root-set-b2+2ec5023a9f5b2a430ab6ee1281d90bd4d6b856ca38ee4bf55292e9e7b5e81522/launch.s1792954883.60522.23739.sh'

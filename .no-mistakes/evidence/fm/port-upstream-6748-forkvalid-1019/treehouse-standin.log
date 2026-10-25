@@ -1,0 +1,7 @@
+treehouse get saw TREEHOUSE_ROOT=[/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-lab.PUy3aP/pool '$HOME $(touch SHOULD-NOT-EXIST); `false` \ end] (set=yes)
+worktree=/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-lab.PUy3aP/pool '$HOME $(touch SHOULD-NOT-EXIST); `false` \ end/proj-1
+codex launched in /private/var/folders/jx/xbtpb44x4xn740_xf2j2zn_00000gn/T/fm-lab.PUy3aP/pool '$HOME $(touch SHOULD-NOT-EXIST); `false` \ end/proj-1
+treehouse get saw TREEHOUSE_ROOT=[] (set=)
+refusing: no TREEHOUSE_ROOT, would use ~/.treehouse
+treehouse get saw TREEHOUSE_ROOT=[] (set=)
+refusing: no TREEHOUSE_ROOT, would use ~/.treehouse
