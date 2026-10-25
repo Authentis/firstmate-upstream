@@ -944,6 +944,29 @@ Changing a pin affects the next spawn or control-plane relaunch; [transactional 
 Pi and pi-signed secondmate launches also require a successful first model response through [`bin/fm-pi-first-call.sh`](../bin/fm-pi-first-call.sh)'s bounded readiness hook.
 A provider error or an unconfirmed response refuses launch, and watcher recovery queues a failure wake naming the model and error.
 
+### Quota failover chain
+
+`config/secondmate-quota-chain` is the primary's local, gitignored, optional fallback chain for a live secondmate whose provider pool is exhausted.
+Each line has the keyed pin shape `<id> <harness> <model> <effort>`, and the lines for one id, in file order, are that mate's chain with the first line as its normal link.
+Blank lines and lines starting with `#` are ignored.
+A malformed line stops failover for that id only, rather than being selected around, and is reported once as a check wake; other mates are unaffected.
+A mate with fewer than two links has no failover and its pane is never read.
+A link that a secondmate relaunch would refuse - a harness not verified to run a secondmate, or a model or effort that harness cannot take - is never pinned; the failover is reported once as not completed and retried each window.
+When a live mate's newest pane output keeps showing new provider quota errors past the failover window, the watcher rewrites that mate's keyed pin in `config/secondmate-harness` to the next link and restarts it persist-first; the same error wording printed again every turn under varying input counts, while one error line that sits unchanged, has only a spinner, status, or transient line changing below it, or scrolls upward never counts as sustained.
+What the recurrence check provably catches is a new error printed in place of a spinner or status line of the same height, more signature lines under an unchanged window, and a wedge whose scrolling output above the error is not periodic, including the same error wording every turn under varying input.
+These recurrence semantics are final, with three known limitations that are one aliasing class of line snapshots.
+A strictly periodic wedge - the same input every turn (for example only the fixed steering doorbell), a byte-identical error reply, and a constant footer - whose captures always land in the same phase of a turn shifts the 12-line window by exactly whole periods, so consecutive captures are identical and the error never counts as recurring.
+A periodic wedge whose captures alternate between a spinner phase and an error phase of different heights reads like a transient line clearing below a static error, so it never counts as recurring either.
+A static error line whose scrollback above it is itself perfectly periodic reads as an unmoved window, so a line below it clearing counts as a recurrence; one recurrence stays set for the episode, so that alone can fail a healthy mate over once the failover window passes.
+Line snapshots cannot distinguish these cases from their opposites.
+A local mate in this wedge never consumes its inbox, so the watcher's secondmate wake-loop stall check and the steering doorbell's re-ring escalation still surface it.
+Neither covers a remote mate: the watcher skips `remote_host` metas for the wake-loop stall check and the remote steer leg has no watcher ladder, so a remote mate in this wedge has only pending-reply recovery escalation for sends that expect a reply, operator-side liveness and context alarms outside this home, and periodic supervision review.
+The planned follow-up is real window-shift detection - a turn-counted or cursor/history-position signal on both the local and remote capture paths - which covers every case in this class.
+After its quota stays clear for the reset period it is moved back to the first link through the persist-gated restart.
+A mate still wedged on its last link is reported once and moved back to the first link once that link's reset period has passed since it left it.
+The detection signatures, durable window record, timing knobs, and restart semantics are owned by [`bin/fm-quota-failover-lib.sh`](../bin/fm-quota-failover-lib.sh)'s header.
+`config/secondmate-quota-chain` is not inherited, for the same reason as `config/secondmate-harness`.
+
 ### Per-launch overrides and inherited defaults
 
 Pi and signed-Pi secondmates require a concrete model after profile resolution; an empty, `default`, or `-` model refuses launch or relaunch before the endpoint is changed.
