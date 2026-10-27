@@ -1481,6 +1481,7 @@ test_matrix_live_idle_prompts_read_cursorless() {
     'Paste an image with Ctrl+V — file paths and URLs work too'
     'Press Alt+V to dictate instead of typing'
     'Tab queues or steers while a run is active'
+    'tab queues or steers while a run is active'
     'Press ? on an empty composer to see keyboard shortcuts'
     'Press Ctrl+O to expand collapsed tool output'
     '/side asks a quick question without touching this thread'
