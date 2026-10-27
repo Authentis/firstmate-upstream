@@ -947,7 +947,7 @@ test_matrix_pi_kimi_footer_captures() {
   # at the top of the pane sits ABOVE the complete pi pair and must not veto
   # the idle read; the same border below the pair, a typed draft, and a busy
   # turn (titled `Working` rule) still must.
-  local dir=$ROOT/tests/fixtures/pi-composer idle busy mid pi_idle cy typed below
+  local dir=$ROOT/tests/fixtures/pi-composer idle busy mid pi_idle cy typed below span open
   pi_idle=$(printf 'pi\tidle')
   idle=$(cat "$dir/pane-kimi-idle.txt"); mid=$(cat "$dir/pane-11-24-1-7.txt")
   busy=$(cat "$dir/pane-835.txt")
@@ -974,6 +974,9 @@ test_matrix_pi_kimi_footer_captures() {
   # A clipped bottom above the pair, then an unmatched top below it.
   below=$idle$'\n╭────────────────╮\n│ draft text     │'
   assert_screen "clipped bottom above, unmatched top below" unknown "$CAPS_STYLED" "$below" '' "$pi_idle"
+  # A box opened above the pair holding a draft, with no bottom border.
+  open=$(printf '%s\n' "$idle" | awk 'NR==31 { print "╭────────────────╮"; print "│ draft text     │" } { print }')
+  assert_screen "open box with draft above the pair" unknown "$CAPS_STYLED" "$open" '' "$pi_idle"
   pass "matrix: kimi-code pi captures read empty; draft, busy and a box below the pair still refuse"
 }
 
