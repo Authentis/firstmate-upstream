@@ -965,6 +965,15 @@ test_matrix_pi_kimi_footer_captures() {
   # A clipped border BELOW the pair is the live region, not scrollback.
   below=$idle$'\n└────────┴────────┘'
   assert_screen "clipped box below the pair" unknown "$CAPS_STYLED" "$below" '' "$pi_idle"
+  # An unmatched TOP border (a clipped dialog or draft box) below the pair.
+  below=$idle$'\n╭────────────────╮\n│ draft text     │'
+  assert_screen "unmatched top below the pair" unknown "$CAPS_STYLED" "$below" '' "$pi_idle"
+  # A box whose top is above the pair and whose bottom is below it.
+  span=$(printf '%s\n' "$idle" | awk 'NR==31 { print "╭────────────────╮" } { print } END { print "╰────────────────╯" }')
+  assert_screen "box spanning the pair" unknown "$CAPS_STYLED" "$span" '' "$pi_idle"
+  # A clipped bottom above the pair, then an unmatched top below it.
+  below=$idle$'\n╭────────────────╮\n│ draft text     │'
+  assert_screen "clipped bottom above, unmatched top below" unknown "$CAPS_STYLED" "$below" '' "$pi_idle"
   pass "matrix: kimi-code pi captures read empty; draft, busy and a box below the pair still refuse"
 }
 

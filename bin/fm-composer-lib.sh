@@ -1020,6 +1020,7 @@ _fm_composer_scan_screen() {  # <plain-screen> <cursor-or-empty> [extract-wrap]
       fi
       top=$row
       FM_COMPOSER_SCAN_INCOMPLETE_BOX_FROM=$row
+      FM_COMPOSER_SCAN_INCOMPLETE_BOX_LAST=$row
       current_family=$family
       current_indent=$indent
       valid=1
