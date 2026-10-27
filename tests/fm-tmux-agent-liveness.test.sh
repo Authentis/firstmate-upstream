@@ -535,6 +535,11 @@ open_muse_pane muse-draft "$LAB/bin/muse-bin-0.1.0-R708.1" muse-fork-placeholder
   || fail "a typed muse draft must read pending"
 pass "muse composer: a typed draft still reads pending"
 
+open_muse_pane muse-monitor "$LAB/bin/muse-bin-0.1.0-R708.1" muse-monitor-placeholder
+[ "$(fm_tmux_composer_state "$SESSION:muse-monitor")" = empty ] \
+  || fail "an idle muse composer showing only the rotating monitor tip must read empty"
+pass "muse composer: a rotating idle tip (monitor) reads empty through the tmux identity probe"
+
 open_muse_pane muse-decoy "$LAB/bin/muse-binary" muse-fork-placeholder
 if fm_tmux_composer_identity "$SESSION:muse-decoy" >/dev/null; then
   fail "an unanchored muse-like name must not get a composer identity"

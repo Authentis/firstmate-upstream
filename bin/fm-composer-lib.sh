@@ -267,13 +267,15 @@ fm_composer_normalize_trim_var() {  # <varname>
 # ceiling to reach it would over-strip other harnesses, so only a screen that the
 # backend's identity probe attributes to Command Code is read with a fixed
 # ceiling of 160 in its place (fm_composer_classify_screen).
-# Muse 1.4.x draws its idle `/fork branches the conversation from the latest
-# point` placeholder in 256-colour palette 242 (captured live, muse-spark-1.3),
-# which stays kept fleet-wide because a palette colour may be real text, so
-# only a screen that the identity probe attributes to muse is read with
-# FM_COMPOSER_GHOST_PALETTE=242 and FM_COMPOSER_GHOST_TEXT set to the exact
-# placeholder (fm_composer_classify_screen); a palette run is dropped only when
-# its whole text equals that placeholder, so other palette-242 text stays pending.
+# Muse 1.4.x draws a rotating idle tip (`/fork branches the conversation from
+# the latest point`, `Ask to monitor a running build ...`, ...) as its composer
+# placeholder in 256-colour palette 242 (captured live, muse-spark-1.3), which
+# stays kept fleet-wide because a palette colour may be real text, so only a
+# screen that the identity probe attributes to muse is read with
+# FM_COMPOSER_GHOST_PALETTE=242 and FM_COMPOSER_GHOST_TEXT set to the exact tip
+# set, one tip per US (0x1f) separated field (_fm_composer_muse_tips); a palette
+# run is dropped only when its whole text equals one of those tips, so other
+# palette-242 text stays pending.
 # The dim/faint and dark-foreground states are tracked together as "de-emphasis";
 # codes are processed left to right within a sequence, so "ESC[0;2m" reads as dim.
 # LC_ALL=C makes awk walk bytes, so multibyte glyphs (e.g. ❯) and de-emphasised
@@ -319,7 +321,11 @@ fm_composer_strip_ghost() {
     function flush_pal(   t, keep) {
       keep = pbuf; t = pbuf; pbuf = ""
       gsub(/^([ ]|\302\240)+/, "", t); gsub(/([ ]|\302\240)+$/, "", t)
-      return (t == ghosttext) ? "" : keep
+      return (t in tipset) ? "" : keep
+    }
+    BEGIN {
+      nt = split(ghosttext, tiplist, "\037")
+      for (q = 1; q <= nt; q++) tipset[tiplist[q]] = 1
     }
     {
       line = $0; out = ""; dim = 0; darkfg = 0; pbuf = ""; n = length(line); i = 1
@@ -2470,6 +2476,42 @@ fm_composer_send_refusal() {  # <screen> <composer-state> [harness]
   return 0
 }
 
+# _fm_composer_muse_tips: prints muse's idle tip placeholders (exact text, as
+# extracted from muse 1.4.14's binary strings), US (0x1f) separated, for
+# FM_COMPOSER_GHOST_TEXT. The set is closed on purpose: a tip muse adds later
+# reads pending until it is listed here.
+_fm_composer_muse_tips() {
+  local tip out='' sep=$'\037'
+  for tip in \
+    'Type @ to search and insert workspace file paths' \
+    'Start a message with ! to run a shell command yourself' \
+    'Paste an image with Ctrl+V — file paths and URLs work too' \
+    'Press Alt+V to dictate instead of typing' \
+    'Tab queues or steers while a run is active' \
+    'Press ? on an empty composer to see keyboard shortcuts' \
+    'Press Ctrl+O to expand collapsed tool output' \
+    '/side asks a quick question without touching this thread' \
+    '/fork branches the conversation from the latest point' \
+    '/goal pins a session objective with a progress bar' \
+    '/resume reopens a past session (--last for the latest)' \
+    'Ask to '\''use a workflow'\'' to fan out parallel agents on big tasks' \
+    'Say '\''use a workflow'\'' to fan out agents on big tasks' \
+    'Ask to monitor a running build or log and get pinged on changes' \
+    '/agent opens the subagent command center' \
+    '/tasks shows workflows, subagents and terminals in one place' \
+    '/loop 10m <prompt> schedules a recurring prompt' \
+    'Ctrl+B sends the selected task to the background queue' \
+    '/skills browses ready-made skills for repeatable procedures' \
+    '/plugins marketplace installs new commands and skills' \
+    '/effort adjusts reasoning depth vs speed' \
+    '/usage shows this session'\''s token usage' \
+    '/export saves the conversation to a text file' \
+  ; do
+    out+="${out:+$sep}$tip"
+  done
+  printf '%s' "$out"
+}
+
 fm_composer_classify_screen() {  # <caps> <screen> [cursor_row] [identity]
   local caps=$1 screen=$2 cy=${3:-} identity=${4:-}
   local styled=0 cursor=0 has_identity=0 kv plain
@@ -2499,7 +2541,7 @@ EOF
     case "${identity%%$'\t'*}" in
       muse*)
         FM_COMPOSER_GHOST_PALETTE=242
-        FM_COMPOSER_GHOST_TEXT='/fork branches the conversation from the latest point'
+        FM_COMPOSER_GHOST_TEXT=$(_fm_composer_muse_tips)
         ;;
     esac
   fi

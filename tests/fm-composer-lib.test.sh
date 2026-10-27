@@ -1466,6 +1466,56 @@ test_matrix_live_idle_prompts_read_cursorless() {
   assert_screen "muse real colon-form 242 text on herdr" pending "$CAPS_STYLED" "$realcolon" '' "$muse_id"
   assert_screen "muse colon-form 242 placeholder on herdr" empty "$CAPS_STYLED" "${fork//38;5;242/38:5:242}" '' "$muse_id"
   assert_screen "muse 242 placeholder with extra text stays pending" pending "$CAPS_STYLED" "${fork//latest point/latest point and more}" '' "$muse_id"
+  # Muse rotates through a closed set of idle tips, all drawn in palette 242
+  # (tip texts extracted from muse 1.4.14's binary strings); every one reads
+  # empty on a muse composer, and nothing but an exact
+  # whole-run match does.
+  local mon tip tips ghost=$'\033[38;5;242m' bright=$'\033[0m' fork_text='/fork branches the conversation from the latest point'
+  mon=$(cat "$fx/muse-monitor-placeholder.ansi")
+  assert_screen "muse monitor tip on tmux" empty "$CAPS_TMUX" "$mon" "$(cat "$fx/muse-monitor-placeholder.cursor")" "$muse_id"
+  assert_screen "muse monitor tip on herdr" empty "$CAPS_STYLED" "$mon" '' "$muse_id"
+  assert_screen "muse monitor tip without a muse identity stays pending" pending "$CAPS_STYLED" "$mon" '' "$(printf 'claude\tidle')"
+  tips=(
+    'Type @ to search and insert workspace file paths'
+    'Start a message with ! to run a shell command yourself'
+    'Paste an image with Ctrl+V — file paths and URLs work too'
+    'Press Alt+V to dictate instead of typing'
+    'Tab queues or steers while a run is active'
+    'Press ? on an empty composer to see keyboard shortcuts'
+    'Press Ctrl+O to expand collapsed tool output'
+    '/side asks a quick question without touching this thread'
+    '/fork branches the conversation from the latest point'
+    '/goal pins a session objective with a progress bar'
+    '/resume reopens a past session (--last for the latest)'
+    'Ask to '\''use a workflow'\'' to fan out parallel agents on big tasks'
+    'Say '\''use a workflow'\'' to fan out agents on big tasks'
+    'Ask to monitor a running build or log and get pinged on changes'
+    '/agent opens the subagent command center'
+    '/tasks shows workflows, subagents and terminals in one place'
+    '/loop 10m <prompt> schedules a recurring prompt'
+    'Ctrl+B sends the selected task to the background queue'
+    '/skills browses ready-made skills for repeatable procedures'
+    '/plugins marketplace installs new commands and skills'
+    '/effort adjusts reasoning depth vs speed'
+    '/usage shows this session'\''s token usage'
+    '/export saves the conversation to a text file'
+  )
+  for tip in "${tips[@]}"; do
+    assert_screen "muse tip '$tip' on tmux" empty "$CAPS_TMUX" "${fork//"$fork_text"/$tip}" "$(cat "$fx/muse-fork-placeholder.cursor")" "$muse_id"
+    assert_screen "muse tip '$tip' on herdr" empty "$CAPS_STYLED" "${fork//"$fork_text"/$tip}" '' "$muse_id"
+    assert_screen "muse tip '$tip' stays pending without a muse identity" pending "$CAPS_STYLED" "${fork//"$fork_text"/$tip}" '' "$(printf 'claude\tidle')"
+  done
+  # Near misses of a tip are real input: a prefix, a suffix, a partial tip, text
+  # plus a tip in one run or in split runs, and bright typed text before a tip.
+  local monitor_text='Ask to monitor a running build or log and get pinged on changes'
+  assert_screen "muse tip prefix stays pending" pending "$CAPS_STYLED" "${mon//"$monitor_text"/Ask to monitor a running build}" '' "$muse_id"
+  assert_screen "muse tip suffix stays pending" pending "$CAPS_STYLED" "${mon//"$monitor_text"/pinged on changes}" '' "$muse_id"
+  assert_screen "muse tip with trailing text stays pending" pending "$CAPS_STYLED" "${mon//"$monitor_text"/$monitor_text now}" '' "$muse_id"
+  assert_screen "muse text plus tip in one run stays pending" pending "$CAPS_STYLED" "${mon//"$monitor_text"/hi $monitor_text}" '' "$muse_id"
+  assert_screen "muse typed text before a tip in split runs stays pending" pending "$CAPS_STYLED" "${mon//"$monitor_text"/typed ${bright}${ghost}$monitor_text}" '' "$muse_id"
+  assert_screen "muse bright typed text before an exact tip stays pending" pending "$CAPS_STYLED" "${mon//"$ghost$monitor_text"/typed ${ghost}$monitor_text}" '' "$muse_id"
+  assert_screen "muse tip split across two runs stays pending" pending "$CAPS_STYLED" "${mon//"$monitor_text"/Ask to monitor ${bright}${ghost}a running build or log and get pinged on changes}" '' "$muse_id"
+  assert_screen "muse other palette-242 text on a tip composer stays pending" pending "$CAPS_STYLED" "${mon//"$monitor_text"/something else entirely}" '' "$muse_id"
   # An inherited FM_COMPOSER_GHOST_PALETTE must not change non-muse screens.
   FM_COMPOSER_GHOST_PALETTE=242 FM_COMPOSER_GHOST_TEXT='/fork branches the conversation from the latest point' \
     assert_screen "inherited ghost palette does not leak to a non-muse identity" pending "$CAPS_STYLED" "$fork" '' "$(printf 'claude\tidle')"
