@@ -1,0 +1,23 @@
+[38;5;242m    [38;5;252mvaluation into [38;5;109mCasePage[38;5;252m: [38;5;109mCaseRoute.tsx:173[38;5;252m renders[39m
+[38;5;242m    [38;5;109m<CasePage {...props} chartData rsFeatures />[38;5;252m with no [38;5;109mvaluation[38;5;252m, and[39m
+[38;5;242m    [38;5;109mcaseViewProps.ts:75[38;5;252m doesn't map one either. [38;5;109m11.6.3.12[38;5;252m is a core-side loader,
+[38;5;242m    [38;5;252mnot route wiring.[39m
+
+[38;5;242m  [1m[38;5;252mProbe proof (temporary test, since removed; tree clean):[0m[38;5;252m with [38;5;109m/api/valuation[39m
+[38;5;242m  [38;5;252mserving [38;5;109mvaluation_room.json[38;5;252m populated mining and features serving the miner[39m
+[38;5;242m  [38;5;252mfixture, through the real [38;5;109mCaseRoute[38;5;252m:[39m
+[38;5;242m  • [38;5;252mfeatures request carried [38;5;109mminer=true[38;5;252m ✓, 2 [38;5;109mrs-line[38;5;252m elements with GLD dashed ✓[39m
+[38;5;242m  • [38;5;252mValuation tab showed [1mno[0m[38;5;252m "Mining valuation" — only[39m
+[38;5;242m    [38;5;109munknown: valuation not applicable...[38;5;252m ✗[39m
+
+[38;5;242m  [38;5;252mSo acceptance (a)'s "populated Valuation room" clause is unsatisfiable[39m
+[38;5;242m  [38;5;252mtest-only, while every other acceptance line is. I filed it as [38;5;109mneeds-decision[38;5;252m:
+[38;5;242m  [38;5;252mwiden FILES for a one-line route fix, narrow acceptance (a) to assert the[39m
+[38;5;242m  [38;5;252munknown, or reassign the wiring to the valuation-loader owner first.[39m
+
+[38;5;242m◆ Worked for 2m 07s · 10:49 PM · 27/Oct[39m
+
+[2m[38;5;242m────────────────────────────────────────────────────────────────────────────────
+[0m[38;5;75m❯ [38;5;252mhalf typed note[39m
+[2m[38;5;242m────────────────────────────────────────────────────────────────────────────────
+[0m[38;5;242m  [38;5;75mmuse-spark-1.3[38;5;246m · [38;5;75mmedium[38;5;246m · ~/.treehouse/decision-os-143fee/8/decision-os · [38;5;211mYOLO

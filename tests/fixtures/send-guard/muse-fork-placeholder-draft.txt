@@ -1,0 +1,23 @@
+    valuation into CasePage: CaseRoute.tsx:173 renders
+    <CasePage {...props} chartData rsFeatures /> with no valuation, and
+    caseViewProps.ts:75 doesn't map one either. 11.6.3.12 is a core-side loader,
+    not route wiring.
+
+  Probe proof (temporary test, since removed; tree clean): with /api/valuation
+  serving valuation_room.json populated mining and features serving the miner
+  fixture, through the real CaseRoute:
+  • features request carried miner=true ✓, 2 rs-line elements with GLD dashed ✓
+  • Valuation tab showed no "Mining valuation" — only
+    unknown: valuation not applicable... ✗
+
+  So acceptance (a)'s "populated Valuation room" clause is unsatisfiable
+  test-only, while every other acceptance line is. I filed it as needs-decision:
+  widen FILES for a one-line route fix, narrow acceptance (a) to assert the
+  unknown, or reassign the wiring to the valuation-loader owner first.
+
+◆ Worked for 2m 07s · 10:49 PM · 27/Oct
+
+────────────────────────────────────────────────────────────────────────────────
+❯ half typed note
+────────────────────────────────────────────────────────────────────────────────
+  muse-spark-1.3 · medium · ~/.treehouse/decision-os-143fee/8/decision-os · YOLO

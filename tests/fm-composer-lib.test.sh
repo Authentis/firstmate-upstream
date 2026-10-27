@@ -1443,6 +1443,34 @@ test_matrix_live_idle_prompts_read_cursorless() {
   assert_screen "muse 1.4.3 draft on zellij" pending "$CAPS_STYLED_NOID" "$draft"
   assert_screen "muse 1.4.3 idle on tmux" empty "$CAPS_TMUX" "$idle" "$(cat "$fx/muse-idle.cursor")" probe-absent
   assert_screen "muse 1.4.3 draft on tmux" pending "$CAPS_TMUX" "$draft" "$(cat "$fx/muse-draft.cursor")" probe-absent
+  # Muse 1.4.x draws `/fork branches the conversation from the latest point`
+  # in 256-colour palette 242 on an idle composer (captured live,
+  # muse-spark-1.3). It reads empty only when the identity probe says muse; the
+  # same pane with typed text, or without a muse identity, stays pending.
+  local fork forkdraft muse_id
+  fork=$(cat "$fx/muse-fork-placeholder.ansi")
+  forkdraft=$(cat "$fx/muse-fork-placeholder-draft.ansi")
+  muse_id=$(printf 'muse\tidle')
+  assert_screen "muse /fork placeholder on tmux" empty "$CAPS_TMUX" "$fork" "$(cat "$fx/muse-fork-placeholder.cursor")" "$muse_id"
+  assert_screen "muse /fork placeholder on herdr" empty "$CAPS_STYLED" "$fork" '' "$muse_id"
+  assert_screen "muse typed text on tmux" pending "$CAPS_TMUX" "$forkdraft" "$(cat "$fx/muse-fork-placeholder-draft.cursor")" "$muse_id"
+  assert_screen "muse typed text on herdr" pending "$CAPS_STYLED" "$forkdraft" '' "$muse_id"
+  assert_screen "palette-242 placeholder without a muse identity stays pending" pending "$CAPS_STYLED" "$fork" '' "$(printf 'claude\tidle')"
+  # Only the exact placeholder is ghost text: other palette-242 text on a muse
+  # composer is real input and stays pending, in both colour spellings.
+  local real242 realcolon
+  real242=${fork//\/fork branches the conversation from the latest point/real typed text}
+  realcolon=${real242//38;5;242/38:5:242}
+  assert_screen "muse real palette-242 text on tmux" pending "$CAPS_TMUX" "$real242" "$(cat "$fx/muse-fork-placeholder.cursor")" "$muse_id"
+  assert_screen "muse real palette-242 text on herdr" pending "$CAPS_STYLED" "$real242" '' "$muse_id"
+  assert_screen "muse real colon-form 242 text on herdr" pending "$CAPS_STYLED" "$realcolon" '' "$muse_id"
+  assert_screen "muse colon-form 242 placeholder on herdr" empty "$CAPS_STYLED" "${fork//38;5;242/38:5:242}" '' "$muse_id"
+  assert_screen "muse 242 placeholder with extra text stays pending" pending "$CAPS_STYLED" "${fork//latest point/latest point and more}" '' "$muse_id"
+  # An inherited FM_COMPOSER_GHOST_PALETTE must not change non-muse screens.
+  FM_COMPOSER_GHOST_PALETTE=242 FM_COMPOSER_GHOST_TEXT='/fork branches the conversation from the latest point' \
+    assert_screen "inherited ghost palette does not leak to a non-muse identity" pending "$CAPS_STYLED" "$fork" '' "$(printf 'claude\tidle')"
+  FM_COMPOSER_GHOST_PALETTE=242 FM_COMPOSER_GHOST_TEXT='/fork branches the conversation from the latest point' \
+    assert_screen "inherited ghost palette does not leak without identity" pending "$CAPS_STYLED_NOID" "$fork"
   # The two-dash opener is still held to the width proof: a titled rule that
   # is narrower than its closing rule is not that composer's top edge.
   titled='── Voice input (alt(option)+v to start) ──────────'

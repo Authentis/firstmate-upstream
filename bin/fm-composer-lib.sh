@@ -267,12 +267,21 @@ fm_composer_normalize_trim_var() {  # <varname>
 # ceiling to reach it would over-strip other harnesses, so only a screen that the
 # backend's identity probe attributes to Command Code is read with a fixed
 # ceiling of 160 in its place (fm_composer_classify_screen).
+# Muse 1.4.x draws its idle `/fork branches the conversation from the latest
+# point` placeholder in 256-colour palette 242 (captured live, muse-spark-1.3),
+# which stays kept fleet-wide because a palette colour may be real text, so
+# only a screen that the identity probe attributes to muse is read with
+# FM_COMPOSER_GHOST_PALETTE=242 and FM_COMPOSER_GHOST_TEXT set to the exact
+# placeholder (fm_composer_classify_screen); a palette run is dropped only when
+# its whole text equals that placeholder, so other palette-242 text stays pending.
 # The dim/faint and dark-foreground states are tracked together as "de-emphasis";
 # codes are processed left to right within a sequence, so "ESC[0;2m" reads as dim.
 # LC_ALL=C makes awk walk bytes, so multibyte glyphs (e.g. ❯) and de-emphasised
 # runs alike pass through or drop intact without locale-dependent classes.
 fm_composer_strip_ghost() {
-  LC_ALL=C awk -v lumamax="${FM_COMPOSER_GHOST_LUMA_MAX:-128}" '
+  LC_ALL=C awk -v lumamax="${FM_COMPOSER_GHOST_LUMA_MAX:-128}" \
+    -v ghostpal="${FM_COMPOSER_GHOST_PALETTE:-}" \
+    -v ghosttext="${FM_COMPOSER_GHOST_TEXT:-}" '
     function sgr_code(v, b) {
       b = v
       sub(/:.*/, "", b)
@@ -296,16 +305,24 @@ fm_composer_strip_ghost() {
       spec = a[p]
       if (index(spec, ":") > 0) {           # colon form: whole colour in a[p]
         nf = split(spec, f, ":")
+        if (f[2] == "5") return (ghostpal != "" && ghosttext != "" && f[3] == ghostpal) ? 2 : 0
         if (f[2] != "2" || nf < 5) return 0
         r = f[nf - 2] + 0; g = f[nf - 1] + 0; b = f[nf] + 0
         return ((299*r + 587*g + 114*b) / 1000 < lumamax) ? 1 : 0
       }
+      if (p + 2 <= k && a[p + 1] == "5") return (ghostpal != "" && ghosttext != "" && a[p + 2] == ghostpal) ? 2 : 0
       if (p + 1 > k || a[p + 1] != "2" || p + 4 > k) return 0
       r = a[p + 2] + 0; g = a[p + 3] + 0; b = a[p + 4] + 0
       return ((299*r + 587*g + 114*b) / 1000 < lumamax) ? 1 : 0
     }
+    # flush_pal: append the buffered palette run unless it is exactly the placeholder.
+    function flush_pal(   t, keep) {
+      keep = pbuf; t = pbuf; pbuf = ""
+      gsub(/^([ ]|\302\240)+/, "", t); gsub(/([ ]|\302\240)+$/, "", t)
+      return (t == ghosttext) ? "" : keep
+    }
     {
-      line = $0; out = ""; dim = 0; darkfg = 0; n = length(line); i = 1
+      line = $0; out = ""; dim = 0; darkfg = 0; pbuf = ""; n = length(line); i = 1
       while (i <= n) {
         c = substr(line, i, 1)
         if (c == "\033") {            # ESC: consume a CSI ... final-byte sequence
@@ -318,6 +335,7 @@ fm_composer_strip_ghost() {
               params = params cc; j++
             }
             if (j <= n && substr(line, j, 1) == "m") {   # SGR: update de-emphasis
+              if (pbuf != "") out = out flush_pal()
               if (params == "") params = "0"
               k = split(params, a, ";")
               for (p = 1; p <= k; p++) {
@@ -340,8 +358,10 @@ fm_composer_strip_ghost() {
           i = i + 1; continue          # lone/other ESC: drop the ESC byte only
         }
         if (dim == 0 && darkfg == 0) out = out c   # keep only non-de-emphasised bytes
+        else if (dim == 0 && darkfg == 2) pbuf = pbuf c
         i++
       }
+      if (pbuf != "") out = out flush_pal()
       print out
     }
   '
@@ -2471,6 +2491,15 @@ EOF
     case "${identity%%$'\t'*}" in
       commandcode|cmd)
         local FM_COMPOSER_GHOST_LUMA_MAX=160
+        ;;
+    esac
+  fi
+  local FM_COMPOSER_GHOST_PALETTE='' FM_COMPOSER_GHOST_TEXT=''
+  if [ "$has_identity" = 1 ]; then
+    case "${identity%%$'\t'*}" in
+      muse*)
+        FM_COMPOSER_GHOST_PALETTE=242
+        FM_COMPOSER_GHOST_TEXT='/fork branches the conversation from the latest point'
         ;;
     esac
   fi
