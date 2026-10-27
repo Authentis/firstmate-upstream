@@ -1481,7 +1481,6 @@ test_matrix_live_idle_prompts_read_cursorless() {
     'Paste an image with Ctrl+V — file paths and URLs work too'
     'Press Alt+V to dictate instead of typing'
     'Tab queues or steers while a run is active'
-    'tab queues or steers while a run is active'
     'Press ? on an empty composer to see keyboard shortcuts'
     'Press Ctrl+O to expand collapsed tool output'
     '/side asks a quick question without touching this thread'
@@ -1506,6 +1505,17 @@ test_matrix_live_idle_prompts_read_cursorless() {
     assert_screen "muse tip '$tip' on herdr" empty "$CAPS_STYLED" "${fork//"$fork_text"/$tip}" '' "$muse_id"
     assert_screen "muse tip '$tip' stays pending without a muse identity" pending "$CAPS_STYLED" "${fork//"$fork_text"/$tip}" '' "$(printf 'claude\tidle')"
   done
+  # Tips compare case-insensitively with whitespace trimmed and collapsed, so
+  # the lowercase form muse displays reads empty; still exact whole-run.
+  local lower_tip='tab queues or steers while a run is active' queue_text='Tab queues or steers while a run is active'
+  assert_screen "muse lowercase queue tip on tmux" empty "$CAPS_TMUX" "${fork//"$fork_text"/$lower_tip}" "$(cat "$fx/muse-fork-placeholder.cursor")" "$muse_id"
+  assert_screen "muse lowercase queue tip on herdr" empty "$CAPS_STYLED" "${fork//"$fork_text"/$lower_tip}" '' "$muse_id"
+  assert_screen "muse lowercase queue tip stays pending without a muse identity" pending "$CAPS_STYLED" "${fork//"$fork_text"/$lower_tip}" '' "$(printf 'claude\tidle')"
+  assert_screen "muse upper-case queue tip reads empty" empty "$CAPS_STYLED" "${fork//"$fork_text"/${queue_text^^}}" '' "$muse_id"
+  assert_screen "muse tip with collapsed whitespace reads empty" empty "$CAPS_STYLED" "${fork//"$fork_text"/  tab  queues or steers   while a run is active }" '' "$muse_id"
+  assert_screen "muse lowercase tip prefix stays pending" pending "$CAPS_STYLED" "${fork//"$fork_text"/tab queues or steers}" '' "$muse_id"
+  assert_screen "muse lowercase tip suffix stays pending" pending "$CAPS_STYLED" "${fork//"$fork_text"/while a run is active}" '' "$muse_id"
+  assert_screen "muse lowercase tip with extra text stays pending" pending "$CAPS_STYLED" "${fork//"$fork_text"/$lower_tip now}" '' "$muse_id"
   # Near misses of a tip are real input: a prefix, a suffix, a partial tip, text
   # plus a tip in one run or in split runs, and bright typed text before a tip.
   local monitor_text='Ask to monitor a running build or log and get pinged on changes'

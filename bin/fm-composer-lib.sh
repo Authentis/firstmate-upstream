@@ -274,7 +274,8 @@ fm_composer_normalize_trim_var() {  # <varname>
 # screen that the identity probe attributes to muse is read with
 # FM_COMPOSER_GHOST_PALETTE=242 and FM_COMPOSER_GHOST_TEXT set to the exact tip
 # set, one tip per US (0x1f) separated field (_fm_composer_muse_tips); a palette
-# run is dropped only when its whole text equals one of those tips, so other
+# run is dropped only when its whole text equals one of those tips, compared
+# case-insensitively with whitespace trimmed and collapsed, so other
 # palette-242 text stays pending.
 # The dim/faint and dark-foreground states are tracked together as "de-emphasis";
 # codes are processed left to right within a sequence, so "ESC[0;2m" reads as dim.
@@ -317,15 +318,23 @@ fm_composer_strip_ghost() {
       r = a[p + 2] + 0; g = a[p + 3] + 0; b = a[p + 4] + 0
       return ((299*r + 587*g + 114*b) / 1000 < lumamax) ? 1 : 0
     }
-    # flush_pal: append the buffered palette run unless it is exactly the placeholder.
-    function flush_pal(   t, keep) {
-      keep = pbuf; t = pbuf; pbuf = ""
-      gsub(/^([ ]|\302\240)+/, "", t); gsub(/([ ]|\302\240)+$/, "", t)
-      return (t in tipset) ? "" : keep
+    # tip_key: the comparison form of a tip - ASCII case folded, whitespace runs
+    # (spaces and NBSP) collapsed to one space, and the ends trimmed.
+    function tip_key(t) {
+      t = tolower(t)
+      gsub(/([ ]|\302\240)+/, " ", t)
+      sub(/^ /, "", t); sub(/ $/, "", t)
+      return t
+    }
+    # flush_pal: append the buffered palette run unless, compared by tip_key,
+    # it is exactly one whole placeholder.
+    function flush_pal(   keep) {
+      keep = pbuf; pbuf = ""
+      return (tip_key(keep) in tipset) ? "" : keep
     }
     BEGIN {
       nt = split(ghosttext, tiplist, "\037")
-      for (q = 1; q <= nt; q++) tipset[tiplist[q]] = 1
+      for (q = 1; q <= nt; q++) tipset[tip_key(tiplist[q])] = 1
     }
     {
       line = $0; out = ""; dim = 0; darkfg = 0; pbuf = ""; n = length(line); i = 1
@@ -2488,7 +2497,6 @@ _fm_composer_muse_tips() {
     'Paste an image with Ctrl+V — file paths and URLs work too' \
     'Press Alt+V to dictate instead of typing' \
     'Tab queues or steers while a run is active' \
-    'tab queues or steers while a run is active' \
     'Press ? on an empty composer to see keyboard shortcuts' \
     'Press Ctrl+O to expand collapsed tool output' \
     '/side asks a quick question without touching this thread' \
