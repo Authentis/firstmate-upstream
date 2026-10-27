@@ -846,6 +846,8 @@ _fm_composer_scan_screen() {  # <plain-screen> <cursor-or-empty> [extract-wrap]
   FM_COMPOSER_SCAN_BOX_BOTTOM=-1
   FM_COMPOSER_SCAN_BOX_AMBIG=0
   FM_COMPOSER_SCAN_INCOMPLETE_BOX_FROM=-1
+  FM_COMPOSER_SCAN_INCOMPLETE_BOX_LAST=-1
+  FM_COMPOSER_SCAN_OPEN_TOP=0
   FM_COMPOSER_SCAN_UNSAFE=0
   FM_COMPOSER_SCAN_CURSOR_EDGE=0
   FM_COMPOSER_SCAN_BARE_ROW=-1
@@ -980,6 +982,7 @@ _fm_composer_scan_screen() {  # <plain-screen> <cursor-or-empty> [extract-wrap]
       if [ -n "$cy" ] && [ "$top" -ge 0 ] && [ "$top" -lt "$cy" ] && [ "$cy" -le "$row" ]; then
         FM_COMPOSER_SCAN_UNSAFE=1
       fi
+      if [ "$top" -ge 0 ]; then FM_COMPOSER_SCAN_OPEN_TOP=1; fi
       top=$row
       FM_COMPOSER_SCAN_INCOMPLETE_BOX_FROM=$row
       current_family=$family
@@ -1044,6 +1047,7 @@ _fm_composer_scan_screen() {  # <plain-screen> <cursor-or-empty> [extract-wrap]
         if [ "$FM_COMPOSER_SCAN_INCOMPLETE_BOX_FROM" -lt 0 ]; then
           FM_COMPOSER_SCAN_INCOMPLETE_BOX_FROM=$row
         fi
+        FM_COMPOSER_SCAN_INCOMPLETE_BOX_LAST=$row
         if [ -n "$cy" ]; then
           if { [ "$top" -ge 0 ] && [ "$top" -lt "$cy" ] && [ "$cy" -le "$row" ]; } \
              || [ "$row" -eq "$cy" ]; then
@@ -1094,6 +1098,7 @@ _fm_composer_scan_screen() {  # <plain-screen> <cursor-or-empty> [extract-wrap]
   done <<EOF
 $pane
 EOF
+  if [ "$top" -ge 0 ]; then FM_COMPOSER_SCAN_OPEN_TOP=1; fi
   if [ -n "$cy" ] && [ "$top" -ge 0 ] && [ "$top" -lt "$cy" ]; then
     FM_COMPOSER_SCAN_UNSAFE=1
   fi
@@ -2008,7 +2013,13 @@ _fm_composer_select_cursorless() {
     FM_COMPOSER_SELECTED_FIRST=$FM_COMPOSER_SCAN_LEFTBAR_START
     FM_COMPOSER_SELECTED_LAST=$FM_COMPOSER_SCAN_LEFTBAR_END
   fi
-  if [ "$FM_COMPOSER_SCAN_INCOMPLETE_BOX_FROM" -gt "$generic" ]; then
+  # A clipped box BOTTOM border (a transcript table whose top scrolled out of
+  # view) entirely ABOVE a complete pi pair is scrollback, not the live
+  # composer. Any unmatched TOP border anywhere keeps the veto.
+  if [ "$FM_COMPOSER_SCAN_INCOMPLETE_BOX_FROM" -gt "$generic" ] \
+     && ! { [ "$FM_COMPOSER_SCAN_PI_PAIR_FOUND" = 1 ] \
+            && [ "$FM_COMPOSER_SCAN_OPEN_TOP" = 0 ] \
+            && [ "$FM_COMPOSER_SCAN_INCOMPLETE_BOX_LAST" -lt "$FM_COMPOSER_SCAN_PI_OPEN" ]; }; then
     FM_COMPOSER_SELECTED_KIND=
     return 1
   fi

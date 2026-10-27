@@ -1,0 +1,40 @@
+ │ prove zero spend                                       │       │ fixture                                          │
+ └────────────────────────────────────────────────────────┴───────┴──────────────────────────────────────────────────┘
+
+ Receipts: pytest tests/ingest/test_rollout_cli_data_root.py tests/ingest/test_rollout.py -k "..." → 12 passed; ruff
+ format + check clean. Minimum level: unit.
+
+
+ $ echo "done [at=$(date +%s)]: leaf 10.834 committed on fm/dos-leaf-10-834-v2-1027 (0ce353af14); rollout preflights
+ DOS_DATA_ROOT before PG connect/EodhdClient; 12 targeted tests green, ruff clean, 120 changed lines at cap; all
+ acceptance criteria at unit level; awaiting GO for /no-mistakes" >>
+ '/home/holu/fm-secondmate-upstream-20260907/state/dos-leaf-10-834-v2-1027.status' && { [ ! -e
+ '/home/holu/fm-secondmate-upstream-20260907/config/fleet-ledger' ] ||
+ '/home/holu/fm-secondmate-upstream-20260907/bin/fm-fleet-ledger.sh' appended
+ '/home/holu/fm-secondmate-upstream-20260907/config'
+ '/home/holu/fm-secondmate-upstream-20260907/state/dos-leaf-10-834-v2-1027.status' >/dev/null 2>&1 || true; } (cwd:
+ ~/.treehouse/decision-os-143fee/78/decision-os)
+
+ took 0.2s · exit_code=0 · log: /tmp/pi-unified-exec-26-ce01a12c.log
+
+
+ Leaf implementation is complete and handed off. Summary:
+
+ Change (exactly the FILES allowlist):
+ - core/src/dos/cli.py — _bars_rollout now calls datasets.data_root() as the first statement inside the try, before
+   psycopg.connect and before EodhdClient(...); datasets.DataRootError added to the except tuple so the refusal prints
+   dos bars rollout: <message> on stderr and exits 1 instead of an uncaught traceback.
+ - core/tests/ingest/test_rollout_cli_data_root.py — new, 110 lines, 5 tests driving the production path dos.cli.main
+   with monkeypatched psycopg.connect / EodhdClient / dsn_from_env recorders and tmp_path.
+
+ Verified: 5 new tests red before the fix, green after; 7 neighboring rollout refusal tests still pass; ruff format
+ and check clean; 120 changed physical lines total, exactly at the hard cap; committed as 0ce353af14 on
+ fm/dos-leaf-10-834-v2-1027 with the worktree clean.
+
+ done: status line appended — now waiting for firstmate's GO before starting /no-mistakes.
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+~/.treehouse/decision-os-143fee/78/decision-os (fm/dos-leaf-10-834-v2-1027)
+↑53k ↓15k R2.0M CH98.4% 23.3%/262k (auto)                                          (kimi-code) kimi-for-coding • medium
