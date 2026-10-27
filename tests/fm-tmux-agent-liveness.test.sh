@@ -493,5 +493,55 @@ fi
   || fail "the reclassification must be gated on Command Code's own process identity"
 pass "commandcode composer: an identical screen stays unknown when the pane is not Command Code"
 
+# --- muse composer: the idle /fork placeholder is read through the tmux probe ---
+# muse draws its idle placeholder in palette 242, and only a muse-attributed
+# read drops it. The tmux state path used to supply no identity, so a real idle
+# muse pane read pending and every steer to it was refused. The pane below
+# replays the committed live capture and then parks the cursor on the composer
+# row, with a muse-bin-<version> process in the foreground exactly as a real
+# install does.
+FIXTURES="$ROOT/tests/fixtures/send-guard"
+open_muse_pane() {  # <window> <binary> <fixture-stem>
+  local window=$1 binary=$2 stem=$3 cur
+  cur=$(cat "$FIXTURES/$stem.cursor")
+  new_window "$window" bash -c "cat '$FIXTURES/$stem.ansi'; printf '\\033[%d;4H' $((cur + 1)); exec '$binary' 900"
+  local i=0
+  while [ "$i" -lt 100 ]; do
+    case "$("$REAL_TMUX" -L "$SOCKET" capture-pane -p -t "$SESSION:$window" 2>/dev/null)" in
+      *'muse-spark'*)
+        [ "$("$REAL_TMUX" -L "$SOCKET" display-message -p -t "$SESSION:$window" '#{cursor_y}')" = "$cur" ] && return 0 ;;
+    esac
+    sleep 0.1
+    i=$((i + 1))
+  done
+  fail "pane $window never rendered the muse fixture with its cursor on the composer row"
+}
+
+open_muse_pane muse-idle "$LAB/bin/muse-bin-0.1.0-R708.1" muse-fork-placeholder
+id=$(fm_tmux_composer_identity "$SESSION:muse-idle") \
+  || fail "a pane whose foreground process is muse-bin-<version> must have a composer identity"
+[ "${id%%$'\t'*}" = muse ] || fail "muse-bin-<version> must be identified as muse, got '$id'"
+blind=$(fm_composer_classify_screen "$(fm_tmux_composer_caps)" "$(fm_tmux_composer_capture "$SESSION:muse-idle")" "$(fm_tmux_composer_cursor_row "$SESSION:muse-idle")")
+[ "$blind" = need-identity ] \
+  || fail "the identity-less read must defer to the probe, or this case proves nothing (got '$blind')"
+[ "$(fm_composer_classify_screen "$(fm_tmux_composer_caps)" "$(fm_tmux_composer_capture "$SESSION:muse-idle")" "$(fm_tmux_composer_cursor_row "$SESSION:muse-idle")" probe-absent)" = pending ] \
+  || fail "a probe that finds no identity must read the placeholder as pending, or this case proves nothing"
+[ "$(fm_tmux_composer_state "$SESSION:muse-idle")" = empty ] \
+  || fail "an idle muse composer showing only the /fork placeholder must read empty"
+pass "muse composer: the idle /fork placeholder reads empty through the tmux identity probe"
+
+open_muse_pane muse-draft "$LAB/bin/muse-bin-0.1.0-R708.1" muse-fork-placeholder-draft
+[ "$(fm_tmux_composer_state "$SESSION:muse-draft")" = pending ] \
+  || fail "a typed muse draft must read pending"
+pass "muse composer: a typed draft still reads pending"
+
+open_muse_pane muse-decoy "$LAB/bin/muse-binary" muse-fork-placeholder
+if fm_tmux_composer_identity "$SESSION:muse-decoy" >/dev/null; then
+  fail "an unanchored muse-like name must not get a composer identity"
+fi
+[ "$(fm_tmux_composer_state "$SESSION:muse-decoy")" = pending ] \
+  || fail "the placeholder must stay pending when the pane is not muse"
+pass "muse composer: an identical screen stays pending when the pane is not muse"
+
 cleanup_all
 trap - EXIT

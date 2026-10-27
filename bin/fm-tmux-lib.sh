@@ -109,8 +109,12 @@ fm_tmux_composer_caps() {
 # foreground process name and its own verified busy footer: its composer is a
 # bare `❯` row between the same two rules, and its placeholder needs the
 # identity-scoped ghost ceiling in bin/fm-composer-lib.sh.
+# It answers muse from its anchored `muse` / `muse-bin-<version>` foreground
+# process name (the installed binary; bin/fm-agent-process-lib.sh owns why it
+# is anchored) so the classifier can drop muse's palette-242 idle placeholder.
 # Prints "<owner><TAB>idle" or "<owner><TAB>working" for owner pi,
-# polytoken, or commandcode; exits 1 when the pane is not a live shape owner.
+# polytoken, or commandcode, and "muse<TAB>unknown" for muse; exits 1 when the
+# pane is not a live owner.
 fm_tmux_composer_identity() {  # <target>
   local target=$1 tty pgid tpgid comm owner='' status
   tty=$(tmux display-message -p -t "$target" '#{pane_tty}' 2>/dev/null) || tty=
@@ -123,6 +127,7 @@ fm_tmux_composer_identity() {  # <target>
           pi|pi-signed|pi-launcher|Pi) owner=pi ;;
           polytoken) owner=polytoken ;;
           command-code) owner=commandcode ;;
+          muse|muse-bin-*) owner=muse ;;
         esac
         [ -n "$owner" ] && break
       done <<EOF
@@ -135,9 +140,18 @@ EOF
     case "${comm##*/}" in
       pi|pi-signed|pi-launcher) owner=pi ;;
       polytoken) owner=polytoken ;;
+      muse|muse-bin-*) owner=muse ;;
     esac
   fi
   [ -n "$owner" ] || return 1
+  # muse has no rendered busy footer (its busy source is the session log in
+  # bin/fm-busy-lib.sh) and the classifier consumes only the owner, so no
+  # screen read is made and the status is reported as unknown, never a
+  # guessed idle.
+  if [ "$owner" = muse ]; then
+    printf 'muse\tunknown'
+    return 0
+  fi
   # The busy footer read is scoped to the matched owner's own harness
   # signature (pi for the pi family, polytoken's `Running for` row, Command
   # Code's own footer) so one owner's ordinary output can never acknowledge
