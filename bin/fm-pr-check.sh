@@ -19,6 +19,10 @@
 # skips this refusal, because its own merge-time draft refusal is authoritative.
 # The recorded pr= also frees the task's place in a declared project capacity
 # (bin/fm-project-capacity-lib.sh).
+# With no task record at all (a retired lane or a hand-made branch) a GitHub
+# pull request's head is read from the forge and printed; nothing is recorded
+# or armed, because a poll is valid only against a task record. Other forges
+# and an unreadable head refuse. A present but unusable record still refuses.
 # Usage: fm-pr-check.sh <task-id> <pr-url>
 set -eu
 
@@ -54,7 +58,14 @@ NUMBER=$FM_PR_NUMBER
 
 # Task-derived paths are constructed only after the canonical ID validation.
 META="$STATE/$ID.meta"
-if [ ! -f "$META" ] || [ -L "$META" ] || [ "$(fm_pr_file_link_count "$META")" != 1 ]; then
+# A retired lane (torn down) or a hand-made branch has no task metadata at all.
+# Only a wholly absent record takes that path: a symlink, a multiply-linked
+# file, or any other unusable record still refuses. With no record there is
+# nothing to rewrite, so the head is read from the forge and reported instead.
+RETIRED=0
+if [ ! -e "$META" ] && [ ! -L "$META" ]; then
+  RETIRED=1
+elif [ ! -f "$META" ] || [ -L "$META" ] || [ "$(fm_pr_file_link_count "$META")" != 1 ]; then
   echo "error: task metadata is unavailable" >&2
   exit 1
 fi
@@ -64,7 +75,8 @@ fi
 # to a task inside the mate's own home, which records and watches it there;
 # arming a merge watch here would queue the mate itself for teardown as landed
 # work once that pull request merges.
-KIND=$(grep '^kind=' "$META" | tail -1 | cut -d= -f2- || true)
+KIND=
+[ "$RETIRED" = 1 ] || KIND=$(grep '^kind=' "$META" | tail -1 | cut -d= -f2- || true)
 if [ "$KIND" = secondmate ]; then
   echo "error: $ID is a secondmate, not a delivery lane - $URL was reported on its status channel but belongs to a task in the mate's own home, which arms its own merge watch" >&2
   exit 1
@@ -148,17 +160,33 @@ fi
 # bin/fm-pr-merge.sh reads a GitLab or Forgejo head live at merge time for the
 # same reason, and treats a recorded value that disagrees as stale rather than
 # authoritative.
-WT=$(grep '^worktree=' "$META" | tail -1 | cut -d= -f2- || true)
+WT=
+[ "$RETIRED" = 1 ] || WT=$(grep '^worktree=' "$META" | tail -1 | cut -d= -f2- || true)
 PR_HEAD=
-if [ "$PROVIDER" = github ] && [ -n "$WT" ] && [ -d "$WT" ] && command -v gh >/dev/null 2>&1; then
+if [ "$RETIRED" = 1 ]; then
+  # No worktree to run from: the forge is the only authority for the head, and
+  # a head that cannot be read exactly is refused rather than guessed.
+  if [ "$PROVIDER" = github ] && command -v gh >/dev/null 2>&1 \
+    && REMOTE_HEAD=$(gh pr view "$URL" --json headRefOid -q .headRefOid 2>/dev/null) \
+    && fm_pr_head_valid "$REMOTE_HEAD"; then
+    PR_HEAD=$REMOTE_HEAD
+  else
+    echo "error: task metadata is unavailable and the forge head of $URL could not be resolved" >&2
+    exit 1
+  fi
+elif [ "$PROVIDER" = github ] && [ -n "$WT" ] && [ -d "$WT" ] && command -v gh >/dev/null 2>&1; then
   if REMOTE_HEAD=$(cd "$WT" && gh pr view "$URL" --json headRefOid -q .headRefOid 2>/dev/null) \
     && fm_pr_head_valid "$REMOTE_HEAD"; then
     PR_HEAD=$REMOTE_HEAD
   fi
 fi
 
-MODE=$(grep '^mode=' "$META" | tail -1 | cut -d= -f2- || true)
-PROJECT=$(grep '^project=' "$META" | tail -1 | cut -d= -f2- || true)
+MODE=
+PROJECT=
+if [ "$RETIRED" != 1 ]; then
+  MODE=$(grep '^mode=' "$META" | tail -1 | cut -d= -f2- || true)
+  PROJECT=$(grep '^project=' "$META" | tail -1 | cut -d= -f2- || true)
+fi
 # The gate is asked about the ready report this task's worker was told to give;
 # on a Gerrit change both publishing modes report the same published line.
 case "$PROVIDER:$MODE" in
@@ -166,10 +194,19 @@ case "$PROVIDER:$MODE" in
   *:no-mistakes|*:) DONE_LINE="done: PR $URL checks green" ;;
   *) DONE_LINE="done: PR $URL" ;;
 esac
-if { [ -z "$PR_HEAD" ] || ! fm_dod_forge_head_is_named_head "$MODE"; } \
+if [ "$RETIRED" != 1 ] \
+  && { [ -z "$PR_HEAD" ] || ! fm_dod_forge_head_is_named_head "$MODE"; } \
   && ! GATE_REASON=$(fm_dod_accept_ship_done "${KIND:-ship}" "$MODE" "$WT" "$PROJECT" "$DONE_LINE" "$STATE" "$ID" "$META"); then
   echo "error: $GATE_REASON" >&2
   exit 1
+fi
+
+# A poll is valid only against the task record it names (bin/fm-pr-lib.sh binds
+# every poll artifact to the record's pr=), so a retired lane arms none: the
+# forge head is reported and the caller's own gates decide what happens next.
+if [ "$RETIRED" = 1 ]; then
+  printf 'pr_head: %s (resolved from the forge; no task metadata, so nothing is recorded or armed)\n' "$PR_HEAD"
+  exit 0
 fi
 
 META_TMP=
@@ -253,6 +290,29 @@ if command -v jq >/dev/null 2>&1; then
 else
   printf 'contributions: jq unavailable; coverage is unconfirmed\n' >&2
 fi
+# Opt-in config/ready-after-green: a no-mistakes PR is ready only once the
+# child's own status holds the checks-green report naming this exact PR, so a
+# PR registered while its checks are pending or failing publishes no ready
+# line. The report is read with the same test bin/fm-crew-state.sh uses, so
+# text around `PR <url> checks green` does not withhold the line.
+# The child's later done line still reaches the parent through
+# bin/fm-inactive-reconcile.sh, and registering again after the report
+# publishes this line. Only the last done line counts, so a later done that
+# does not report green withdraws an earlier one.
+fm_pr_check_ready_line_waits_for_green() {
+  local note
+  [ -e "${FM_CONFIG_OVERRIDE:-$FM_HOME/config}/ready-after-green" ] || return 1
+  case "$PROVIDER:$PR_MODE" in
+    gerrit:*|*:direct-PR|*:local-only) return 1 ;;
+  esac
+  note=$(grep -E '^done( \[at=[^]]*\])?: ' "$STATE/$ID.status" 2>/dev/null | tail -1 | sed -E 's/^done( \[at=[^]]*\])?: //' || true)
+  fm_dod_note_reports_ci_ready "$note" || return 0
+  case " $note " in
+    *"$URL"[^[:alnum:]]*) return 1 ;;
+  esac
+  return 0
+}
+
 # In a secondmate home the registration itself is a captain-facing fact:
 # publish the child's PR-ready line with the canonical URL just recorded, so it
 # reaches the parent whether or not the mate model appends anything
@@ -266,7 +326,9 @@ PR_YOLO=$(grep '^yolo=' "$META" | tail -1 | cut -d= -f2- || true)
 [ -z "$PR_MODE" ] || READY_LINE="$READY_LINE mode=$(fm_parent_channel_clean_note "$PR_MODE")"
 [ -z "$PR_YOLO" ] || READY_LINE="$READY_LINE yolo=$(fm_parent_channel_clean_note "$PR_YOLO")"
 READY_RC=0
-fm_parent_channel_report "$FM_HOME" "$STATE" "$READY_LINE" || READY_RC=$?
+if ! fm_pr_check_ready_line_waits_for_green; then
+  fm_parent_channel_report "$FM_HOME" "$STATE" "$READY_LINE" || READY_RC=$?
+fi
 case "$READY_RC" in
   0|1) ;;
   *) printf 'actionable: PR %s is registered but its ready line did not reach the parent channel (rc=%s)\n' "$URL" "$READY_RC" >&2 ;;

@@ -6,7 +6,7 @@
 #   fm-remote-secondmate-control.sh relaunch <id> <harness> <model|default|-> <effort|default|->
 #   fm-remote-secondmate-control.sh state <id>
 #   fm-remote-secondmate-control.sh route <id>
-#   fm-remote-secondmate-control.sh send <id> <message> [fire-and-forget]
+#   fm-remote-secondmate-control.sh send <id> <message> [fire-and-forget][,bypass-exited][,parent-dormant]
 #   fm-remote-secondmate-control.sh key <id> <key>
 #   fm-remote-secondmate-control.sh capture <id> [lines]
 #   fm-remote-secondmate-control.sh observe <id>
@@ -61,6 +61,21 @@ CONTROL_STATE="$TARGET_HOME/state/parent-route"
 CONTROL_DATA="$TARGET_HOME/data/.parent-route"
 REMOTE_HERDR_SESSION=fm-remote
 
+die() { printf 'error: %s\n' "$1" >&2; exit 1; }
+usage() { sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
+validate_id() { case "$1" in ''|*[!A-Za-z0-9._-]*) die "invalid secondmate id: $1" ;; esac; }
+
+# Sourcing fm-wake-lib.sh through the libraries below creates "$FM_HOME/state",
+# so recognize an already-retired home before loading them rather than
+# fabricating an unseeded home that every later retirement then refuses.
+# The accepted arguments match the retire dispatcher's.
+if [ "${1:-}" = retire ] && [ ! -e "$TARGET_HOME" ] && [ ! -L "$TARGET_HOME" ]; then
+  case "$#:${3:-}" in
+    2:|3:|3:--force) validate_id "$2"; printf 'already-retired: %s\n' "$2"; exit 0 ;;
+    *) usage ;;
+  esac
+fi
+
 # shellcheck source=bin/fm-backend.sh
 . "$SCRIPT_DIR/fm-backend.sh"
 # shellcheck source=bin/fm-ff-lib.sh
@@ -70,13 +85,8 @@ REMOTE_HERDR_SESSION=fm-remote
 # shellcheck source=bin/fm-task-inbox-lib.sh
 . "$SCRIPT_DIR/fm-task-inbox-lib.sh"
 
-die() { printf 'error: %s\n' "$1" >&2; exit 1; }
-usage() { sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
-validate_id() { case "$1" in ''|*[!A-Za-z0-9._-]*) die "invalid secondmate id: $1" ;; esac; }
-
-validate_home() { # <id> [allow-absent]
-  local id=$1 allow_absent=${2:-no} marker
-  if [ ! -e "$TARGET_HOME" ] && [ ! -L "$TARGET_HOME" ] && [ "$allow_absent" = yes ]; then return 2; fi
+validate_home() { # <id>
+  local id=$1 marker
   [ -d "$TARGET_HOME" ] && [ ! -L "$TARGET_HOME" ] || die "remote secondmate home is unavailable or unsafe"
   [ -f "$TARGET_HOME/.fm-secondmate-home" ] && [ ! -L "$TARGET_HOME/.fm-secondmate-home" ] \
     || die "remote home is not a seeded secondmate home"
@@ -269,8 +279,24 @@ cmd_relaunch() {
 }
 
 cmd_send() {
-  local id=$1 message=$2 delivery_mode=${3:-} rec ring_rc=0 meta meta_lock
+  local id=$1 message=$2 delivery_mode=${3:-} rec ring_rc=0 meta meta_lock bypass=0 refuse
   validate_id "$id"
+  # The mode is a comma list of fire-and-forget, bypass-exited (the parent's
+  # FM_ALLOW_DORMANT_DISPATCH, which ssh cannot carry), and parent-dormant (the
+  # parent's marker, which this host cannot see).
+  local tokens token parent_dormant=0
+  tokens=$delivery_mode
+  delivery_mode=
+  while [ -n "$tokens" ]; do
+    token=${tokens%%,*}
+    case "$tokens" in *,*) tokens=${tokens#*,} ;; *) tokens= ;; esac
+    case "$token" in
+      bypass-exited) bypass=1 ;;
+      parent-dormant) parent_dormant=1 ;;
+      fire-and-forget) delivery_mode=fire-and-forget ;;
+      *) die "invalid send delivery mode" ;;
+    esac
+  done
   [ -z "$delivery_mode" ] || [ "$delivery_mode" = fire-and-forget ] || die "invalid send delivery mode"
   validate_home "$id"
   meta=$(meta_path "$id")
@@ -290,7 +316,17 @@ cmd_send() {
   # the parent may safely repeat this leg. Exit 0 once the record durably
   # exists; no ring outcome changes it, because the parent transport owns any
   # retry or reply-tracking policy from here.
-  if ! rec=$(fm_task_inbox_write_idempotent "$CONTROL_STATE" "$id" "$message" "$delivery_mode"); then
+  # Refuse only a record that would be CREATED: the idempotent writer still
+  # confirms an exact duplicate of an existing one.
+  refuse=
+  if [ "$bypass" != 1 ]; then
+    if [ "$parent_dormant" = 1 ]; then
+      refuse="error: $id is marked dormant by its parent; new dispatch refused. Route the work through bosgame-control (the netcup secondmate, over ssh), or set FM_ALLOW_DORMANT_DISPATCH=1 to bypass as captain or chief."
+    else
+      refuse=$(FM_ALLOW_DORMANT_DISPATCH='' fm_task_inbox_exited_refusal "$REMOTE_ENDPOINT_BACKEND" "$REMOTE_ENDPOINT_TARGET" "$id") || refuse=
+    fi
+  fi
+  if ! rec=$(FM_ALLOW_DORMANT_DISPATCH=1 FM_TASK_INBOX_REFUSE_CREATE=$refuse fm_task_inbox_write_idempotent "$CONTROL_STATE" "$id" "$message" "$delivery_mode"); then
     fm_lock_release "$meta_lock"
     die "steering-inbox record could not be written under $CONTROL_STATE/$id.inbox"
   fi
@@ -410,13 +446,9 @@ cmd_update() {
 }
 
 cmd_retire() {
-  local id=$1 force=${2:-} rc
+  local id=$1 force=${2:-}
   validate_id "$id"
-  validate_home "$id" yes || rc=$?
-  if [ "${rc:-0}" -eq 2 ]; then
-    printf 'already-retired: %s\n' "$id"
-    return 0
-  fi
+  validate_home "$id"
   [ -z "$force" ] || [ "$force" = --force ] || usage
   remote_endpoint_require "$id"
   FM_HOME="$TARGET_HOME" FM_ROOT_OVERRIDE="$FM_ROOT" FM_STATE_OVERRIDE="$TARGET_HOME/state" \

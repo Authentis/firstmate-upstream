@@ -36,6 +36,8 @@
 #      uncached status read - accepting any verb - immediately before firing
 #  18. A same-kind escalation after an operator close appends again and reopens
 #      the decision; a retry while that decision is still open appends nothing
+#  19. A request summary keeps accented letters, drops control characters, and
+#      caps at 120 characters without splitting one under any caller locale
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -79,7 +81,7 @@ case "${1:-}" in
     for a in "$@"; do case "$a" in *cursor_y*) printf '1\n'; exit 0 ;; esac; done
     printf 'fakepane\n'; exit 0 ;;
   capture-pane) printf '╭────╮\n│    │\n╰────╯\n'; exit 0 ;;
-  list-windows) exit 0 ;;
+  list-windows) printf '%s\n' fm-hibit fm-domain fm-other fm-resolved fm-escalated fm-mate; exit 0 ;;
 esac
 exit 0
 SH
@@ -2101,9 +2103,169 @@ test_same_kind_escalation_reopens_after_operator_close() {
   pass "a same-kind escalation after an operator close opens the decision again"
 }
 
+test_recovery_repost_carries_the_full_request_text() {
+  local text summary rec msg d
+  # A mate that missed the original delivery must be able to act from the
+  # repost alone: the stored summary has to cover a full multi-step order,
+  # not one 120-char sentence.
+  text='Planning reset (chief): start a SECOND planning lane on your side on Muse Wonder via the lane path (like dos-planning1035-bosgame-1015). Own unused partition - coordinate with the busy set so the two lanes do not share one. Same planner prompt + Done-when. Leaves through the normal tracker PR. Report lane id + partition.'
+  summary=$(fm_pending_reply_summarize "$text")
+  [ "$summary" = "$text" ] || fail "summarize truncated the request: got ${#summary} of ${#text} chars"
+  d=$(mktemp -d "$TMP_ROOT/fulltext.XXXXXX")
+  rec=$d/record
+  cat > "$rec" <<EOF
+schema=fm-pending-reply.v1
+corr_id=0123456789abcdef
+task_id=somepane
+parent_home=$d
+parent_status=$d/status.log
+request_summary=$summary
+created_epoch=1
+delivered_epoch=1
+phase=awaiting_report
+turn_seen_busy=0
+EOF
+  msg=$(fm_pending_reply_recovery_message "$rec")
+  case "$msg" in
+    *"$text"*) ;;
+    *) fail "recovery repost lost the full request text" ;;
+  esac
+  pass "recovery repost carries the full request text"
+}
+
+test_summary_keeps_accents_and_caps_by_character() {
+  local out long cap_chars loc
+  out=$(fm_pending_reply_summarize "não faça a correção")
+  [ "$out" = "não faça a correção" ] || fail "accented summary must survive unchanged, got '$out'"
+  out=$(fm_pending_reply_summarize "$(printf 'a\001b\033c\177d\tnão\r\nfaça')")
+  [ "$out" = "abcd não  faça" ] || fail "control characters must be removed and whitespace flattened, got '$out'"
+  long=$(printf 'ç%.0s' $(seq 1 2030))
+  for loc in C "" en_US.UTF-8; do
+    out=$(LC_ALL=${loc:-C} fm_pending_reply_summarize "$long")
+    cap_chars=$(printf '%s' "$out" | LC_ALL=C tr -d '\200-\277' | LC_ALL=C wc -c | tr -d ' ')
+    [ "$cap_chars" = 2000 ] || fail "capped accented text must hold 2000 characters under locale '${loc:-C}', got $cap_chars"
+    printf '%s' "$out" | iconv -f UTF-8 -t UTF-8 >/dev/null 2>&1 \
+      || fail "capped accented text must stay valid UTF-8 under locale '${loc:-C}'"
+    [ "$out" = "$(printf 'ç%.0s' $(seq 1 1997))..." ] || fail "capped text must be 1997 characters plus an ellipsis under locale '${loc:-C}'"
+  done
+  out=$(fm_pending_reply_summarize "$(printf 'x%.0s' $(seq 1 2000))")
+  [ "${#out}" = 2000 ] || fail "a 2000-character summary must not be capped, got ${#out}"
+  pass "the summary keeps accented letters, drops control characters, and caps by character"
+}
+
 # --- run --------------------------------------------------------------------
 
+# A request delivered longer ago than the age cap is retired, never stamped and
+# never reposted; an exited agent's idle pane never counts as a completed turn.
+at_epoch() {  # <epoch> <command> [args...]
+  local epoch=$1
+  shift
+  FM_PENDING_REPLY_NOW=$epoch "$@"
+}
+
+test_age_cap_retires_stale_request_without_repost() {
+  local home state stale fresh raced hook_log rec now
+  home=$(setup_parent age-cap)
+  state="$home/state"
+  hook_log="$TMP_ROOT/age-cap-hook.log"
+  : > "$hook_log"
+  # shellcheck disable=SC2329
+  age_cap_hook() {
+    printf '%s\t%s\n' "$1" "$2" >> "$hook_log"
+  }
+  export -f age_cap_hook
+  export FM_PENDING_REPLY_SEND_HOOK='age_cap_hook'
+  export FM_PENDING_REPLY_MAX_AGE_SECS=21600
+  now=$((1000 + 21600 + 60))
+  stale=$(at_epoch 1000 fm_pending_reply_create "$home" "$state" "netcup" "old order")
+  at_epoch 1000 fm_pending_reply_mark_delivered "$state" "$stale"
+  fresh=$(at_epoch $((now - 70)) fm_pending_reply_create "$home" "$state" "netcup" "recent order")
+  at_epoch $((now - 70)) fm_pending_reply_mark_delivered "$state" "$fresh"
+  at_epoch "$now" fm_pending_reply_tick_one "$state" "$stale" idle
+  rec=$(fm_pending_reply_path "$state" "$stale")
+  [ "$(phase_of "$state" "$stale")" = retired ] || fail "stale request should be retired, got $(phase_of "$state" "$stale")"
+  [ -z "$(fm_pending_reply_get "$rec" request_turn_completed_epoch)" ] || fail "retired request must not be stamped complete"
+  [ "$(fm_pending_reply_get "$rec" retired_from_phase)" = awaiting_report ] || fail "retired_from_phase missing"
+  [ "$(fm_pending_reply_get "$rec" retired_epoch)" = "$now" ] || fail "retired_epoch missing"
+  case "$(fm_pending_reply_get "$rec" retired_reason)" in
+    *"age cap"*) : ;;
+    *) fail "retired_reason should name the age cap" ;;
+  esac
+  [ -f "$rec" ] || fail "retired record must be kept"
+  if at_epoch "$now" fm_pending_reply_send_recovery "$state" "$stale" 2>/dev/null; then fail "retired request must not be reposted"; fi
+  [ ! -s "$hook_log" ] || fail "no repost may be sent for a retired request"
+  # A correlated report that lands before retirement wins: the retirement takes
+  # the resolution lock, resolves first, and never overwrites the resolved phase.
+  raced=$(at_epoch 1000 fm_pending_reply_create "$home" "$state" "netcup" "raced order")
+  at_epoch 1000 fm_pending_reply_mark_delivered "$state" "$raced"
+  printf 'done [corr=%s]: handled\n' "$raced" > "$state/netcup.status"
+  if at_epoch "$now" fm_pending_reply_retire_if_stale "$state" "$raced"; then
+    fail "a correlated report must beat retirement"
+  fi
+  [ "$(phase_of "$state" "$raced")" = resolved ] || fail "raced request should be resolved, got $(phase_of "$state" "$raced")"
+  [ -z "$(fm_pending_reply_get "$(fm_pending_reply_path "$state" "$raced")" retired_epoch)" ] \
+    || fail "a resolved request must carry no retirement fields"
+  # Still inside the cap: the ordinary path stamps completion and reposts once.
+  at_epoch "$now" fm_pending_reply_tick_one "$state" "$fresh" idle
+  [ "$(phase_of "$state" "$fresh")" = recovery_sent ] || fail "recent request should take the ordinary path, got $(phase_of "$state" "$fresh")"
+  [ -n "$(fm_pending_reply_get "$(fm_pending_reply_path "$state" "$fresh")" request_turn_completed_epoch)" ] \
+    || fail "recent request should still be observed"
+  [ "$(wc -l < "$hook_log" | tr -d ' ')" = 1 ] || fail "only the recent request may be reposted"
+  # An exited agent (shell prompt) is never observed as idle.
+  # shellcheck disable=SC2329
+  fm_backend_agent_state() { printf 'dead'; }
+  [ "$(fm_pending_reply_backend_observation tmux sess:win fm-x claude)" = unknown ] \
+    || fail "exited agent must observe as unknown"
+  unset -f fm_backend_agent_state
+  unset FM_PENDING_REPLY_SEND_HOOK FM_PENDING_REPLY_MAX_AGE_SECS
+  pass "age cap retires a stale request without a repost; exited agent never reads idle"
+}
+
+
+# The age cap is re-evaluated against a fresh clock under the final recovery
+# lock: a repost that was inside the cap at its precheck but crossed it while
+# waiting is retired, not sent.
+test_recovery_crossing_the_age_cap_at_the_final_lock_is_retired() {
+  local home state corr hook_log counter
+  home=$(setup_parent age-boundary)
+  state="$home/state"
+  hook_log="$TMP_ROOT/age-boundary-hook.log"
+  : > "$hook_log"
+  # shellcheck disable=SC2329
+  boundary_hook() {
+    printf '%s\t%s\n' "$1" "$2" >> "$hook_log"
+  }
+  export -f boundary_hook
+  export FM_PENDING_REPLY_SEND_HOOK=boundary_hook
+  export FM_PENDING_REPLY_MAX_AGE_SECS=21600
+  corr=$(at_epoch 1000 fm_pending_reply_create "$home" "$state" "netcup" "boundary order")
+  at_epoch 1000 fm_pending_reply_mark_delivered "$state" "$corr"
+  fm_pending_reply_set "$(fm_pending_reply_path "$state" "$corr")" request_turn_completed_epoch 1100
+  counter="$TMP_ROOT/age-boundary.clock"
+  printf '0\n' > "$counter"
+  # The clock starts 10s inside the cap and jumps 30s per read, so it crosses
+  # the cap between the precheck and the final locked guard.
+  # shellcheck disable=SC2329
+  fm_pending_reply_now() {
+    local n
+    n=$(cat "$counter")
+    printf '%s\n' "$((n + 1))" > "$counter"
+    printf '%s' "$((1000 + 21600 - 10 + n * 30))"
+  }
+  fm_pending_reply_send_recovery "$state" "$corr" && fail "a repost that crossed the age cap must not send"
+  unset -f fm_pending_reply_now
+  # shellcheck source=bin/fm-pending-reply-lib.sh
+  . "$ROOT/bin/fm-pending-reply-lib.sh"
+  [ "$(phase_of "$state" "$corr")" = retired ] || fail "expected retired, got $(phase_of "$state" "$corr")"
+  [ ! -s "$hook_log" ] || fail "no repost may be sent once the cap is crossed"
+  unset FM_PENDING_REPLY_SEND_HOOK FM_PENDING_REPLY_MAX_AGE_SECS
+  pass "a recovery that crosses the age cap at the final lock is retired, not reposted"
+}
+
+
 test_normal_correlated_reply_resolves_once
+test_age_cap_retires_stale_request_without_repost
+test_recovery_crossing_the_age_cap_at_the_final_lock_is_retired
 test_completed_turn_no_report_triggers_one_recovery
 test_recovery_waits_while_the_mate_has_an_open_decision
 test_recovery_sends_during_an_open_decision_without_the_flag
@@ -2112,6 +2274,7 @@ test_recovery_fresh_status_read_resolves_before_firing
 test_partial_resolve_write_blocks_firing
 test_escalation_grace_measures_from_recovery_turn_completion
 test_recovery_attempt_is_never_reinjected
+test_recovery_repost_carries_the_full_request_text
 test_recovery_reply_resolves_original
 test_second_missed_turn_escalates_once_and_stays_durable
 test_escalation_wakes_and_its_close_stays_quiet
@@ -2151,5 +2314,6 @@ test_remote_parent_replies_is_not_wrong_home
 test_local_parent_replies_is_wrong_home_evidence
 test_escalated_undelivered_correlation_stays_retryable
 test_same_kind_escalation_reopens_after_operator_close
+test_summary_keeps_accents_and_caps_by_character
 
 printf 'ok - all pending-reply tests passed\n'

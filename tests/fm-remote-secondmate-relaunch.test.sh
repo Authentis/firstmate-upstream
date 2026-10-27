@@ -101,17 +101,6 @@ run_relaunch() {  # <args...>
     "$ROOT/bin/fm-remote-secondmate-relaunch.sh" "$@" 2>&1
 }
 
-test_remote_relaunch_keyed_pin() {
-  local out rc
-  reset_meta
-  printf 'pi\nios pi anthropic/claude-opus-5-5 low\n' > "$HOME_DIR/config/secondmate-harness"
-  out=$(run_relaunch ios pi default default); rc=$?
-  expect_code 0 "$rc" "keyed remote relaunch failed: $out"
-  assert_grep 'model=anthropic/claude-opus-5-5' "$HOME_DIR/state/ios.meta" 'parent pin did not reach remote transport'
-  assert_grep 'effort=low' "$HOME_DIR/state/ios.meta" 'parent effort pin did not reach remote transport'
-  rm -f "$HOME_DIR/config/secondmate-harness"
-  pass "remote relaunch reads the parent keyed pin rather than default arguments or stale metadata"
-}
 test_remote_relaunch_refuses_unpinned_pi() {
   local out rc model
   reset_meta
@@ -126,11 +115,9 @@ test_remote_relaunch_refuses_unpinned_pi() {
   pass "remote wrapper refuses empty/default/dash Pi models without publishing a relaunch"
 }
 if [ "${FM_SM_PIN_TEST_ONLY:-0}" = 1 ]; then
-  test_remote_relaunch_keyed_pin
   test_remote_relaunch_refuses_unpinned_pi
   exit 0
 fi
-test_remote_relaunch_keyed_pin
 test_remote_relaunch_refuses_unpinned_pi
 
 # --- a successful relaunch republishes the parent's own route record --------

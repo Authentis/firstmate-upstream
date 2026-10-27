@@ -207,6 +207,15 @@ case "${1:-} ${2:-}" in
         fi
         exit 0
         ;;
+      *"--json files"*)
+        # Head, total changed-file count, then the listed paths; the head and
+        # count can be overridden to model a moved head or a truncated list.
+        [ -s "${FM_TEST_GH_FILES:-}" ] || exit 0
+        if [ -s "${FM_TEST_GH_FILES}.head" ]; then cat "${FM_TEST_GH_FILES}.head"; else cat "$FM_TEST_GH_HEAD"; fi
+        if [ -s "${FM_TEST_GH_FILES}.total" ]; then cat "${FM_TEST_GH_FILES}.total"; else wc -l < "$FM_TEST_GH_FILES" | tr -d ' '; fi
+        cat "$FM_TEST_GH_FILES"
+        exit 0
+        ;;
       *headRefOid*)
         cat "$FM_TEST_GH_HEAD"
         exit 0
@@ -670,6 +679,7 @@ run_pr_merge() {
   FM_TEST_GH_MERGEABLE_SEQUENCE="${FM_TEST_GH_MERGEABLE_SEQUENCE:-}" \
   FM_TEST_GH_MERGEABLE_CALLS="$case_dir/mergeable-calls" \
   FM_TEST_GH_HEAD="$case_dir/github-head" \
+  FM_TEST_GH_FILES="$case_dir/github-files" \
   FM_TEST_GH_RUNS="$case_dir/github-runs.json" \
   FM_TEST_GH_MERGE_RC_FILE="$case_dir/github-merge-rc" \
   FM_TEST_GH_MERGE_OUTPUT="$(cat "$case_dir/github-merge-output" 2>/dev/null || true)" \
@@ -1720,28 +1730,9 @@ test_extra_merge_args_forwarded() {
   pass "fm-pr-merge refuses branch deletion unless --attended-override is passed"
 }
 
-test_missing_meta_refuses_before_merge() {
-  local case_dir fakebin rc
-  case_dir="$TMP_ROOT/missing-meta"
-  fakebin="$case_dir/fakebin"
-  mkdir -p "$case_dir/state" "$fakebin"
-  add_gh_mocks "$case_dir" 3333333333333333333333333333333333333333
-  : > "$case_dir/gh-axi.log"
-
-  set +e
-  run_pr_merge "$case_dir" missing-x1 https://github.com/example/repo/pull/21 \
-    > "$case_dir/stdout" 2> "$case_dir/stderr"
-  rc=$?
-  set -e
-
-  expect_code 1 "$rc" "missing-meta: fm-pr-merge should refuse"
-  assert_grep 'error: task metadata is unavailable' "$case_dir/stderr" \
-    "missing-meta: refusal did not explain missing meta"
-  [ ! -s "$case_dir/gh.log" ] || fail "missing-meta: gh pr merge was invoked"
-  assert_absent "$case_dir/state/missing-x1.check.sh" \
-    "missing-meta: fm-pr-check should not arm a poll for an unknown task"
-  pass "fm-pr-merge refuses before merging when task meta is missing"
-}
+# An absent task record is no longer a refusal: it is the retired-lane path,
+# covered by test_retired_lane_merges_without_metadata below, while an unusable
+# record (symlink) still refuses.
 
 test_malformed_url_refuses_before_merge() {
   local case_dir rc
@@ -2956,7 +2947,6 @@ test_github_verified_merge_requires_poll_recording
 test_github_queued_outcome_is_verified
 test_github_queue_required_refusal_names_retry_flags
 test_extra_merge_args_forwarded
-test_missing_meta_refuses_before_merge
 test_malformed_url_refuses_before_merge
 test_rejects_unsafe_url_segments_before_recording
 test_repo_override_args_refuse_before_recording
@@ -4480,6 +4470,8 @@ test_allow_missing_follows_the_allow_red_rules() {
   expect_code 2 "$RC" "gitlab-allow-missing: the waiver must not apply on GitLab"
   assert_grep '--allow-missing does not apply to GitLab' "$case_dir/stderr" \
     "gitlab-allow-missing: the refusal did not name GitLab"
+  assert_grep '--allow-no-pipeline waives only a merge request with no head pipeline' "$case_dir/stderr" \
+    "gitlab-allow-missing: the refusal did not point at the GitLab no-pipeline waiver"
   [ ! -s "$case_dir/glab.log" ] || fail "gitlab-allow-missing: glab ran despite the waiver"
   pass "fm-pr-merge --allow-missing is single use, attended-only, and GitHub-only like --allow-red"
 }
@@ -4512,6 +4504,128 @@ test_allow_missing_refused_on_forgejo() {
     "forgejo-allow-missing: refusal did not name Forgejo"
   [ ! -s "$case_dir/tea.log" ] || fail "forgejo-allow-missing: tea ran despite --allow-missing"
   pass "fm-pr-merge refuses --allow-missing on Forgejo"
+}
+
+# --allow-no-pipeline is for a GitLab repository that deliberately runs no merge
+# request pipeline: it waives only a head_pipeline GitLab reports as null, and
+# the merge stays bound to the verified head.
+test_allow_no_pipeline_merges_only_a_null_head_pipeline() {
+  local case_dir rc merge_line name spec expected
+  case_dir=$(make_gitlab_case gitlab-no-pipeline-waived pipeline=null)
+  run_pr_merge "$case_dir" task-x1 "$MR_URL" --allow-no-pipeline \
+    > "$case_dir/stdout" 2> "$case_dir/stderr" \
+    || fail "gitlab-no-pipeline-waived: a merge request with no head pipeline should merge: $(cat "$case_dir/stderr")"
+  merge_line=$(glab_merge_line "$case_dir/glab.log")
+  [ "$merge_line" = "GITLAB_HOST=$MR_HOST mr merge 7 -R $MR_PROJECT_URL --sha $MR_HEAD --yes" ] \
+    || fail "gitlab-no-pipeline-waived: unexpected merge invocation: '$merge_line'"
+  assert_grep "at head $MR_HEAD, with no head pipeline, waived by --allow-no-pipeline" "$case_dir/stderr" \
+    "gitlab-no-pipeline-waived: the waived verification was not reported"
+
+  case_dir=$(make_gitlab_case gitlab-no-pipeline-flag-absent pipeline=null)
+  set +e
+  run_pr_merge "$case_dir" task-x1 "$MR_URL" \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+  expect_code 1 "$rc" "gitlab-no-pipeline-flag-absent: no head pipeline must still refuse by default"
+  assert_grep 'the head pipeline status is "none", not success' "$case_dir/stderr" \
+    "gitlab-no-pipeline-flag-absent: the refusal did not name the missing pipeline"
+  [ -z "$(glab_merge_line "$case_dir/glab.log")" ] \
+    || fail "gitlab-no-pipeline-flag-absent: a merge was attempted without the waiver"
+
+  # A pipeline that exists is a verdict, never an absence, so the waiver does
+  # not reach it; and every other condition still holds beside the waiver.
+  set -- \
+    "failed|pipeline_status=failed|the head pipeline status is \"failed\", not success" \
+    "running|pipeline_status=running|the head pipeline status is \"running\", not success" \
+    "canceled|pipeline_status=canceled|the head pipeline status is \"canceled\", not success" \
+    "stale|pipeline_sha=$MR_STALE_HEAD|the head pipeline ran at \"$MR_STALE_HEAD\", not at the current head $MR_HEAD" \
+    "not-mergeable|pipeline=null detail=ci_must_pass|detailed_merge_status is \"ci_must_pass\", not mergeable" \
+    "discussions|pipeline=null discussions=false|blocking_discussions_resolved is \"false\", not true" \
+    "conflicts|pipeline=null conflicts=true|has_conflicts is \"true\", not false"
+  for spec in "$@"; do
+    name=${spec%%|*}
+    expected=${spec##*|}
+    spec=${spec#*|}
+    # shellcheck disable=SC2086 # the field list is deliberately word-split
+    case_dir=$(make_gitlab_case "gitlab-no-pipeline-refuse-$name" ${spec%%|*})
+    set +e
+    run_pr_merge "$case_dir" task-x1 "$MR_URL" --allow-no-pipeline \
+      > "$case_dir/stdout" 2> "$case_dir/stderr"
+    rc=$?
+    set -e
+    expect_code 1 "$rc" "gitlab-no-pipeline-refuse-$name: the waiver must not merge"
+    assert_grep "$expected" "$case_dir/stderr" \
+      "gitlab-no-pipeline-refuse-$name: the refusal did not name the failing condition"
+    [ -z "$(glab_merge_line "$case_dir/glab.log")" ] \
+      || fail "gitlab-no-pipeline-refuse-$name: a merge was attempted despite the refusal"
+  done
+
+  # An absent head_pipeline field is unreadable state, not a reported absence.
+  case_dir=$(make_gitlab_case gitlab-no-pipeline-field-missing)
+  "$JQ_BIN" -c 'del(.head_pipeline)' "$case_dir/mr.json" > "$case_dir/mr.json.new"
+  mv "$case_dir/mr.json.new" "$case_dir/mr.json"
+  set +e
+  run_pr_merge "$case_dir" task-x1 "$MR_URL" --allow-no-pipeline \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+  expect_code 1 "$rc" "gitlab-no-pipeline-field-missing: an unread pipeline field must not be waived"
+  [ -z "$(glab_merge_line "$case_dir/glab.log")" ] \
+    || fail "gitlab-no-pipeline-field-missing: a merge was attempted on an unread pipeline field"
+  pass "fm-pr-merge --allow-no-pipeline waives only a null GitLab head pipeline and keeps every other condition"
+}
+
+test_allow_no_pipeline_is_attended_only_and_gitlab_only() {
+  local case_dir rc head
+  case_dir=$(make_gitlab_case gitlab-no-pipeline-away pipeline=null)
+  write_away_record "$case_dir" --words 'merge task-x1'
+  set +e
+  run_pr_merge "$case_dir" task-x1 "$MR_URL" --allow-no-pipeline \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+  expect_code 2 "$rc" "gitlab-no-pipeline-away: the waiver must be refused while away"
+  assert_grep '--allow-no-pipeline is attended-only' "$case_dir/stderr" \
+    "gitlab-no-pipeline-away: the refusal did not name attended-only"
+  [ -z "$(glab_merge_line "$case_dir/glab.log")" ] \
+    || fail "gitlab-no-pipeline-away: glab merged despite an away waiver"
+
+  case_dir=$(make_gitlab_case gitlab-no-pipeline-equals pipeline=null)
+  set +e
+  run_pr_merge "$case_dir" task-x1 "$MR_URL" --allow-no-pipeline=true \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+  expect_code 2 "$rc" "gitlab-no-pipeline-equals: a value must be refused"
+  [ ! -s "$case_dir/glab.log" ] || fail "gitlab-no-pipeline-equals: glab ran for a valued flag"
+
+  head=abababababababababababababababababababab
+  case_dir=$(make_case github-no-pipeline)
+  mkdir -p "$case_dir/wt"
+  add_gh_mocks "$case_dir" "$head"
+  set +e
+  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/88 --allow-no-pipeline \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+  expect_code 2 "$rc" "github-no-pipeline: the waiver must not apply on GitHub"
+  assert_grep '--allow-no-pipeline applies only to GitLab' "$case_dir/stderr" \
+    "github-no-pipeline: the refusal did not name GitLab"
+  assert_no_grep 'pr merge' "$case_dir/gh.log" \
+    "github-no-pipeline: gh pr merge ran despite the waiver"
+
+  case_dir=$(make_forgejo_case forgejo-no-pipeline)
+  set +e
+  run_pr_merge "$case_dir" task-x1 "$FJ_URL" --allow-no-pipeline \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+  expect_code 2 "$rc" "forgejo-no-pipeline: the waiver must not apply on Forgejo"
+  assert_grep '--allow-no-pipeline applies only to GitLab' "$case_dir/stderr" \
+    "forgejo-no-pipeline: the refusal did not name GitLab"
+  [ ! -s "$case_dir/tea.log" ] || fail "forgejo-no-pipeline: tea ran despite the waiver"
+  pass "fm-pr-merge --allow-no-pipeline is attended-only, takes no value, and applies only to GitLab"
 }
 
 test_gitlab_head_override_args_refuse_before_recording
@@ -4933,3 +5047,167 @@ test_expect_head_malformed_refuses
 test_expect_head_absent_is_unchanged
 test_allow_red_refused_on_forgejo
 test_allow_missing_refused_on_forgejo
+
+# A retired lane (torn down) or a hand-made branch has no task metadata: the
+# merge proceeds from the forge's live head, writes no metadata, and the normal
+# gates (here the live-head check) still apply.
+RETIRED_URL=https://github.com/example/repo/pull/9
+
+run_pr_check_retired() {
+  local case_dir=$1
+  set +e
+  FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$case_dir/home" FM_STATE_OVERRIDE="$case_dir/state" \
+    FM_TEST_GH_LOG="$case_dir/gh.log" FM_TEST_GH_HEAD="$case_dir/github-head" \
+    FM_TEST_GH_VIEW_JSON="$case_dir/github-view.json" \
+    PATH="$case_dir/fakebin:$BASE_PATH" \
+    "$ROOT/bin/fm-pr-check.sh" task-x1 "$RETIRED_URL" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  RETIRED_CHECK_RC=$?
+  set -e
+}
+
+test_retired_lane_merges_without_metadata() {
+  local case_dir
+  case_dir=$(make_case retired-lane-merge)
+  mkdir -p "$case_dir/wt"
+  rm -f "$case_dir/state/task-x1.meta"
+  add_gh_mocks "$case_dir" "$EXPECT_LIVE_HEAD"
+  printf '%s\n' docs/a.md > "$case_dir/github-files"
+  expect_head_merge "$case_dir" --expect-head "$EXPECT_LIVE_HEAD"
+  expect_code 0 "$EXPECT_HEAD_RC" "retired-lane-merge: a lane with no metadata should merge from the forge head"
+  assert_logged_gh_merge "$case_dir" 9 example/repo --squash
+  [ ! -e "$case_dir/state/task-x1.meta" ] || fail "retired-lane-merge: metadata was created for a retired lane"
+  pass "fm-pr-merge lands a retired lane without task metadata and writes none"
+}
+
+test_retired_lane_still_enforces_expect_head() {
+  local case_dir
+  case_dir=$(make_case retired-lane-moved)
+  mkdir -p "$case_dir/wt"
+  rm -f "$case_dir/state/task-x1.meta"
+  add_gh_mocks "$case_dir" "$EXPECT_LIVE_HEAD"
+  printf '%s\n' docs/a.md > "$case_dir/github-files"
+  expect_head_merge "$case_dir" --expect-head "$EXPECT_OLD_HEAD"
+  expect_code 1 "$EXPECT_HEAD_RC" "retired-lane-moved: a moved head should still be refused"
+  if grep -q '^pr merge ' "$case_dir/gh.log"; then
+    fail "retired-lane-moved: gh pr merge was called despite the moved head"
+  fi
+  pass "fm-pr-merge keeps the exact-head refusal for a retired lane"
+}
+
+test_unusable_metadata_still_refuses() {
+  local case_dir
+  case_dir=$(make_case retired-lane-symlink)
+  mkdir -p "$case_dir/wt"
+  cp "$case_dir/state/task-x1.meta" "$case_dir/real.meta"
+  rm -f "$case_dir/state/task-x1.meta"
+  ln -s "$case_dir/real.meta" "$case_dir/state/task-x1.meta"
+  add_gh_mocks "$case_dir" "$EXPECT_LIVE_HEAD"
+  expect_head_merge "$case_dir"
+  expect_code 1 "$EXPECT_HEAD_RC" "retired-lane-symlink: a symlinked record should still refuse"
+  assert_grep 'task metadata is unavailable' "$case_dir/stderr" "retired-lane-symlink: wrong refusal"
+  pass "fm-pr-merge still refuses a symlinked task record"
+}
+
+test_pr_check_retired_lane_resolves_forge_head() {
+  local case_dir
+  case_dir=$(make_case retired-lane-check)
+  mkdir -p "$case_dir/wt"
+  rm -f "$case_dir/state/task-x1.meta"
+  add_gh_mocks "$case_dir" "$EXPECT_LIVE_HEAD"
+  run_pr_check_retired "$case_dir"
+  expect_code 0 "$RETIRED_CHECK_RC" "retired-lane-check: should arm from the forge head"
+  assert_grep "pr_head: $EXPECT_LIVE_HEAD" "$case_dir/stdout" "retired-lane-check: forge head not reported"
+  [ ! -e "$case_dir/state/task-x1.meta" ] || fail "retired-lane-check: metadata was created"
+  [ ! -e "$case_dir/state/task-x1.check.sh" ] || fail "retired-lane-check: a poll was armed without a task record"
+
+  # A head the forge cannot supply is refused rather than guessed.
+  rm -f "$case_dir/github-head" "$case_dir/state/task-x1.check.sh"
+  run_pr_check_retired "$case_dir"
+  expect_code 1 "$RETIRED_CHECK_RC" "retired-lane-check: an unresolvable forge head should refuse"
+  [ ! -e "$case_dir/state/task-x1.check.sh" ] || fail "retired-lane-check: poll armed without a head"
+  pass "fm-pr-check resolves a retired lane's head from the forge and records no metadata"
+}
+
+test_retired_lane_merges_without_metadata
+test_retired_lane_still_enforces_expect_head
+test_unusable_metadata_still_refuses
+test_pr_check_retired_lane_resolves_forge_head
+
+# The retired-lane fallback carries no review-receipt floor for a no-code PR
+# (only *.md outside code directories, or exactly .beads/issues.jsonl); a mixed
+# PR, or a normal lane with the same docs-only paths, keeps the gate.
+retired_receipt_merge() {  # <name> <retired:0|1> <path>...
+  local name=$1 retired=$2 case_dir
+  shift 2
+  case_dir=$(receipt_case "$name")
+  [ "$retired" != 1 ] || rm -f "$case_dir/state/task-x1.meta"
+  printf '%s\n' "$@" > "$case_dir/github-files"
+  receipt_merge "$case_dir" 9
+  RETIRED_RECEIPT_DIR=$case_dir
+}
+
+test_retired_lane_skips_receipt_for_no_code_pr() {
+  retired_receipt_merge retired-docs-only 1 docs/a.md README.md
+  expect_code 0 "$RECEIPT_RC" "retired-docs-only: a docs-only PR needs no receipt"
+  retired_receipt_merge retired-beads-only 1 .beads/issues.jsonl
+  expect_code 0 "$RECEIPT_RC" "retired-beads-only: the beads file alone needs no receipt"
+  retired_receipt_merge retired-mixed 1 docs/a.md src/x.py
+  expect_receipt_refusal "$RETIRED_RECEIPT_DIR" retired-mixed "task metadata is unavailable"
+  retired_receipt_merge retired-md-under-tests 1 tests/notes.md
+  expect_receipt_refusal "$RETIRED_RECEIPT_DIR" retired-md-under-tests "task metadata is unavailable"
+  retired_receipt_merge retired-beads-plus-md 1 .beads/issues.jsonl a.md
+  expect_receipt_refusal "$RETIRED_RECEIPT_DIR" retired-beads-plus-md "task metadata is unavailable"
+  retired_receipt_merge normal-docs-only 0 docs/a.md
+  expect_receipt_refusal "$RETIRED_RECEIPT_DIR" normal-docs-only "no review receipt"
+  pass "fm-pr-merge skips the receipt floor only for a retired lane's no-code PR"
+}
+
+test_retired_lane_skips_receipt_for_no_code_pr
+
+# The no-code classification is bound to the verified head and to a complete
+# file list; a truncated list or a different head keeps the receipt gate.
+test_no_code_skip_needs_complete_list_at_live_head() {
+  local case_dir
+  case_dir=$(receipt_case retired-truncated '* data')
+  rm -f "$case_dir/state/task-x1.meta"
+  printf '%s\n' a.md b.md > "$case_dir/github-files"
+  printf '3\n' > "$case_dir/github-files.total"
+  receipt_merge "$case_dir" 9
+  expect_receipt_refusal "$case_dir" retired-truncated "task metadata is unavailable"
+
+  case_dir=$(receipt_case retired-other-head '* data')
+  rm -f "$case_dir/state/task-x1.meta"
+  printf '%s\n' a.md > "$case_dir/github-files"
+  printf '%s\n' 9999999999999999999999999999999999999999 > "$case_dir/github-files.head"
+  receipt_merge "$case_dir" 9
+  expect_receipt_refusal "$case_dir" retired-other-head "not a no-code change"
+
+  # The refusal holds with no receipt requirement configured at all.
+  case_dir=$(receipt_case retired-other-head-noconfig '')
+  rm -f "$case_dir/state/task-x1.meta"
+  printf '%s\n' a.md > "$case_dir/github-files"
+  printf '%s\n' 9999999999999999999999999999999999999999 > "$case_dir/github-files.head"
+  receipt_merge "$case_dir" 9
+  expect_receipt_refusal "$case_dir" retired-other-head-noconfig "not a no-code change"
+  pass "fm-pr-merge keeps the receipt gate for a truncated or other-head file list"
+}
+
+test_no_code_skip_needs_complete_list_at_live_head
+
+# A meta-less product PR derives its head from the forge and lands when no
+# review receipt is required.
+test_metaless_product_pr_still_refuses() {
+  local case_dir
+  case_dir=$(receipt_case metaless-product '')
+  rm -f "$case_dir/state/task-x1.meta"
+  printf '%s\n' src/app.py docs/a.md > "$case_dir/github-files"
+  receipt_merge "$case_dir" 9 --expect-head "$RECEIPT_HEAD"
+  expect_code 1 "$RECEIPT_RC" "metaless-product: a product PR must keep the task-metadata requirement"
+  assert_grep 'task metadata is unavailable' "$case_dir/stderr" "metaless-product: wrong refusal"
+  if grep -q '^pr merge ' "$case_dir/gh.log"; then fail "metaless-product: gh pr merge was called"; fi
+  pass "fm-pr-merge still refuses a meta-less product PR"
+}
+
+test_metaless_product_pr_still_refuses
+test_allow_no_pipeline_merges_only_a_null_head_pipeline
+test_allow_no_pipeline_is_attended_only_and_gitlab_only

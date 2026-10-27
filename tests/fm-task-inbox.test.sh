@@ -143,7 +143,7 @@ age_path() {  # <path>  (set mtime well past any grace under test)
 }
 
 test_write_is_durable_and_exact() {
-  local state rec rec2 doorbell doorbell2 doorbell3 expected actual expected2 actual2 text
+  local state rec rec2 doorbell doorbell2 doorbell3 expected actual expected2 actual2 last_byte text
   state="$TMP_ROOT/write/state"; mkdir -p "$state"
   text=$'line one\nline two with  spaces\n/slash body\n\n'
   rec=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "$text") \
@@ -162,6 +162,9 @@ test_write_is_durable_and_exact() {
     || fail "record body did not preserve trailing and blank-line bytes"
   rec2=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "no trailing newline") \
     || fail "second inbox write failed"
+  last_byte=$(LC_ALL=C tail -c 1 "$rec2" | od -An -t x1 | tr -d '[:space:]')
+  [ "$last_byte" = 0a ] \
+    || fail "a newly written record must end with a newline, got final byte $last_byte"
   expected2="$state/expected-no-newline.body"
   actual2="$state/actual-no-newline.body"
   printf '%s' "no trailing newline" > "$expected2"
@@ -169,6 +172,15 @@ test_write_is_durable_and_exact() {
     || fail "second record body could not be read"
   cmp -s "$expected2" "$actual2" \
     || fail "record body added a trailing newline"
+  printf 'schema=fm-task-inbox.v1\nat=2020-01-01T00:00:00Z\n--\nlegacy record without terminator' \
+    > "$state/legacy.msg"
+  expected="$state/expected-legacy.body"
+  actual="$state/actual-legacy.body"
+  printf '%s' 'legacy record without terminator' > "$expected"
+  inbox_lib "$state" fm_task_inbox_body "$state/legacy.msg" > "$actual" \
+    || fail "a legacy record without a final newline could not be read"
+  cmp -s "$expected" "$actual" \
+    || fail "legacy record body was not preserved byte-exact"
   doorbell=$(inbox_lib "$state" fm_task_inbox_doorbell_line "$rec")
   doorbell2=$(inbox_lib "$state" fm_task_inbox_doorbell_line "$rec2")
   [ "$doorbell" = "$doorbell2" ] \
@@ -1324,7 +1336,77 @@ test_watcher_dead_pane_ignores_stale_busy_state() {
   pass "watcher: dead-pane recovery overrides stale busy state"
 }
 
+# A secondmate marked dormant refuses every new dispatch with the route named,
+# keeps accepting acknowledgements, and an explicit env bypass still writes.
+test_dormant_secondmate_refuses_new_dispatch() {
+  local state="$TMP_ROOT/dormant-state" out rec rec2
+  mkdir -p "$state/parent-route"
+  rec=$(inbox_lib "$state" fm_task_inbox_write "$state" bosgame "before dormancy") || fail "baseline write failed"
+  : > "$state/parent-route/bosgame.dormant"
+  if out=$(inbox_lib "$state" fm_task_inbox_write "$state" bosgame "new order" 2>&1); then
+    fail "dormant write must be refused"
+  fi
+  case "$out" in
+    *bosgame-control*) : ;;
+    *) fail "refusal must name bosgame-control: $out" ;;
+  esac
+  if inbox_lib "$state" fm_task_inbox_write_idempotent "$state" bosgame "new order" >/dev/null 2>&1; then
+    fail "dormant idempotent write must be refused"
+  fi
+  [ "$(find "$state/bosgame.inbox" -maxdepth 1 -name '*.msg' | wc -l | tr -d ' ')" = 1 ] \
+    || fail "no record may be added for a dormant mate"
+  inbox_lib "$state" fm_task_inbox_acknowledge "$state" bosgame 1 >/dev/null 2>&1 || true
+  [ ! -e "$rec" ] || [ -e "$state/bosgame.inbox/handled/${rec##*/}" ] || fail "acknowledgement must stay allowed"
+  # An identical idempotent retry still confirms the existing record while dormant.
+  rec2=$(inbox_lib "$state" fm_task_inbox_write_idempotent "$state" bosgame "before dormancy") \
+    || fail "dormant idempotent retry of an existing record must confirm it"
+  case "$rec2" in *001.msg) : ;; *) fail "retry should land on the existing record, got $rec2" ;; esac
+  FM_ALLOW_DORMANT_DISPATCH=1 inbox_lib "$state" fm_task_inbox_write "$state" bosgame "chief override" >/dev/null \
+    || fail "env bypass must write"
+  rm -f "$state/parent-route/bosgame.dormant"
+  inbox_lib "$state" fm_task_inbox_write "$state" bosgame "after revival" >/dev/null || fail "unmarked mate must accept"
+  pass "dormant secondmate refuses new dispatch; ack and bypass allowed"
+}
+
+
+# A positively exited agent refuses new dispatch; any uncertain classifier
+# result does not count as an exit; the bypass still allows it.
+test_exited_agent_refuses_new_dispatch() {
+  local verdict out
+  for verdict in alive ambiguous unreadable unverified; do
+    FM_FAKE_AGENT_STATE=$verdict bash -c '
+      . "$1"
+      fm_backend_agent_state() { printf "%s" "$FM_FAKE_AGENT_STATE"; }
+      fm_task_inbox_refuse_exited tmux s:w t1' _ "$ROOT/bin/fm-task-inbox-lib.sh" 2>/dev/null \
+      || fail "an uncertain or live state ($verdict) must not refuse dispatch"
+  done
+  for verdict in dead missing; do
+    if FM_FAKE_AGENT_STATE=$verdict bash -c '
+      . "$1"
+      fm_backend_agent_state() { printf "%s" "$FM_FAKE_AGENT_STATE"; }
+      fm_task_inbox_refuse_exited tmux s:w t1' _ "$ROOT/bin/fm-task-inbox-lib.sh" 2>/dev/null; then
+      fail "a $verdict agent must refuse new dispatch"
+    fi
+  done
+  # A refused create still confirms an exact duplicate of an existing record.
+  out=$(inbox_lib "$TMP_ROOT/exit-state" fm_task_inbox_write_idempotent "$TMP_ROOT/exit-state" t1 "dup body") || fail "seed write failed"
+  FM_TASK_INBOX_REFUSE_CREATE="error: gone" inbox_lib "$TMP_ROOT/exit-state" fm_task_inbox_write_idempotent "$TMP_ROOT/exit-state" t1 "dup body" >/dev/null 2>&1 \
+    || fail "an exact duplicate must stay confirmable when creation is refused"
+  if FM_TASK_INBOX_REFUSE_CREATE="error: gone" inbox_lib "$TMP_ROOT/exit-state" fm_task_inbox_write_idempotent "$TMP_ROOT/exit-state" t1 "new body" >/dev/null 2>&1; then
+    fail "a new record must be refused when creation is refused"
+  fi
+  FM_ALLOW_DORMANT_DISPATCH=1 FM_FAKE_AGENT_STATE=dead bash -c '
+    . "$1"
+    fm_backend_agent_state() { printf "%s" "$FM_FAKE_AGENT_STATE"; }
+    fm_task_inbox_refuse_exited tmux s:w t1' _ "$ROOT/bin/fm-task-inbox-lib.sh" 2>/dev/null \
+    || fail "the bypass must allow dispatch to an exited agent"
+  pass "exited agent refuses new dispatch; uncertain states and the bypass allow it"
+}
+
+
 test_write_is_durable_and_exact
+test_dormant_secondmate_refuses_new_dispatch
+test_exited_agent_refuses_new_dispatch
 test_doorbell_is_a_shell_noop
 test_doorbell_rejects_terminal_controls
 test_ring_skips_dead_agent

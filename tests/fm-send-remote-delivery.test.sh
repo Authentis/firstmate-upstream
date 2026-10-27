@@ -89,11 +89,22 @@ case "${1:-}" in
       printf '╭────╮\n│    │\n╰────╯\n'
     fi
     exit 0 ;;
-  list-windows) exit 0 ;;
+  list-windows) printf '%s\n' win fm-t2 fm-lsm; exit 0 ;;
 esac
 exit 0
 SH
   chmod +x "$fb/tmux"
+  # A herdr stand-in whose server runs but whose panes are unreadable: the
+  # recovery-grade agent state is then the uncertain `unreadable`, which never
+  # refuses a dispatch, so the steer tests below reach the remote writer.
+  cat > "$fb/herdr" <<'SH'
+#!/usr/bin/env bash
+case " $* " in
+  *" status "*) printf '{"server":{"running":true}}\n'; exit 0 ;;
+esac
+exit 1
+SH
+  chmod +x "$fb/herdr"
   cat > "$fb/sleep" <<'SH'
 #!/usr/bin/env bash
 exit 0
@@ -787,7 +798,54 @@ test_local_pending_does_not_close_resolve_key() {
   pass "fm-send local: an unconfirmed submit still never closes a --resolve-key decision"
 }
 
+test_remote_send_refuses_a_dormant_marked_mate() {
+  local dir fb ssh_log home rhome rc err
+  dir="$TMP_ROOT/remote-dormant"; mkdir -p "$dir"
+  fb=$(make_stubs "$dir"); ssh_log="$dir/ssh.log"; : > "$ssh_log"
+  rhome=$(setup_remote_secondmate_home remote-dormant)
+  home=$(setup_remote_parent_home remote-dormant "$rhome")
+  mkdir -p "$home/state/parent-route"
+  : > "$home/state/parent-route/rsm.dormant"
+
+  rc=0
+  send_env "$fb" "$home" "$ssh_log" "$SEND" rsm "new order" >"$dir/out" 2>"$dir/err" || rc=$?
+  err=$(cat "$dir/err")
+  [ "$rc" -ne 0 ] || fail "a dormant-marked remote mate must refuse a new dispatch"
+  assert_contains "$err" "bosgame-control" "the refusal must name the route"
+  [ -z "$(remote_inbox_records "$rhome")" ] || fail "a refused dispatch must create no remote record"
+  [ -z "$(pending_record "$home")" ] || fail "a refused dispatch must discard its pending expectation"
+
+  rc=0
+  send_env "$fb" "$home" "$ssh_log" FM_ALLOW_DORMANT_DISPATCH=1 \
+    "$SEND" rsm "chief override" >"$dir/out2" 2>"$dir/err2" || rc=$?
+  expect_code 0 "$rc" "the bypass must reach a dormant remote mate: $(cat "$dir/err2")"
+  [ -n "$(remote_inbox_records "$rhome")" ] || fail "the bypassed dispatch must land remotely"
+  pass "fm-send remote: the parent dormant marker refuses a new record and the bypass crosses it"
+}
+
+
+test_remote_dormant_still_confirms_an_existing_record() {
+  local dir rhome rc fb
+  dir="$TMP_ROOT/remote-dormant-dup"; mkdir -p "$dir"
+  fb=$(make_stubs "$dir")
+  rhome=$(setup_remote_secondmate_home remote-dormant-dup)
+  rc=0
+  env PATH="$fb:$PATH" FM_HOME="$rhome" FM_ROOT_OVERRIDE="$ROOT" "$ROOT/bin/fm-remote-secondmate-control.sh" send rsm "first body" >/dev/null 2>&1 || rc=$?
+  expect_code 0 "$rc" "seed remote send"
+  rc=0
+  env PATH="$fb:$PATH" FM_HOME="$rhome" FM_ROOT_OVERRIDE="$ROOT" "$ROOT/bin/fm-remote-secondmate-control.sh" send rsm "first body" parent-dormant >/dev/null 2>&1 || rc=$?
+  expect_code 0 "$rc" "an exact duplicate must stay confirmable while the parent marks the mate dormant"
+  rc=0
+  env PATH="$fb:$PATH" FM_HOME="$rhome" FM_ROOT_OVERRIDE="$ROOT" "$ROOT/bin/fm-remote-secondmate-control.sh" send rsm "second body" parent-dormant >"$dir/out" 2>"$dir/err" || rc=$?
+  [ "$rc" -ne 0 ] || fail "a new record must be refused while the parent marks the mate dormant"
+  [ "$(remote_inbox_records "$rhome" | grep -c .)" = 1 ] || fail "the refused send must add no record"
+  pass "remote leg: a dormant parent still confirms an exact duplicate but refuses a new record"
+}
+
+
 test_remote_steer_lands_in_remote_inbox
+test_remote_send_refuses_a_dormant_marked_mate
+test_remote_dormant_still_confirms_an_existing_record
 test_remote_rerun_is_idempotent
 test_remote_retry_failure_preserves_ambiguous_expectation
 test_remote_fire_and_forget_never_arms_reply_recovery

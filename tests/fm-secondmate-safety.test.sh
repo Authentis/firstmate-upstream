@@ -2257,7 +2257,9 @@ case "${1:-}" in
       echo "failed to return worktree: lease precondition failed: lease identity does not match worktree" >&2
       exit 1
     fi
-    [ -n "$target" ] && rm -rf -- "$target"
+    # A real pool return resets the slot and leaves a clean worktree behind;
+    # a vanished copy is reported as an unverified (lost) slot.
+    [ -z "$target" ] || git -C "$target" clean -ffdq
     exit 0
     ;;
 esac
@@ -2276,7 +2278,7 @@ SH
       || fail "forced secondmate teardown did not return the child slot bound to its recorded lease ($slot_lease)"
     if [ "$slot_lease" = child-lease-1 ]; then
       [ "$rc" -eq 0 ] || { cat "$err" >&2; fail "forced secondmate teardown failed to return a child slot it still leases"; }
-      [ ! -d "$childwt" ] || fail "forced secondmate teardown left the returned child slot"
+      [ -d "$childwt" ] || fail "forced secondmate teardown reported the returned child slot as lost"
     else
       [ "$rc" -ne 0 ] || fail "forced secondmate teardown succeeded after the child's lease-bound return was refused"
       [ -d "$childwt" ] || fail "forced secondmate teardown removed a child slot whose lease changed"

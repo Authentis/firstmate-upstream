@@ -43,10 +43,12 @@
 # The queue row format and every consumer of it are unchanged, so a folded row
 # rides along on the next real wake's drain like any other row.
 #
-# DIGEST. The watcher's poll loop calls fm_wake_fold_digest_due; once the oldest
-# folded row still queued is FM_WAKE_FOLD_DIGEST_SECS old (default 900) it wakes
-# with one `check: wake digest: ...` reason. The digest runs whether or not the
-# switch is on, so switching the fold off never strands a folded row. Under an
+# DIGEST. With config/wake-classify on (bin/fm-wake-classify-lib.sh), the watcher
+# acknowledges folded rows itself once the oldest is FM_WAKE_FOLD_DIGEST_SECS old
+# (default 900), with no model turn. With it off, the poll loop's
+# fm_wake_fold_digest_due wakes with one `check: wake digest: ...` reason as it
+# always did. The digest runs whether or not the fold switch is on, so switching
+# the fold off never strands a folded row. Under an
 # away or quiet record no digest is raised: the fold is inactive there, so the
 # ordinary re-arm hands every queued row to the away daemon instead.
 #
@@ -121,12 +123,18 @@ _fm_wake_fold_live_locked() {
 }
 
 # 0 when the queue is non-empty and every structurally valid queued row is a
-# folded row. Takes the queue lock.
+# folded row or a batched non-urgent row (bin/fm-wake-classify-lib.sh, whose
+# digest delivers those). Takes the queue lock.
 fm_wake_fold_queue_all_folded() {
-  local live status=1
-  [ -s "$FM_WAKE_FOLD_RECORD" ] || return 1
+  local live batch='' status=1
+  [ -s "$FM_WAKE_FOLD_RECORD" ] || [ -s "${FM_WAKE_BATCH_RECORD:-}" ] || return 1
   fm_lock_acquire_wait "$FM_WAKE_QUEUE_LOCK" || return 1
-  if live=$(_fm_wake_fold_live_locked) && [ -n "$live" ]; then
+  live=$(_fm_wake_fold_live_locked) || live=
+  if declare -F _fm_wake_batch_live_locked >/dev/null; then
+    batch=$(_fm_wake_batch_live_locked) || batch=
+  fi
+  live=$(printf '%s\n%s\n' "$live" "$batch" | awk 'NF')
+  if [ -n "$live" ]; then
     printf '%s\n' "$live" | awk -F '\t' -v queue="$FM_WAKE_QUEUE" '
       { folded[$1] = 1 }
       END {

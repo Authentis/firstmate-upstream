@@ -40,7 +40,7 @@
 #                           (empty until delivery; delivery never resolves)
 #   phase=                  awaiting_report | delivery_unknown | recovery_sending |
 #                           recovery_sent | recovery_failed | recovery_unknown |
-#                           escalated | resolved
+#                           escalated | resolved | retired
 #                           An escalated record with an empty delivered_epoch is
 #                           a delivery-unknown escalation, not a missed report:
 #                           its owner may still resend the same correlation, and
@@ -63,6 +63,9 @@
 #                           lifecycle note below); empty until then
 #   resolved_epoch=
 #   resolved_via=           status | document | helper | empty
+#   retired_from_phase=     the phase an age-capped record held when it was retired
+#   retired_epoch=          when it was retired
+#   retired_reason=         why, with the date (see the age cap note below)
 #   wrong_home_hits=        count of corr sightings under the secondmate home
 #   wrong_home_first_sighting= encoded path:line identity of the first sighting
 #   wrong_home_sightings=   comma-separated encoded path:line identities
@@ -106,6 +109,15 @@
 # (bin/fm-backlog-handoff.sh's receiver wake) stayed refused forever once the
 # watcher escalated between the lost transport and the next resume.
 #
+# Age cap: an awaiting_report record whose delivered_epoch is older than
+# FM_PENDING_REPLY_MAX_AGE_SECS is retired (phase=retired, never deleted) instead
+# of being observed, so a stale unanswered request never gets a completion stamp
+# and never produces a recovery repost - a mate that only just became
+# observable, or an exited pane that reads idle, would otherwise have the whole
+# backlog of old orders replayed at it. A correlated report still wins first.
+# An exited secondmate agent (dead endpoint) is likewise never
+# observed as idle, so its pane cannot stamp a completion either.
+#
 # Sourced by bin/fm-send.sh, bin/fm-watch.sh, bin/fm-secondmate-report.sh, and
 # tests. No side effects on source. set -u / set -e safe.
 #
@@ -114,6 +126,9 @@
 #                                 completion for the recovery repost, and from
 #                                 the recovery turn's completion for the
 #                                 missed-report escalation - never from delivery
+#   FM_PENDING_REPLY_MAX_AGE_SECS default 21600 (6 h); an awaiting_report record
+#                                 delivered longer ago than this is retired, not
+#                                 reposted; 0 or a non-number uses the default
 #   FM_PENDING_REPLY_DIR_OVERRIDE override the pending-replies directory (tests)
 #   FM_PENDING_REPLY_SEND_HOOK    optional command template for recovery delivery
 #                                 (tests); receives task_id and full message as args
@@ -140,6 +155,7 @@ _FM_PENDING_REPLY_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd 2>/dev/n
 FM_PENDING_REPLY_SCHEMA='fm-pending-reply.v1'
 FM_PENDING_REPLY_CORR_RE='corr=[A-Fa-f0-9]{16}'
 FM_PENDING_REPLY_GRACE_DEFAULT=120
+FM_PENDING_REPLY_MAX_AGE_DEFAULT=21600
 
 fm_pending_reply_now() {
   if [ -n "${FM_PENDING_REPLY_NOW:-}" ]; then
@@ -155,6 +171,14 @@ fm_pending_reply_grace_secs() {
     ''|*[!0-9]*) g=$FM_PENDING_REPLY_GRACE_DEFAULT ;;
   esac
   printf '%s' "$g"
+}
+
+fm_pending_reply_max_age_secs() {
+  local a=${FM_PENDING_REPLY_MAX_AGE_SECS:-$FM_PENDING_REPLY_MAX_AGE_DEFAULT}
+  case "$a" in
+    ''|*[!0-9]*|0) a=$FM_PENDING_REPLY_MAX_AGE_DEFAULT ;;
+  esac
+  printf '%s' "$a"
 }
 
 # Directory holding durable pending-reply records for <state-dir>.
@@ -203,15 +227,32 @@ fm_pending_reply_text_has_corr() {  # <text> <corr_id>
   [[ $text =~ $re ]]
 }
 
-# Sanitize a short request summary: single line, bounded, no control chars.
+# Byte length of the first <keep> UTF-8 characters of <text> when it holds more
+# than <max> characters, else -1. Counts lead bytes from od output, so the
+# verdict is the same under every caller locale and never splits a character.
+fm_pending_reply_char_cut() {  # <text> <max> <keep>
+  printf '%s' "$1" | LC_ALL=C od -An -v -tu1 | awk -v max="$2" -v keep="$3" '
+    { for (i = 1; i <= NF; i++) {
+        if ($i < 128 || $i >= 192) { chars++; if (chars == keep + 1) cut = n }
+        n++
+      } }
+    END { print (chars > max ? cut : -1) }'
+}
+
+# Sanitize a short request summary: single line, bounded, no ASCII control chars.
+# Preserve UTF-8 characters, including accents; cap at 2000 characters in any locale.
 fm_pending_reply_summarize() {  # <text>
-  local text=$1 cleaned
-  cleaned=$(printf '%s' "$text" | tr '\t\r\n' '   ' | tr -cd '\11\12\15\40-\176' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+  local text=$1 cleaned cut
+  cleaned=$(printf '%s' "$text" | tr '\t\r\n' '   ' | LC_ALL=C tr -d '\000-\010\013\014\016-\037\177' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
   # Drop an already-present marker/corr prefix so the durable summary stays short.
   cleaned=${cleaned#"$FM_FROMFIRST_MARK"}
   cleaned=$(printf '%s' "$cleaned" | sed -E "s/^corr=[A-Fa-f0-9]{16}[[:space:]]*//")
-  if [ "${#cleaned}" -gt 120 ]; then
-    cleaned="${cleaned:0:117}..."
+  # Long enough for the automatic recovery repost to stand alone: a mate
+  # that missed the original delivery must be able to act from the repost
+  # alone, so the cap must cover a full multi-step order, not one sentence.
+  cut=$(fm_pending_reply_char_cut "$cleaned" 2000 1997)
+  if [ "$cut" -ge 0 ]; then
+    cleaned="$(printf '%s' "$cleaned" | head -c "$cut")..."
   fi
   printf '%s' "$cleaned"
 }
@@ -722,6 +763,51 @@ _fm_pending_reply_try_resolve_locked() {  # <state-dir> <corr_id> [status-file-o
   return 0
 }
 
+# Retire an awaiting_report record delivered longer ago than the age cap.
+# 0 iff the record is (now) retired. A correlated report always wins: the
+# retirement takes the same per-correlation lock as resolution, tries to resolve
+# first, and rechecks the phase and age under it, so it can never overwrite a
+# resolved record. The terminal phase write is last.
+fm_pending_reply_retire_if_stale() {  # <state-dir> <corr_id>
+  local state=$1 corr=$2 rec lock rc=1
+  local STATE FM_WAKE_QUEUE FM_WAKE_QUEUE_LOCK
+  rec=$(fm_pending_reply_path "$state" "$corr")
+  [ -f "$rec" ] || return 1
+  [ "$(fm_pending_reply_get "$rec" phase)" = retired ] && return 0
+  _fm_pending_reply_stale_awaiting "$rec" || return 1
+  STATE=$state
+  lock="$state/.pending-reply-$corr.lock"
+  # shellcheck source=bin/fm-wake-lib.sh
+  . "$_FM_PENDING_REPLY_LIB_DIR/fm-wake-lib.sh"
+  fm_lock_acquire_wait "$lock" || return 1
+  if ! _fm_pending_reply_try_resolve_locked "$state" "$corr" \
+    && _fm_pending_reply_stale_awaiting "$rec"; then
+    _fm_pending_reply_retire_locked "$rec" && rc=0
+  fi
+  fm_lock_release "$lock"
+  return "$rc"
+}
+
+# 0 iff the record is awaiting_report and delivered longer ago than the cap.
+_fm_pending_reply_stale_awaiting() {  # <record-path>
+  local rec=$1 delivered
+  [ "$(fm_pending_reply_get "$rec" phase)" = awaiting_report ] || return 1
+  delivered=$(fm_pending_reply_get "$rec" delivered_epoch)
+  case "$delivered" in ''|*[!0-9]*) return 1 ;; esac
+  [ $(( $(fm_pending_reply_now) - delivered )) -gt "$(fm_pending_reply_max_age_secs)" ]
+}
+
+_fm_pending_reply_retire_locked() {  # <record-path>
+  local rec=$1 now cap day
+  now=$(fm_pending_reply_now)
+  cap=$(fm_pending_reply_max_age_secs)
+  day=$(date -u -d "@$now" +%F 2>/dev/null || date -u -r "$now" +%F 2>/dev/null || printf '%s' "$now")
+  fm_pending_reply_set "$rec" retired_from_phase awaiting_report || return 1
+  fm_pending_reply_set "$rec" retired_epoch "$now" || return 1
+  fm_pending_reply_set "$rec" retired_reason "no correlated report within the ${cap}s age cap; retired ${day} instead of reposting" || return 1
+  fm_pending_reply_set "$rec" phase retired || return 1
+}
+
 # Observe backend busy/idle evidence for the active turn without reading chat.
 # busy_state must be one of: busy | idle | unknown.
 fm_pending_reply_observe_busy() {  # <state-dir> <corr_id> <busy_state>
@@ -736,6 +822,13 @@ fm_pending_reply_observe_busy() {  # <state-dir> <corr_id> <busy_state>
   esac
   delivered=$(fm_pending_reply_get "$rec" delivered_epoch)
   [ -n "$delivered" ] || return 0
+  if [ "$phase" = awaiting_report ]; then
+    if fm_pending_reply_retire_if_stale "$state" "$corr"; then
+      return 0
+    fi
+    # A report may have resolved the record while the retirement was refused.
+    [ "$(fm_pending_reply_get "$rec" phase)" = awaiting_report ] || return 0
+  fi
   if [ "$phase" = awaiting_report ]; then
     field_seen=turn_seen_busy
     field_completed=request_turn_completed_epoch
@@ -812,6 +905,13 @@ fm_pending_reply_fallback_idle_eligible() {  # <record-path>
 # which the caller accepts as idle only after its grace window.
 fm_pending_reply_backend_observation() {  # <backend> <target> [expected-label] [harness]
   local backend=$1 target=$2 expected_label=${3-} harness=${4-} native tail40
+  # An exited agent leaves a shell prompt that reads idle; that is no proof any
+  # turn completed, so it is never observed as idle.
+  # A missing endpoint already fails the capture below and reads unknown.
+  if [ "$(fm_backend_agent_state "$backend" "$target" 2>/dev/null || printf 'unreadable')" = dead ]; then
+    printf 'unknown'
+    return 0
+  fi
   native=$(fm_backend_busy_state "$backend" "$target" 2>/dev/null || printf 'unknown')
   case "$native" in
     busy|idle) printf '%s' "$native"; return 0 ;;
@@ -955,6 +1055,10 @@ fm_pending_reply_send_recovery() {  # <state-dir> <corr_id>
   [ -f "$rec" ] || return 1
   phase=$(fm_pending_reply_get "$rec" phase)
   [ "$phase" = awaiting_report ] || return 1
+  if fm_pending_reply_retire_if_stale "$state" "$corr"; then
+    return 1
+  fi
+  [ "$(fm_pending_reply_get "$rec" phase)" = awaiting_report ] || return 1
   attempted=$(fm_pending_reply_get "$rec" recovery_attempted_epoch)
   if [ -n "$attempted" ]; then
     fm_pending_reply_reconcile_recovery "$state" "$corr" || true
@@ -1000,6 +1104,7 @@ fm_pending_reply_send_recovery() {  # <state-dir> <corr_id>
   fm_lock_acquire_wait "$lock" || return 1
   if _fm_pending_reply_try_resolve_locked "$state" "$corr" "$status_file" \
     || [ "$(fm_pending_reply_get "$rec" phase)" != awaiting_report ] \
+    || { if _fm_pending_reply_stale_awaiting "$rec"; then _fm_pending_reply_retire_locked "$rec"; true; else false; fi; } \
     || ! fm_pending_reply_set "$rec" recovery_sender_pid "$sender_pid" \
     || ! fm_pending_reply_set "$rec" recovery_sender_identity "$sender_identity" \
     || ! fm_pending_reply_set "$rec" recovery_attempted_epoch "$now" \
@@ -1463,6 +1568,10 @@ fm_pending_reply_tick_one() {  # <state-dir> <corr_id> <busy_state> [secondmate-
     return 0
   fi
   phase=$(fm_pending_reply_get "$rec" phase)
+  # The age cap retires a stale request before anything can stamp or repost it.
+  if [ "$phase" = awaiting_report ] && fm_pending_reply_retire_if_stale "$state" "$corr"; then
+    return 0
+  fi
   case "$phase" in
     awaiting_report|recovery_sending)
       if [ -n "$(fm_pending_reply_get "$rec" recovery_attempted_epoch)" ]; then
@@ -1472,7 +1581,7 @@ fm_pending_reply_tick_one() {  # <state-dir> <corr_id> <busy_state> [secondmate-
       ;;
   esac
   case "$phase" in
-    resolved) return 0 ;;
+    resolved|retired) return 0 ;;
     escalated)
       # Unresolved durable record retained; never auto-delete.
       if [ -n "$sm_home" ]; then
@@ -1515,11 +1624,11 @@ fm_pending_reply_tick_one() {  # <state-dir> <corr_id> <busy_state> [secondmate-
 
 # Print, one per line, the records among <record-path>... that the tick has work
 # for, reading every record once in a single awk process instead of forking
-# per record. A resolved record needs work only while an escalation it opened
+# per record. A retired record never needs work. A resolved record needs work only while an escalation it opened
 # is still unclosed: for every other resolved record the tick's per-record path
 # (fm_pending_reply_close_escalation) is a no-op that still pays a lock and
 # several forks, and records are never pruned, so that cost grew with the store.
-# Every other record - any phase but resolved, no phase at all, or one awk
+# Every other record - any phase but resolved or retired, no phase at all, or one awk
 # cannot read - is selected, so the per-record path still decides it. Values
 # follow fm_pending_reply_get: the last line for a key wins.
 _fm_pending_reply_select_needing_work() {  # <record-path>...
@@ -1534,7 +1643,7 @@ _fm_pending_reply_select_needing_work() {  # <record-path>...
         else if (index(line, "escalation_closed_epoch=") == 1) closed = substr(line, 25)
       }
       close(path)
-      if (rc < 0 || phase != "resolved" || (escalated != "" && closed == "")) print path
+      if (rc < 0 || (phase != "resolved" && phase != "retired") || (escalated != "" && closed == "")) print path
     }
   '
 }
@@ -1571,6 +1680,7 @@ fm_pending_reply_tick() {  # <state-dir>
     [ -n "$corr" ] || corr=$(basename "$rec")
     task_id=$(fm_pending_reply_get "$rec" task_id)
     phase=$(fm_pending_reply_get "$rec" phase)
+    [ "$phase" != retired ] || continue
     if [ "$phase" = resolved ]; then
       # Cheap no-op unless an escalation for this record is still open; this is
       # the retry that makes the close converge after a transient write failure.
@@ -1679,7 +1789,7 @@ fm_pending_reply_task_has_open() {  # <state-dir> <task_id>
     tid=$(fm_pending_reply_get "$rec" task_id)
     [ "$tid" = "$task_id" ] || continue
     phase=$(fm_pending_reply_get "$rec" phase)
-    [ "$phase" != resolved ] || continue
+    [ "$phase" != resolved ] && [ "$phase" != retired ] || continue
     return 0
   done
   return 1

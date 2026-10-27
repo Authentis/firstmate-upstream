@@ -1,0 +1,14 @@
+{
+ "_readme": "DO NOT COPY THIS FILE VERBATIM. Every pools row must be written by the quota-set CLI (python3 data/bin/refill_lib_v2.py quota-set <pool> <used_pct> <reset_at> <source> [--manual]); quota-set stamps observed_at itself. The '<...>' strings below are clearly marked PLACEHOLDERS, not readings: any pool left like this is refused as 'quota unknown', which is the safe state (never a silent permanent stale -> WAIT loop from a verbatim copy). Reserve ~20%+ of a scarce pool's window for hard roles; see fleet.yaml.example.",
+ "_comment": "Quota file schema (Router v3): {'pools': {<pool or binding id>: {used_pct: 0-100, reset_at: epoch, observed_at: epoch, source: str, manual: bool}}}. Stale (>6 h old observed_at) or unknown pools are skipped. This example records the chief 4656 manual reading of the opencode-go pool (the paid OpenCode Go plan, NOT the OpenCode free tier): monthly window 30 days, used 74%, 19.8 days left (so reset_at = observed_at + 19.8d), weekly 49%, rolling 19%. Write it with: python3 data/bin/refill_lib_v2.py quota-set opencode-go 74 <observed_at + 19.8d> 'opencode go plan console' --manual",
+ "pools": {
+  "opencode-go": {
+   "used_pct": 74,
+   "reset_at": "<epoch seconds: observed_at + 19.8*86400, written by quota-set>",
+   "observed_at": "<epoch seconds: the reading time, stamped by quota-set>",
+   "source": "opencode go plan console (manual)",
+   "manual": true,
+   "windows": {"monthly_pct": 74, "weekly_pct": 49, "rolling_pct": 19, "days_left": 19.8}
+  }
+ }
+}

@@ -474,13 +474,20 @@ worker_signal_process_or_group() { # process|group <signal> <pid>
 }
 
 worker_supervisor_identity_status() { # <job-dir> <pid>
-  local job=$1 pid=$2 recorded_start actual_start
+  local job=$1 pid=$2 recorded_start
   recorded_start=$(fm_remote_job_read_single_line "$job/.claim/supervisor_start" 256 2>/dev/null) || return 2
-  actual_start=$(fm_remote_job_process_start "$pid" 2>/dev/null) || {
-    worker_process_or_group_alive process "$pid" && return 2
+  fm_remote_job_start_matches "$recorded_start" "$pid" 2>/dev/null && return 0
+  # A live process whose start cannot be read in any form stays indeterminate;
+  # a readable mismatch is PID reuse.
+  if fm_remote_job_process_start "$pid" >/dev/null 2>&1; then
     return 1
-  }
-  [ "$recorded_start" = "$actual_start" ] && return 0
+  fi
+  if [ -x /bin/ps ]; then
+    /bin/ps -p "$pid" -o lstart= >/dev/null 2>&1 && return 1
+  elif [ -x /usr/bin/ps ]; then
+    /usr/bin/ps -p "$pid" -o lstart= >/dev/null 2>&1 && return 1
+  fi
+  worker_process_or_group_alive process "$pid" && return 2
   return 1
 }
 
@@ -490,15 +497,19 @@ worker_supervisor_identity_status() { # <job-dir> <pid>
 # recorded group stale; an unreadable live leader stays indeterminate so the
 # stop loop retries rather than signaling or declaring the group dead.
 worker_group_identity_status() { # <job-dir> <pid>
-  local job=$1 pid=$2 recorded_start actual_start file="$1/.claim/group_start"
+  local job=$1 pid=$2 recorded_start file="$1/.claim/group_start" ps_bin
   [ -e "$file" ] || [ -L "$file" ] || return 3
   recorded_start=$(fm_remote_job_read_single_line "$file" 256 2>/dev/null) || return 2
-  actual_start=$(fm_remote_job_process_start "$pid" 2>/dev/null) || {
-    kill -0 "$pid" 2>/dev/null && return 2
-    worker_process_or_group_alive group "$pid" && return 0
+  fm_remote_job_start_matches "$recorded_start" "$pid" 2>/dev/null && return 0
+  if fm_remote_job_process_start "$pid" >/dev/null 2>&1; then
     return 1
-  }
-  [ "$recorded_start" = "$actual_start" ] && return 0
+  fi
+  if [ -x /bin/ps ]; then ps_bin=/bin/ps; elif [ -x /usr/bin/ps ]; then ps_bin=/usr/bin/ps; else ps_bin=; fi
+  if [ -n "$ps_bin" ] && "$ps_bin" -p "$pid" -o lstart= >/dev/null 2>&1; then
+    return 1
+  fi
+  kill -0 "$pid" 2>/dev/null && return 2
+  worker_process_or_group_alive group "$pid" && return 0
   return 1
 }
 
@@ -707,7 +718,7 @@ worker_claim() { # <job-dir>
 }
 
 worker_claim_owner_alive() { # <job-dir>
-  local job=$1 claim="$1/.claim" owner pid recorded_start actual_start
+  local job=$1 claim="$1/.claim" owner pid recorded_start
   [ -d "$claim" ] && [ ! -L "$claim" ] || return 1
   owner="$claim/owner"
   fm_remote_job_regular_bounded "$owner" 64 || return 1
@@ -715,8 +726,7 @@ worker_claim_owner_alive() { # <job-dir>
   case "$pid" in ''|*[!0-9]*) return 1 ;; esac
   if [ -e "$claim/owner_start" ] || [ -L "$claim/owner_start" ]; then
     recorded_start=$(fm_remote_job_read_single_line "$claim/owner_start" 256 2>/dev/null) || return 1
-    actual_start=$(fm_remote_job_process_start "$pid" 2>/dev/null) || return 1
-    [ "$recorded_start" = "$actual_start" ]
+    fm_remote_job_start_matches "$recorded_start" "$pid"
     return
   fi
   kill -0 "$pid" 2>/dev/null
@@ -1246,12 +1256,28 @@ worker_lane_main() { # <job-id>
 worker_process_once() { # <account-home>
   local account_home=$1 job id state queue_deadline home seq candidates=''
   local reserved_index reserved_count home_reserved
-  local reserved_homes=()
+  local reserved_homes=() scan_busy=0
   worker_reap_finished_lanes
+  # After a pass that saw only explicitly finished records, skip the scan until
+  # the jobs directory changes (a new or removed record) or a lane exists.
+  if [ "${WORKER_IDLE_SCAN:-0}" = 1 ] && [ "${#WORKER_LANE_PIDS[@]}" -eq 0 ] &&
+    [ "$FM_REMOTE_JOB_STATE/.idle-scan-mark" -nt "$FM_REMOTE_JOB_JOBS" ]; then
+    return 0
+  fi
+  WORKER_IDLE_SCAN=0
+  # Stamp the candidate mark before enumerating, so a record published during
+  # the scan leaves the jobs directory newer than the stamp and is never skipped.
+  : > "$FM_REMOTE_JOB_STATE/.idle-scan-pending" 2>/dev/null || scan_busy=1
   for job in "$FM_REMOTE_JOB_JOBS"/job-*; do
     [ -d "$job" ] && [ ! -L "$job" ] || continue
     id=${job##*/}
     fm_remote_job_safe_id "$id" || continue
+    # A finished record needs nothing this pass: read it with builtins before
+    # the canonicalising command substitutions below.
+    if fm_remote_job_read_state "$FM_REMOTE_JOB_JOBS/$id" state 2>/dev/null && [ "$state" = 'done' ]; then
+      continue
+    fi
+    scan_busy=1
     # A live lane owns this record whatever its state, and every state below
     # skips a lane-owned job, so do not re-read it on every pass.
     worker_lane_owns_job "$FM_REMOTE_JOB_JOBS/$id" && continue
@@ -1299,7 +1325,15 @@ worker_process_once() { # <account-home>
       *) continue ;;
     esac
   done
-  [ -n "$candidates" ] || return 0
+  if [ -z "$candidates" ]; then
+    if [ "$scan_busy" -eq 0 ]; then
+      if [ "$FM_REMOTE_JOB_STATE/.idle-scan-pending" -nt "$FM_REMOTE_JOB_JOBS" ] &&
+        mv -f -- "$FM_REMOTE_JOB_STATE/.idle-scan-pending" "$FM_REMOTE_JOB_STATE/.idle-scan-mark" 2>/dev/null; then
+        WORKER_IDLE_SCAN=1
+      fi
+    fi
+    return 0
+  fi
   while IFS=$'\t' read -r seq id home; do
     [ -n "$id" ] || continue
     worker_lane_busy "$home" && continue
