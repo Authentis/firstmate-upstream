@@ -942,6 +942,32 @@ test_matrix_pi_separated_needs_identity() {
   pass "matrix: pi's separated composer needs identity + structure; the blank row alone never proves it"
 }
 
+test_matrix_pi_kimi_footer_captures() {
+  # Real kimi-code pi panes captured on netcup. A table bottom border clipped
+  # at the top of the pane sits ABOVE the complete pi pair and must not veto
+  # the idle read; the same border below the pair, a typed draft, and a busy
+  # turn (titled `Working` rule) still must.
+  local dir=$ROOT/tests/fixtures/pi-composer idle busy mid pi_idle cy typed below
+  pi_idle=$(printf 'pi\tidle')
+  idle=$(cat "$dir/pane-kimi-idle.txt"); mid=$(cat "$dir/pane-11-24-1-7.txt")
+  busy=$(cat "$dir/pane-835.txt")
+  assert_screen "kimi idle cursorless" empty "$CAPS_STYLED" "$idle" '' "$pi_idle"
+  assert_screen "kimi idle cursorless, no cursor profile" empty "$CAPS_STYLED" "$mid" '' "$pi_idle"
+  assert_screen "kimi idle on tmux" empty "$CAPS_TMUX" "$idle" 36 "$pi_idle"
+  assert_screen "kimi mid on tmux" empty "$CAPS_TMUX" "$mid" 35 "$pi_idle"
+  assert_screen "busy kimi pane" unknown "$CAPS_STYLED" "$busy" '' "$pi_idle"
+  assert_screen "busy kimi pane on tmux" unknown "$CAPS_TMUX" "$busy" 0 "$pi_idle"
+  # Typed draft in the prompt row (row 36 is the blank prompt row).
+  cy=36
+  typed=$(printf '%s\n' "$idle" | awk -v n=$((cy + 1)) 'NR==n { print "fix the flaky test"; next } { print }')
+  assert_screen "kimi draft cursorless" pending "$CAPS_STYLED" "$typed" '' "$pi_idle"
+  assert_screen "kimi draft on tmux" pending "$CAPS_TMUX" "$typed" "$cy" "$pi_idle"
+  # A clipped border BELOW the pair is the live region, not scrollback.
+  below=$idle$'\n└────────┴────────┘'
+  assert_screen "clipped box below the pair" unknown "$CAPS_STYLED" "$below" '' "$pi_idle"
+  pass "matrix: kimi-code pi captures read empty; draft, busy and a box below the pair still refuse"
+}
+
 test_matrix_pi_dollar_status_footer_is_empty() {
   # Pi's status row `$0.000 (sub) 5.4%/272k (auto)` at column 0 used to read
   # as a dead-shell prompt, so an idle separated composer classified unknown.
@@ -1747,6 +1773,7 @@ test_matrix_herdr_halfblock_rule_bounds_bare_wrap
 test_matrix_omp_status_row_bounds_bare_composer
 test_matrix_codex_idle_starfield_furniture
 test_matrix_pi_separated_needs_identity
+test_matrix_pi_kimi_footer_captures
 test_matrix_pi_dollar_status_footer_is_empty
 test_matrix_opencode_leftbar_signals
 test_matrix_opencode_leftbar_cwd_furniture
