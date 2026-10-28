@@ -1,7 +1,7 @@
 ---
 name: knowledge-routing
 description: >-
-  Load before capturing any durable fact, captain preference, learning, or task note, before editing a backlog item's notes or filing a main-side thread as a work item, and when deciding where a piece of knowledge belongs.
+  Load before capturing any durable fact, captain preference, learning, or task note, before editing a backlog item's notes or filing a main-side thread as a work item, before pruning Done entries or re-evaluating the queue after a teardown or heartbeat, when acting in a manual-backend home, and when deciding where a piece of knowledge belongs.
 user-invocable: false
 metadata:
   internal: true

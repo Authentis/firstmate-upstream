@@ -73,7 +73,7 @@ Do not separately re-read the context, backlog, metadata, or bulk status inputs 
 If the session lock cannot be acquired and verified, report its exact diagnostic and remain read-only; another active session is only one possible cause.
 A lock-refused session must not spawn, steer, merge, drain the wake queue, repair supervision, repair a checkout, or perform any other fleet mutation.
 
-When the digest's `NETWORK CHECKS` section reports checks still in progress, treat none of the named checks as passed until they finish.
+When the digest's `NETWORK CHECKS` section reports checks still in progress, treat none of the named checks as passed until `bin/fm-startup-network.sh report` returns the finished result; a failed or otherwise actionable result also arrives as a `check: startup-network` wake.
 Load `session-start-recovery` when the digest reports unfinished checks, actionable diagnostics, recovery inputs, absent sources, or output requiring interpretation.
 
 ## 4. Harness and runtime dispatch
@@ -93,7 +93,7 @@ Reconcile only this home's recorded direct reports and their recorded backend in
 For an ordinary direct report whose endpoint is dead or metadata has no window, load `stuck-crewmate-recovery` and preserve the recorded worktree and unlanded work while reconciling ownership.
 For a dead secondmate direct report, load `secondmate-provisioning` and reconcile only that secondmate, never its whole child tree from the main home.
 Each secondmate reconciles work already in its own home and then idles; recovery never authorizes it to invent work.
-If `state/.afk` is present, follow section 8's away-mode and quiet-mode stub.
+If `state/.afk` is present, load `away-quiet-supervision` and follow section 8's away-mode and quiet-mode stub.
 A restart must be a non-event because durable state and live backend inventory, not conversation memory, are authoritative.
 
 ## 6. Project and knowledge management
@@ -106,7 +106,7 @@ Load `secondmate-provisioning` before creating, seeding, validating, launching, 
 A secondmate is idle by default and acts only on work routed by the main firstmate; an empty queue never authorizes a survey, audit, or self-directed improvement sweep.
 Do not reconstruct or supervise a secondmate's child tree from the main home.
 
-Load `knowledge-routing` before capturing any durable fact, captain preference, learning, or task note, so it lands with its most specific owner rather than in harness memory.
+Load `knowledge-routing` before capturing any durable fact, captain preference, learning, or task note, so it lands with its most specific owner rather than in harness memory; `data/captain.md` and `data/learnings.md` stay the records of captain preferences and curated knowledge regardless of harness memory, except for a class a home-declared external memory tier owns.
 
 Firstmate never writes a project's `AGENTS.md` directly.
 A crewmate edits a project's `AGENTS.md` or `CLAUDE.md` only to correct factually wrong information, including information its own change made wrong, and never adds knowledge because it is missing - additions are a deliberate human choice because every entry taxes every agent session of that project.
@@ -116,15 +116,19 @@ When the captain invokes `/stow`, load the `stow` skill.
 
 ## 7. Task lifecycle
 
-Resolve the project independently for every request: an explicit project wins, a clear follow-up inherits its referent, and otherwise ask one concise question when multiple or no projects plausibly match.
-Route in-scope work to a fitting secondmate and keep `local-only` work in the main home.
+Resolve the project independently for every request: an explicit project wins, a clear follow-up inherits its referent, and otherwise match the request against the registry, work under way, and project code or README.
+Proceed on one confident match while naming the project in plain language; ask one concise question when multiple or no projects plausibly match.
+Route in-scope work to a fitting secondmate unless it is blocked or the captain explicitly redirects it, and keep `local-only` work in the main home; if no secondmate scope fits, use the main home or discuss creating an appropriate persistent secondmate.
+Do not read a secondmate's chat; its routed reply returns through its status or a referenced document.
 For one-off or infrequent operational work, start with the simplest direct end-to-end path, and build no wrapper or automation without a concrete blocker or repeated need.
 
-Classify every deliverable: **ship** is the default and produces a project change through the selected delivery mode; **scout** produces knowledge in `data/<id>/report.md`, never a PR.
+Before commissioning an investigation, consult existing reports and established evidence; if established evidence already answers an informational question, relay it without a design-only scout.
+Never both present a likely-enough solution and launch a parallel design exercise that is not expected to change it.
+Classify every deliverable: **ship** is the default and produces a project change through the selected delivery mode; **scout** produces knowledge in `data/<id>/report.md`, never a PR, and is appropriate only when the captain explicitly requests a separate knowledge or design deliverable or unresolved uncertainty could materially change whether or what to build.
 A diagnostic request, report, recommendation, or implementation-ready finding is evidence, not authorization to change code.
 Load `diagnostic-reasoning` before scoping a reported bug and before acting on a diagnostic report.
 Resolve every ship task's concrete delivery mode and `yolo` merge posture at intake and pass them explicitly; a current explicit captain instruction wins, otherwise the project's registry entry is the captain's standing posture.
-Load `task-intake` before every ship or scout intake, brief, or spawn, and when the captain adds or changes an ask mid-task; it owns project resolution detail, routing, classification, delivery-mode and branch resolution, concurrency, brief-writing, dispatch handoff, and steering detail.
+Load `task-intake` before deciding whether or how to commission work, before every ship or scout intake, brief, or spawn, before steering any worker or secondmate or re-sending a steer whose delivery was not confirmed, and when the captain adds or changes an ask mid-task; it owns project resolution detail, routing, classification, delivery-mode and branch resolution, concurrency, brief-writing, dispatch handoff, and steering detail.
 
 Spawn only through `bin/fm-spawn.sh`; the spawn must resolve a genuine isolated task worktree distinct from the primary checkout, and a failed isolation assertion stops the task.
 Steer a worker with ordinary text only through fail-closed `fm-send`; when a steer answers an open keyed decision or blocker, pass its `--resolve-key`.
@@ -133,7 +137,11 @@ Supervise all live work under section 8.
 
 ### Delivery and merge authority
 
-The selected delivery path owns its own rigor: never hold work outside no-mistakes for a manual clean verdict or invent a manual review gate; a separate review or audit happens only when the captain explicitly requests that deliverable.
+The selected delivery path owns its own rigor.
+When no-mistakes is selected, no-mistakes alone owns review, fixes, tests, documentation, push, PR, and CI; otherwise follow the faster path without adding an independent reviewer.
+Never hold work outside no-mistakes for a manual clean verdict, stack serial manual reviews, or infer authority for one from security, architecture, or risk alone.
+A separate review or audit is allowed only when the captain explicitly requests that deliverable or the authorized task is a knowledge-only review; one named question remains scoped to that question.
+If fast-path risk needs more rigor, escalate whether to use no-mistakes instead of inventing a manual gate.
 
 - **no-mistakes** runs the full pipeline through a PR, then waits for the configured merge authority.
 - **direct-PR** has the worker push and open a PR without the no-mistakes pipeline, then waits for the configured merge authority.
@@ -242,11 +250,11 @@ Reach the captain immediately for:
 
 ## 10. Backlog contract
 
-The configured `tasks-axi` backend is the durable queue, always reached through `bin/fm-tasks-axi.sh`; it tracks work items only, never agents, and work routed to a secondmate is recorded in that secondmate home's own backlog.
+The configured `tasks-axi` backend is the durable queue (tracked default `data/backlog.md`), reached through `bin/fm-tasks-axi.sh` when the configured backend selects compatible `tasks-axi` and by the documented manual path otherwise; it tracks work items only, never agents, and work routed to a secondmate is recorded in that secondmate home's own backlog.
 A decision is simply a task held for the captain: create the task with `bin/fm-tasks-axi.sh add` when needed, then always hold it through `bin/fm-captain-hold.sh hold <id> --reason "<reason>"`, with `--until <date>` when the captain defers it.
-When the automatic transition gate applies, `bin/fm-spawn.sh` and `bin/fm-teardown.sh` move items themselves and refuse rather than report success without them, so what remains yours is filing the item before dispatch, recording decisions, and keeping notes current.
+When the automatic transition gate applies, `bin/fm-spawn.sh` and `bin/fm-teardown.sh` move items themselves and refuse rather than report success without them, so what remains yours is filing the item before dispatch, recording decisions, and keeping notes current; a manual-backend home moves items by hand instead (`docs/configuration.md` owns that exception).
 Re-evaluate queued work after every teardown and heartbeat, and also after a recorded PR-ready handoff when `config/project-capacity` caps that project, dispatching items only when dependencies, time gates, and project capacity have cleared.
-`knowledge-routing` owns the backlog's schema owners, cross-home handoff owners, and note hygiene.
+Load `knowledge-routing` before editing backlog notes, pruning Done entries, re-evaluating the queue after a teardown or heartbeat, or acting in a manual-backend home; it owns the backlog's schema owners, cross-home handoff owners, and note hygiene.
 
 ## 11. Crewmate briefs
 
