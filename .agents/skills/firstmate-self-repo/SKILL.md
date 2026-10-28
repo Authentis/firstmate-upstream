@@ -64,6 +64,8 @@ Never work around a refusal by pointing the task at a second checkout, fork, or 
 
 `/updatefirstmate` and every guarded sync pull **from** upstream, which is consumption, not publication, and stays allowed for every role.
 The boundary covers only traffic that writes to the upstream repository.
+Firstmate's shared instruction surface reaches running homes only after it lands on the default branch and those homes fast-forward.
+Only `AGENTS.md`, `bin/`, and `.agents/skills/` are loaded by a running firstmate; public `skills/` is an installer-facing surface.
 
 ## Secondmates
 

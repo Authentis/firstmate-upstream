@@ -239,6 +239,10 @@
       "audience": "agent-runtime"
     },
     {
+      "path": ".agents/skills/knowledge-routing/SKILL.md",
+      "audience": "agent-runtime"
+    },
+    {
       "path": ".agents/skills/process-event-sources/SKILL.md",
       "audience": "agent-runtime"
     },
@@ -267,7 +271,15 @@
       "audience": "agent-runtime"
     },
     {
+      "path": ".agents/skills/task-intake/SKILL.md",
+      "audience": "agent-runtime"
+    },
+    {
       "path": ".agents/skills/updatefirstmate/SKILL.md",
+      "audience": "agent-runtime"
+    },
+    {
+      "path": ".agents/skills/wake-handling/SKILL.md",
       "audience": "agent-runtime"
     },
     {

@@ -11,7 +11,10 @@ metadata:
 These skills are not captain-invocable; load them only at their precise triggers.
 
 - `operational-home-layout` - load when locating, interpreting, or changing Firstmate home, config, data, state, project, or generated runtime paths.
-- `session-start-recovery` - load when the session-start digest reports unfinished checks, actionable diagnostics, recovery inputs, or output requiring interpretation.
+- `session-start-recovery` - load when the session-start digest reports unfinished checks, actionable diagnostics, recovery inputs, absent sources, or output requiring interpretation.
+- `task-intake` - load before every ship or scout intake, brief, or spawn, including dispatch-profile resolution, and when the captain adds or changes an ask mid-task.
+- `wake-handling` - load before handling any actionable `signal:`, `stale:`, `check:`, or `heartbeat:` wake.
+- `knowledge-routing` - load before capturing any durable fact, captain preference, learning, or task note, before editing a backlog item's notes or filing a main-side thread as a work item, and when deciding where a piece of knowledge belongs.
 - `bootstrap-diagnostics` - load whenever the session-start digest's bootstrap or network-checks section prints an actionable diagnostic line (`MISSING:`, `MISSING_MANUAL:`, `OUTDATED:`, `PRESENTATION_UNAVAILABLE:`, `BACKEND_INVALID:`, `NEEDS_GH_AUTH`, `TANGLE:`, `STARTUP_MEMORY_BUDGET:`, `CREW_DISPATCH: invalid`, `FLEET_SYNC:`, `NETWORK_CHECKS:`, `HOME_SUMMARY:`, `BACKLOG_RECONCILE:`, `SECONDMATE_SYNC:`, `SECONDMATE_LIVENESS:`, `SECONDMATE_HANDOFF:`, `NUDGE_SECONDMATES:`, or `FMX:`), or when `BOOTSTRAP_INFO:` says an interrupted backlog cleanup may have left an endpoint or local copy; silence and other `BOOTSTRAP_INFO:` facts need no load.
 - `diagnostic-reasoning` - load before scoping a reported bug and before acting on a diagnostic report.
 - `ask-user-authority` - load before deciding any ask-user finding.
