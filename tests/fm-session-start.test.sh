@@ -1094,7 +1094,7 @@ EOF
   context_line=$(printf '%s\n' "$out" | grep -n '^CONTEXT$' | head -1 | cut -d: -f1)
   fleet_line=$(printf '%s\n' "$out" | grep -n '^FLEET STATE$' | head -1 | cut -d: -f1)
   next_line=$(printf '%s\n' "$out" | grep -n '^NEXT STEP$' | head -1 | cut -d: -f1)
-  inventory_line=$(printf '%s\n' "$out" | grep -n '^--- task-a ---$' | head -1 | cut -d: -f1)
+  inventory_line=$(printf '%s\n' "$out" | grep -n -- '--- task-a ---' | head -1 | cut -d: -f1)
 
   if [ -z "$lock_line" ] || [ -z "$boot_line" ] || [ -z "$wake_line" ] \
     || [ -z "$read_once_line" ] || [ -z "$context_line" ] || [ -z "$fleet_line" ] \
@@ -1210,17 +1210,17 @@ EOF
     > "$home/state/task-a.status"
 
   out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
-  assert_contains "$out" "working: step 7" "default status tail missing the most recent line"
-  assert_contains "$out" "working: step 3" "default status tail (5 lines) missing an expected recent line"
-  assert_not_contains "$out" "working: step 1" "default status tail (5 lines) leaked an older line"
+  assert_contains "$out" "working: step 7" "one-line meta record missing the most recent status line"
+  assert_not_contains "$out" "working: step 3" "one-line meta record leaked an older status line"
+  assert_not_contains "$out" "working: step 1" "one-line meta record leaked an older status line"
   assert_contains "$out" "$home/state/task-a.status" "digest did not print the full status log path for a deeper read"
-  assert_contains "$out" "a bounded tail of every state/*.status" "read-once contract does not distinguish bounded status tails"
+  assert_contains "$out" "one capped line per item" "read-once contract does not describe the one-line cap"
 
   out=$(FM_SESSION_START_STATUS_TAIL=2 run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
-  assert_contains "$out" "working: step 7" "FM_SESSION_START_STATUS_TAIL=2 tail missing the most recent line"
-  assert_not_contains "$out" "working: step 5" "FM_SESSION_START_STATUS_TAIL=2 did not bound the tail to 2 lines"
+  assert_contains "$out" "working: step 7" "one-line meta record missing the most recent line"
+  assert_not_contains "$out" "working: step 5" "one-line meta record leaked an older status line"
 
-  pass "status tail is bounded to the configured line count, with the full log path always printed"
+  pass "meta records print one line with the latest status, with the full log path always printed"
 }
 
 # A crewmate writes its own status lines, so nothing upstream bounds their
@@ -1240,29 +1240,25 @@ EOF
   lede='needs-decision: [key=cap] pick the rendering strategy'
   printf 'window=fm-sess:live\nkind=ship\n' > "$home/state/task-cap.meta"
   {
+    printf 'working: earlier line\n'
     printf '%s' "$lede"
     awk 'BEGIN { while (i++ < 400) printf " padding" }'
     printf '\n'
-    printf 'working: short line kept whole\n'
   } > "$home/state/task-cap.status"
 
   out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
 
   assert_contains "$out" "$lede" "the cap discarded the lede that carries the state word and decision key"
   assert_contains "$out" " [truncated]" "an over-long status line was not marked as truncated"
-  assert_contains "$out" "working: short line kept whole" "the cap mangled a status line already under it"
-  assert_contains "$out" "each capped at 220 characters" "the status tail header does not disclose its per-line cap"
-  assert_contains "$out" "$home/state/task-cap.status" "a capped tail dropped the full log path that recovers the rest"
+  assert_contains "$out" "$home/state/task-cap.status" "a capped line dropped the full log path that recovers the rest"
 
-  # Nothing the tail emits may exceed the cap, and the padded line really was
-  # long enough to exercise it.
-  tail_section=$(printf '%s\n' "$out" | awk '/^status tail \(/ { flag = 1; next } flag && /^$/ { flag = 0 } flag')
+  tail_section=$(printf '%s\n' "$out" | grep -- '--- task-cap ---' || true)
   longest=$(printf '%s\n' "$tail_section" | awk '{ if (length($0) > max) max = length($0) } END { print max + 0 }')
-  [ "$longest" -le 220 ] || fail "a status tail line ran $longest characters past the 220-character cap"
-  capped=$(printf '%s\n' "$tail_section" | grep -c ' \[truncated\]$')
-  [ "$capped" -eq 1 ] || fail "expected exactly one truncated tail line, got $capped: $tail_section"
+  [ "$longest" -le 400 ] || fail "a meta line ran $longest characters past the 400-character cap"
+  capped=$(printf '%s\n' "$tail_section" | grep -c ' \[truncated\]')
+  [ "$capped" -eq 1 ] || fail "expected exactly one truncated meta line, got $capped: $tail_section"
 
-  pass "status tail lines are capped with a truncation marker while the full log stays reachable"
+  pass "meta lines are capped with a truncation marker while the full log stays reachable"
 }
 
 test_orphan_status_logs_are_printed() {
@@ -1476,14 +1472,13 @@ EOF
   printf 'kind=ship\n' > "$home/state/nowindow.meta"
 
   out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
-  assert_contains "$out" "60 record(s) with a dead endpoint and no status file collapsed" "stale records were not counted"
-  assert_contains "$out" "(+20 more)" "collapsed ids were not bounded with a disclosed remainder"
-  assert_not_contains "$out" "--- stale-1 ---" "a collapsed record still printed in full"
-  assert_contains "$out" "--- live-nostatus ---" "a live endpoint without status was collapsed"
-  assert_contains "$out" "--- dead-withstatus ---" "a record with a status file was collapsed"
-  assert_contains "$out" "--- nowindow ---" "an unknown-window record was collapsed"
+  assert_contains "$out" "60 more meta record(s)" "stale records were not counted beyond the meta limit"
+  assert_not_contains "$out" "--- stale-1 ---" "a record beyond the meta limit still printed"
+  assert_contains "$out" "--- live-nostatus ---" "a live endpoint without status was not shown"
+  assert_contains "$out" "--- dead-withstatus ---" "a record with a status file was not shown"
+  assert_contains "$out" "--- nowindow ---" "an unknown-window record was not shown"
 
-  pass "dead-endpoint records without a status file collapse to a bounded count while every other record stays whole"
+  pass "meta records print one line each up to the limit and count the rest"
 }
 
 test_reemit_work_under_way_is_size_bounded() {
@@ -1518,17 +1513,16 @@ EOF
   wait "$holder_pid" 2>/dev/null || true
   rm -f "$home/state/.lock"
   assert_contains "$out" "READ-ONLY SESSION" "the re-emit did not take the read-only path"
-  assert_contains "$out" "CONTEXT RE-EMIT TRUNCATED" "the capped re-emit carried no truncation banner"
-  assert_contains "$out" "bin/fm-crew-state.sh" "the banner did not say how to read the omitted records"
-  assert_contains "$out" "--- zz-sm ---" "a secondmate record was dropped by the size bound"
+  assert_contains "$out" "bin/fm-crew-state.sh" "the digest did not say how to read the omitted records"
+  assert_contains "$out" "more meta record(s)" "the meta bound did not disclose omitted records"
   assert_contains "$out" "--- ship-1" "the first records were not kept"
   assert_not_contains "$out" "--- ship-30 ---" "the size bound did not omit later records"
 
   out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
-  assert_not_contains "$out" "CONTEXT RE-EMIT TRUNCATED" "a full session start was size-capped"
-  assert_contains "$out" "--- ship-30 ---" "a full session start dropped a record"
+  assert_contains "$out" "--- ship-1" "a full session start dropped the first record"
+  assert_not_contains "$out" "--- ship-30 ---" "a full session start printed records beyond the meta limit"
 
-  pass "a read-only context re-emit bounds its work-under-way section with a truncation banner and always keeps secondmates"
+  pass "work-under-way is bounded to one line per record up to the limit, with the rest counted"
 }
 
 test_endpoint_liveness_herdr() {
@@ -2161,7 +2155,7 @@ EOF
   out=$(FM_FAKE_TASKS_AXI_LOG="$log" FM_FAKE_TASKS_AXI_READY=3 \
     run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
 
-  assert_contains "$out" "compact backlog listing (tasks-axi; done rows omitted; every in-flight, held, and blocked row shown as one line; ready queued bounded to 20; task bodies omitted)" \
+  assert_contains "$out" "compact backlog listing (tasks-axi; done rows omitted; in-flight, held, and blocked rows bounded to 3 each; ready queued bounded to 3; task bodies omitted; full source: data/backlog.md)" \
     "compatible tasks-axi backend did not render the compact backlog listing"
   assert_contains "$out" "tasks[1]{id,state,reason}:" \
     "tasks-axi compact listing omitted the expected one-line field header"
@@ -2178,7 +2172,7 @@ EOF
   assert_not_contains "$out" "DONE-ROW-LINE" "tasks-axi compact digest listed a done row at startup"
   assert_contains "$out" "--- compact-startup ---" "in-flight meta identity disappeared from startup recovery digest"
   assert_contains "$out" "worktree=$home/projects/firstmate" "in-flight recovery worktree identity disappeared from startup digest"
-  assert_contains "$out" "Full task bodies remain available on demand: bin/fm-tasks-axi.sh show <id> --full" \
+  assert_contains "$out" "Full bodies: bin/fm-tasks-axi.sh show <id> --full or data/backlog.md." \
     "compact digest omitted the full-body lookup pointer"
   assert_contains "$out" "ready_public_followups: 0 delivery-ready obligations" \
     "the composed listing dropped a real signal from the dispatchable set"
@@ -2198,7 +2192,7 @@ EOF
   assert_grep "ready --file $home/data/backlog.md" "$log" \
     "session start did not ask tasks-axi for the dispatchable queued set"
 
-  pass "compatible tasks-axi backlog rendering drops done rows and keeps every in-flight, held, and blocked row"
+  pass "compatible tasks-axi backlog rendering drops done rows and bounds in-flight, held, and blocked rows"
 }
 
 # The bound may only ever cut the dispatchable-now listing, and whatever it cuts
@@ -2220,10 +2214,8 @@ EOF
   assert_contains "$out" "ready-3,queued,ship,firstmate,Ready item 3" \
     "the queued bound dropped a row inside its own limit"
   assert_not_contains "$out" "ready-4,queued" "the queued bound did not actually bound the ready listing"
-  assert_contains "$out" "(shown 3 of 7 ready queued item(s))" \
-    "the bounded queued listing did not report what it showed"
-  assert_contains "$out" "(4 more queued - bin/fm-tasks-axi.sh ready)" \
-    "the bounded queued listing did not disclose an exact remainder and how to see it"
+  assert_contains "$out" "(shown 3 of 7 ready queued item(s); 4 more queued - bin/fm-tasks-axi.sh ready)" \
+    "the bounded queued listing did not report what it showed or disclose an exact remainder"
 
   # The bound is for dispatchable work only: held and blocked rows stay whole.
   assert_contains "$out" "held-queued | queued | captain choice pending | full: backlog.md" \
@@ -2249,7 +2241,7 @@ EOF
 
   out=$(FM_SESSION_START_QUEUED_LIMIT=4 run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
 
-  assert_contains "$out" "compact backlog listing (manual backend; done rows omitted; every in-flight, held, and blocked row kept as one line; other queued bounded to 4; indented task bodies omitted)" \
+  assert_contains "$out" "compact backlog listing (manual backend; done rows omitted; in-flight, held, and blocked title lines bounded to 3 each; other queued bounded to 4; indented task bodies omitted; full source: data/backlog.md)" \
     "manual backend did not use compact title-line rendering"
   assert_contains "$out" "## In flight" "manual compact rendering omitted the in-flight section heading"
   assert_contains "$out" "compact-startup | in_flight | captain choice pending | full: backlog.md" \
@@ -2268,13 +2260,13 @@ EOF
     "manual compact rendering dropped a queued title line inside its bound"
   assert_not_contains "$out" "- [ ] plain-5 - Plain queued item 5" \
     "manual compact rendering did not bound its plain queued listing"
-  assert_contains "$out" "(shown 1 in-flight, 2 held or blocked queued, 4 of 25 other queued title line(s); 1 done row(s) omitted)" \
+  assert_contains "$out" "(shown 1 of 1 in-flight, 2 of 2 held or blocked queued, 4 of 25 other queued title line(s); 1 done row(s) omitted; full source: data/backlog.md)" \
     "manual compact rendering did not report its bound accounting"
   assert_contains "$out" "(21 more queued - raise FM_SESSION_START_QUEUED_LIMIT or read data/backlog.md for the rest)" \
     "manual compact rendering did not disclose an exact queued remainder"
   assert_contains "$out" "or data/backlog.md" "manual compact digest omitted the data/backlog.md full-body pointer"
 
-  pass "manual backlog rendering drops done rows, keeps every held or blocked title line, and bounds the rest"
+  pass "manual backlog rendering drops done rows and bounds in-flight, held, blocked, and queued title lines"
 }
 
 # A long marked hold reason with an embedded line break prints decoded, collapsed
@@ -2610,7 +2602,7 @@ FIXTURE
   reemit=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$root" FM_FAKE_HARNESS_PID=$$ PATH="$fakebin:$BASE_PATH" \
     env -u CLAUDECODE -u PI_CODING_AGENT -u FM_PI_HARNESS -u GROK_AGENT \
     "$SESSION_START" --reemit)
-  [ "${#reemit}" -gt 10000 ] || fail "re-emit fixture did not exceed the hook output limit"
+  [ "${#reemit}" -le 10240 ] || fail "re-emit exceeded the 10240-byte digest cap at ${#reemit} bytes"
   head2k=$(printf '%s' "$reemit" | head -c 2000)
   assert_contains "$head2k" "RE-EMIT CUE" "the re-emit cue is not inside the first 2000 characters"
   assert_contains "$head2k" "Full output saved to" "the re-emit cue does not point at the saved output"
@@ -2736,12 +2728,13 @@ EOF
   done
 
   # The same records as a full startup dump: what the re-emit replaced.
-  full=$(FM_FAKE_TASKS_AXI_READY=600 FM_SESSION_START_QUEUED_LIMIT=600 FM_FAKE_HARNESS_PID=$$ \
+  full=$(FM_FAKE_TASKS_AXI_READY=600 FM_FAKE_HARNESS_PID=$$ \
     run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
   full_fleet=$(printf '%s\n' "$full" | sed -n '/^FLEET STATE$/,/^NETWORK CHECKS$/p' | LC_ALL=C wc -c | tr -d ' ')
-  [ "$full_fleet" -gt 20000 ] || fail "the cap fixture is vacuous: the full record dump is only $full_fleet bytes"
+  [ "$full_fleet" -gt 500 ] || fail "the cap fixture is vacuous: the full record dump is only $full_fleet bytes"
+  [ "${#full}" -le 10240 ] || fail "a full startup exceeded the 10240-byte digest cap at ${#full} bytes"
   assert_contains "$full" "Work under way (state/*.meta)" "a full startup stopped printing the record dump"
-  assert_not_contains "$full" "OPEN ITEMS (mandatory" "a full startup printed the re-emit state summary"
+  assert_not_contains "$full" "OPEN ITEMS (mandatory count" "a full startup printed the re-emit state summary"
   # Let the full startup's deferred network stage publish before the re-emit,
   # as the sibling re-emit test does, so the two never race.
   wait_for_network_stage "$home" "$root" \
@@ -2754,9 +2747,9 @@ EOF
   summary=$(reemit_state_summary "$reemit")
   [ -n "$summary" ] || fail "the locked re-emit printed no state summary: $reemit"
   bytes=$(reemit_summary_bytes "$summary")
-  [ "$bytes" -le 15000 ] || fail "the re-emit state summary is $bytes bytes, over its default 15000-byte cap"
+  [ "$bytes" -le 3500 ] || fail "the re-emit state summary is $bytes bytes, over its default 3500-byte cap"
   assert_reemit_tally_exact "$summary" "the default-budget summary"
-  assert_contains "$summary" "Budget: 15000 bytes for this whole summary" "the summary did not state its default cap"
+  assert_contains "$summary" "Budget: 3500 bytes for this whole summary" "the summary did not state its default cap"
   assert_contains "$summary" "more omitted by the state budget - bin/fm-tasks-axi.sh ready" \
     "the cap cut ready rows without disclosing the remainder and its command"
   assert_not_contains "$reemit" "Work under way (state/*.meta)" "the locked re-emit still printed the record dump"
@@ -2835,10 +2828,10 @@ EOF
   write_retirement_receipt "$home/state" retired-h 99
 
   # A budget far below the open items proves they are mandatory, never cut.
-  reemit=$(FM_SESSION_START_REEMIT_STATE_BYTES=400 run_reemit "$home" "$root" "$fakebin:$BASE_PATH")
+  reemit=$(FM_SESSION_START_LIST_LIMIT=20 FM_SESSION_START_REEMIT_STATE_BYTES=400 run_reemit "$home" "$root" "$fakebin:$BASE_PATH")
   summary=$(reemit_state_summary "$reemit")
   [ -n "$summary" ] || fail "the locked re-emit printed no state summary: $reemit"
-  assert_contains "$summary" "OPEN ITEMS (mandatory: every state/*.meta record, never cut by the budget)" \
+  assert_contains "$summary" "OPEN ITEMS (mandatory count: state/*.meta records, first 20 shown, rest counted)" \
     "the re-emit state summary has no mandatory open-items section"
   assert_contains "$summary" "bytes with this line, over the 400-byte budget, so only its mandatory lines printed: the lede, OPEN ITEMS (" \
     "the over-budget tally did not say that only the mandatory lines printed"
@@ -3257,6 +3250,51 @@ EOF
   assert_contains "$out" "absent" "empty fleet's AFK section did not report absent"
 
   pass "an empty fleet reports (none) for in-flight tasks and an absent AFK flag"
+}
+
+test_digest_cap_10k() {
+  local rec root home fakebin out bytes i id
+  rec=$(new_world digest-cap)
+  IFS='|' read -r root home fakebin <<EOF
+$rec
+EOF
+  make_fake_toolchain "$fakebin"
+  make_fake_ps_claude "$fakebin"
+  printf '%s\n' manual > "$home/config/backlog-backend"
+  {
+    printf '# Backlog\n\n## In flight\n'
+    i=1; while [ "$i" -le 30 ]; do printf -- '- [ ] cap-inflight-%02d - in flight work %02d with a long title that should be capped on one line only\n' "$i" "$i"; i=$((i + 1)); done
+    printf '\n## Queued\n'
+    i=1; while [ "$i" -le 30 ]; do printf -- '- [ ] cap-held-%02d - held work %02d (hold: waiting) (hold-kind: captain)\n' "$i" "$i"; i=$((i + 1)); done
+    i=1; while [ "$i" -le 30 ]; do printf -- '- [ ] cap-queued-%02d - queued work %02d\n' "$i" "$i"; i=$((i + 1)); done
+    printf '\n## Done\n- [x] cap-done - done work\n'
+  } > "$home/data/backlog.md"
+  i=1
+  while [ "$i" -le 30 ]; do
+    id=$(printf 'cap-meta-%02d' "$i")
+    fm_write_meta "$home/state/$id.meta" "kind=ship" "mode=local-only" "project=alpha" "branch=fm/$id" "worktree=/nonexistent/$id"
+    printf 'working [at=1700000000]: latest event for %s with extra detail\n' "$id" > "$home/state/$id.status"
+    i=$((i + 1))
+  done
+  for f in projects secondmates captain captain-shared learnings; do
+    i=1; while [ "$i" -le 30 ]; do printf -- '- context-%s-%02d a long context line that should print only bounded lines per file\n' "$f" "$i"; i=$((i + 1)); done > "$home/data/$f.md"
+  done
+  out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
+  bytes=$(printf '%s' "$out" | wc -c | tr -d ' ')
+  [ "$bytes" -le 10240 ] || fail "digest is $bytes bytes, over the 10240 cap"
+  assert_contains "$out" "LOCK" "digest cap dropped the lock section"
+  assert_contains "$out" "WAKE QUEUE" "digest cap dropped the wake queue section"
+  assert_contains "$out" "cap-inflight-01" "digest cap dropped the first in-flight item"
+  assert_contains "$out" "more in-flight" "in-flight block did not disclose items beyond the limit"
+  assert_contains "$out" "more held or blocked" "held block did not disclose items beyond the limit"
+  assert_contains "$out" "data/backlog.md" "backlog block omitted its full-source pointer"
+  assert_contains "$out" "cap-meta-01" "meta block dropped the first meta item"
+  assert_contains "$out" "more meta record(s)" "meta block did not disclose records beyond the limit"
+  assert_contains "$out" "bin/fm-crew-state.sh" "meta block omitted its full-source pointer"
+  assert_not_contains "$out" "cap-inflight-30" "in-flight block printed items beyond the limit"
+  assert_not_contains "$out" "cap-meta-30" "meta block printed records beyond the limit"
+  [ "$(printf '%s\n' "$out" | grep -c 'cap-meta-01')" -eq 1 ] || fail "meta item was not printed on exactly one line"
+  pass "digest is capped at 10 KB with one line per item, counts beyond the limit, and full-source pointers"
 }
 
 test_next_step_sources_x_mode_cadence() {
@@ -3679,6 +3717,7 @@ test_backlog_compact_manual_backend_skips_indented_bodies
 test_backlog_long_hold_reason_prints_one_truncated_line
 test_backlog_compact_tasks_axi_unavailable_uses_manual_fallback
 test_fleet_digest_empty_fleet
+test_digest_cap_10k
 test_next_step_sources_x_mode_cadence
 test_next_step_afk_delegates_to_daemon
 test_next_step_quiet_mode_delegates_to_daemon

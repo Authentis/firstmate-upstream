@@ -212,6 +212,16 @@
 # keep their own owners and bounds. A read-only re-emit drained nothing, so it
 # keeps the full dump instead of a fold no lock-holding drain refreshed.
 #
+# DIGEST CAP: the whole digest is capped at FM_SESSION_START_DIGEST_BYTES
+# (default 10240). In-flight, held, blocked, ready, meta, orphan, and context
+# blocks print one capped line per item, at most FM_SESSION_START_LIST_LIMIT
+# (default 3) items per block, then a shown/total count and a pointer to the
+# full source. Safety sections (lock, wake queue including OPEN DECISIONS)
+# are never dropped by the structured bounds; individual lines there are
+# still capped by their owners. As a backstop the parent caps the emitted
+# bytes at the same budget and appends a capped disclosure inside it, so
+# the cheapest tail (context) absorbs any remaining overflow.
+#
 # RUNTIME BOUND: the digest is now executed through a native session-open
 # adapter (see bin/fm-sessionstart-run.sh), which blocks either hook-driven
 # session initialization or Pi's first provider preflight while it runs, so an
@@ -367,30 +377,56 @@ if ! fm_session_start_stage_file_handoff "${FM_SESSION_START_STAGE_FILE:-}"; the
     # is lost, so the child still runs bounded.
     SESSION_START_STAGE_FILE=/dev/null
   fi
+  DIGEST_CAP_BYTES=${FM_SESSION_START_DIGEST_BYTES:-10240}
+  case "$DIGEST_CAP_BYTES" in ''|*[!0-9]*|0) DIGEST_CAP_BYTES=10240 ;; esac
+  DIGEST_TMP=$(mktemp "${TMPDIR:-/tmp}/fm-session-start-digest.XXXXXX" 2>/dev/null) || DIGEST_TMP=
+  if [ -z "$DIGEST_TMP" ]; then
+    # Without a capture file the structured bounds still apply; stream directly.
+    DIGEST_TMP=/dev/stdout
+  fi
   if [ "$REEMIT" -eq 1 ]; then
     if [ -n "$SESSION_SOURCE" ]; then
       fm_run_timed "$SESSION_START_BUDGET" \
         env FM_SESSION_START_STAGE_FILE="$SESSION_START_STAGE_FILE" \
-        "$SCRIPT_DIR/fm-session-start.sh" --reemit --source "$SESSION_SOURCE"
+        "$SCRIPT_DIR/fm-session-start.sh" --reemit --source "$SESSION_SOURCE" > "$DIGEST_TMP"
     else
       fm_run_timed "$SESSION_START_BUDGET" \
         env FM_SESSION_START_STAGE_FILE="$SESSION_START_STAGE_FILE" \
-        "$SCRIPT_DIR/fm-session-start.sh" --reemit
+        "$SCRIPT_DIR/fm-session-start.sh" --reemit > "$DIGEST_TMP"
     fi
   elif [ -n "$SESSION_SOURCE" ]; then
     fm_run_timed "$SESSION_START_BUDGET" \
       env FM_SESSION_START_STAGE_FILE="$SESSION_START_STAGE_FILE" \
-      "$SCRIPT_DIR/fm-session-start.sh" --source "$SESSION_SOURCE"
+      "$SCRIPT_DIR/fm-session-start.sh" --source "$SESSION_SOURCE" > "$DIGEST_TMP"
   else
     fm_run_timed "$SESSION_START_BUDGET" \
       env FM_SESSION_START_STAGE_FILE="$SESSION_START_STAGE_FILE" \
-      "$SCRIPT_DIR/fm-session-start.sh"
+      "$SCRIPT_DIR/fm-session-start.sh" > "$DIGEST_TMP"
   fi
   SESSION_START_RC=$?
+  if [ "$DIGEST_TMP" != /dev/stdout ]; then
+    # Truncation banner (below) is appended to the capture first, then the
+    # whole is capped so the banner is inside the budget when it fits.
+    :
+  fi
   # ANY nonzero child exit is a truncation: the banner contract promises that
   # a stage that cannot print is named. Exit 124 is the bound firing; any
   # other status means the child died or was killed mid-stage, which truncates
   # silently when unbanned - the parent must banner it, never exit 0 around it.
+  if [ "$DIGEST_TMP" != /dev/stdout ] && [ -f "$DIGEST_TMP" ]; then
+    DIGEST_SIZE=$(wc -c < "$DIGEST_TMP" 2>/dev/null | tr -d ' ')
+    case "$DIGEST_SIZE" in ''|*[!0-9]*) DIGEST_SIZE=0 ;; esac
+    if [ "$DIGEST_SIZE" -le "$DIGEST_CAP_BYTES" ]; then
+      cat "$DIGEST_TMP"
+    else
+      DIGEST_NOTICE=$(printf '\nDIGEST CAPPED at %s bytes (was %s): omitted tail - full sources: data/backlog.md, state/*.meta, state/*.status, data/projects.md, data/secondmates.md, data/captain.md, data/captain-shared.md, data/learnings.md\n' "$DIGEST_CAP_BYTES" "$DIGEST_SIZE")
+      DIGEST_KEEP=$((DIGEST_CAP_BYTES - ${#DIGEST_NOTICE}))
+      [ "$DIGEST_KEEP" -gt 0 ] || DIGEST_KEEP=0
+      head -c "$DIGEST_KEEP" "$DIGEST_TMP"
+      printf '%s' "$DIGEST_NOTICE"
+    fi
+    rm -f "$DIGEST_TMP" 2>/dev/null || true
+  fi
   if [ "$SESSION_START_RC" -ne 0 ]; then
     SESSION_START_LAST_STAGE=$(cat "$SESSION_START_STAGE_FILE" 2>/dev/null) || SESSION_START_LAST_STAGE=
     [ -n "$SESSION_START_LAST_STAGE" ] || SESSION_START_LAST_STAGE=unknown
@@ -459,13 +495,17 @@ TASKS_AXI_CHECK_REASON=$(fm_tasks_axi_check_reason)
 
 STATUS_TAIL=${FM_SESSION_START_STATUS_TAIL:-5}
 case "$STATUS_TAIL" in ''|*[!0-9]*) STATUS_TAIL=5 ;; esac
-QUEUED_LIMIT=${FM_SESSION_START_QUEUED_LIMIT:-20}
-case "$QUEUED_LIMIT" in ''|*[!0-9]*|0) QUEUED_LIMIT=20 ;; esac
+QUEUED_LIMIT=${FM_SESSION_START_QUEUED_LIMIT:-3}
+case "$QUEUED_LIMIT" in ''|*[!0-9]*|0) QUEUED_LIMIT=3 ;; esac
+LIST_LIMIT=${FM_SESSION_START_LIST_LIMIT:-3}
+case "$LIST_LIMIT" in ''|*[!0-9]*|0) LIST_LIMIT=3 ;; esac
+DIGEST_BYTES=${FM_SESSION_START_DIGEST_BYTES:-10240}
+case "$DIGEST_BYTES" in ''|*[!0-9]*|0) DIGEST_BYTES=10240 ;; esac
 # The whole re-emit state summary's byte budget; only its mandatory lines
 # print past it.
-REEMIT_STATE_BYTES=${FM_SESSION_START_REEMIT_STATE_BYTES:-15000}
-case "$REEMIT_STATE_BYTES" in ''|*[!0-9]*) REEMIT_STATE_BYTES=15000 ;; esac
-[ "$REEMIT_STATE_BYTES" -gt 0 ] 2>/dev/null || REEMIT_STATE_BYTES=15000
+REEMIT_STATE_BYTES=${FM_SESSION_START_REEMIT_STATE_BYTES:-3500}
+case "$REEMIT_STATE_BYTES" in ''|*[!0-9]*) REEMIT_STATE_BYTES=3500 ;; esac
+[ "$REEMIT_STATE_BYTES" -gt 0 ] 2>/dev/null || REEMIT_STATE_BYTES=3500
 # One per-task endpoint read may never outlive this bound: a hung backend CLI
 # becomes that task's endpoint: error line instead of the digest's whole
 # runtime budget.
@@ -488,11 +528,21 @@ subsection() { printf '\n%s\n%s\n' "$1" "$SUBRULE"; }
 # AGENTS.md section 3) and must never be confused with an empty-but-present
 # file, so the two cases print differently.
 print_file_or_absent() {
-  local path=$1 label=$2
+  local path=$1 label=$2 line total=0 shown=0
   subsection "$label"
   if [ -f "$path" ]; then
     if [ -s "$path" ]; then
-      cat "$path"
+      while IFS= read -r line || [ -n "$line" ]; do
+        total=$((total + 1))
+        if [ "$shown" -lt "$LIST_LIMIT" ]; then
+          fm_cap_line "$line" 120
+          shown=$((shown + 1))
+        fi
+      done < "$path"
+      if [ "$total" -gt "$shown" ]; then
+        printf '(shown %s of %s line(s) in %s; %s more - read %s)\n' \
+          "$shown" "$total" "$label" $((total - shown)) "$path"
+      fi
     else
       printf '(present, empty)\n'
     fi
@@ -501,8 +551,37 @@ print_file_or_absent() {
   fi
 }
 
+# print_axi_group_bounded <listing> <label> <pointer>: non-indented header
+# lines pass through, indented rows print one capped line each up to
+# LIST_LIMIT, then a shown/total disclosure with the full-source pointer.
+print_axi_group_bounded() {
+  local listing=$1 label=$2 pointer=$3 line total=0 shown=0
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      help\[*) break ;;
+      [[:space:]]*)
+        total=$((total + 1))
+        if [ "$shown" -lt "$LIST_LIMIT" ]; then
+          fm_cap_line "$line" 120
+          shown=$((shown + 1))
+        fi
+        ;;
+      *) printf '%s\n' "$line" ;;
+    esac
+  done <<EOF
+$listing
+EOF
+  if [ "$total" -gt 0 ]; then
+    if [ "$total" -gt "$shown" ]; then
+      printf '(shown %s of %s %s item(s); %s more %s - full source: %s)\n' "$shown" "$total" "$label" $((total - shown)) "$label" "$pointer"
+    else
+      printf '(shown %s of %s %s item(s); full source: %s)\n' "$shown" "$total" "$label" "$pointer"
+    fi
+  fi
+}
+
 print_backlog_pointer() {
-  printf 'Full task bodies remain available on demand: bin/fm-tasks-axi.sh show <id> --full when compatible tasks-axi is available, or data/backlog.md.\n'
+  printf 'Full bodies: bin/fm-tasks-axi.sh show <id> --full or data/backlog.md.\n'
 }
 
 # A queued title line whose own text already marks it held or blocked. The
@@ -582,9 +661,10 @@ oneline_backlog_rows() {
 
 print_backlog_manual_compact() {
   local path=$1 reason=$2
-  printf 'compact backlog listing (%s; done rows omitted; every in-flight, held, and blocked row kept as one line; other queued bounded to %s; indented task bodies omitted)\n' \
-    "$reason" "$QUEUED_LIMIT"
-  awk -v max="$QUEUED_LIMIT" -v keep_re="$MANUAL_KEEP_RE" '
+  printf 'compact backlog listing (%s; done rows omitted; in-flight, held, and blocked title lines bounded to %s each; other queued bounded to %s; indented task bodies omitted; full source: data/backlog.md)\n' \
+    "$reason" "$LIST_LIMIT" "$QUEUED_LIMIT"
+  awk -v max="$QUEUED_LIMIT" -v list_max="$LIST_LIMIT" -v keep_re="$MANUAL_KEEP_RE" '
+    function cap(s) { if (length(s) > 120) return substr(s, 1, 107) " [truncated]"; return s }
     function state_for_heading(line, heading) {
       heading = line
       sub(/^##[[:space:]]+/, "", heading)
@@ -600,12 +680,12 @@ print_backlog_manual_compact() {
       if (state != "" && state != "done") print $0
       next
     }
-    state == "in_flight" && /^[-*][[:space:]]+/ { in_flight++; print "\001in_flight\001" $0; next }
+    state == "in_flight" && /^[-*][[:space:]]+/ { in_flight++; if (in_flight_shown < list_max) { print "\001in_flight\001" $0; in_flight_shown++ } next }
     state == "done" && /^[-*][[:space:]]+/ { done_total++; next }
     state == "queued" && /^[-*][[:space:]]+/ {
       queued_total++
-      if ($0 ~ keep_re) { gated++; print "\001queued\001" $0; next }
-      if (plain_shown < max) { plain_shown++; print $0 }
+      if ($0 ~ keep_re) { gated++; if (gated_shown < list_max) { print "\001queued\001" $0; gated_shown++ } next }
+      if (plain_shown < max) { plain_shown++; print cap($0) }
       next
     }
     END {
@@ -613,8 +693,14 @@ print_backlog_manual_compact() {
       if (in_flight + queued_total + done_total == 0) {
         print "(no backlog item title lines found)"
       } else {
-        printf "(shown %d in-flight, %d held or blocked queued, %d of %d other queued title line(s); %d done row(s) omitted)\n", \
-          in_flight, gated, plain_shown, plain_total, done_total
+        printf "(shown %d of %d in-flight, %d of %d held or blocked queued, %d of %d other queued title line(s); %d done row(s) omitted; full source: data/backlog.md)\n", \
+          in_flight_shown, in_flight, gated_shown, gated, plain_shown, plain_total, done_total
+        if (in_flight > in_flight_shown) {
+          printf "(%d more in-flight - read data/backlog.md for the rest)\n", in_flight - in_flight_shown
+        }
+        if (gated > gated_shown) {
+          printf "(%d more held or blocked queued - read data/backlog.md for the rest)\n", gated - gated_shown
+        }
         if (plain_total > plain_shown) {
           printf "(%d more queued - raise FM_SESSION_START_QUEUED_LIMIT or read data/backlog.md for the rest)\n", plain_total - plain_shown
         }
@@ -639,20 +725,19 @@ strip_axi_help() {
 print_ready_queued_bounded() {
   local ready=$1
   printf '%s\n' "$ready" | awk -v max="$QUEUED_LIMIT" '
+    function cap(s) { if (length(s) > 120) return substr(s, 1, 107) " [truncated]"; return s }
     /^help\[/ { exit }
     /^ready\[/ { rows = 1; print; next }
     rows && /^[[:space:]]/ {
       total++
-      if (shown < max) { print; shown++ }
+      if (shown < max) { print cap($0); shown++ }
       next
     }
     { rows = 0; print }
     END {
       if (total > 0) {
-        printf "(shown %d of %d ready queued item(s))\n", shown, total
-        if (total > shown) {
-          printf "(%d more queued - bin/fm-tasks-axi.sh ready)\n", total - shown
-        }
+        if (total > shown) printf "(shown %d of %d ready queued item(s); %d more queued - bin/fm-tasks-axi.sh ready)\n", shown, total, total - shown
+        else printf "(shown %d of %d ready queued item(s))\n", shown, total
       }
     }
   '
@@ -669,14 +754,14 @@ print_backlog_tasks_axi_compact() {
   elif ! ready=$(tasks-axi ready --file "$path" 2>&1); then
     err=$ready
   else
-    printf 'compact backlog listing (tasks-axi; done rows omitted; every in-flight, held, and blocked row shown as one line; ready queued bounded to %s; task bodies omitted)\n' \
-      "$QUEUED_LIMIT"
+    printf 'compact backlog listing (tasks-axi; done rows omitted; in-flight, held, and blocked rows bounded to %s each; ready queued bounded to %s; task bodies omitted; full source: data/backlog.md)\n' \
+      "$LIST_LIMIT" "$QUEUED_LIMIT"
     printf '\nin flight:\n'
-    printf '%s\n' "$in_flight" | fm_hold_reason_decode_stream | strip_axi_help | oneline_backlog_rows toon
+    print_axi_group_bounded "$(printf '%s\n' "$in_flight" | fm_hold_reason_decode_stream | strip_axi_help | oneline_backlog_rows toon)" "in-flight" "data/backlog.md"
     printf '\nheld (captain- or time-gated; an in-flight item that is also held appears in both groups):\n'
-    printf '%s\n' "$held" | fm_hold_reason_decode_stream | strip_axi_help | oneline_backlog_rows toon
+    print_axi_group_bounded "$(printf '%s\n' "$held" | fm_hold_reason_decode_stream | strip_axi_help | oneline_backlog_rows toon)" "held" "data/backlog.md"
     printf '\nblocked queued:\n'
-    printf '%s\n' "$blocked" | fm_hold_reason_decode_stream | strip_axi_help | oneline_backlog_rows toon
+    print_axi_group_bounded "$(printf '%s\n' "$blocked" | fm_hold_reason_decode_stream | strip_axi_help | oneline_backlog_rows toon)" "blocked queued" "data/backlog.md"
     printf '\nready queued (dispatchable now):\n'
     print_ready_queued_bounded "$ready"
     return 0
@@ -762,74 +847,76 @@ endpoint_verdict_line() {  # the record dump's endpoint line for the last endpoi
 # listing, every state/*.meta with its endpoint line and status tail, and the
 # orphan status logs.
 print_fleet_records_full() {
-  local meta id kind status record found=0
+  local meta id kind mode yolo branch worktree project status latest endpoint_detail total=0 shown=0
   print_backlog_compact "$DATA/backlog.md" "data/backlog.md"
 
   subsection "Work under way (state/*.meta)"
-  # A home can hold hundreds of finished ship records. Full detail is kept for
-  # secondmates, records with a status file, and any endpoint that is not
-  # provably dead; a dead-endpoint record with no status file is only counted and
-  # named. A context re-emit that reaches this dump is additionally bounded by
-  # FM_SESSION_START_REEMIT_WORK_MAX_BYTES so the re-injected message stays small.
-  local work_max_bytes=${FM_SESSION_START_REEMIT_WORK_MAX_BYTES:-40000}
-  local work_ids_max=${FM_SESSION_START_COLLAPSED_IDS_MAX:-40}
-  local work_bytes=0 collapsed_count=0 collapsed_ids='' omitted_count=0 omitted_ids=''
   for meta in "$STATE"/*.meta; do
     [ -f "$meta" ] || continue
-    found=1
+    total=$((total + 1))
+  done
+  if [ "$total" -gt 0 ]; then
+    printf '(shown up to %s of %s meta record(s); %s more meta record(s) - full source: cat %s/<id>.meta or bin/fm-crew-state.sh)\n' "$LIST_LIMIT" "$total" $((total > LIST_LIMIT ? total - LIST_LIMIT : 0)) "$STATE"
+  fi
+  total=0
+  for meta in "$STATE"/*.meta; do
+    [ -f "$meta" ] || continue
+    total=$((total + 1))
+    [ "$shown" -lt "$LIST_LIMIT" ] || continue
     id=$(basename "$meta" .meta)
-    kind=$(fm_meta_get "$meta" kind)
+    kind=$(fm_meta_get "$meta" kind); [ -n "$kind" ] || kind=ship
+    mode=$(fm_meta_get "$meta" mode)
+    yolo=$(fm_meta_get "$meta" yolo)
+    branch=$(fm_meta_get "$meta" branch)
+    worktree=$(fm_meta_get "$meta" worktree)
+    project=$(fm_meta_get "$meta" project)
     status="$STATE/$id.status"
     endpoint_verdict "$meta" "$id"
-    if [ "$kind" != secondmate ] && [ ! -f "$status" ] && [ "$ENDPOINT_VERDICT" = dead ]; then
-      collapsed_count=$((collapsed_count + 1))
-      [ "$collapsed_count" -gt "$work_ids_max" ] || collapsed_ids="$collapsed_ids $id"
-      continue
+    latest='(no status file yet)'
+    if [ -f "$status" ]; then
+      latest=$(last_status_line "$status" 2>/dev/null || true)
+      [ -n "$latest" ] || latest='(empty status log)'
     fi
-    record=$(
-      printf '\n--- %s ---\n' "$id"
-      cat "$meta"
-      endpoint_verdict_line
-      if [ -f "$status" ]; then
-        print_status_tail "$status"
-      else
-        printf 'status tail: (no status file yet: %s)\n' "$status"
-      fi
-    )
-    if [ "$REEMIT" -eq 1 ] && [ "$kind" != secondmate ] \
-      && [ $((work_bytes + ${#record})) -gt "$work_max_bytes" ]; then
-      omitted_count=$((omitted_count + 1))
-      [ "$omitted_count" -gt "$work_ids_max" ] || omitted_ids="$omitted_ids $id"
-      continue
-    fi
-    work_bytes=$((work_bytes + ${#record}))
-    printf '%s\n' "$record"
+    fm_cap_line_var "$latest" 100
+    latest=$FM_LINE_CAP_LINE
+    case "$ENDPOINT_VERDICT" in
+      unknown) endpoint_detail='endpoint: unknown (no window recorded)' ;;
+      error) endpoint_detail="endpoint: error (backend=$ENDPOINT_BACKEND window=$ENDPOINT_WINDOW - the endpoint read died or hit its ${ENDPOINT_TIMEOUT}s bound; the digest continued past it)" ;;
+      *) endpoint_detail="endpoint: $ENDPOINT_VERDICT (backend=$ENDPOINT_BACKEND window=$ENDPOINT_WINDOW)" ;;
+    esac
+    fm_cap_line "- --- $id --- kind=$kind${mode:+ mode=$mode}${yolo:+ yolo=$yolo} $endpoint_detail${branch:+ branch=$branch}${worktree:+ worktree=$worktree}${project:+ project=$project} status=$latest (full: $meta; status log: $status)" 400
+    shown=$((shown + 1))
   done
-  [ "$found" -eq 1 ] || printf '(none)\n'
-  if [ "$collapsed_count" -gt 0 ]; then
-    printf '\n%s record(s) with a dead endpoint and no status file collapsed (finished or never started):%s' \
-      "$collapsed_count" "$collapsed_ids"
-    [ "$collapsed_count" -le "$work_ids_max" ] || printf ' ... (+%s more)' $((collapsed_count - work_ids_max))
-    printf '\nRead one on demand: cat %s/<id>.meta\n' "$STATE"
-  fi
-  if [ "$omitted_count" -gt 0 ]; then
-    printf '\n●  CONTEXT RE-EMIT TRUNCATED - %s more record(s) omitted to keep this section under %s bytes:%s' \
-      "$omitted_count" "$work_max_bytes" "$omitted_ids"
-    [ "$omitted_count" -le "$work_ids_max" ] || printf ' ... (+%s more)' $((omitted_count - work_ids_max))
-    printf '\n●  Read on demand: bin/fm-crew-state.sh, or cat %s/<id>.meta and %s/<id>.status.\n' "$STATE" "$STATE"
+  [ "$total" -gt 0 ] || printf '(none)\n'
+  if [ "$total" -gt 0 ]; then
+    printf '(shown %s of %s meta record(s); full source: cat %s/<id>.meta or bin/fm-crew-state.sh)\n' "$shown" "$total" "$STATE"
+    if [ "$total" -gt "$shown" ]; then
+      printf '(%s more meta record(s) - cat %s/<id>.meta or bin/fm-crew-state.sh)\n' $((total - shown)) "$STATE"
+    fi
   fi
 
   subsection "Orphan status logs (state/*.status without matching .meta)"
-  found=0
+  total=0; shown=0
   for status in "$STATE"/*.status; do
     [ -f "$status" ] || continue
     id=$(basename "$status" .status)
     [ -f "$STATE/$id.meta" ] && continue
-    found=1
-    printf '\n--- %s ---\n' "$id"
-    print_status_tail "$status"
+    total=$((total + 1))
+    [ "$shown" -lt "$LIST_LIMIT" ] || continue
+    latest=$(last_status_line "$status" 2>/dev/null || true)
+    [ -n "$latest" ] || latest='(empty status log)'
+    fm_cap_line_var "$latest" 100
+    latest=$FM_LINE_CAP_LINE
+    fm_cap_line "- --- $id --- status=$latest (full: $status)" 400
+    shown=$((shown + 1))
   done
-  [ "$found" -eq 1 ] || printf '(none)\n'
+  [ "$total" -gt 0 ] || printf '(none)\n'
+  if [ "$total" -gt 0 ]; then
+    printf '(shown %s of %s orphan status log(s); full source: %s/<id>.status)\n' "$shown" "$total" "$STATE"
+    if [ "$total" -gt "$shown" ]; then
+      printf '(%s more orphan status log(s) - ls %s/*.status)\n' $((total - shown)) "$STATE"
+    fi
+  fi
 }
 
 # --- context re-emit state summary --------------------------------------------
@@ -1326,13 +1413,21 @@ print_reemit_state_summary() {
   reemit_state_put "OPEN ITEMS, counts, cut disclosures, and tally always print, and other rows only while the whole fits."
 
   open_start=$REEMIT_STATE_USED
-  reemit_state_subsection "OPEN ITEMS (mandatory: every state/*.meta record, never cut by the budget)"
+  reemit_state_subsection "OPEN ITEMS (mandatory count: state/*.meta records, first $LIST_LIMIT shown, rest counted)"
+  local meta_total=0 meta_shown=0
   for meta in "$STATE"/*.meta; do
     [ -f "$meta" ] || continue
     found=1
+    meta_total=$((meta_total + 1))
+    [ "$meta_shown" -lt "$LIST_LIMIT" ] || continue
+    meta_shown=$((meta_shown + 1))
     reemit_state_task_entry "$meta"
   done
   [ "$found" -eq 1 ] || reemit_state_put '(none)'
+  if [ "$meta_total" -gt 0 ]; then
+    reemit_state_put "(shown $meta_shown of $meta_total meta record(s); full source: cat $STATE/<id>.meta or bin/fm-crew-state.sh)"
+    [ "$meta_total" -le "$meta_shown" ] || reemit_state_put "($((meta_total - meta_shown)) more meta record(s) - cat $STATE/<id>.meta or bin/fm-crew-state.sh)"
+  fi
   open_bytes=$((REEMIT_STATE_USED - open_start))
 
   reemit_gather_backlog
@@ -1658,12 +1753,20 @@ if [ "$PRIMARY_HARNESS" = omp ]; then
     fi
   fi
 fi
-"$SCRIPT_DIR/fm-supervision-instructions.sh" \
+SUPERVISION_OUT=$("$SCRIPT_DIR/fm-supervision-instructions.sh" \
   --harness "$PRIMARY_HARNESS" \
   --read-only "$READ_ONLY" \
   --afk "$AFK_PRESENT" \
   --afk-mode "$AFK_MODE" \
-  --x-mode "$X_MODE_PRESENT"
+  --x-mode "$X_MODE_PRESENT")
+SUPERVISION_BYTES=${FM_SESSION_START_SUPERVISION_BYTES:-1200}
+case "$SUPERVISION_BYTES" in ''|*[!0-9]*|0) SUPERVISION_BYTES=1200 ;; esac
+if [ "${#SUPERVISION_OUT}" -le "$SUPERVISION_BYTES" ]; then
+  printf '%s\n' "$SUPERVISION_OUT"
+else
+  printf '%s\n' "$SUPERVISION_OUT" | head -c "$SUPERVISION_BYTES"
+  printf '\n(supervision block bounded to %s bytes; full protocol: bin/fm-supervision-instructions.sh --harness %s)\n' "$SUPERVISION_BYTES" "$PRIMARY_HARNESS"
+fi
 
 # --- 5. read-once contract -------------------------------------------------
 # Ahead of the two digests it governs, not after them: a truncated tail is
@@ -1680,13 +1783,14 @@ state instead of the record dump: each state/*.meta reduced to its endpoint,
 heads, and PR state, each state/*.status to its latest event, counts, open
 decision keys, and receipt paths, and data/backlog.md to group counts plus the
 rows the state budget fits. data/projects.md, data/secondmates.md,
-data/captain.md, data/captain-shared.md, and data/learnings.md print in full.
+data/captain.md, data/captain-shared.md, and data/learnings.md are bounded
+to the first lines per file, each with a count and full-source pointer.
 EOF
 else
   cat <<'EOF'
-Everything below is printed in full for this session start: every state/*.meta
-(dead-endpoint records with no status file are collapsed to a count and ids),
-a compact data/backlog.md listing, a bounded tail of every state/*.status,
+Everything below is capped for this session start (10 KB total): state/*.meta,
+backlog groups, and context files print one capped line per item, bounded per
+block, with a shown/total count and a pointer to the full source:
 data/projects.md, data/secondmates.md, data/captain.md, data/captain-shared.md,
 and data/learnings.md.
 EOF
@@ -1696,21 +1800,11 @@ Do NOT re-read any of them after reading this digest, and do NOT bulk-read
 data/backlog.md or state/*.status: re-reading everything defeats the entire
 point of this command.
 
-Go to a source directly only when:
-  - this digest flagged it ABSENT (then rebuild or create it per AGENTS.md),
-  - its contents looked unparseable or corrupt,
-  - an individual full status log is needed for older wake-event history, or a
-    status line was capped and its tail matters (each task's full log path is
-    printed with its tail),
-  - a full task body is needed (bin/fm-tasks-axi.sh show <id> --full, or data/backlog.md),
-  - a listing disclosed omitted items (queued rows, or what a re-emit's state
-    budget cut) and this turn needs them,
-  - the NETWORK CHECKS section reported its checks still IN PROGRESS and this
-    turn needs their verdict (bin/fm-startup-network.sh report),
-  - or a STARTUP TRUNCATED banner named the stage that would have printed it, in
-    which case that stage's sources were never emitted and must be reconciled,
-  - or a context re-emit opened with a read cue because the
-    harness cut the digest short.
+Go to a source directly only when: it was flagged ABSENT, looked corrupt, a
+full status log or task body is needed, a listing disclosed omitted items, a
+status line was capped and its tail matters, NETWORK CHECKS are IN PROGRESS
+(bin/fm-startup-network.sh report), or a re-emit opened with a read cue.
+STARTUP TRUNCATED banner named the stage that would have printed it.
 EOF
 
 # --- 6. fleet-state digest ---------------------------------------------
