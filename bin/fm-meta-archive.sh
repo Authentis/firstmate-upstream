@@ -8,6 +8,8 @@
 # manifest (original paths, fingerprints, reason, evidence, restore command).
 # Every candidate must be older than 72 hours, not kind=secondmate, and have
 # positive evidence: backlog state=done or a GitHub PR API state=closed.
+# A candidate naming a PR needs that terminal PR evidence; backlog state
+# alone never archives a lane whose PR is open or unverifiable.
 # Missing/unreachable/unreadable evidence keeps the record. A missing backlog
 # row is not closed evidence. Local endpoints must be positively absent.
 # Remote endpoint records additionally require the configured owning host's
@@ -148,6 +150,12 @@ eligible() {
     [ "$REASON" = terminal-github-pr ] || return 1
     EVIDENCE=$(jq -cn --argjson pr "$EVIDENCE" '{pr:$pr, endpoint:"windowless-pr-poll-registration"}')
     return 0
+  fi
+  # A lane naming a PR is archivable only on terminal PR evidence. An open
+  # PR (or one whose state cannot be proven closed) is never overridden by
+  # backlog state: skip the lane and retry on a later pass.
+  if [ -n "$pr" ] && [ "$REASON" != 'terminal-github-pr' ]; then
+    return 1
   fi
   if [ -z "$REASON" ] && fm_backlog_row_probe "$DATA" "$id" >/dev/null 2>&1 && [ "$FM_BACKLOG_ROW_STATE" = 'done no no' ]; then
     REASON=closed-backlog-task

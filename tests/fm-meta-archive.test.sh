@@ -251,3 +251,23 @@ bash "$TMP_ROOT/transport-bin/fm-meta-archive.sh" --apply remote-confirmed > /de
 remote_manifest=$(find "$HOME_DIR/state/meta-archive" -path '*remote-confirmed-*/manifest.json' | head -1)
 jq -e '.evidence.owner == "bosgame" and .evidence.owner_response == "lane-gone:remote-confirmed"' "$remote_manifest" > /dev/null || fail 'owner evidence not retained'
 pass 'remote endpoints require an exact owning-host absence response; unknown keeps'
+# A lane naming a PR needs terminal PR evidence; backlog done alone must
+# not archive it when the PR is open. Closed-PR and no-PR done lanes archive.
+cat > "$TMP_ROOT/fakebin/tasks-axi" <<'FAKE'
+#!/usr/bin/env bash
+[ "$1" = show ] || exit 1
+case "$2" in
+  openpr|closedpr|nopr) printf '  state: done\n  held: no\n  blocked: no\n' ;;
+  *) printf 'code: NOT_FOUND\n'; exit 1 ;;
+esac
+FAKE
+chmod +x "$TMP_ROOT/fakebin/tasks-axi"
+printf 'kind=ship\nwindow=fm:gone\npr=https://github.com/example/repo/pull/2\n' > "$HOME_DIR/state/openpr.meta"
+printf 'kind=ship\nwindow=fm:gone\npr=https://github.com/example/repo/pull/1\n' > "$HOME_DIR/state/closedpr.meta"
+printf 'kind=ship\nwindow=fm:gone\n' > "$HOME_DIR/state/nopr.meta"
+for id in openpr closedpr nopr; do touch -t 202001010000 "$HOME_DIR/state/$id.meta"; done
+archive --apply openpr closedpr nopr > "$TMP_ROOT/openpr" 2>&1
+[ -f "$HOME_DIR/state/openpr.meta" ] || fail 'open-PR lane archived on backlog done alone'
+[ ! -e "$HOME_DIR/state/closedpr.meta" ] || fail 'closed-PR lane not archived'
+[ ! -e "$HOME_DIR/state/nopr.meta" ] || fail 'no-PR backlog-done lane not archived'
+pass 'open-PR lane skipped despite backlog done; closed-PR and no-PR lanes archived'
