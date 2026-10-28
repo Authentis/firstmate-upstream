@@ -143,10 +143,13 @@
 #   - `done` rows are never listed. Retained completion history belongs to the
 #     reporting surfaces (bin/fm-bearings-snapshot.sh, /ahoy), and at startup it
 #     is pure weight - 10 done rows cost 3.3KB in an observed main-home digest.
-#   - Every in-flight, held, and blocked row is listed IN FULL, with its
-#     hold_kind/hold_reason and blocked_by. Those are the rows AGENTS.md
-#     sections 7 and 10 make actionable at startup, so they are never bounded
-#     away.
+#   - Every in-flight, held, and blocked row is listed, never bounded away
+#     (AGENTS.md sections 7 and 10 make them actionable at startup), but each
+#     prints as ONE line: "id | state | reason | full: backlog.md". The reason
+#     is the decoded hold reason (or blocked_by when there is none) with line
+#     breaks collapsed and cut at BACKLOG_REASON_CHARS characters with an
+#     ellipsis. The record itself is untouched; the full row is
+#     data/backlog.md or `bin/fm-tasks-axi.sh show <id> --full`.
 #   - Only the plain queued (dispatchable-now) listing is bounded, by
 #     FM_SESSION_START_QUEUED_LIMIT, default 20. Anything it omits is disclosed
 #     with an exact remainder count and the command that shows the rest, so a
@@ -470,6 +473,7 @@ ENDPOINT_TIMEOUT=${FM_SESSION_START_ENDPOINT_TIMEOUT:-10}
 case "$ENDPOINT_TIMEOUT" in ''|*[!0-9]*) ENDPOINT_TIMEOUT=10 ;; esac
 [ "$ENDPOINT_TIMEOUT" -gt 0 ] 2>/dev/null || ENDPOINT_TIMEOUT=10
 BACKLOG_FIELDS=blocked_by,hold_kind,hold_reason
+BACKLOG_REASON_CHARS=100
 
 RULE='================================================================================'
 SUBRULE='--------------------------------------------------------------------------------'
@@ -508,9 +512,77 @@ print_backlog_pointer() {
 # because awk's -v applies escape processing before the regex is ever compiled.
 MANUAL_KEEP_RE='[(]hold|blocked-by:'
 
+# oneline_backlog_rows toon|markdown: print each in-flight, held, and blocked
+# row as "id | state | reason | full: backlog.md". The reason is read AFTER
+# fm_hold_reason_decode_stream, so a marked hold reason shows decoded, then
+# collapsed to one line and cut at BACKLOG_REASON_CHARS with an ellipsis.
+# toon: the rows under a tasks[N]{...} header; every other line passes through.
+# markdown: only lines the manual renderer tagged with a leading \001<state>\001.
+oneline_backlog_rows() {
+  perl -MJSON::PP -e '
+    use strict;
+    use warnings;
+    binmode STDIN, ":encoding(UTF-8)";
+    binmode STDOUT, ":encoding(UTF-8)";
+    my ($format, $max) = @ARGV;
+    my $json = JSON::PP->new->allow_nonref;
+    sub reason_text {
+      my ($text) = @_;
+      if ($text =~ /^"/) { my $v = eval { $json->decode($text) }; $text = $v if defined $v; }
+      $text =~ s/\s+/ /g;
+      $text =~ s/^ | $//g;
+      $text = "-" if $text eq "";
+      $text = substr($text, 0, $max) . "..." if length($text) > $max;
+      return $text;
+    }
+    sub emit {
+      my ($id, $state, $reason) = @_;
+      print "  $id | $state | ", reason_text($reason), " | full: backlog.md\n";
+    }
+    my @names;
+    while (my $line = <STDIN>) {
+      chomp $line;
+      if ($format eq "markdown") {
+        if ($line =~ s/^\x01([a-z_]+)\x01//) {
+          my $state = $1;
+          my ($id) = $line =~ /^[-*]\s+\[[^\]]*\]\s+(\S+)/;
+          $id = "?" unless defined $id;
+          my $reason = "-";
+          if ($line =~ /\(hold: (.*)$/) {
+            $reason = $1;
+            $reason =~ s/\)\s*\(hold-kind:[^)]*\)\s*$//;
+            $reason =~ s/\)\s*$//;
+          } elsif ($line =~ /(blocked-by: [^\s()]+)/) {
+            $reason = $1;
+          }
+          emit($id, $state, $reason);
+        } else {
+          print "$line\n";
+        }
+      } elsif ($line =~ /^tasks\[(\d+)\]\{([^}]*)\}:$/) {
+        @names = split /,/, $2;
+        print "tasks[$1]{id,state,reason}:\n";
+      } elsif (@names && $line =~ /^  (.*)$/) {
+        my @f = $1 =~ /("(?:[^"\\]|\\.)*"|[^,]+)/g;
+        my %row;
+        @row{@names} = @f;
+        my $reason = defined $row{hold_reason} ? $row{hold_reason} : "-";
+        $reason = "-" if $reason eq q("-");
+        if (($reason eq "-" || $reason eq "") && defined $row{blocked_by} && $row{blocked_by} !~ /^(none|-)$/) {
+          $reason = "blocked-by: $row{blocked_by}";
+        }
+        emit($row{id}, $row{state}, $reason);
+      } else {
+        @names = () if $line !~ /^  /;
+        print "$line\n";
+      }
+    }
+  ' "$1" "$BACKLOG_REASON_CHARS"
+}
+
 print_backlog_manual_compact() {
   local path=$1 reason=$2
-  printf 'compact backlog listing (%s; done rows omitted; every in-flight, held, and blocked title line kept; other queued bounded to %s; indented task bodies omitted)\n' \
+  printf 'compact backlog listing (%s; done rows omitted; every in-flight, held, and blocked row kept as one line; other queued bounded to %s; indented task bodies omitted)\n' \
     "$reason" "$QUEUED_LIMIT"
   awk -v max="$QUEUED_LIMIT" -v keep_re="$MANUAL_KEEP_RE" '
     function state_for_heading(line, heading) {
@@ -528,11 +600,11 @@ print_backlog_manual_compact() {
       if (state != "" && state != "done") print $0
       next
     }
-    state == "in_flight" && /^[-*][[:space:]]+/ { in_flight++; print $0; next }
+    state == "in_flight" && /^[-*][[:space:]]+/ { in_flight++; print "\001in_flight\001" $0; next }
     state == "done" && /^[-*][[:space:]]+/ { done_total++; next }
     state == "queued" && /^[-*][[:space:]]+/ {
       queued_total++
-      if ($0 ~ keep_re) { gated++; print $0; next }
+      if ($0 ~ keep_re) { gated++; print "\001queued\001" $0; next }
       if (plain_shown < max) { plain_shown++; print $0 }
       next
     }
@@ -548,7 +620,7 @@ print_backlog_manual_compact() {
         }
       }
     }
-  ' "$path" | fm_hold_reason_decode_stream markdown
+  ' <(fm_hold_reason_decode_stream markdown < "$path") | oneline_backlog_rows markdown
 }
 
 # tasks-axi closes every listing with its own help block. This section composes
@@ -597,14 +669,14 @@ print_backlog_tasks_axi_compact() {
   elif ! ready=$(tasks-axi ready --file "$path" 2>&1); then
     err=$ready
   else
-    printf 'compact backlog listing (tasks-axi; done rows omitted; every in-flight, held, and blocked row shown in full; ready queued bounded to %s; task bodies omitted)\n' \
+    printf 'compact backlog listing (tasks-axi; done rows omitted; every in-flight, held, and blocked row shown as one line; ready queued bounded to %s; task bodies omitted)\n' \
       "$QUEUED_LIMIT"
     printf '\nin flight:\n'
-    printf '%s\n' "$in_flight" | fm_hold_reason_decode_stream | strip_axi_help
+    printf '%s\n' "$in_flight" | fm_hold_reason_decode_stream | strip_axi_help | oneline_backlog_rows toon
     printf '\nheld (captain- or time-gated; an in-flight item that is also held appears in both groups):\n'
-    printf '%s\n' "$held" | fm_hold_reason_decode_stream | strip_axi_help
+    printf '%s\n' "$held" | fm_hold_reason_decode_stream | strip_axi_help | oneline_backlog_rows toon
     printf '\nblocked queued:\n'
-    printf '%s\n' "$blocked" | fm_hold_reason_decode_stream | strip_axi_help
+    printf '%s\n' "$blocked" | fm_hold_reason_decode_stream | strip_axi_help | oneline_backlog_rows toon
     printf '\nready queued (dispatchable now):\n'
     print_ready_queued_bounded "$ready"
     return 0

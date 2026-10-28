@@ -2161,15 +2161,15 @@ EOF
   out=$(FM_FAKE_TASKS_AXI_LOG="$log" FM_FAKE_TASKS_AXI_READY=3 \
     run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
 
-  assert_contains "$out" "compact backlog listing (tasks-axi; done rows omitted; every in-flight, held, and blocked row shown in full; ready queued bounded to 20; task bodies omitted)" \
+  assert_contains "$out" "compact backlog listing (tasks-axi; done rows omitted; every in-flight, held, and blocked row shown as one line; ready queued bounded to 20; task bodies omitted)" \
     "compatible tasks-axi backend did not render the compact backlog listing"
-  assert_contains "$out" "tasks[1]{id,state,kind,repo,title,blocked_by,hold_kind,hold_reason}:" \
-    "tasks-axi compact listing omitted the expected structured field header"
-  assert_contains "$out" "compact-startup,in_flight,ship,firstmate,Compact startup digest,none,captain,captain choice pending" \
+  assert_contains "$out" "tasks[1]{id,state,reason}:" \
+    "tasks-axi compact listing omitted the expected one-line field header"
+  assert_contains "$out" "compact-startup | in_flight | captain choice pending | full: backlog.md" \
     "tasks-axi compact listing omitted in-flight identity, state, or hold metadata"
-  assert_contains "$out" "held-queued,queued,ship,firstmate,Held queued work,none,captain,captain choice pending" \
+  assert_contains "$out" "held-queued | queued | captain choice pending | full: backlog.md" \
     "tasks-axi compact listing omitted a held row or its hold metadata"
-  assert_contains "$out" 'blocked-followup,queued,scout,firstmate,Follow compact startup,compact-startup,"-","-"' \
+  assert_contains "$out" "blocked-followup | queued | blocked-by: compact-startup | full: backlog.md" \
     "tasks-axi compact listing omitted blocked-by metadata"
   assert_contains "$out" "ready-3,queued,ship,firstmate,Ready item 3" \
     "tasks-axi compact listing omitted a dispatchable queued row inside the bound"
@@ -2226,11 +2226,11 @@ EOF
     "the bounded queued listing did not disclose an exact remainder and how to see it"
 
   # The bound is for dispatchable work only: held and blocked rows stay whole.
-  assert_contains "$out" "held-queued,queued,ship,firstmate,Held queued work,none,captain,captain choice pending" \
+  assert_contains "$out" "held-queued | queued | captain choice pending | full: backlog.md" \
     "the queued bound swallowed a held row"
-  assert_contains "$out" 'blocked-followup,queued,scout,firstmate,Follow compact startup,compact-startup,"-","-"' \
+  assert_contains "$out" "blocked-followup | queued | blocked-by: compact-startup | full: backlog.md" \
     "the queued bound swallowed a blocked row"
-  assert_contains "$out" "compact-startup,in_flight,ship,firstmate,Compact startup digest,none,captain,captain choice pending" \
+  assert_contains "$out" "compact-startup | in_flight | captain choice pending | full: backlog.md" \
     "the queued bound swallowed an in-flight row"
 
   pass "the startup backlog bound cuts only dispatchable queued rows and discloses the remainder exactly"
@@ -2249,17 +2249,17 @@ EOF
 
   out=$(FM_SESSION_START_QUEUED_LIMIT=4 run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
 
-  assert_contains "$out" "compact backlog listing (manual backend; done rows omitted; every in-flight, held, and blocked title line kept; other queued bounded to 4; indented task bodies omitted)" \
+  assert_contains "$out" "compact backlog listing (manual backend; done rows omitted; every in-flight, held, and blocked row kept as one line; other queued bounded to 4; indented task bodies omitted)" \
     "manual backend did not use compact title-line rendering"
   assert_contains "$out" "## In flight" "manual compact rendering omitted the in-flight section heading"
-  assert_contains "$out" "- [ ] compact-startup - Compact startup digest" \
-    "manual compact rendering omitted the in-flight title line"
-  assert_contains "$out" "(hold: captain choice pending) (hold-kind: captain)" \
-    "manual compact rendering omitted hold metadata"
-  assert_contains "$out" "blocked-by: compact-startup - waits for implementation" \
-    "manual compact rendering omitted blocker metadata"
-  assert_contains "$out" "- [ ] held-queued - Held queued work" \
-    "manual compact rendering dropped a held queued title line"
+  assert_contains "$out" "compact-startup | in_flight | captain choice pending | full: backlog.md" \
+    "manual compact rendering omitted the one-line in-flight hold row"
+  assert_contains "$out" "blocked-followup | queued | blocked-by: compact-startup | full: backlog.md" \
+    "manual compact rendering omitted the one-line blocked row"
+  assert_contains "$out" "held-queued | queued | captain choice pending | full: backlog.md" \
+    "manual compact rendering dropped a held queued row"
+  assert_not_contains "$out" "(hold-kind: captain)" \
+    "manual compact rendering still printed a full held title line"
   assert_not_contains "$out" "OVERSIZED-BODY-LINE" "manual compact digest leaked an in-flight task body"
   assert_not_contains "$out" "QUEUED-BODY-LINE" "manual compact digest leaked a queued task body"
   assert_not_contains "$out" "DONE-ROW-LINE" "manual compact digest listed a done row at startup"
@@ -2277,6 +2277,37 @@ EOF
   pass "manual backlog rendering drops done rows, keeps every held or blocked title line, and bounds the rest"
 }
 
+# A long marked hold reason with an embedded line break prints decoded, collapsed
+# to one line, cut at 100 characters with an ellipsis, and followed by the
+# full-record pointer, while the record on disk is left untouched.
+test_backlog_long_hold_reason_prints_one_truncated_line() {
+  local rec root home fakebin out before
+  rec=$(new_world backlog-long-hold-reason)
+  IFS='|' read -r root home fakebin <<EOF
+$rec
+EOF
+  make_fake_toolchain "$fakebin"
+  make_fake_ps_claude "$fakebin"
+  printf '%s\n' manual > "$home/config/backlog-backend"
+  cat > "$home/data/backlog.md" <<'BL'
+# Backlog
+
+## Queued
+- [ ] long-hold - Long hold (repo: firstmate) (kind: captain) (hold: fm-hold-v1:Rmlyc3QgbGluZSBvZiBhIGRlbGliZXJhdGVseSBsb25nIGNhcHRhaW4gaG9sZCByZWFzb24gdGhhdCBrZWVwcyBnb2luZyBwYXN0IHRoZSBvbmUgaHVuZHJlZCBjaGFyYWN0ZXIgY3V0LgpTRUNPTkQtTElORS1NQVJLRVIgZm9sbG93cy4=) (hold-kind: captain)
+BL
+  before=$(cat "$home/data/backlog.md")
+
+  out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
+
+  assert_contains "$out" "long-hold | queued | First line of a deliberately long captain hold reason that keeps going past the one hundred characte... | full: backlog.md" \
+    "a long hold reason was not printed as one truncated line with the full-record pointer"
+  assert_not_contains "$out" "SECOND-LINE-MARKER" "the truncated hold reason leaked text past the cut"
+  assert_not_contains "$out" "fm-hold-v1:" "the hold reason was printed undecoded"
+  [ "$before" = "$(cat "$home/data/backlog.md")" ] || fail "printing the digest rewrote the backlog record"
+
+  pass "a long marked hold reason prints decoded, collapsed, and cut to one line with the full-record pointer"
+}
+
 test_backlog_compact_tasks_axi_unavailable_uses_manual_fallback() {
   local rec root home fakebin out
   rec=$(new_world backlog-compact-unavailable)
@@ -2291,8 +2322,8 @@ EOF
 
   assert_contains "$out" "compact backlog listing (tasks-axi unavailable or incompatible; done rows omitted;" \
     "unavailable tasks-axi did not fall back to compact title-line rendering"
-  assert_contains "$out" "- [ ] compact-startup - Compact startup digest" \
-    "unavailable tasks-axi fallback omitted a backlog title line"
+  assert_contains "$out" "compact-startup | in_flight | captain choice pending | full: backlog.md" \
+    "unavailable tasks-axi fallback omitted a backlog row"
   assert_not_contains "$out" "OVERSIZED-BODY-LINE" "unavailable tasks-axi fallback leaked an in-flight task body"
   assert_not_contains "$out" "DONE-ROW-LINE" "unavailable tasks-axi fallback listed a done row at startup"
 
@@ -3645,6 +3676,7 @@ test_session_start_seeds_the_outcome_display_tail_while_away
 test_backlog_compact_tasks_axi_omits_bodies_and_keeps_metadata
 test_backlog_queued_bound_discloses_its_remainder
 test_backlog_compact_manual_backend_skips_indented_bodies
+test_backlog_long_hold_reason_prints_one_truncated_line
 test_backlog_compact_tasks_axi_unavailable_uses_manual_fallback
 test_fleet_digest_empty_fleet
 test_next_step_sources_x_mode_cadence
