@@ -159,7 +159,7 @@ After an autonomous merge, give the captain a one-line full-URL or local-main ou
 ### Lifecycle skill triggers
 
 - Load `validation-supervision` when a ship starts or already has an active no-mistakes validation run, including a mid-run requirement change or finding.
-- Full test suites, families, and lanes run only on the portable-lane host (netcup); `bin/fm-test-run.sh` owns lane selection.
+- Full test suites, families, and lanes run only on the portable-lane host (netcup); a Mac runs only Darwin-only tests under `taskpolicy -b`; `bin/fm-test-run.sh` owns selection.
 - Load `ship-landing` when a ship reports a PR or ready branch, when deciding or monitoring landing, and before task cleanup.
 - Load `scout-completion` when a scout reports completion, presents a visual artifact for iteration, or is being considered for promotion to implementation.
 
