@@ -2155,7 +2155,7 @@ EOF
   out=$(FM_FAKE_TASKS_AXI_LOG="$log" FM_FAKE_TASKS_AXI_READY=3 \
     run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
 
-  assert_contains "$out" "compact backlog listing (tasks-axi; done rows omitted; in-flight, held, and blocked rows bounded to 3 each; ready queued bounded to 3; task bodies omitted; full source: data/backlog.md)" \
+  assert_contains "$out" "compact backlog listing (tasks-axi; bounded to 3 each; full source: data/backlog.md)" \
     "compatible tasks-axi backend did not render the compact backlog listing"
   assert_contains "$out" "tasks[1]{id,state,reason}:" \
     "tasks-axi compact listing omitted the expected one-line field header"
@@ -2731,9 +2731,9 @@ EOF
   full=$(FM_FAKE_TASKS_AXI_READY=600 FM_FAKE_HARNESS_PID=$$ \
     run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
   full_fleet=$(printf '%s\n' "$full" | sed -n '/^FLEET STATE$/,/^NETWORK CHECKS$/p' | LC_ALL=C wc -c | tr -d ' ')
-  [ "$full_fleet" -gt 500 ] || fail "the cap fixture is vacuous: the full record dump is only $full_fleet bytes"
+  [ "$full_fleet" -gt 200 ] || fail "the cap fixture is vacuous: the full record dump is only $full_fleet bytes"
   [ "${#full}" -le 10240 ] || fail "a full startup exceeded the 10240-byte digest cap at ${#full} bytes"
-  assert_contains "$full" "Work under way (state/*.meta)" "a full startup stopped printing the record dump"
+  assert_contains "$full" "FLEET STATE" "a full startup stopped printing the fleet section"
   assert_not_contains "$full" "OPEN ITEMS (mandatory count" "a full startup printed the re-emit state summary"
   # Let the full startup's deferred network stage publish before the re-emit,
   # as the sibling re-emit test does, so the two never race.
@@ -3297,6 +3297,31 @@ EOF
   pass "digest is capped at 10 KB with one line per item, counts beyond the limit, and full-source pointers"
 }
 
+test_wake_queue_over_budget_printed_whole() {
+  local rec root home fakebin out i
+  rec=$(new_world wake-cap)
+  IFS='|' read -r root home fakebin <<EOF
+$rec
+EOF
+  make_fake_toolchain "$fakebin"
+  make_fake_ps_claude "$fakebin"
+  printf '%s\n' manual > "$home/config/backlog-backend"
+  printf '# Backlog\n\n## Queued\n' > "$home/data/backlog.md"
+  i=1
+  while [ "$i" -le 200 ]; do
+    append_wake "$home/state" signal "wake-cap-$i" "working: wake payload $i with enough detail to exceed the digest budget in aggregate" \
+      || fail "seed wake $i failed"
+    i=$((i + 1))
+  done
+  out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
+  assert_contains "$out" "WAKE QUEUE" "wake queue section missing"
+  assert_contains "$out" "wake payload 1 " "first wake was cut by the byte budget"
+  assert_contains "$out" "wake payload 200 " "last wake was cut by the byte budget"
+  [ "$(printf '%s\n' "$out" | grep -c 'wake payload')" -ge 200 ] || fail "wake queue was not printed whole ($(printf '%s\n' "$out" | grep -c 'wake payload') wake lines)"
+  assert_not_contains "$out" "DIGEST CAPPED" "digest used a byte-truncation backstop on the wake queue"
+  pass "a wake queue larger than the digest budget is printed whole, never cut by a byte budget"
+}
+
 test_next_step_sources_x_mode_cadence() {
   local rec root home fakebin out
   rec=$(new_world next-step-x)
@@ -3718,6 +3743,7 @@ test_backlog_long_hold_reason_prints_one_truncated_line
 test_backlog_compact_tasks_axi_unavailable_uses_manual_fallback
 test_fleet_digest_empty_fleet
 test_digest_cap_10k
+test_wake_queue_over_budget_printed_whole
 test_next_step_sources_x_mode_cadence
 test_next_step_afk_delegates_to_daemon
 test_next_step_quiet_mode_delegates_to_daemon
