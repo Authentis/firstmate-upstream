@@ -1,0 +1,2 @@
+MATCH: You've hit your weekly limit · resets Mon
+no match: chatting about weekly limit
