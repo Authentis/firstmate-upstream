@@ -25,6 +25,18 @@
 #              batch once its oldest row is FM_WAKE_BATCH_SECS (default 900)
 #              old and no digest wake was raised inside that window - at most
 #              one batched turn per window.
+#   relay-batch explicitly designated parent routine relay spans, only with
+#              config/wake-relay-batch=on: each line has [relay-batch] and a
+#              valid [corr=<16hex>] header, a working/paused/note/done/resolved
+#              verb, and no reserved urgent vocabulary after that verb.
+#              Metadata is limited to these tags and optional [at=<epoch>].
+#              Only secondmate status files qualify, and every changed line
+#              must qualify. These rows use the SAME queue/batch record with a
+#              fixed 3600-second window, independent of FM_WAKE_BATCH_SECS.
+#              Any urgent wake can carry all held evidence into its drain.
+#              The absent/off/invalid/unreadable switch keeps existing behavior;
+#              switching off (or disabling classification) delivers held relay
+#              rows on the next digest tick without acknowledging any row.
 #   urgent     everything else, flowing exactly as before: every worker status
 #              line, stalls, heartbeats, merge and PR results, captain inbox
 #              notes, process-event results, recovery, and any custom-check
@@ -37,7 +49,7 @@
 # custom check: mail, merge, and growth checks all arrive as custom checks and
 # carry things the captain waits on, so only a named reporter may wait.
 #
-# BATCH RECORD. "<seq>\t<epoch>\tnonurgent" lines in $STATE/.wake-batch, appended
+# BATCH RECORD. "<seq>\t<epoch>\t<nonurgent|relay-batch>" lines in $STATE/.wake-batch, appended
 # under the queue lock atomically with the queue row (fm_wake_batch_append). It
 # is deliberately separate from the fold record: the Pi branch dispatcher and
 # the supervision host read that record as "foldable", and a batched row is an
@@ -101,11 +113,61 @@ fm_wake_classify_enabled() {
   [ "$value" = on ]
 }
 
+# Relay batching is deliberately a second opt-in, independent of reporter checks.
+# Every nonblank line in a secondmate's changed span must explicitly designate
+# a relay, carry a valid correlation token, and have a known non-urgent verb.
+# The reserved urgency vocabulary cannot be weakened by FM_WAKE_URGENT_RE.
+fm_wake_relay_batch_enabled() {
+  local file="$FM_WAKE_CLASSIFY_CONFIG_DIR/wake-relay-batch" value
+  [ -f "$file" ] && [ -r "$file" ] && [ ! -L "$file" ] || return 1
+  value=$(tr -d '[:space:]' < "$file" 2>/dev/null) || return 1
+  [ "$value" = on ]
+}
+
+fm_wake_relay_files_batchable() {  # <status-file> ...
+  local f id start size chunk line prefix verb seen=0 rc
+  fm_wake_relay_batch_enabled || return 1
+  [ "$#" -gt 0 ] || return 1
+  for f in "$@"; do
+    case "$f" in *.status) ;; *) return 1 ;; esac
+    [ -f "$f" ] && [ -r "$f" ] && [ ! -L "$f" ] || return 1
+    id=${f##*/}; id=${id%.status}
+    [ "$(fm_meta_get "$STATE/$id.meta" kind 2>/dev/null)" = secondmate ] || return 1
+    start=$(fm_wake_signal_seen_size "$STATE" "$f")
+    size=$(_fm_status_file_size "$f") || return 1
+    size=${size//[[:space:]]/}
+    case "$start:$size" in *[!0-9:]*|:*|*:) return 1 ;; esac
+    [ "$start" -le "$size" ] || start=0
+    [ "$start" -lt "$size" ] || return 1
+    # Sentinel preserves trailing newlines; the byte count rejects binary data
+    # and short reads instead of classifying a truncated safe prefix.
+    chunk=$(_fm_status_read_span "$f" "$start" "$((size - start))" && printf '.') || return 1
+    chunk=${chunk%.}
+    [ "$(printf '%s' "$chunk" | LC_ALL=C wc -c | tr -d '[:space:]')" = "$((size - start))" ] || return 1
+    while IFS= read -r line || [ -n "$line" ]; do
+      case "$line" in *[![:space:]]*) ;; *) continue ;; esac
+      prefix=${line%%:*}
+      printf '%s\n' "$line" | LC_ALL=C grep -Eq '^(working|paused|note|done|resolved)([[:space:]]+\[(relay-batch|corr=[A-Fa-f0-9]{16}|at=[0-9]+)\])+[[:space:]]*:' || return 1
+      case "$prefix" in *'[relay-batch]'*) ;; *) return 1 ;; esac
+      printf '%s\n' "$prefix" | LC_ALL=C grep -Eq '\[corr=[A-Fa-f0-9]{16}\]' || return 1
+      verb=${line%%[[:space:]]*}
+      printf '%s' "${line#"$verb"}" | LC_ALL=C grep -Eiq -- "$FM_WAKE_URGENT_RE_DEFAULT|(^|[^[:alnum:]])check[[:space:]]*:"
+      rc=$?
+      [ "$rc" -eq 1 ] || return 1
+      seen=1
+    done <<EOF
+$chunk
+EOF
+  done
+  [ "$seen" -eq 1 ]
+}
+
 # fm_wake_classify <kind> <key> <payload> [hint]
-# Print routine, nonurgent, or urgent. <hint> is one of:
+# Print routine, nonurgent, relay-batch, or urgent. <hint> is one of:
 #   fold:own-outbound | fold:check-repeat   the fold record's class for the row
 #   batch-check                             new output of an opted-in reporter check
 #   secondmate-progress                     secondmate files with no captain-relevant event
+#   relay-batch                             verified explicit routine parent relay spans
 # Anything else, including no hint, is urgent.
 fm_wake_classify() {
   local kind=${1:-} payload=${3:-} hint=${4:-} re
@@ -124,6 +186,13 @@ fm_wake_classify() {
         1) printf 'nonurgent\n' ;;
         *) printf 'urgent\n' ;;
       esac
+      ;;
+    relay-batch)
+      if [ "$kind" = signal ] && fm_wake_relay_batch_enabled; then
+        printf 'relay-batch\n'
+      else
+        printf 'urgent\n'
+      fi
       ;;
     secondmate-progress)
       if [ "$kind" = signal ]; then printf 'nonurgent\n'; else printf 'urgent\n'; fi
@@ -163,7 +232,7 @@ fm_wake_measure() {
 fm_wake_measure_turn() {  # <reason>
   case "$1" in
     # A batched digest starts its window only once it was actually delivered.
-    'check: wake digest: '*' batched non-urgent'*) fm_wake_batch_digest_mark; fm_wake_measure turn batched-digest "$1" ;;
+    'check: wake digest: '*' batched non-urgent'*) fm_wake_batch_digest_mark "$1"; fm_wake_measure turn batched-digest "$1" ;;
     'check: wake digest'*) fm_wake_measure turn fold-digest "$1" ;;
     *) fm_wake_measure turn urgent "$1" ;;
   esac
@@ -186,12 +255,13 @@ fm_wake_measure_summary() {
     }' "$FM_WAKE_MEASURE_LOG" 2>/dev/null
 }
 
-# fm_wake_batch_append <kind> <key> <payload>
+# fm_wake_batch_append <kind> <key> <payload> [nonurgent|relay-batch]
 # Queue one non-urgent row and record it as batched, atomically under the queue
 # lock. A row identical to one still queued adds nothing the drain would not
 # already present, so it is not appended again.
 fm_wake_batch_append() {
-  local kind=$1 key=$2 payload=$3 status=0 seq clean_key clean_payload
+  local kind=$1 key=$2 payload=$3 class=${4:-nonurgent} status=0 seq clean_key clean_payload
+  case "$class" in nonurgent|relay-batch) ;; *) return 1 ;; esac
   clean_key=$(printf '%s' "$key" | fm_wake_clean_field)
   clean_payload=$(printf '%s' "$payload" | fm_wake_clean_field)
   fm_lock_acquire_wait "$FM_WAKE_QUEUE_LOCK" || return 1
@@ -207,14 +277,14 @@ fm_wake_batch_append() {
     case "$seq" in ''|*[!0-9]*) status=1 ;; esac
   fi
   if [ "$status" -eq 0 ]; then
-    printf '%s\t%s\tnonurgent\n' "$seq" "$(date +%s)" >> "$FM_WAKE_BATCH_RECORD" || status=$?
+    printf '%s\t%s\t%s\n' "$seq" "$(date +%s)" "$class" >> "$FM_WAKE_BATCH_RECORD" || status=$?
   fi
   fm_lock_release "$FM_WAKE_QUEUE_LOCK"
-  [ "$status" -ne 0 ] || fm_wake_measure batched nonurgent "$kind $key"
+  [ "$status" -ne 0 ] || fm_wake_measure batched "$class" "$kind $key"
   return "$status"
 }
 
-# Print "<seq>\t<epoch>" for every batched row still queued, and prune record
+# Print "<seq>\t<epoch>\t<class>" for every batched row still queued, and prune record
 # lines whose row is gone. Caller holds FM_WAKE_QUEUE_LOCK.
 _fm_wake_batch_live_locked() {
   local tmp
@@ -222,7 +292,7 @@ _fm_wake_batch_live_locked() {
   tmp=$(mktemp "$STATE/.wake-batch.tmp.XXXXXX") || return 1
   awk -F '\t' -v keep="$tmp" '
     FNR == NR { if (NF >= 5 && $2 ~ /^[0-9]+$/) queued[$2] = 1; next }
-    $1 ~ /^[0-9]+$/ && ($1 in queued) && !seen[$1]++ { print > keep; print $1 "\t" $2 }
+    $1 ~ /^[0-9]+$/ && ($1 in queued) && !seen[$1]++ { print > keep; print $1 "\t" $2 "\t" $3 }
   ' "$FM_WAKE_QUEUE" "$FM_WAKE_BATCH_RECORD" 2>/dev/null || { rm -f -- "$tmp"; return 1; }
   if [ -s "$tmp" ]; then
     _fm_atomic_replace "$tmp" "$FM_WAKE_BATCH_RECORD" || { rm -f -- "$tmp"; return 1; }
@@ -232,29 +302,43 @@ _fm_wake_batch_live_locked() {
 }
 
 # Print the digest reason and return 0 once the oldest batched row still queued
-# is FM_WAKE_BATCH_SECS old and no digest wake was raised inside that window.
+# has waited its class window and no digest for that class was raised inside it.
 # Returns 1 when nothing is due. The digest runs whether or not the switch is
 # on, so switching classification off strands no batched row.
 fm_wake_batch_digest_due() {
-  local live now oldest count last
+  local live now oldest count last relay_last due suffix=
   [ -s "$FM_WAKE_BATCH_RECORD" ] || return 1
   fm_lock_acquire_wait "$FM_WAKE_QUEUE_LOCK" || return 1
   live=$(_fm_wake_batch_live_locked) || live=
   fm_lock_release "$FM_WAKE_QUEUE_LOCK"
   [ -n "$live" ] || return 1
   now=$(date +%s)
+  last=$(cat "$FM_WAKE_BATCH_LAST" 2>/dev/null || echo 0)
+  relay_last=$(cat "$STATE/.wake-relay-batch-last" 2>/dev/null || echo 0)
+  case "$last" in ''|*[!0-9]*) last=0 ;; esac
+  case "$relay_last" in ''|*[!0-9]*) relay_last=0 ;; esac
+  due=$(printf '%s\n' "$live" | awk -F '\t' -v now="$now" -v normal="$FM_WAKE_BATCH_SECS" \
+    -v last="$last" -v relay_last="$relay_last" \
+    -v relay_on="$(fm_wake_relay_batch_enabled && fm_wake_classify_enabled && echo 1)" '
+    $3 == "relay-batch" {
+      if (relay_on != 1 || (now - $2 >= 3600 && now - relay_last >= 3600)) relay=1
+      next
+    }
+    now - $2 >= normal && now - last >= normal { normal_due=1 }
+    END { if (relay) print "relay-batch"; else if (normal_due) print "nonurgent" }')
+  [ -n "$due" ] || return 1
   oldest=$(printf '%s\n' "$live" | awk -F '\t' 'NR == 1 || $2 < m { m = $2 } END { print m + 0 }')
   count=$(printf '%s\n' "$live" | awk 'END { print NR }')
-  [ $((now - oldest)) -ge "$FM_WAKE_BATCH_SECS" ] || return 1
-  last=$(cat "$FM_WAKE_BATCH_LAST" 2>/dev/null || echo 0)
-  case "$last" in ''|*[!0-9]*) last=0 ;; esac
-  [ $((now - last)) -ge "$FM_WAKE_BATCH_SECS" ] || return 1
-  printf 'check: wake digest: %s batched non-urgent wake row(s) queued, oldest %ss\n' "$count" "$((now - oldest))"
+  [ "$due" != relay-batch ] || suffix=" (relay-batch)"
+  printf 'check: wake digest: %s batched non-urgent wake row(s) queued, oldest %ss%s\n' "$count" "$((now - oldest))" "$suffix"
 }
 
-# Remember that a digest wake was raised now, so the next one waits a window.
-fm_wake_batch_digest_mark() {
-  date +%s > "$FM_WAKE_BATCH_LAST" 2>/dev/null || true
+# Remember actual delivery, independently for the two window lengths.
+fm_wake_batch_digest_mark() {  # [reason]
+  case "${1:-}" in
+    *'(relay-batch)') date +%s > "$STATE/.wake-relay-batch-last" 2>/dev/null || true ;;
+    *) date +%s > "$FM_WAKE_BATCH_LAST" 2>/dev/null || true ;;
+  esac
 }
 
 # The watcher's routine self-acknowledgement. Best effort: the drain owns the
