@@ -599,6 +599,12 @@
 # keeps no data/backlog.md. A configured non-markdown adapter remains
 # active without a markdown file; any active automatic backend without
 # compatible tasks-axi refuses before creating lifecycle state.
+# A fresh ship spawn (not --relaunch, not a scout or --secondmate) also refuses
+# up front an id this home has positive proof already landed: its archived lane
+# record data/lane-meta-archive/<id>.meta says kind=ship and state/fleet-ledger.jsonl
+# (docs/fleet-ledger.md) holds a task.merged record for it. The archive alone,
+# or the ledger alone, refuses nothing; there is no override, so follow-up work
+# takes a new id.
 # On success prints: spawned <id> harness=<name> kind=<ship|scout|secondmate> [mode=<mode> yolo=<on|off>] window=<backend-target> worktree=<path>
 # A ship task records the explicit mode/yolo it was passed; a secondmate spawn records
 # mode=secondmate, yolo=off, home=, and projects=; a scout records neither, and both the
@@ -4158,6 +4164,26 @@ else
   BACKLOG_GATE_STATUS=$?
   if [ "$BACKLOG_GATE_STATUS" -eq 2 ]; then
     echo "error: task $ID cannot be dispatched because its backlog data directory is inaccessible: $DATA ($FM_BACKLOG_TRANSITION_ERROR)" >&2
+    exit 1
+  fi
+fi
+
+# Merged-ship preflight. A fresh ship spawn refuses an id whose earlier lane
+# this home has positive proof already landed: teardown archived its record as
+# kind=ship, AND the fleet ledger holds a task.merged record for it. Either
+# alone refuses nothing, so a home without the ledger keeps today's behavior.
+# Like the backlog preflight, it runs before any lease, endpoint, worktree, or
+# record exists.
+if [ "$RELAUNCH" -ne 1 ] && [ "$KIND" = ship ]; then
+  MERGED_ARCHIVE="$DATA/lane-meta-archive/$ID.meta"
+  MERGED_LEDGER="$STATE/fleet-ledger.jsonl"
+  if [ -f "$MERGED_ARCHIVE" ] && [ ! -L "$MERGED_ARCHIVE" ] &&
+    [ "$(fm_meta_get "$MERGED_ARCHIVE" kind)" = ship ] &&
+    [ -f "$MERGED_LEDGER" ] && [ ! -L "$MERGED_LEDGER" ] &&
+    command -v jq >/dev/null 2>&1 &&
+    grep -F -- "\"$ID\"" "$MERGED_LEDGER" 2>/dev/null |
+    jq -R -e --arg id "$ID" 'fromjson? | select(.event == "task.merged" and .task == $id)' >/dev/null 2>&1; then
+    echo "error: ship $ID already merged and its lane was cleaned up ($MERGED_ARCHIVE, task.merged in $MERGED_LEDGER); refusing to dispatch it again - file follow-up work under a new id" >&2
     exit 1
   fi
 fi

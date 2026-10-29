@@ -1196,6 +1196,22 @@ test_spawn_relaunch_without_a_harness_reuses_the_recorded_one() {
   pass "fm-spawn --relaunch: with no explicit harness it reuses the task's recorded one, never the crew default"
 }
 
+# Proof that an earlier lane of this id already merged guards only a fresh
+# dispatch; relaunching the live recorded task must still proceed.
+test_spawn_relaunch_ignores_merged_ship_proof() {
+  local dir out
+  dir=$(new_case spawnmerged rl22)
+  add_ship_task "$dir" rl22 claude
+  mkdir -p "$dir/home/data/lane-meta-archive"
+  printf 'kind=ship\n' > "$dir/home/data/lane-meta-archive/rl22.meta"
+  printf '{"v":1,"ts":"2026-10-28T11:00:00Z","event":"task.merged","task":"rl22","via":"local"}\n' \
+    > "$dir/home/state/fleet-ledger.jsonl"
+  printf 'zsh' > "$dir/fake/command"
+  out=$(run_spawn "$dir" rl22 --relaunch) || fail "merged-ship proof refused a relaunch: $out"
+  assert_contains "$out" "spawned rl22" "the relaunch should proceed despite merge proof"
+  pass "fm-spawn --relaunch: merged-ship proof never refuses relaunching a recorded task"
+}
+
 # A promoted scout records kind=ship and a custom ship branch in its meta, but
 # its brief is the scout scaffold: it never gained a Ship branch line, and a
 # relaunch cannot regenerate the brief (--branch-prefix is refused there). The
@@ -2645,6 +2661,7 @@ test_secondmate_relaunch_onto_a_crewmate_only_adapter_refuses_before_stop
 test_explicit_secondmate_harness_ignores_configured_profile_axes
 test_ship_relaunch_ignores_the_crew_harness_config
 test_spawn_relaunch_without_a_harness_reuses_the_recorded_one
+test_spawn_relaunch_ignores_merged_ship_proof
 test_spawn_relaunch_of_promoted_scout_uses_the_recorded_branch
 test_promoted_scout_relaunch_receives_the_current_delivery_contract
 test_prefixed_prior_harness_wiring_is_still_retired

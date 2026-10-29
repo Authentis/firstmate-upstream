@@ -72,6 +72,7 @@ Example:
 - Writes are plain appends with no forced flush to disk, so a machine crash can lose the newest records.
 - The file is never rotated and grows until truncated.
   To truncate it, stop reading, then empty it with `: > state/fleet-ledger.jsonl`; later records append to the empty file.
+- Firstmate itself reads `task.merged` records: a fresh ship spawn refuses an id whose cleaned-up lane merged (`bin/fm-spawn.sh` header), so truncating the file drops that protection for earlier merges.
 - The ledger copies status text verbatim from the home's `state/` directory and adds no scrubbing, so give its readers exactly the trust you give `state/`.
 
 ## Not included
