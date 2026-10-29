@@ -5085,3 +5085,115 @@ test_metaless_product_pr_still_refuses() {
 }
 
 test_metaless_product_pr_still_refuses
+
+# --- config/land-script: repos whose merges belong to a land script -----------
+# A direct fm-pr-merge.sh call for a listed repo must be refused before any
+# state is recorded, naming the land script; only that script's own call,
+# proving itself with --via-land-script, may proceed.
+LAND_HEAD=3030303030303030303030303030303030303030
+
+# land_script_case <name> [config-line]: a GitHub case whose live head is
+# LAND_HEAD, with config/land-script holding the given line (or absent).
+land_script_case() {
+  local name=$1 line=${2-} case_dir
+  case_dir=$(make_case "$name")
+  mkdir -p "$case_dir/wt"
+  add_gh_mocks "$case_dir" "$LAND_HEAD"
+  : > "$case_dir/gh-axi.log"
+  [ -z "$line" ] || printf '%s\n' "$line" > "$case_dir/home/config/land-script"
+  printf '%s\n' "$case_dir"
+}
+
+# land_script_merge <case_dir> <pr-number> [args...]: run the merge, set LAND_RC.
+land_script_merge() {
+  local case_dir=$1 pr=$2
+  shift 2
+  set +e
+  run_pr_merge "$case_dir" task-x1 "https://github.com/example/repo/pull/$pr" "$@" \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  LAND_RC=$?
+  set -e
+}
+
+test_land_script_direct_merge_refused_before_state() {
+  local case_dir
+  case_dir=$(land_script_case land-direct 'example/repo netcup-land.sh')
+  land_script_merge "$case_dir" 9
+  expect_code 1 "$LAND_RC" "land-direct: a direct merge for a listed repo must be refused"
+  assert_grep "netcup-land.sh" "$case_dir/stderr" "land-direct: the refusal did not name the land script"
+  if grep -q '^pr merge ' "$case_dir/gh.log"; then fail "land-direct: gh merged a pull request the land-script gate refused"; fi
+  if grep -q '^pr=' "$case_dir/state/task-x1.meta"; then fail "land-direct: pr= was recorded despite the refusal"; fi
+  pass "fm-pr-merge refuses a direct merge for a land-script repo before recording any state"
+}
+
+test_land_script_pass_through_merges_and_writes_ledger() {
+  local case_dir
+  case_dir=$(land_script_case land-via 'example/repo netcup-land.sh')
+  : > "$case_dir/home/config/fleet-ledger"
+  land_script_merge "$case_dir" 9 --via-land-script netcup-land.sh
+  expect_code 0 "$LAND_RC" "land-via: the land script's own pass-through should merge: $(cat "$case_dir/stderr")"
+  assert_logged_gh_merge "$case_dir" 9 example/repo --squash
+  assert_grep '"event":"task.merged"' "$case_dir/state/fleet-ledger.jsonl" "land-via: the ledger has no task.merged event"
+  assert_grep '"task":"task-x1"' "$case_dir/state/fleet-ledger.jsonl" "land-via: the ledger event names the wrong task"
+  assert_grep 'https://github.com/example/repo/pull/9' "$case_dir/state/fleet-ledger.jsonl" "land-via: the ledger event names the wrong PR"
+  pass "fm-pr-merge merges on the land script's pass-through and still records the ledger event"
+}
+
+test_land_script_unlisted_repo_unchanged() {
+  local case_dir
+  case_dir=$(land_script_case land-other 'someone/else other-land.sh')
+  land_script_merge "$case_dir" 9
+  expect_code 0 "$LAND_RC" "land-other: a line for another project must not gate this one"
+  assert_logged_gh_merge "$case_dir" 9 example/repo --squash
+
+  case_dir=$(land_script_case land-noconfig)
+  land_script_merge "$case_dir" 9
+  expect_code 0 "$LAND_RC" "land-noconfig: no config file must not change a merge"
+  assert_logged_gh_merge "$case_dir" 9 example/repo --squash
+  pass "fm-pr-merge is unchanged for repos with no land-script entry"
+}
+
+test_land_script_wrong_marker_refuses() {
+  local case_dir
+  case_dir=$(land_script_case land-wrong-marker 'example/repo netcup-land.sh')
+  land_script_merge "$case_dir" 9 --via-land-script other-land.sh
+  expect_code 1 "$LAND_RC" "land-wrong-marker: a pass-through naming another script must be refused"
+  assert_grep "other-land.sh" "$case_dir/stderr" "land-wrong-marker: the refusal did not name the offered script"
+  assert_grep "netcup-land.sh" "$case_dir/stderr" "land-wrong-marker: the refusal did not name the configured script"
+  if grep -q '^pr merge ' "$case_dir/gh.log"; then fail "land-wrong-marker: gh merged on a mismatched pass-through"; fi
+  pass "fm-pr-merge refuses a pass-through that does not name the configured land script"
+}
+
+test_land_script_marker_refused_while_away() {
+  local case_dir
+  case_dir=$(land_script_case land-away 'example/repo netcup-land.sh')
+  write_away_record "$case_dir" --words 'merge task-x1 when green'
+  land_script_merge "$case_dir" 9 --via-land-script netcup-land.sh
+  expect_code 2 "$LAND_RC" "land-away: --via-land-script must be refused while away"
+  assert_grep "attended-only" "$case_dir/stderr" "land-away: the refusal did not name attended-only"
+  if grep -q '^pr merge ' "$case_dir/gh.log"; then fail "land-away: gh pr merge ran despite an away pass-through"; fi
+  pass "fm-pr-merge refuses the land-script pass-through while the away-posture record exists"
+}
+
+test_land_script_config_errors_refuse() {
+  local case_dir
+  case_dir=$(land_script_case land-malformed 'data-only-no-scope')
+  land_script_merge "$case_dir" 9 --via-land-script netcup-land.sh
+  expect_code 1 "$LAND_RC" "land-malformed: a malformed line must refuse even the pass-through"
+  assert_grep "malformed line" "$case_dir/stderr" "land-malformed: the refusal did not say why"
+  if grep -q '^pr merge ' "$case_dir/gh.log"; then fail "land-malformed: gh merged despite a malformed requirement file"; fi
+
+  case_dir=$(land_script_case land-unreadable '')
+  mkdir -p "$case_dir/home/config/land-script"
+  land_script_merge "$case_dir" 9
+  expect_code 1 "$LAND_RC" "land-unreadable: an unreadable file must refuse rather than pass"
+  assert_grep "could not be read" "$case_dir/stderr" "land-unreadable: the refusal did not say why"
+  pass "fm-pr-merge refuses rather than skipping an unreadable or malformed land-script file"
+}
+
+test_land_script_direct_merge_refused_before_state
+test_land_script_pass_through_merges_and_writes_ledger
+test_land_script_unlisted_repo_unchanged
+test_land_script_wrong_marker_refuses
+test_land_script_marker_refused_while_away
+test_land_script_config_errors_refuse

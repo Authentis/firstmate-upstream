@@ -13,6 +13,7 @@ Start with the directory layout, then use the setting reference for the behavior
 | Backlog, preferences, and memory | [Backlog backend](#backlog-backend-taskstoml--configbacklog-backend), [captain preferences](#captain-preferences-datacaptainmd--datacaptain-sharedmd), [external memory tiers](#external-memory-tiers-memory-layering-section), and [startup memory budget](#startup-memory-budget-configstartup-memory-budget) |
 | Supervision and presentation | [Pi supervision branch](#pi-supervision-branch), [supervision host](#supervision-host-configsupervision-host), [wake fold](#wake-fold-configwake-fold), and [Calm preference](#calm-preference-configcalm) |
 | Requiring a review receipt before a merge | [Merge review receipts](#merge-review-receipts-configmerge-receipt-required) |
+| Routing a repo's merges through its land script | [Land-script repos](#land-script-repos-configland-script) |
 | Persistent secondmates | [Secondmate routes](#secondmate-routes-datasecondmatesmd) |
 | Per-run overrides and tuning | [Environment variables](#environment-variables) |
 
@@ -600,6 +601,15 @@ A missing, stale, FAIL, or unparseable receipt with no covering waiver refuses w
 
 `bin/fm-pr-merge.sh`'s header owns the exact parsing rules.
 The receipts themselves are written by the home that runs the review, and Firstmate only reads them.
+The file is a home-local choice and is not inherited by secondmate homes.
+
+## Land-script repos (config/land-script)
+
+The optional local, gitignored `config/land-script` file routes a repo's merges through the land script that owns its review, so a direct `bin/fm-pr-merge.sh` call cannot land a PR whose checks live in that script.
+With the file absent, or with no line matching the project, merges behave exactly as before.
+Each non-blank line is `<owner/repo> <script>`, and `#` starts a comment.
+The land script itself passes `--via-land-script` with the exact configured script name; that is the only pass-through, and it is refused while the away-posture record exists.
+`bin/fm-pr-merge.sh`'s header owns the exact matching, refusal, and pass-through rules.
 The file is a home-local choice and is not inherited by secondmate homes.
 
 ## Fleet activity ledger (config/fleet-ledger)

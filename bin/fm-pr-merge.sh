@@ -120,6 +120,21 @@
 # requirement file, refuse. --attended-override, --allow-red, --allow-missing,
 # and the away posture never waive it. With no file or no matching line the
 # merge is exactly as it was.
+#
+# Land-script repos: when the home-local, gitignored config/land-script file
+# has a line for this PR's repo, a direct merge is refused before any state is
+# recorded, naming the land script that owns the merge and its review. Each
+# non-blank line is `<owner/repo> <script>`, and `#` starts a comment. The
+# scope is the exact owner/repo (a GitLab group path), compared
+# case-insensitively, and the first matching line wins. A malformed line or an
+# unreadable file refuses the merge rather than being skipped, and a repo with
+# no entry merges exactly as before. The land script itself passes
+# --via-land-script <script> with the exact configured script name, which is
+# the only pass-through: any other value, or none, refuses. The flag takes a
+# separate argument, may be given only once, is refused while the away-posture
+# record exists, and never reaches the forge. A land script that already runs
+# under this entrypoint (netcup-land.sh calls this script with --expect-head)
+# adds --via-land-script alongside that call.
 # A Forgejo merge is refused unless every pre-merge condition holds, each read
 # live at merge time: the pull request is open, not a draft, mergeable is
 # true, and the combined commit status at the exact current head, read across
@@ -192,7 +207,7 @@
 # explicit captain instruction and never skips the live green check, the
 # away-record read, or a captain hold.
 #
-# Usage: fm-pr-merge.sh <task-id> <pr-url> [--attended-override] [--allow-red <check-name>]... [--allow-missing <check-name>] [--expect-head <sha>] [-- <extra forge merge args>]
+# Usage: fm-pr-merge.sh <task-id> <pr-url> [--attended-override] [--allow-red <check-name>]... [--allow-missing <check-name>] [--expect-head <sha>] [--via-land-script <script>] [-- <extra forge merge args>]
 #
 # On GitLab, this script confirms the MR is actually merged before reporting it;
 # an auto-merge-queued or unconfirmed request leaves the poll armed and records
@@ -254,6 +269,7 @@ ATTENDED_OVERRIDE=false
 ALLOW_RED=()
 ALLOW_MISSING=()
 EXPECT_HEAD=
+VIA_LAND_SCRIPT=
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --attended-override)
@@ -292,6 +308,16 @@ while [ "$#" -gt 0 ]; do
       ;;
     --expect-head=*)
       echo "error: --expect-head requires a separate sha argument" >&2
+      exit 2
+      ;;
+    --via-land-script)
+      [ -n "${2:-}" ] || { echo "error: --via-land-script requires a script name" >&2; exit 2; }
+      [ -z "$VIA_LAND_SCRIPT" ] || { echo "error: --via-land-script may be specified only once" >&2; exit 2; }
+      VIA_LAND_SCRIPT=$2
+      shift 2
+      ;;
+    --via-land-script=*)
+      echo "error: --via-land-script requires a separate script argument" >&2
       exit 2
       ;;
     --) shift; break ;;
@@ -607,6 +633,49 @@ RECORDED_HEAD=
 if [ "$META_ABSENT" != 1 ] && { [ "$PROVIDER" = gitlab ] || [ "$PROVIDER" = forgejo ]; }; then
   RECORDED_HEAD=$(grep '^pr_head=' "$META" | tail -1 | cut -d= -f2- || true)
 fi
+
+# Land-script gate; the header above owns the config/land-script schema and the
+# --via-land-script pass-through. Refuses with exit 1, before any state is
+# recorded, when the PR's repo has a land script and the caller did not prove
+# it is that land script by naming its exact configured script. Returns 0 when
+# the repo has no entry (a pass-through naming nothing is then inert) or when
+# the pass-through names the configured script.
+land_script_gate() {
+  local cfg line scope script extra path_lc landed_by=''
+  cfg="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}/land-script"
+  { [ -e "$cfg" ] || [ -L "$cfg" ]; } || return 0
+  if [ ! -f "$cfg" ] || [ ! -r "$cfg" ]; then
+    echo "error: refusing to merge $URL: the land-script file $cfg could not be read, so whether this merge must go through a land script cannot be ruled out" >&2
+    return 1
+  fi
+  path_lc=$(printf '%s' "$PR_PATH" | tr '[:upper:]' '[:lower:]')
+  while IFS= read -r line || [ -n "$line" ]; do
+    line=${line%%#*}
+    scope='' script='' extra=''
+    read -r scope script extra <<EOL || true
+$line
+EOL
+    [ -n "$scope" ] || continue
+    if [ -z "$script" ] || [ -n "$extra" ]; then
+      echo "error: refusing to merge $URL: $cfg has a malformed line (expected '<owner/repo> <script>'): $line" >&2
+      return 1
+    fi
+    if [ "$(printf '%s' "$scope" | tr '[:upper:]' '[:lower:]')" = "$path_lc" ]; then
+      landed_by=$script
+      break
+    fi
+  done < "$cfg"
+  [ -n "$landed_by" ] || return 0
+  if [ -n "$VIA_LAND_SCRIPT" ]; then
+    if [ "$VIA_LAND_SCRIPT" = "$landed_by" ]; then
+      return 0
+    fi
+    echo "error: refusing to merge $URL: --via-land-script names '$VIA_LAND_SCRIPT' but $cfg routes $PR_PATH through '$landed_by'" >&2
+    return 1
+  fi
+  echo "error: refusing to merge $URL directly: $PR_PATH is landed by $landed_by, which runs its own review before merging; merge only through that land script (it passes --via-land-script $landed_by)" >&2
+  return 1
+}
 
 # Opt-in review-receipt gate; the header above owns its exact receipt and waiver
 # parsing. Sets FM_MERGE_RECEIPT_REFUSAL to the refusal text, empty when the
@@ -1651,6 +1720,10 @@ require_current_away_authority() {
     echo "error: --allow-missing is attended-only; while the away-posture record exists every required check must report" >&2
     return 2
   fi
+  if [ "$FM_PR_AWAY_POSTURE" = true ] && [ -n "$VIA_LAND_SCRIPT" ]; then
+    echo "error: --via-land-script is attended-only; while the away-posture record exists a land-script merge cannot borrow its authority" >&2
+    return 2
+  fi
 }
 
 persist_accepted_merge_authority() {
@@ -1865,6 +1938,7 @@ precheck_expected_head || exit 1
 away_status=0
 require_current_away_authority || away_status=$?
 [ "$away_status" -eq 0 ] || exit "$away_status"
+land_script_gate || exit 1
 require_recorded_pr_identity || exit 1
 record_pr_metadata || exit 1
 require_released_captain_hold || exit 1
