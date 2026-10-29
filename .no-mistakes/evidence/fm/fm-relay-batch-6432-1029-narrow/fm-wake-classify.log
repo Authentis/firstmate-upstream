@@ -1,0 +1,27 @@
+producer wake measurement: default reports=3 turns=3
+producer wake measurement: on reports=3 turns=1
+ok - real parent-report producer reduces three immediate turns to one digest without losing evidence
+ok - real producer leaves default rows unmarked and preserves urgent, unknown, decision and doc urgency wakes
+ok - relay batching requires explicit opt-in and safe complete spans; rollback and restart preserve evidence
+check: wake digest: 1 batched non-urgent wake row(s) queued, oldest 7200s (relay-batch)
+check: wake digest: 1 batched non-urgent wake row(s) queued, oldest 1s (relay-batch)
+ok - relay digest is due at 3600 seconds and retains queued evidence
+ok - urgent check wakes immediately with held relay evidence and ordinary acknowledgement loses no rows
+ok - classifier sorts routine, non-urgent, and urgent rows, defaults everything unnamed to urgent, and batches only named reporter checks
+ok - a batched row is durable, deduped, never routine, and consumed only by the ordinary acknowledgement
+ok - the batch digest waits for the window, raises once per window, and never fires for an acknowledged row
+ok - the watcher acknowledgement removes only aged routine rows, once, and leaves every other row queued
+ok - the watcher acknowledgement skips claimed rows and handling episodes, retires an emptied downtime generation, and honors both switches
+ok - unread status holds the watcher acknowledgement and the fold digest wakes the model for it
+ok - the watcher acknowledges aged routine rows itself with no wake, and classification off restores the fold digest
+ok - a non-urgent check batches without waking, a repeat adds nothing, and an urgent output wakes at once with the batch riding along
+ok - only an opted-in reporter check batches; any other custom check still wakes with its text
+ok - the batched digest wakes once the oldest row is a window old and never twice in one window
+ok - switching classification off still delivers an already-recorded batch
+ok - secondmate progress batches without waking while its events and every worker line still wake at once
+ok - the watcher acknowledgement refuses an absent or malformed recovery marker and a pending captain outcome
+ok - switching the fold off after a row was folded still delivers it through the digest
+ok - measurement rotation drops aged-out records first so an in-window turn is never undercounted
+ok - the watcher acknowledgement holds for a decision set no presented drain has shown and proceeds once it has
+ok - a skipped presentation keeps the old decision fingerprint so the watcher still holds
+ok - the drain prints wake-started turns, routine acknowledgements, and batched rows for the trailing six hours
