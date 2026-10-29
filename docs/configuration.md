@@ -718,7 +718,9 @@ With the local, gitignored `config/wake-classify` absent or containing `on` (and
   Only secondmate status lanes qualify; correlation alone never designates a safe relay.
   Reserved urgent vocabulary anywhere after the verb, an unknown verb, other metadata, malformed or unreadable spans, and mixed urgent signals retain immediate delivery, carrying held evidence into the same drain.
   This class uses the reserved urgency pattern regardless of `FM_WAKE_URGENT_RE`; ordinary reporter checks retain their existing configuration.
-  Producers must explicitly mark eligible rows; enabling the switch does not reclassify unmarked relays.
+  Use `bin/fm-secondmate-report.sh --relay-batch <verb> <corr_id> <note...>` to emit designated rows through the existing parent channel; it also accepts `--doc` (see the helper header for usage).
+  Without that producer option, its output remains unmarked; enabling the receiving switch does not reclassify unmarked relays.
+  The producer option never overrides the receiving switch or urgent-span checks.
   Roll back with `printf 'off\n' > "$FM_HOME/config/wake-relay-batch"`: held relay rows become due on the next watcher digest tick and remain queued until the ordinary drain acknowledges them.
   The switch is read each poll, survives watcher restart, and has no effect on liveness, stalls, checks, bootstrap recovery, exception delivery, or Claude Stop autoarming.
 - **Urgent** rows wake exactly as before: every worker status line, secondmate events, stalls, heartbeats, merge and PR results, captain notes, process-event results, and an opted-in check's output naming failure, error, red, stall, blocked, captain, chief, or a decision (`FM_WAKE_URGENT_RE` replaces that pattern).

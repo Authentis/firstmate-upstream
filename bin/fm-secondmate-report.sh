@@ -15,8 +15,12 @@
 # set to that home.
 #
 # Usage:
-#   fm-secondmate-report.sh <verb> <corr_id> <note...>
-#   fm-secondmate-report.sh --doc <verb> <corr_id> <doc-path> <note...>
+#   fm-secondmate-report.sh [--relay-batch] <verb> <corr_id> <note...>
+#   fm-secondmate-report.sh [--relay-batch] --doc <verb> <corr_id> <doc-path> <note...>
+#
+# --relay-batch explicitly designates a routine relay for the receiving home
+# to classify; it never enables batching or bypasses urgent-span checks.
+# The receiving opt-in and eligibility contract live in docs/configuration.md.
 #
 # Examples:
 #   fm-secondmate-report.sh done abcdef0123456789 "audit clean"
@@ -33,17 +37,22 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 usage() {
   cat <<'EOF' >&2
 Usage:
-  fm-secondmate-report.sh <verb> <corr_id> <note...>
-  fm-secondmate-report.sh --doc <verb> <corr_id> <doc-path> <note...>
+  fm-secondmate-report.sh [--relay-batch] <verb> <corr_id> <note...>
+  fm-secondmate-report.sh [--relay-batch] --doc <verb> <corr_id> <doc-path> <note...>
 EOF
   exit 2
 }
 
 DOC_MODE=0
-if [ "${1:-}" = "--doc" ]; then
-  DOC_MODE=1
+RELAY_BATCH=0
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --doc) DOC_MODE=1 ;;
+    --relay-batch) RELAY_BATCH=1 ;;
+    *) break ;;
+  esac
   shift
-fi
+done
 
 [ $# -ge 2 ] || usage
 VERB=$1
@@ -89,6 +98,7 @@ if [ ! -d "$(dirname "$DESTINATION")" ]; then
 fi
 
 token=$(fm_pending_reply_corr_token "$CORR")
+[ "$RELAY_BATCH" = 0 ] || VERB="$VERB [relay-batch]"
 if [ "$DOC_MODE" = 1 ]; then
   DOC_PATH=$1
   shift

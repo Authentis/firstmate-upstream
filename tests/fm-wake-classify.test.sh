@@ -730,6 +730,95 @@ test_drain_prints_the_wake_turn_stats() {
   pass "the drain prints wake-started turns, routine acknowledgements, and batched rows for the trailing six hours"
 }
 
+# Exercise the real parent-report producer, not hand-written relay rows.
+test_report_producer_reduces_wake_turns() {
+  local dir state mate mode i line turns expected
+  for mode in default on; do
+    dir=$(make_classify_case "producer-$mode"); state="$dir/state"; mate="$dir/mate"
+    mkdir -p "$mate/state"
+    printf 'mate\n' > "$mate/.fm-secondmate-home"
+    printf 'schema=fm-secondmate-parent.v1\nroute=local\nparent_home=%s\n' "$dir" > "$mate/.fm-secondmate-parent"
+    printf 'window=remote:mate\nkind=secondmate\nmode=secondmate\n' > "$state/mate.meta"
+    [ "$mode" = default ] || printf 'on\n' > "$dir/config/wake-relay-batch"
+    for i in 1 2 3; do
+      FM_HOME="$mate" FM_STATE_OVERRIDE="$mate/state" bash "$ROOT/bin/fm-secondmate-report.sh" \
+        --relay-batch "done" 0123456789abcdef "routine report $i delivered" || fail 'relay producer failed'
+      line=$(tail -1 "$state/mate.status")
+      case "$line" in *'[relay-batch]'*'[corr=0123456789abcdef]'*) ;; *) fail 'producer omitted designation' ;; esac
+      watch_bg "$dir"
+      if [ "$mode" = on ]; then
+        wait_poll_cycle "$state" "$WATCH_PID" || fail 'producer relay woke before digest'
+        stop_watcher
+      else
+        wait_for_exit "$WATCH_PID" 100 || fail 'default producer relay did not wake'
+        WATCH_PID=
+        drain "$dir" || fail 'default producer drain failed'
+        ack_drain_err "$state" "$dir/drain.err" >/dev/null 2>&1 || fail 'default producer ack failed'
+      fi
+    done
+    if [ "$mode" = on ]; then
+      [ "$(queue_rows "$dir")" -ge 1 ] || fail 'producer evidence vanished while held'
+      age_record "$state/.wake-batch" 3600
+      watch_bg "$dir"
+      wait_for_exit "$WATCH_PID" 100 || fail 'producer digest did not wake at deadline'
+      WATCH_PID=
+      drain "$dir" || fail 'producer digest drain failed'
+      for i in 1 2 3; do
+        grep -q "routine report $i delivered" "$dir/drain.out" || fail "digest lost report $i"
+      done
+      ack_drain_err "$state" "$dir/drain.err" >/dev/null 2>&1 || fail 'producer digest ack failed'
+    fi
+    turns=$(measure_count "$dir" turn)
+    expected=3; [ "$mode" = default ] || expected=1
+    [ "$turns" -eq "$expected" ] || fail "$mode emitted $turns turns, expected $expected"
+    [ ! -s "$state/.wake-queue" ] || fail 'producer acknowledgement left queued rows'
+    [ "$(wc -l < "$state/mate.status")" -eq 3 ] || fail 'producer status evidence was lost'
+    printf 'producer wake measurement: %s reports=3 turns=%s\n' "$mode" "$turns"
+  done
+  pass 'real parent-report producer reduces three immediate turns to one digest without losing evidence'
+}
+
+test_report_producer_keeps_urgent_and_unknown_immediate() {
+  local dir state mate variant verb note
+  for variant in unmarked urgent unknown buried-unknown doc-urgent decision; do
+    dir=$(make_classify_case "producer-$variant"); state="$dir/state"; mate="$dir/mate"
+    mkdir -p "$mate/state"
+    printf 'mate\n' > "$mate/.fm-secondmate-home"
+    printf 'schema=fm-secondmate-parent.v1\nroute=local\nparent_home=%s\n' "$dir" > "$mate/.fm-secondmate-parent"
+    printf 'window=remote:mate\nkind=secondmate\nmode=secondmate\n' > "$state/mate.meta"
+    printf 'on\n' > "$dir/config/wake-relay-batch"
+    verb="done"; note='routine report delivered'
+    case "$variant" in
+      urgent) note='routine report delivered; database stalled' ;;
+      unknown) verb=banana ;;
+      buried-unknown) note=$'routine report delivered\nbanana: novel event' ;;
+      decision) verb=needs-decision ;;
+    esac
+    case "$variant" in
+      unmarked)
+        FM_HOME="$mate" FM_STATE_OVERRIDE="$mate/state" bash "$ROOT/bin/fm-secondmate-report.sh" \
+          "$verb" 0123456789abcdef "$note" || fail 'unmarked producer failed'
+        grep -q '\[relay-batch\]' "$state/mate.status" && fail 'default producer added a designation'
+        ;;
+      doc-urgent)
+        FM_HOME="$mate" FM_STATE_OVERRIDE="$mate/state" bash "$ROOT/bin/fm-secondmate-report.sh" \
+          --doc --relay-batch "$verb" 0123456789abcdef data/blocked/report.md "$note" || fail 'doc producer failed'
+        ;;
+      *)
+        FM_HOME="$mate" FM_STATE_OVERRIDE="$mate/state" bash "$ROOT/bin/fm-secondmate-report.sh" \
+          --relay-batch "$verb" 0123456789abcdef "$note" || fail "$variant producer failed"
+        ;;
+    esac
+    watch_bg "$dir"
+    wait_for_exit "$WATCH_PID" 100 || fail "$variant producer content did not wake immediately"
+    WATCH_PID=
+    [ ! -s "$state/.wake-batch" ] || fail "$variant producer content was held"
+    drain "$dir" || fail "$variant producer drain failed"
+    grep -q '0123456789abcdef' "$dir/drain.out" || fail "$variant producer correlation was lost"
+  done
+  pass 'real producer leaves default rows unmarked and preserves urgent, unknown, decision and doc urgency wakes'
+}
+
 # A relay opts in both at the receiving home and on each status row.
 test_relay_batch_optin_and_urgent_spans() {
   local dir state variant text
@@ -831,6 +920,8 @@ test_urgent_check_carries_held_relay() {
   pass 'urgent check wakes immediately with held relay evidence and ordinary acknowledgement loses no rows'
 }
 
+test_report_producer_reduces_wake_turns
+test_report_producer_keeps_urgent_and_unknown_immediate
 test_relay_batch_optin_and_urgent_spans
 test_relay_batch_hour_window
 test_urgent_check_carries_held_relay
