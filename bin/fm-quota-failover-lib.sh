@@ -182,7 +182,7 @@ fm_quota_failover_require_locks() {
 # case-insensitively: a 429 status in error context ("Error: 429",
 # "status=429", "HTTP 429", "429 Too Many Requests"), the
 # exceeded_current_quota error code, a reached/exceeded usage limit, or a
-# hit/reached/exceeded weekly limit ("You've hit your weekly limit"). A bare
+# "You've hit your weekly limit" notice. A bare
 # 429 such as an issue or PR number is not a signature.
 FM_QF_SIGNATURES=(
   -e '(error|status|http|code)["'"'"':=([:space:]]*(code[[:space:]:=]*)?429([^0-9]|$)'
@@ -190,8 +190,7 @@ FM_QF_SIGNATURES=(
   -e 'exceeded_current_quota'
   -e '(hit|reached|exceeded)[[:space:]]+(your|the)[[:space:]]+usage[ _-]limit'
   -e 'usage[ _-]limit[ _-](reached|exceeded|hit)'
-  -e '(hit|reached|exceeded)[[:space:]]+(your|the)[[:space:]]+week(ly)?[ _-]*limits?'
-  -e 'week(ly)?[ _-]*limits?[ _-]+(reached|exceeded|hit)([^a-z]|$)'
+  -e "You've hit your weekly limit"
 )
 FM_QF_LINES=12
 FM_QF_CAPTURE_ROWS=100
