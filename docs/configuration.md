@@ -712,6 +712,17 @@ With the local, gitignored `config/wake-classify` absent or containing `on` (and
   The shipped `tool-updates` check is opted in; `config/wake-batch-checks` lists more check ids, one per line, with `#` comments.
   A check is never batched merely for being a custom check, because mail, merge, and growth checks carry things the captain waits on.
   The watcher raises one `check: wake digest` wake for them once the oldest has waited `FM_WAKE_BATCH_SECS` (default `900`), and never more than one inside that window.
+- **Relay-batch** is an additional opt-in: write `on` to the receiving home's `config/wake-relay-batch` to hold explicitly designated routine parent relays for a fixed 60-minute digest window in the same durable queue and batch record.
+  Every nonblank line in the changed span must start with `working`, `paused`, `note`, `done`, or `resolved`, followed by `[relay-batch]` and `[corr=<16hex>]` metadata and a colon; optional `[at=<epoch>]` metadata is accepted.
+  For example: `done [relay-batch] [corr=0123456789abcdef]: routine report delivered`.
+  Only secondmate status lanes qualify; correlation alone never designates a safe relay.
+  Reserved urgent vocabulary anywhere after the verb, an unknown verb, other metadata, malformed or unreadable spans, and mixed urgent signals retain immediate delivery, carrying held evidence into the same drain.
+  This class uses the reserved urgency pattern regardless of `FM_WAKE_URGENT_RE`; ordinary reporter checks retain their existing configuration.
+  Use `bin/fm-secondmate-report.sh --relay-batch <verb> <corr_id> <note...>` to emit designated rows through the existing parent channel; it also accepts `--doc` (see the helper header for usage).
+  Without that producer option, its output remains unmarked; enabling the receiving switch does not reclassify unmarked relays.
+  The producer option never overrides the receiving switch or urgent-span checks.
+  Roll back with `printf 'off\n' > "$FM_HOME/config/wake-relay-batch"`: held relay rows become due on the next watcher digest tick and remain queued until the ordinary drain acknowledges them.
+  The switch is read each poll, survives watcher restart, and has no effect on liveness, stalls, checks, bootstrap recovery, exception delivery, or Claude Stop autoarming.
 - **Urgent** rows wake exactly as before: every worker status line, secondmate events, stalls, heartbeats, merge and PR results, captain notes, process-event results, and an opted-in check's output naming failure, error, red, stall, blocked, captain, chief, or a decision (`FM_WAKE_URGENT_RE` replaces that pattern).
 
 `$STATE/.wake-turns.log` records every wake that starts a model turn, every routine row the watcher acknowledged, and every batched row, one tab-separated line each.

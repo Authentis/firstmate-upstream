@@ -730,6 +730,202 @@ test_drain_prints_the_wake_turn_stats() {
   pass "the drain prints wake-started turns, routine acknowledgements, and batched rows for the trailing six hours"
 }
 
+# Exercise the real parent-report producer, not hand-written relay rows.
+test_report_producer_reduces_wake_turns() {
+  local dir state mate mode i line turns expected
+  for mode in default on; do
+    dir=$(make_classify_case "producer-$mode"); state="$dir/state"; mate="$dir/mate"
+    mkdir -p "$mate/state"
+    printf 'mate\n' > "$mate/.fm-secondmate-home"
+    printf 'schema=fm-secondmate-parent.v1\nroute=local\nparent_home=%s\n' "$dir" > "$mate/.fm-secondmate-parent"
+    printf 'window=remote:mate\nkind=secondmate\nmode=secondmate\n' > "$state/mate.meta"
+    [ "$mode" = default ] || printf 'on\n' > "$dir/config/wake-relay-batch"
+    for i in 1 2 3; do
+      FM_HOME="$mate" FM_STATE_OVERRIDE="$mate/state" bash "$ROOT/bin/fm-secondmate-report.sh" \
+        --relay-batch "done" 0123456789abcdef "routine report $i delivered" || fail 'relay producer failed'
+      line=$(tail -1 "$state/mate.status")
+      case "$line" in *'[relay-batch]'*'[corr=0123456789abcdef]'*) ;; *) fail 'producer omitted designation' ;; esac
+      watch_bg "$dir"
+      if [ "$mode" = on ]; then
+        wait_poll_cycle "$state" "$WATCH_PID" || fail 'producer relay woke before digest'
+        stop_watcher
+      else
+        wait_for_exit "$WATCH_PID" 100 || fail 'default producer relay did not wake'
+        WATCH_PID=
+        drain "$dir" || fail 'default producer drain failed'
+        ack_drain_err "$state" "$dir/drain.err" >/dev/null 2>&1 || fail 'default producer ack failed'
+      fi
+    done
+    if [ "$mode" = on ]; then
+      [ "$(queue_rows "$dir")" -ge 1 ] || fail 'producer evidence vanished while held'
+      age_record "$state/.wake-batch" 3600
+      watch_bg "$dir"
+      wait_for_exit "$WATCH_PID" 100 || fail 'producer digest did not wake at deadline'
+      WATCH_PID=
+      drain "$dir" || fail 'producer digest drain failed'
+      for i in 1 2 3; do
+        grep -q "routine report $i delivered" "$dir/drain.out" || fail "digest lost report $i"
+      done
+      ack_drain_err "$state" "$dir/drain.err" >/dev/null 2>&1 || fail 'producer digest ack failed'
+    fi
+    turns=$(measure_count "$dir" turn)
+    expected=3; [ "$mode" = default ] || expected=1
+    [ "$turns" -eq "$expected" ] || fail "$mode emitted $turns turns, expected $expected"
+    [ ! -s "$state/.wake-queue" ] || fail 'producer acknowledgement left queued rows'
+    [ "$(wc -l < "$state/mate.status")" -eq 3 ] || fail 'producer status evidence was lost'
+    printf 'producer wake measurement: %s reports=3 turns=%s\n' "$mode" "$turns"
+  done
+  pass 'real parent-report producer reduces three immediate turns to one digest without losing evidence'
+}
+
+test_report_producer_keeps_urgent_and_unknown_immediate() {
+  local dir state mate variant verb note
+  for variant in unmarked urgent unknown buried-unknown doc-urgent decision; do
+    dir=$(make_classify_case "producer-$variant"); state="$dir/state"; mate="$dir/mate"
+    mkdir -p "$mate/state"
+    printf 'mate\n' > "$mate/.fm-secondmate-home"
+    printf 'schema=fm-secondmate-parent.v1\nroute=local\nparent_home=%s\n' "$dir" > "$mate/.fm-secondmate-parent"
+    printf 'window=remote:mate\nkind=secondmate\nmode=secondmate\n' > "$state/mate.meta"
+    printf 'on\n' > "$dir/config/wake-relay-batch"
+    verb="done"; note='routine report delivered'
+    case "$variant" in
+      urgent) note='routine report delivered; database stalled' ;;
+      unknown) verb=banana ;;
+      buried-unknown) note=$'routine report delivered\nbanana: novel event' ;;
+      decision) verb=needs-decision ;;
+    esac
+    case "$variant" in
+      unmarked)
+        FM_HOME="$mate" FM_STATE_OVERRIDE="$mate/state" bash "$ROOT/bin/fm-secondmate-report.sh" \
+          "$verb" 0123456789abcdef "$note" || fail 'unmarked producer failed'
+        grep -q '\[relay-batch\]' "$state/mate.status" && fail 'default producer added a designation'
+        ;;
+      doc-urgent)
+        FM_HOME="$mate" FM_STATE_OVERRIDE="$mate/state" bash "$ROOT/bin/fm-secondmate-report.sh" \
+          --doc --relay-batch "$verb" 0123456789abcdef data/blocked/report.md "$note" || fail 'doc producer failed'
+        ;;
+      *)
+        FM_HOME="$mate" FM_STATE_OVERRIDE="$mate/state" bash "$ROOT/bin/fm-secondmate-report.sh" \
+          --relay-batch "$verb" 0123456789abcdef "$note" || fail "$variant producer failed"
+        ;;
+    esac
+    watch_bg "$dir"
+    wait_for_exit "$WATCH_PID" 100 || fail "$variant producer content did not wake immediately"
+    WATCH_PID=
+    [ ! -s "$state/.wake-batch" ] || fail "$variant producer content was held"
+    drain "$dir" || fail "$variant producer drain failed"
+    grep -q '0123456789abcdef' "$dir/drain.out" || fail "$variant producer correlation was lost"
+  done
+  pass 'real producer leaves default rows unmarked and preserves urgent, unknown, decision and doc urgency wakes'
+}
+
+# A relay opts in both at the receiving home and on each status row.
+test_relay_batch_optin_and_urgent_spans() {
+  local dir state variant text
+  for variant in default on progress buried unknown unmarked malformed urgent-body check failed decision binary mixed unreadable; do
+    dir=$(make_classify_case "relay-$variant"); state="$dir/state"
+    printf 'window=remote:mate\nkind=secondmate\nmode=secondmate\n' > "$state/mate.meta"
+    [ "$variant" = default ] || printf 'on\n' > "$dir/config/wake-relay-batch"
+    text='done [relay-batch] [corr=0123456789abcdef]: routine report delivered'
+    case "$variant" in
+      progress) text='working [relay-batch] [corr=0123456789abcdef]: routine report delivered' ;;
+      buried) text="blocked: database unavailable"$'\n'"$text" ;;
+      unknown) text="banana: novel event"$'\n'"$text" ;;
+      unmarked) text='done [corr=0123456789abcdef]: routine report delivered' ;;
+      malformed) text='done [relay-batch] [corr=bad]: routine report delivered' ;;
+      urgent-body) text="$text; database stalled" ;;
+      check) text="$text; check: service status" ;;
+      failed) text="failed [relay-batch] [corr=0123456789abcdef]: routine report delivered" ;;
+      decision) text="needs-decision [relay-batch] [corr=0123456789abcdef]: choose a route" ;;
+      mixed) printf 'blocked: service unavailable\n' > "$state/other.status" ;;
+      unreadable)
+        printf '#!/usr/bin/env bash\nexit 1\n' > "$dir/fakebin/span-reader"
+        chmod +x "$dir/fakebin/span-reader"
+        ;;
+
+    esac
+    printf '%s\n' "$text" > "$state/mate.status"
+    [ "$variant" != binary ] || printf '\000' >> "$state/mate.status"
+    if [ "$variant" = unreadable ]; then
+      watch_bg "$dir" "FM_STATUS_SPAN_READER=$dir/fakebin/span-reader"
+    else
+      watch_bg "$dir"
+    fi
+    if [ "$variant" = on ] || [ "$variant" = progress ]; then
+      wait_poll_cycle "$state" "$WATCH_PID" || fail 'opted-in relay woke immediately'
+      stop_watcher
+      grep -q $'\trelay-batch$' "$state/.wake-batch" || fail 'relay did not use its named batch class'
+      [ "$(queue_rows "$dir")" -eq 1 ] || fail 'relay was lost'
+      # Restart keeps held evidence; rollback delivers it immediately.
+      watch_bg "$dir"
+      wait_poll_cycle "$state" "$WATCH_PID" || fail 'restart woke early'
+      stop_watcher
+      printf 'off\n' > "$dir/config/wake-relay-batch"
+      watch_bg "$dir"
+      wait_for_exit "$WATCH_PID" 100 || fail 'rollback stranded the relay'
+      WATCH_PID=
+      drain "$dir" || fail 'relay drain failed'
+      grep -q 'routine report delivered' "$dir/drain.out" || fail 'drain lost relay evidence'
+    else
+      wait_for_exit "$WATCH_PID" 100 || fail "$variant relay did not wake immediately"
+      WATCH_PID=
+      [ ! -s "$state/.wake-batch" ] || fail "$variant relay was batched"
+    fi
+  done
+  pass 'relay batching requires explicit opt-in and safe complete spans; rollback and restart preserve evidence'
+}
+
+test_relay_batch_hour_window() {
+  local dir
+  dir=$(make_classify_case relay-hour)
+  printf 'on\n' > "$dir/config/wake-relay-batch"
+  # shellcheck disable=SC2016 # The controlled clock runs inside the library shell.
+  lib "$dir" '
+    date() { printf "%s\n" "$clock"; }
+    clock=100000
+    fm_wake_batch_append signal mate.status "signal: mate" relay-batch || exit 1
+    fm_wake_batch_append signal mate.status "signal: mate" relay-batch || exit 1
+    fm_wake_fold_queue_all_folded || exit 6
+    clock=103599
+    ! fm_wake_batch_digest_due || exit 2
+    clock=103600
+    reason=$(fm_wake_batch_digest_due) || exit 3
+    fm_wake_measure_turn "$reason"
+    ! fm_wake_batch_digest_due || exit 4
+    clock=107200
+    fm_wake_batch_digest_due || exit 5
+    printf "off\n" > "$FM_WAKE_CLASSIFY_CONFIG_DIR/wake-classify"
+    clock=100001
+    fm_wake_batch_digest_due || exit 7
+  ' || fail 'relay did not honor the fixed 3600-second window and repeated digest bound'
+  [ "$(queue_rows "$dir")" -eq 1 ] || fail 'digest removed its queued evidence'
+  pass 'relay digest is due at 3600 seconds and retains queued evidence'
+}
+
+test_urgent_check_carries_held_relay() {
+  local dir state
+  dir=$(make_classify_case relay-urgent-check); state="$dir/state"
+  printf 'on\n' > "$dir/config/wake-relay-batch"
+  lib "$dir" 'fm_wake_batch_append signal mate.status "signal: mate relay evidence" relay-batch' || fail 'could not hold relay'
+  register_check "$dir" mail 'new message: operator review'
+  watch_bg "$dir" FM_CHECK_INTERVAL=0
+  wait_for_exit "$WATCH_PID" 100 || fail 'check was delayed by relay batching'
+  WATCH_PID=
+  [ "$(queue_rows "$dir")" -eq 2 ] || fail 'urgent check lost held relay'
+  drain "$dir" --ack-if-routine || fail 'mixed digest drain failed'
+  grep -q 'mate relay evidence' "$dir/drain.out" || fail 'drain lost held evidence'
+  grep -q 'new message' "$dir/drain.out" || fail 'drain lost urgent check'
+  ack_drain_err "$state" "$dir/drain.err" >/dev/null 2>&1 || fail 'mixed acknowledgement failed'
+  [ ! -s "$state/.wake-queue" ] || fail 'mixed acknowledgement left rows queued'
+  pass 'urgent check wakes immediately with held relay evidence and ordinary acknowledgement loses no rows'
+}
+
+test_report_producer_reduces_wake_turns
+test_report_producer_keeps_urgent_and_unknown_immediate
+test_relay_batch_optin_and_urgent_spans
+test_relay_batch_hour_window
+test_urgent_check_carries_held_relay
+
 test_classifier_sorts_routine_nonurgent_urgent
 test_batch_record_is_durable_deduped_and_not_routine
 test_batch_digest_honors_window_and_one_per_window

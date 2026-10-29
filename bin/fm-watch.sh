@@ -3385,8 +3385,16 @@ EOF
       # non-urgent progress: queue it durably and let the batched digest carry
       # it. Everything else keeps waking at once.
       signal_batched=0
+      signal_batch_class=nonurgent
+      signal_batch_log="non-urgent secondmate progress"
       # shellcheck disable=SC2086  # $files is a space-separated status-path list
-      if [ "$signal_actionable" -ne 0 ] && ! afk_present && wake_fold_active \
+      if ! afk_present && wake_fold_active && fm_wake_classify_enabled \
+        && fm_wake_relay_files_batchable $files \
+        && [ "$(fm_wake_classify signal "$files" "$reason" relay-batch)" = relay-batch ]; then
+        signal_batched=1
+        signal_batch_class=relay-batch
+        signal_batch_log="relay-batch secondmate signal"
+      elif [ "$signal_actionable" -ne 0 ] && ! afk_present && wake_fold_active \
         && fm_wake_classify_enabled && signal_files_all_secondmate $files \
         && [ "$(fm_wake_classify signal "$files" "$reason" secondmate-progress)" = nonurgent ]; then
         signal_batched=1
@@ -3396,7 +3404,7 @@ EOF
         file_reason="$reason"
         case " $FM_SIGNAL_NEEDS_DECISION_FILES " in *" $f "*) file_reason="needs-decision:$files" ;; esac
         if [ "$signal_batched" -eq 1 ]; then
-          fm_wake_batch_append signal "$(basename "$f")" "$file_reason" || exit 1
+          fm_wake_batch_append signal "$(basename "$f")" "$file_reason" "$signal_batch_class" || exit 1
         else
           fm_wake_append signal "$(basename "$f")" "$file_reason" || exit 1
         fi
@@ -3428,7 +3436,7 @@ EOF
 $FM_SIGNAL_SURFACE_ENDPOINTS
 EOF
       if [ "$signal_batched" -eq 1 ]; then
-        triage_log "batched non-urgent secondmate progress: $reason"
+        triage_log "batched $signal_batch_log: $reason"
       else
         wake "$reason"
       fi
