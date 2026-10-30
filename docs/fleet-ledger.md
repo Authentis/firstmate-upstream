@@ -5,7 +5,7 @@ It is the stable, documented hook for firstmate status; this page is its contrac
 
 ## Turning it on and off
 
-Create the presence flag `config/fleet-ledger` in a firstmate home to turn the ledger on, and delete it to turn the ledger off.
+Create the presence flag `config/fleet-ledger` in a firstmate home to enable ledger writes, and delete it to stop new writes.
 The flag is local, gitignored, per home, and not inherited by second mate homes, so each home that should publish a ledger needs its own flag.
 While the flag is absent, each producer performs one file-existence test and nothing else: no process starts and nothing is written.
 
@@ -72,6 +72,8 @@ Example:
 - Writes are plain appends with no forced flush to disk, so a machine crash can lose the newest records.
 - The file is never rotated and grows until truncated.
   To truncate it, stop reading, then empty it with `: > state/fleet-ledger.jsonl`; later records append to the empty file.
+- Firstmate itself reads existing `task.merged` records even after the presence flag is removed; see the [`fm-spawn.sh` header](../bin/fm-spawn.sh) for the merged-id refusal contract.
+  Truncating the file drops that protection for earlier merges.
 - The ledger copies status text verbatim from the home's `state/` directory and adds no scrubbing, so give its readers exactly the trust you give `state/`.
 
 ## Not included

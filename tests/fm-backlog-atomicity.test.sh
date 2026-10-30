@@ -1067,6 +1067,193 @@ SH
   pass "dispatch refuses held In-flight rows before relaunch"
 }
 
+# A cleaned-up lane leaves its record in data/lane-meta-archive/; a merge leaves
+# a task.merged record in the opt-in fleet ledger. <ledger-task> names whose
+# merge the ledger holds, so a case can keep the proof off its own id.
+archive_cleaned_lane() {  # <case-dir> <id> <kind> <ledger-task>
+  local home id=$2 kind=$3 merged=$4
+  home=$(home_of "$1")
+  mkdir -p "$home/data/lane-meta-archive"
+  printf 'kind=%s\npr=https://github.com/o/r/pull/7\n' "$kind" \
+    > "$home/data/lane-meta-archive/$id.meta"
+  {
+    printf '{"v":1,"ts":"2026-10-28T10:00:00Z","event":"task.dispatched","task":"%s"}\n' "$id"
+    printf 'not json "%s"\n' "$id"
+    printf '{"v":1,"ts":"2026-10-28T11:00:00Z","event":"task.merged","task":"%s","via":"pr","pr":"https://github.com/o/r/pull/7"}\n' "$merged"
+    printf '{"v":1,"ts":"2026-10-28T12:00:00Z","event":"task.cleaned_up","task":"%s"}\n' "$id"
+    # Valid JSON that is not an object, last, where a jq error on it would
+    # decide the exit status.
+    printf '[1,"%s"]\n' "$id"
+    printf '"%s"\n' "$id"
+  } > "$home/state/fleet-ledger.jsonl"
+}
+
+watch_resource_creation() {  # <case-dir>
+  local case_dir=$1
+  cat > "$case_dir/fakebin/tmux" <<SH
+#!/usr/bin/env bash
+case "\$*" in
+  *new-window*) : > "$case_dir/task-endpoint-created" ;;
+  *treehouse\\ get*) : > "$case_dir/local-copy-requested" ;;
+  *"#{pane_current_path}"*) printf '%s\n' "\${FM_FAKE_PANE_PATH:-}"; exit 0 ;;
+esac
+case "\${1:-}" in display-message) printf 'firstmate\n'; exit 0 ;; esac
+exit 0
+SH
+  chmod +x "$case_dir/fakebin/tmux"
+}
+
+# Records every attempt to take <id>'s meta lock; fm_lock_try_create links the
+# lock path, so this observes the acquisition itself rather than its leftovers.
+# With <archive-kind>, the first attempt also archives the lane record, as a
+# cleanup holding the lock would while the spawn waits for it.
+watch_meta_lock() {  # <case-dir> <id> [archive-kind]
+  local case_dir=$1 id=$2 kind=${3:-} home real_ln
+  home=$(home_of "$case_dir")
+  real_ln=$(command -v ln)
+  cat > "$case_dir/fakebin/ln" <<SH
+#!/usr/bin/env bash
+case "\$*" in
+  *"$home/state/.meta-$id.lock"*)
+    if [ -n "$kind" ] && [ ! -e "$case_dir/meta-lock-taken" ]; then
+      mkdir -p "$home/data/lane-meta-archive"
+      printf 'kind=%s\\n' "$kind" > "$home/data/lane-meta-archive/$id.meta"
+    fi
+    : > "$case_dir/meta-lock-taken"
+    ;;
+esac
+exec "$real_ln" "\$@"
+SH
+  chmod +x "$case_dir/fakebin/ln"
+}
+
+test_dispatch_refuses_a_merged_ship_id_before_creating_resources() {
+  local case_dir id out rc=0
+  id=atomic-merged-ship-b30
+  case_dir=$(make_home dispatch-merged-ship "$id")
+  add_item "$case_dir" "$id"
+  archive_cleaned_lane "$case_dir" "$id" ship "$id"
+  watch_resource_creation "$case_dir"
+  watch_meta_lock "$case_dir" "$id"
+
+  out=$(run_ship_spawn "$case_dir" "$id") || rc=$?
+  [ "$rc" -ne 0 ] || fail "spawn re-dispatched a ship id whose work already merged"
+  assert_contains "$out" "already merged" \
+    "merged-ship refusal did not say the work already landed"
+  assert_absent "$(home_of "$case_dir")/state/$id.meta" \
+    "merged-ship refusal published a task record"
+  assert_absent "$case_dir/meta-lock-taken" \
+    "merged-ship refusal tried to take the task's meta lock"
+  assert_absent "$case_dir/task-endpoint-created" \
+    "merged-ship refusal created an endpoint"
+  assert_absent "$case_dir/local-copy-requested" \
+    "merged-ship refusal requested a local copy"
+  [ "$(row_state "$case_dir" "$id")" = queued ] \
+    || fail "merged-ship refusal changed the backlog state"
+  pass "dispatch refuses an archived ship id with a ledger merge before creating resources"
+}
+
+test_dispatch_rechecks_merge_proof_after_taking_the_meta_lock() {
+  local case_dir id out rc=0
+  id=atomic-merged-during-wait-b30
+  case_dir=$(make_home dispatch-merged-during-wait "$id")
+  add_item "$case_dir" "$id"
+  archive_cleaned_lane "$case_dir" "$id" ship "$id"
+  rm -f "$(home_of "$case_dir")/data/lane-meta-archive/$id.meta"
+  watch_resource_creation "$case_dir"
+  watch_meta_lock "$case_dir" "$id" ship
+
+  out=$(run_ship_spawn "$case_dir" "$id") || rc=$?
+  assert_present "$case_dir/meta-lock-taken" "spawn never reached the task's meta lock"
+  [ "$rc" -ne 0 ] || fail "spawn dispatched a ship id archived as merged while it waited for the lock"
+  assert_contains "$out" "already merged" \
+    "post-lock merged-ship refusal did not say the work already landed"
+  assert_absent "$(home_of "$case_dir")/state/$id.meta" \
+    "post-lock merged-ship refusal published a task record"
+  assert_absent "$case_dir/task-endpoint-created" \
+    "post-lock merged-ship refusal created an endpoint"
+  assert_absent "$case_dir/local-copy-requested" \
+    "post-lock merged-ship refusal requested a local copy"
+  [ "$(row_state "$case_dir" "$id")" = queued ] \
+    || fail "post-lock merged-ship refusal changed the backlog state"
+  pass "dispatch rechecks merge proof once it holds the task's meta lock"
+}
+
+test_dispatch_refuses_merge_proof_it_cannot_read_without_jq() {
+  local case_dir id out rc=0
+  id=atomic-merged-no-jq-b30
+  case_dir=$(make_home dispatch-merged-no-jq "$id")
+  add_item "$case_dir" "$id"
+  archive_cleaned_lane "$case_dir" "$id" ship "$id"
+  watch_resource_creation "$case_dir"
+  watch_meta_lock "$case_dir" "$id"
+  # jq lives in a system dir on most hosts, so mask it in every bash the spawn runs.
+  cat > "$case_dir/no-jq.bash" <<'SH'
+command() {
+  if [ "${1:-}" = -v ] && [ "${2:-}" = jq ]; then
+    return 1
+  fi
+  builtin command "$@"
+}
+jq() {
+  return 127
+}
+SH
+
+  out=$(BASH_ENV="$case_dir/no-jq.bash" run_ship_spawn "$case_dir" "$id") || rc=$?
+  [ "$rc" -ne 0 ] || fail "spawn dispatched past merge proof it could not read without jq"
+  assert_contains "$out" "jq is not installed" \
+    "no-jq merged-ship refusal did not name the missing dependency"
+  assert_absent "$case_dir/meta-lock-taken" \
+    "no-jq merged-ship refusal tried to take the task's meta lock"
+  assert_absent "$(home_of "$case_dir")/state/$id.meta" \
+    "no-jq merged-ship refusal published a task record"
+  assert_absent "$case_dir/task-endpoint-created" \
+    "no-jq merged-ship refusal created an endpoint"
+  [ "$(row_state "$case_dir" "$id")" = queued ] \
+    || fail "no-jq merged-ship refusal changed the backlog state"
+  pass "dispatch refuses rather than skips merge proof it cannot read without jq"
+}
+
+test_dispatch_needs_merge_proof_beyond_the_archive() {
+  local case_dir id out
+  id=atomic-archived-unmerged-b30
+  case_dir=$(make_home dispatch-archived-unmerged "$id")
+  add_item "$case_dir" "$id"
+  # The ledger holds a merge only for a longer id sharing this one as a prefix.
+  archive_cleaned_lane "$case_dir" "$id" ship "$id-2"
+
+  out=$(run_ship_spawn "$case_dir" "$id") || fail "archive without merge proof refused the spawn: $out"
+  assert_contains "$out" "spawned $id" "archived unmerged ship did not dispatch"
+  pass "an archived ship id without a ledger merge record still dispatches"
+}
+
+test_dispatch_needs_the_archive_beyond_the_ledger() {
+  local case_dir id out
+  id=atomic-ledger-only-b30
+  case_dir=$(make_home dispatch-ledger-only "$id")
+  add_item "$case_dir" "$id"
+  archive_cleaned_lane "$case_dir" "$id" ship "$id"
+  rm -f "$(home_of "$case_dir")/data/lane-meta-archive/$id.meta"
+
+  out=$(run_ship_spawn "$case_dir" "$id") || fail "a ledger merge without an archived lane refused the spawn: $out"
+  assert_contains "$out" "spawned $id" "ledger-only merged id did not dispatch"
+  pass "a ledger merge record without an archived ship lane still dispatches"
+}
+
+test_dispatch_never_refuses_a_scout_on_merge_proof() {
+  local case_dir id out
+  id=atomic-merged-scout-b30
+  case_dir=$(make_home dispatch-merged-scout "$id")
+  add_item "$case_dir" "$id" scout
+  archive_cleaned_lane "$case_dir" "$id" ship "$id"
+
+  out=$(run_spawn "$case_dir" "$id" "$case_dir/project" --scout) \
+    || fail "merge proof refused a scout spawn: $out"
+  assert_contains "$out" "spawned $id" "scout with merge proof did not dispatch"
+  pass "merge proof never refuses a scout spawn"
+}
+
 test_dispatch_reads_the_row_from_the_backlog_root() {
   local case_dir id out
   id=atomic-dispatch-root-b2
@@ -3077,6 +3264,12 @@ test_dispatch_refuses_a_pending_authoritative_close
 test_dispatch_refuses_a_held_row_before_creating_resources
 test_dispatch_refuses_a_blocked_row_before_creating_resources
 test_dispatch_refuses_a_held_in_flight_row_before_relaunch
+test_dispatch_refuses_a_merged_ship_id_before_creating_resources
+test_dispatch_rechecks_merge_proof_after_taking_the_meta_lock
+test_dispatch_refuses_merge_proof_it_cannot_read_without_jq
+test_dispatch_needs_merge_proof_beyond_the_archive
+test_dispatch_needs_the_archive_beyond_the_ledger
+test_dispatch_never_refuses_a_scout_on_merge_proof
 test_dispatch_reads_the_row_from_the_backlog_root
 test_recovery_uses_the_parent_of_a_trailing_slash_data_record
 test_completion_targets_a_nested_relative_data_directory
