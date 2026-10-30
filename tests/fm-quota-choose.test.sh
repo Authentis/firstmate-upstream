@@ -326,6 +326,23 @@ out=$(call_choose --snapshot "$PARTIAL" --candidate claude:default)
 [ "$out" = "claude default" ] || fail "valid partial semantics were rejected: $out"
 ok "partial semantics accept mixed availability"
 
+for scope in model:sonnet product:sonnet all_products; do
+  jq --arg scope "$scope" '(.providers[] | select(.provider == "claude").quotaSemantics) = {
+    status:"partial",effectiveAvailability:[
+      {scope:"all_models",status:"known",effectivePercentRemaining:80,runway:{status:"through_reset"}},
+      {scope:$scope,status:"unknown",runway:{status:"unknown"}}
+    ]}' "$LAB/captured.json" > "$PARTIAL"
+  out=$(FM_HOME="$LAB/no-credit-home" call_choose --snapshot "$PARTIAL" --candidate claude:sonnet)
+  [ "$out" = "claude sonnet" ] || fail "unknown sibling $scope vetoed positive quota: $out"
+  jq '(.providers[] | select(.provider == "claude").quotaSemantics.effectiveAvailability[1].runway.status) = "exhausted_now"' \
+    "$PARTIAL" > "$LAB/partial-exhausted.json"
+  if out=$(FM_HOME="$LAB/no-credit-home" call_choose --snapshot "$LAB/partial-exhausted.json" --candidate claude:sonnet); then
+    fail "exhausted unknown sibling $scope unexpectedly dispatched"
+  fi
+  [ "$out" = none ] || fail "exhausted sibling returned: $out"
+done
+ok "partial quota preserves uncertainty without bypassing exhaustion"
+
 out=$(call_choose --candidate claude:default < "$LAB/captured.json")
 [ "$out" = "claude default" ] || fail "stdin snapshot returned '$out'"
 ok "stdin snapshot is accepted"
@@ -773,5 +790,106 @@ out=$(bash -c 'set -e; . "$1/fm-quota-axi-lib.sh"; fm_quota_single_provider_for_
   || fail "provider-table lookup exited nonzero under set -e"
 [ "$out" = claude ] || fail "provider-table lookup under set -e printed: $out"
 ok "provider-table lookup prints the provider when called directly under set -e"
+
+# Codex credit cover: a spent weekly all_models Codex window stays eligible
+# while the latest credit reading clears the floor.
+CREDIT_HOME="$LAB/credit-home"
+CREDIT_EMPTY="$LAB/credit-empty"
+mkdir -p "$CREDIT_HOME/data" "$CREDIT_EMPTY/data"
+jq '(.providers[] | select(.provider == "codex").quotaSemantics.effectiveAvailability) = [
+  {"scope":"all_models","status":"known","effectivePercentRemaining":0,
+   "runway":{"status":"exhausted_now","limitingWindowId":"weekly"}}]' \
+  "$LAB/captured.json" > "$LAB/credit-exhausted.json"
+printf '%s\n' '# captain 10-30 via chief: we can use the credits!' \
+  '1793336000 9999 earlier reading' \
+  '1793336034 62397 captain 10-30 via chief' > "$CREDIT_HOME/data/codex-credits.readings"
+out=$(FM_HOME="$CREDIT_HOME" call_choose --snapshot "$LAB/credit-exhausted.json" --candidate codex:default)
+[ "$out" = "codex default" ] || fail "credit cover: expected 'codex default', got '$out'"
+ok "62397 credits keep the spent weekly Codex window eligible"
+out=$(FM_HOME="$CREDIT_HOME" call_choose --snapshot "$LAB/credit-exhausted.json" --candidate omp:openai-codex/codex_other)
+[ "$out" = "omp openai-codex/codex_other" ] || fail "credit cover omp: expected 'omp openai-codex/codex_other', got '$out'"
+ok "the credit cover reaches omp profiles routed to openai-codex"
+printf '%s\n' '1793336034 9999 captain 10-30 via chief' > "$CREDIT_HOME/data/codex-credits.readings"
+if out=$(FM_HOME="$CREDIT_HOME" call_choose --snapshot "$LAB/credit-exhausted.json" --candidate codex:default 2>/dev/null); then
+  fail "below-floor reading unexpectedly dispatched"
+fi
+[ "$out" = "none" ] || fail "below-floor reading returned: $out"
+printf '%s\n' '1793336034 10000 captain 10-30 via chief' > "$CREDIT_HOME/data/codex-credits.readings"
+if out=$(FM_HOME="$CREDIT_HOME" call_choose --snapshot "$LAB/credit-exhausted.json" --candidate codex:default 2>/dev/null); then
+  fail "at-floor reading unexpectedly dispatched"
+fi
+[ "$out" = "none" ] || fail "at-floor reading returned: $out"
+ok "readings at or below the floor keep the Codex window ineligible"
+if out=$(FM_HOME="$CREDIT_EMPTY" call_choose --snapshot "$LAB/credit-exhausted.json" --candidate codex:default 2>/dev/null); then
+  fail "missing readings file unexpectedly dispatched"
+fi
+[ "$out" = "none" ] || fail "missing readings file returned: $out"
+ok "no readings file keeps today's Codex behavior"
+printf '%s\n' 'not a reading' > "$CREDIT_HOME/data/codex-credits.readings"
+if out=$(FM_HOME="$CREDIT_HOME" call_choose --snapshot "$LAB/credit-exhausted.json" --candidate codex:default 2>/dev/null); then
+  fail "unparseable readings file unexpectedly dispatched"
+fi
+[ "$out" = "none" ] || fail "unparseable readings file returned: $out"
+ok "an unparseable readings file keeps today's Codex behavior"
+printf '%s\n' '1793336034 62397 captain 10-30 via chief' > "$CREDIT_HOME/data/codex-credits.readings"
+if out=$(FM_HOME="$CREDIT_HOME" call_choose --snapshot "$LAB/captured.json" --candidate kimi:default 2>/dev/null); then
+  fail "non-Codex exhaustion unexpectedly dispatched under a credit reading"
+fi
+[ "$out" = "none" ] || fail "non-Codex exhaustion returned: $out"
+ok "a credit reading never covers a non-Codex provider"
+jq '(.providers[] | select(.provider == "codex").quotaSemantics.effectiveAvailability[0].runway.limitingWindowId) = "five_hour"' \
+  "$LAB/credit-exhausted.json" > "$LAB/credit-session.json"
+if out=$(FM_HOME="$CREDIT_HOME" call_choose --snapshot "$LAB/credit-session.json" --candidate codex:default 2>/dev/null); then
+  fail "non-weekly exhaustion unexpectedly dispatched under a credit reading"
+fi
+[ "$out" = "none" ] || fail "non-weekly exhaustion returned: $out"
+ok "credits never cover a non-weekly exhausted window"
+
+for scope in model:terra product:terra all_products; do
+  for status in exhausted_now through_reset; do
+    jq --arg scope "$scope" --arg status "$status" '(.providers[] | select(.provider == "codex").quotaSemantics.effectiveAvailability) += [
+      {scope:$scope,status:"known",effectivePercentRemaining:0,runway:{status:$status}}]' \
+      "$LAB/credit-exhausted.json" > "$LAB/credit-sibling.json"
+    if out=$(FM_HOME="$CREDIT_HOME" call_choose --snapshot "$LAB/credit-sibling.json" --candidate codex:terra); then
+      fail "credit cover bypassed sibling $scope $status"
+    fi
+    [ "$out" = none ] || fail "sibling veto returned: $out"
+  done
+done
+for windows in '["weekly","five_hour"]' '["five_hour","weekly"]' '[]' '"weekly"'; do
+  jq --argjson windows "$windows" '(.providers[] | select(.provider == "codex").quotaSemantics.effectiveAvailability[0]) |=
+    (del(.runway.limitingWindowId) | .limitingWindowIds = $windows)' \
+    "$LAB/credit-exhausted.json" > "$LAB/credit-windows.json"
+  if out=$(FM_HOME="$CREDIT_HOME" call_choose --snapshot "$LAB/credit-windows.json" --candidate codex:default); then
+    fail "credit cover accepted mixed or absent window evidence: $windows"
+  fi
+done
+for window in weekly five_hour; do
+  printf '%s\n' 'bin: quota-axi' 'generatedAt: "2030-01-01T00:00:00Z"' \
+    'quota[1]{provider,scope,effectivePercentRemaining,spendPriority,runway,confidence,limitedBy,resetsAt}:' \
+    "  codex,all_models,0,-1,exhausted_now,high,$window,2030-01-02T00:00:00Z" \
+    'exhaustion[1]{provider,scope,usableRunwaySeconds,projectedExhaustedAt,limitingWindowId}:' \
+    "  codex,all_models,0,2030-01-01T00:00:00Z,$window" 'attention[0]:' > "$LAB/credit.toon"
+  out=$(FM_HOME="$CREDIT_HOME" call_choose --snapshot "$LAB/credit.toon" --candidate codex:default) || :
+  if [ "$window" = weekly ]; then
+    [ "$out" = 'codex default' ] || fail "weekly TOON not covered: $out"
+  else
+    [ "$out" = none ] || fail "non-weekly TOON covered: $out"
+  fi
+done
+for identity in 'codex,other,all_models' 'codex,codex-home,model:other' 'claude,codex-home,all_models' 'codex,codex-home,all_models'; do
+  printf '%s\n' 'bin: quota-axi' 'generatedAt: "2030-01-01T00:00:00Z"' \
+    'quota[1]{provider,accountKey,scope,effectivePercentRemaining,spendPriority,runway,confidence,limitedBy,resetsAt}:' \
+    '  codex,codex-home,all_models,0,-1,exhausted_now,high,weekly,2030-01-02T00:00:00Z' \
+    'exhaustion[1]{provider,accountKey,scope,usableRunwaySeconds,projectedExhaustedAt,limitingWindowId}:' \
+    "  $identity,0,2030-01-01T00:00:00Z,weekly" 'attention[0]:' > "$LAB/credit-account.toon"
+  out=$(FM_HOME="$CREDIT_HOME" call_choose --snapshot "$LAB/credit-account.toon" --candidate codex:default) || :
+  if [ "$identity" = 'codex,codex-home,all_models' ]; then
+    [ "$out" = 'codex default' ] || fail "matching account TOON not covered: $out"
+  else
+    [ "$out" = none ] || fail "foreign exhaustion covered candidate: $identity $out"
+  fi
+done
+ok "credit cover preserves sibling vetoes and window evidence"
 
 printf '# all fm-quota-choose tests passed\n'

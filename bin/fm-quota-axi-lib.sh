@@ -20,6 +20,43 @@
 FM_QUOTA_AXI_MIN=0.1.51
 FM_QUOTA_PROVIDER_ID_RE='^[a-z0-9]+(-[a-z0-9]+)*\z'
 
+# Codex credit cover (shared by the worker helper and typed resolver): only a
+# known Codex all_models row with exhausted_now is covered, and only while the
+# captain's latest credit reading is strictly above FM_CODEX_CREDITS_FLOOR.
+# Window evidence must be present and exclusively weekly across both
+# runway.limitingWindowId and limitingWindowIds; a non-null limitingWindowIds
+# must be an array. Other applicable exhaustion/zero bounds, declared quota floors,
+# and the consumers' uncertainty and ranking checks remain binding.
+# Readings live in the gitignored private file
+# $FM_HOME/data/codex-credits.readings, appended as "<epoch> <credits> <note>".
+# The last valid line wins (not the greatest epoch): epoch is an unsigned
+# integer, credits an unsigned integer or decimal, and the note is optional.
+# Blank lines, "#" comment lines, and malformed lines are ignored.
+# An absent file, an unreadable file, or a file with no valid reading line
+# means "no credit reading", and dispatch behaves exactly as without it.
+# Regression coverage: tests/fm-quota-choose.test.sh and
+# tests/fm-dispatch-resolve.test.sh.
+# shellcheck disable=SC2034  # set here, read by the sourcing dispatch consumers
+FM_CODEX_CREDITS_FLOOR=10000
+FM_CODEX_CREDITS_READINGS_FILE=data/codex-credits.readings
+
+# fm_codex_credits_reading [home]
+# Print the newest valid Codex credit balance from
+# <home>/data/codex-credits.readings (default $FM_HOME). Prints nothing and
+# exits 1 when the file is absent, unreadable, or holds no valid line.
+fm_codex_credits_reading() {
+  local file=${1:-${FM_HOME:-.}}/$FM_CODEX_CREDITS_READINGS_FILE
+  [ -r "$file" ] || return 1
+  awk '
+    NF == 0 { next }
+    $1 ~ /^#/ { next }
+    $1 !~ /^[0-9]+$/ { next }
+    $2 !~ /^[0-9]+(\.[0-9]+)?$/ { next }
+    { latest = $2 }
+    END { if (latest == "") exit 1; print latest }
+  ' "$file"
+}
+
 # The eligibility section of .agents/skills/quota-array-dispatch/SKILL.md
 # owns the account-matching contract these jq definitions implement.
 # Prepend them to a consumer's program:
@@ -30,6 +67,17 @@ FM_QUOTA_PROVIDER_ID_RE='^[a-z0-9]+(-[a-z0-9]+)*\z'
 #                                  or null; schema 5 ignores $lane.
 # shellcheck disable=SC2016,SC2034  # jq program text, not shell expansion; read by the sourcing consumers
 FM_QUOTA_ROW_JQ='
+  def quota_credit_covered($provider; $credits; $floor):
+    $provider == "codex"
+    and ($credits | type) == "number"
+    and $credits > $floor
+    and .scope == "all_models"
+    and .status == "known"
+    and .runway.status == "exhausted_now"
+    and ((.limitingWindowIds // []) | type == "array")
+    and ([.runway.limitingWindowId // empty,
+          (.limitingWindowIds // [] | .[])] |
+         length > 0 and all(.[]; . == "weekly"));
   def quota_lane($harness; $model):
     if $harness == "codex" then "codex-home"
     elif ($harness == "pi" or $harness == "pi-signed") and (($model // "") | contains("/"))
