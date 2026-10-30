@@ -4169,14 +4169,9 @@ else
   fi
 fi
 
-# Merged-ship preflight. A fresh ship spawn refuses an id whose earlier lane
-# this home has positive proof already landed: teardown archived its record as
-# kind=ship, AND the fleet ledger holds a task.merged record for it. Either
-# alone refuses nothing, so a home without the ledger keeps today's behavior;
-# with both present and no jq to read the ledger, it refuses rather than skip.
-# Like the backlog preflight, it runs before any lease, endpoint, worktree, or
-# record exists, and again once the meta lock is held, because a cleanup that
-# held the lock during the wait can archive the record in the meantime.
+# Merged-ship preflight; the header owns the refusal contract.
+# Recheck under the meta lock because cleanup can archive the lane record
+# while this spawn waits for the lock.
 spawn_refuse_merged_ship() {
   local archive="$DATA/lane-meta-archive/$ID.meta" ledger="$STATE/fleet-ledger.jsonl"
   [ "$RELAUNCH" -ne 1 ] && [ "$KIND" = ship ] || return 0
