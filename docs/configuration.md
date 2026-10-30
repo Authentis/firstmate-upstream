@@ -472,7 +472,7 @@ Task meta records `backend=` only for a non-default backend; an absent `backend=
 
 - Every new task records `endpoint_task_id=` as the cleanup binding between the metadata filename and its opaque runtime endpoint.
 - Every fresh spawn records `spawn_first=<epoch>`, the task's first-incarnation time; a relaunch keeps it while writing a new `spawn_gen=`. `bin/fm-pr-discover.sh` ignores a merged PR created before it (falling back to the `spawn_gen=` epoch for a record without `spawn_first=`).
-- A crewmate or scout whose slot was taken as a Treehouse lease (`treehouse get --lease --json`, used whenever the installed Treehouse offers it) also records `lease_id=`; teardown returns exactly that lease with `--if-lease-id` (adding `--force` only for an explicit `--force` teardown, a scout, or a retiring secondmate's child slot) and otherwise reports a refusal naming the slot, lease, and blocking files instead of forcing it, while a task with no `lease_id=` keeps the unbound return.
+- A crewmate or scout whose slot was taken as a Treehouse lease (`treehouse get --lease --json`, used whenever the installed Treehouse offers it) also records `lease_id=`; [`fm-teardown.sh`'s header](../bin/fm-teardown.sh) owns lease-bound returns and safe completion when the pool listing or lease is gone.
 
 - A herdr task additionally records `herdr_session=`, `herdr_workspace_id=`, `herdr_tab_id=`, and `herdr_pane_id=`.
 
@@ -496,7 +496,7 @@ Backend guides and other documents refer here instead of restating the resolutio
 ### Teardown identity checks
 
 `fm-teardown.sh <id>` takes a task id directly and validates the complete metadata-only endpoint identity before any runtime dispatch or cleanup mutation.
-Missing, empty, duplicate, malformed, backend-inconsistent, or task-mismatched endpoint records are preserved and refused.
+Missing, empty, duplicate, malformed, backend-inconsistent, or task-mismatched endpoint records are preserved and refused, except for the endpoint-free record-only and legacy recovery paths owned by [`fm-teardown.sh`'s header](../bin/fm-teardown.sh).
 
 Legacy tmux metadata remains cleanup-compatible when its exact window name is `fm-<id>`; opaque non-tmux endpoints require their recorded `endpoint_task_id=` binding.
 

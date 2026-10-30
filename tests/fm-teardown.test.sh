@@ -63,6 +63,17 @@
 #   (z3d) forced secondmate + child return leaves residue    -> warning, retirement completes, exit 4
 #   (z3e) return removes the copy                            -> cannot-verify warning, exit 4
 #   (z4) scout + ignored file                                -> ignored file survives
+#
+# A lane whose pool listing is gone (abandoned pool root, lease unverifiable)
+# but whose copy is clean and landed is backed up, then torn down records-only:
+#   (aa) missing pool listing, clean landed copy            -> ALLOW + verified bundle, no return
+#   (ab) missing pool listing, unpushed unlanded work       -> REFUSE, no bundle
+#   (ac) missing pool listing, dirty copy                   -> REFUSE, no bundle
+# A record-only background-receipt lane (no live copy; receipt file gone)
+# proves its recorded head from the project clone and the forge, backs it up,
+# and completes without touching the recorded dummy path:
+#   (ad) merged PR head matches the record                  -> ALLOW + verified bundle
+#   (ae) recorded head is not the PR head                   -> REFUSE, no bundle
 set -u
 
 # shellcheck source=tests/lib.sh disable=SC1091
@@ -76,7 +87,7 @@ REAL_GIT_FOR_TEST=$(command -v git)
 export REAL_GIT_FOR_TEST
 REAL_PS_FOR_TEST=$(command -v ps)
 export REAL_PS_FOR_TEST
-REAL_LSOF_FOR_TEST=$(command -v lsof)
+REAL_LSOF_FOR_TEST=$(command -v lsof || true)
 export REAL_LSOF_FOR_TEST
 
 # Build a fresh sandbox for one test case. Sets up:
@@ -5604,6 +5615,395 @@ test_retained_sources_still_reach_the_ordinary_refusal() {
   pass "present required sources still reach the ordinary teardown refusal"
 }
 
+# A fake pool whose status lists no slots at all: the lane's slot is gone from
+# the pool (an abandoned pool root), so the lease cannot be confirmed. Every
+# invocation is logged; the gone-pool path must never call `return`.
+add_treehouse_missing_pool_listing() {
+  local case_dir=$1
+  : > "$case_dir/treehouse.log"
+  cat > "$case_dir/fakebin/treehouse" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "$case_dir/treehouse.log"
+if [ "\${1:-}" = status ]; then
+  printf '[]\n'
+  exit 0
+fi
+exit 0
+EOF
+  chmod +x "$case_dir/fakebin/treehouse"
+}
+
+test_invalid_pool_inventory_refuses_before_cleanup() {
+  local case_dir wt rc inventory label
+  for label in malformed null object bad-path bad-lease lease-newline bad-later-row multiple-documents empty; do
+    case_dir=$(make_case "invalid-pool-$label")
+    wt=$(move_case_to_pool_slot "$case_dir" 9)
+    write_meta "$case_dir" no-mistakes ship "$wt"
+    printf '%s\n' 'lease_id=b628dfff' >> "$case_dir/state/task-x1.meta"
+    case "$label" in
+      malformed) inventory='[{' ;;
+      null) inventory='null' ;;
+      object) inventory='{}' ;;
+      bad-path) inventory='[{"path":42,"lease_id":null}]' ;;
+      bad-lease) inventory='[{"path":"/other","lease_id":42}]' ;;
+      lease-newline) inventory='[{"path":"/other","lease_id":"abc\n"}]' ;;
+      bad-later-row) inventory="[{\"path\":\"$wt\",\"lease_id\":\"b628dfff\"},{\"lease_id\":null}]" ;;
+      multiple-documents) inventory='[] []' ;;
+      empty) inventory='' ;;
+    esac
+    printf '%s' "$inventory" > "$case_dir/inventory.json"
+    : > "$case_dir/treehouse.log"
+    cat > "$case_dir/fakebin/treehouse" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "$case_dir/treehouse.log"
+if [ "\${1:-}" = status ]; then
+  cat "$case_dir/inventory.json"
+fi
+EOF
+    chmod +x "$case_dir/fakebin/treehouse"
+    rc=0
+    FM_HOME="$case_dir" run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+    expect_code 1 "$rc" "invalid-pool-$label: invalid inventory must refuse"
+    assert_grep 'invalid Treehouse pool status' "$case_dir/stderr" \
+      "invalid-pool-$label: refusal must cite inventory validation"
+    assert_present "$case_dir/state/task-x1.meta" "invalid-pool-$label: task record removed"
+    assert_absent "$case_dir/data/bundles/task-x1.bundle" "invalid-pool-$label: backup authorized"
+    [ "$(git -C "$wt" symbolic-ref --short HEAD)" = fm/task-x1 ] \
+      || fail "invalid-pool-$label: worktree detached"
+    if grep -q '^return' "$case_dir/treehouse.log"; then
+      fail "invalid-pool-$label: pool return attempted"
+    fi
+  done
+  pass "invalid pool inventories refuse before cleanup, including invalid rows after a matching lease"
+}
+
+test_missing_pool_lease_uses_backup_without_returning_slot() {
+  local case_dir wt rc head scenario inventory expected flag
+  for scenario in null empty omitted null-force foreign own null-dirty null-dirty-force null-unpushed null-unpushed-force foreign-force; do
+    case_dir=$(make_case "pool-lease-$scenario")
+    wt_commit_file "$case_dir" feature.txt hello "lane work"
+    case "$scenario" in
+      *unpushed*) ;;
+      *) git -C "$case_dir/wt" push -q origin fm/task-x1 ;;
+    esac
+    wt=$(move_case_to_pool_slot "$case_dir" 9)
+    head=$(git -C "$wt" rev-parse HEAD)
+    write_meta "$case_dir" no-mistakes ship "$wt"
+    printf '%s\n' 'lease_id=b628dfff' >> "$case_dir/state/task-x1.meta"
+    case "$scenario" in
+      empty) inventory=$(jq -cn --arg path "$wt" '[{path:$path,lease_id:""}]') ;;
+      omitted) inventory=$(jq -cn --arg path "$wt" '[{path:$path}]') ;;
+      foreign*) inventory=$(jq -cn --arg path "$wt" '[{path:$path,lease_id:"different"}]') ;;
+      own) inventory=$(jq -cn --arg path "$wt" '[{path:$path,lease_id:"b628dfff"}]') ;;
+      *) inventory=$(jq -cn --arg path "$wt" '[{path:$path,lease_id:null}]') ;;
+    esac
+    printf '%s\n' "$inventory" > "$case_dir/inventory.json"
+    case "$scenario" in *dirty*) printf 'scratch\n' > "$wt/scratch.txt" ;; esac
+    : > "$case_dir/treehouse.log"
+    cat > "$case_dir/fakebin/treehouse" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "$case_dir/treehouse.log"
+if [ "\${1:-}" = status ]; then
+  cat "$case_dir/inventory.json"
+fi
+exit 0
+EOF
+    chmod +x "$case_dir/fakebin/treehouse"
+    expected=0
+    case "$scenario" in foreign*|*dirty*|*unpushed*) expected=1 ;; esac
+    flag=
+    case "$scenario" in *-force) flag=--force ;; esac
+    rc=0
+    FM_HOME="$case_dir" run_teardown "$case_dir" ${flag:+"$flag"} \
+      > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+    expect_code "$expected" "$rc" "pool-lease-$scenario: teardown outcome"
+    if [ "$expected" = 1 ]; then
+      assert_present "$case_dir/state/task-x1.meta" "pool-lease-$scenario: refusal removed record"
+      assert_absent "$case_dir/data/bundles/task-x1.bundle" "pool-lease-$scenario: refusal published backup"
+      assert_grep 'REFUSED' "$case_dir/stderr" "pool-lease-$scenario: missing refusal"
+    else
+      assert_absent "$case_dir/state/task-x1.meta" "pool-lease-$scenario: teardown kept record"
+      if [ "$scenario" != own ]; then
+        git bundle verify "$case_dir/data/bundles/task-x1.bundle" >/dev/null 2>&1 \
+          || fail "pool-lease-$scenario: missing verified backup"
+        git bundle list-heads "$case_dir/data/bundles/task-x1.bundle" | grep -q "^$head " \
+          || fail "pool-lease-$scenario: backup lost lane head"
+      fi
+    fi
+    if [ "$scenario" = own ]; then
+      assert_grep 'return --if-lease-id b628dfff' "$case_dir/treehouse.log" \
+        "pool-lease-own: normal cleanup lost its lease binding"
+    else
+      if grep -q '^return' "$case_dir/treehouse.log"; then
+        fail "pool-lease-$scenario: unconfirmed slot was returned"
+      fi
+      [ "$(git -C "$wt" symbolic-ref --short HEAD)" = fm/task-x1 ] \
+        || fail "pool-lease-$scenario: copy was detached"
+      [ "$(git -C "$wt" rev-parse HEAD)" = "$head" ] \
+        || fail "pool-lease-$scenario: copy head changed"
+      case "$scenario" in *dirty*) assert_present "$wt/scratch.txt" "pool-lease-$scenario: dirt discarded" ;; esac
+    fi
+  done
+  pass "missing leases require a backup, foreign leases refuse, and matching leases return normally"
+}
+
+test_gone_pool_listing_with_landed_work_is_backed_up_and_torn_down() {
+  local case_dir wt rc head bundle
+  case_dir=$(make_case gone-pool-landed)
+  wt=$(move_case_to_pool_slot "$case_dir" 9)
+  write_meta "$case_dir" no-mistakes ship "$wt"
+  printf '%s\n' "lease_id=b628dfffc115d18c8894e221d00390cb" >> "$case_dir/state/task-x1.meta"
+  # The slot-owner claim names this task, as a live spawn leaves it.
+  printf '%s\n' "task=task-x1" "home=$case_dir" > "$case_dir/pool/9/.fm-slot-owner"
+  git -C "$wt" -c user.email=t@t -c user.name=t \
+    commit -q --allow-empty -m "landed work"
+  git -C "$wt" push -q origin fm/task-x1
+  head=$(git -C "$wt" rev-parse HEAD)
+  add_treehouse_missing_pool_listing "$case_dir"
+
+  set +e
+  FM_HOME="$case_dir" run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 0 "$rc" "gone-pool-landed: teardown should complete a clean landed copy whose slot is gone"
+  assert_absent "$case_dir/state/task-x1.meta" \
+    "gone-pool-landed: teardown left the task record behind"
+  bundle="$case_dir/data/bundles/task-x1.bundle"
+  assert_present "$bundle" "gone-pool-landed: no backup bundle was written"
+  git bundle verify "$bundle" >/dev/null 2>&1 \
+    || fail "gone-pool-landed: backup bundle does not verify"
+  git bundle list-heads "$bundle" 2>/dev/null | grep -q "^$head " \
+    || fail "gone-pool-landed: backup bundle does not list the branch head"
+  assert_grep "Preserved gone-pool-slot lane task-x1" "$case_dir/stdout" \
+    "gone-pool-landed: stdout did not name the backup"
+  assert_grep "no longer listed" "$case_dir/stdout" \
+    "gone-pool-landed: stdout did not report the gone pool slot"
+  if grep -q '^return' "$case_dir/treehouse.log"; then
+    fail "gone-pool-landed: teardown called treehouse return for a slot the pool no longer lists: $(cat "$case_dir/treehouse.log")"
+  fi
+  [ "$(git -C "$wt" rev-parse --abbrev-ref HEAD 2>/dev/null)" = fm/task-x1 ] \
+    || fail "gone-pool-landed: teardown mutated the abandoned copy"
+  pass "a clean landed copy whose pool listing is gone is backed up, then torn down records-only"
+}
+
+test_gone_pool_listing_with_unpushed_work_refuses() {
+  local case_dir wt rc
+  case_dir=$(make_case gone-pool-unpushed)
+  wt_commit_file "$case_dir" feature.txt hello "unpushed feature"
+  wt=$(move_case_to_pool_slot "$case_dir" 9)
+  write_meta "$case_dir" no-mistakes ship "$wt"
+  printf '%s\n' "lease_id=b628dfffc115d18c8894e221d00390cb" >> "$case_dir/state/task-x1.meta"
+  add_treehouse_missing_pool_listing "$case_dir"
+
+  set +e
+  FM_HOME="$case_dir" run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 1 "$rc" "gone-pool-unpushed: teardown should refuse unlanded work whose slot is gone"
+  assert_grep "REFUSED" "$case_dir/stderr" "gone-pool-unpushed: no REFUSED line"
+  assert_grep "not landed" "$case_dir/stderr" \
+    "gone-pool-unpushed: refusal did not cite unlanded work"
+  assert_present "$case_dir/state/task-x1.meta" \
+    "gone-pool-unpushed: the refusal removed the task record"
+  assert_absent "$case_dir/data/bundles/task-x1.bundle" \
+    "gone-pool-unpushed: a backup bundle was written for unlanded work"
+  pass "unpushed unlanded work whose pool listing is gone refuses with the record kept"
+}
+
+test_gone_pool_listing_with_dirty_work_refuses() {
+  local case_dir wt rc
+  case_dir=$(make_case gone-pool-dirty)
+  wt_commit_file "$case_dir" feature.txt hello "landed feature"
+  git -C "$case_dir/wt" push -q origin fm/task-x1
+  wt=$(move_case_to_pool_slot "$case_dir" 9)
+  write_meta "$case_dir" no-mistakes ship "$wt"
+  printf '%s\n' "lease_id=b628dfffc115d18c8894e221d00390cb" >> "$case_dir/state/task-x1.meta"
+  printf 'scratch\n' > "$wt/scratch.txt"
+  add_treehouse_missing_pool_listing "$case_dir"
+
+  set +e
+  FM_HOME="$case_dir" run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 1 "$rc" "gone-pool-dirty: teardown should refuse a dirty copy whose slot is gone"
+  assert_grep "REFUSED" "$case_dir/stderr" "gone-pool-dirty: no REFUSED line"
+  assert_grep "uncommitted changes" "$case_dir/stderr" \
+    "gone-pool-dirty: refusal did not cite uncommitted changes"
+  assert_present "$case_dir/state/task-x1.meta" \
+    "gone-pool-dirty: the refusal removed the task record"
+  assert_absent "$case_dir/data/bundles/task-x1.bundle" \
+    "gone-pool-dirty: a backup bundle was written for a dirty copy"
+  pass "a dirty copy whose pool listing is gone refuses with the record kept"
+}
+
+# Land one commit on the case origin's main and publish it as the head of PR 7.
+# Echoes the landed head sha.
+land_pr7_head_on_origin() {
+  local case_dir=$1 tmp head
+  tmp="$case_dir/_land"
+  git clone -q "$case_dir/origin.git" "$tmp"
+  printf '%s\n' hello > "$tmp/feature.txt"
+  git -C "$tmp" add -- feature.txt
+  git -C "$tmp" -c user.email=t@t -c user.name=t commit -q -m "land feature"
+  head=$(git -C "$tmp" rev-parse HEAD)
+  git -C "$tmp" push -q origin HEAD:main
+  git -C "$tmp" push -q origin "HEAD:refs/pull/7/head"
+  rm -rf "$tmp"
+  printf '%s\n' "$head"
+}
+
+# A record-only background-receipt lane: no window or backend (no endpoint to
+# close), a dummy worktree path that must never be touched, and - by design -
+# no gate-receipt file. The forge reports PR 7 merged at the recorded head.
+test_record_only_bg_receipt_lane_is_backed_up_and_torn_down() {
+  local case_dir rc head bundle shape=${1:-dummy}
+  local real_tmux socket path_without_lsof pane_alive
+  local -a worktree_field=()
+  case_dir=$(make_case "record-only-receipt-$shape")
+  if [ "$shape" = dummy ]; then
+    worktree_field=("worktree=$case_dir/dummy-shared")
+  fi
+  head=$(land_pr7_head_on_origin "$case_dir")
+  add_gh_pr_merged_for_head "$case_dir" "$head"
+  mkdir -p "$case_dir/dummy-shared"
+  printf 'shared\n' > "$case_dir/dummy-shared/sentinel.txt"
+  fm_write_meta "$case_dir/state/task-x1.meta" \
+    "endpoint_task_id=task-x1" \
+    "project=$case_dir/project" \
+    "kind=ship" \
+    "mode=no-mistakes" \
+    "yolo=off" \
+    "branch=fm/dos-bosgame-x-land-1001" \
+    "origin_host=bosgame" \
+    "record_only=yes" \
+    "gate_receipt_source=bosgame:data/gate-receipts/7.json" \
+    "pr=https://github.com/example/repo/pull/7" \
+    "pr_head=$head" \
+    "${worktree_field[@]}"
+  : > "$case_dir/treehouse.log"
+  cat > "$case_dir/fakebin/treehouse" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "$case_dir/treehouse.log"
+exit 0
+EOF
+  chmod +x "$case_dir/fakebin/treehouse"
+
+  if [ "$shape" = missing-lsof ]; then
+    # Oracle: retiring an endpointless receipt must not signal an unrelated
+    # pane. Use a real private server so an empty-target fallback kills the
+    # sleeper and fails this assertion, rather than just checking mock calls.
+    real_tmux=$(command -v tmux) || fail "missing-lsof: tmux is required"
+    socket="$case_dir/tmux.sock"
+    "$real_tmux" -f /dev/null -S "$socket" new-session -d -s unrelated 'exec sleep 300'
+    "$real_tmux" -S "$socket" has-session -t unrelated \
+      || fail "missing-lsof: unrelated pane did not start"
+    cat > "$case_dir/fakebin/tmux" <<EOF
+#!/usr/bin/env bash
+exec '$real_tmux' -S '$socket' "\$@"
+EOF
+    chmod +x "$case_dir/fakebin/tmux"
+    path_without_lsof=$(make_path_without_lsof "$case_dir")
+    PATH="$path_without_lsof" command -v lsof >/dev/null 2>&1 \
+      && fail "missing-lsof: fixture unexpectedly exposes lsof"
+  fi
+
+  rc=0
+  FM_HOME="$case_dir" FM_TEARDOWN_TEST_PATH="${path_without_lsof:-$PATH}" \
+    run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+
+  if [ "$shape" = missing-lsof ]; then
+    pane_alive=0
+    "$real_tmux" -S "$socket" has-session -t unrelated 2>/dev/null && pane_alive=1
+    "$real_tmux" -S "$socket" kill-server 2>/dev/null || true
+    [ "$pane_alive" = 1 ] || fail "missing-lsof: endpointless teardown killed an unrelated pane"
+  fi
+  expect_code 0 "$rc" "record-only-receipt: teardown should complete a record_only lane"
+  assert_absent "$case_dir/state/task-x1.meta" \
+    "record-only-receipt: teardown left the task record behind"
+  bundle="$case_dir/data/bundles/task-x1.bundle"
+  assert_present "$bundle" "record-only-receipt: no backup bundle was written"
+  git bundle verify "$bundle" >/dev/null 2>&1 \
+    || fail "record-only-receipt: backup bundle does not verify"
+  git bundle list-heads "$bundle" 2>/dev/null | grep -q "^$head " \
+    || fail "record-only-receipt: backup bundle does not list the recorded head"
+  assert_grep "Preserved record_only lane task-x1" "$case_dir/stdout" \
+    "record-only-receipt: stdout did not name the backup"
+  assert_grep "record_only lane, no pool slot" "$case_dir/stdout" \
+    "record-only-receipt: stdout did not report the record_only completion"
+  [ "$(cat "$case_dir/dummy-shared/sentinel.txt")" = shared ] \
+    || fail "record-only-receipt: teardown touched the recorded dummy path"
+  assert_absent "$case_dir/dummy-shared/.git" \
+    "record-only-receipt: teardown initialized git state in the dummy path"
+  [ ! -s "$case_dir/treehouse.log" ] \
+    || fail "record-only-receipt: teardown contacted the pool for a record_only lane: $(cat "$case_dir/treehouse.log")"
+  pass "a record_only bg-receipt lane with a merged PR head is backed up from the project clone and torn down"
+}
+
+test_record_only_lane_with_unverifiable_head_refuses() {
+  local case_dir rc recorded published tmp
+  case_dir=$(make_case record-only-mismatch)
+  recorded=$(land_pr7_head_on_origin "$case_dir")
+  tmp="$case_dir/_move"
+  git clone -q "$case_dir/origin.git" "$tmp"
+  printf '%s\n' hello-again > "$tmp/feature.txt"
+  git -C "$tmp" add -- feature.txt
+  git -C "$tmp" -c user.email=t@t -c user.name=t commit -q -m "move the PR head"
+  published=$(git -C "$tmp" rev-parse HEAD)
+  git -C "$tmp" push -q origin "HEAD:refs/pull/7/head"
+  rm -rf "$tmp"
+  # The forge now heads the PR at a commit the record does not name.
+  add_gh_pr_merged_for_head "$case_dir" "$published"
+  fm_write_meta "$case_dir/state/task-x1.meta" \
+    "endpoint_task_id=task-x1" \
+    "project=$case_dir/project" \
+    "kind=ship" \
+    "mode=no-mistakes" \
+    "yolo=off" \
+    "branch=fm/dos-bosgame-x-land-1001" \
+    "origin_host=bosgame" \
+    "record_only=yes" \
+    "gate_receipt_source=bosgame:data/gate-receipts/7.json" \
+    "pr=https://github.com/example/repo/pull/7" \
+    "pr_head=$recorded"
+
+  set +e
+  FM_HOME="$case_dir" run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 1 "$rc" "record-only-mismatch: teardown should refuse an unverifiable recorded head"
+  assert_grep "REFUSED" "$case_dir/stderr" "record-only-mismatch: no REFUSED line"
+  assert_grep "cannot be verified" "$case_dir/stderr" \
+    "record-only-mismatch: refusal did not cite the unverifiable head"
+  assert_present "$case_dir/state/task-x1.meta" \
+    "record-only-mismatch: the refusal removed the task record"
+  assert_absent "$case_dir/data/bundles/task-x1.bundle" \
+    "record-only-mismatch: a backup bundle was written for an unverifiable head"
+  pass "a record_only lane whose recorded head is not the PR head refuses with the record kept"
+}
+
+# Focused regression entry points; avoid running unrelated teardown cases.
+if [ "${1:-}" = --gone-state ]; then
+  test_invalid_pool_inventory_refuses_before_cleanup
+  test_missing_pool_lease_uses_backup_without_returning_slot
+  test_gone_pool_listing_with_landed_work_is_backed_up_and_torn_down
+  test_gone_pool_listing_with_unpushed_work_refuses
+  test_gone_pool_listing_with_dirty_work_refuses
+  test_record_only_bg_receipt_lane_is_backed_up_and_torn_down
+  test_record_only_bg_receipt_lane_is_backed_up_and_torn_down absent
+  test_record_only_bg_receipt_lane_is_backed_up_and_torn_down missing-lsof
+  test_record_only_lane_with_unverifiable_head_refuses
+  exit 0
+fi
+if [ "${1:-}" = --endpointless-missing-lsof ]; then
+  test_record_only_bg_receipt_lane_is_backed_up_and_torn_down missing-lsof
+  test_lsof_absent_reaps_tmux_process_group
+  exit 0
+fi
+
 test_missing_startup_source_refuses_before_cleanup
 test_unreadable_startup_source_refuses_before_cleanup
 test_missing_adapter_sibling_refuses_before_cleanup
@@ -5675,6 +6075,15 @@ test_forced_secondmate_dirty_child_return_warns_and_completes
 test_return_that_removes_copy_warns_cannot_verify
 test_scout_ignored_files_survive_scratch_clean
 test_gh_error_and_content_absent_refuses
+test_invalid_pool_inventory_refuses_before_cleanup
+test_missing_pool_lease_uses_backup_without_returning_slot
+test_gone_pool_listing_with_landed_work_is_backed_up_and_torn_down
+test_gone_pool_listing_with_unpushed_work_refuses
+test_gone_pool_listing_with_dirty_work_refuses
+test_record_only_bg_receipt_lane_is_backed_up_and_torn_down
+test_record_only_bg_receipt_lane_is_backed_up_and_torn_down absent
+test_record_only_bg_receipt_lane_is_backed_up_and_torn_down missing-lsof
+test_record_only_lane_with_unverifiable_head_refuses
 test_legacy_record_without_the_flag_refuses
 test_windowless_legacy_record_with_gone_worktree_tears_down
 test_windowless_legacy_record_tears_down_with_the_legacy_flag
