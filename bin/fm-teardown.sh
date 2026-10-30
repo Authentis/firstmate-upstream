@@ -2221,6 +2221,7 @@ teardown_verify_slot_lease() {
   while IFS=$'\t' read -r path_in_pool lease_in_pool; do
     [ -n "$path_in_pool" ] || continue
     [ "$(canonical_existing_dir "$path_in_pool" 2>/dev/null || printf '%s' "$path_in_pool")" = "$real" ] || continue
+    [ -n "$lease_in_pool" ] || continue
     found=1
     [ "$lease_in_pool" = "$lease" ] && { TEARDOWN_RETURN_LEASE_ID=$lease; return 0; }
   done <<< "$rows"
@@ -4450,7 +4451,7 @@ if [ "$TEARDOWN_POOL_SLOT_LOST" = 1 ]; then
 elif [ "$TEARDOWN_RECORD_ONLY" = 1 ]; then
   echo "teardown $ID complete (record_only lane, no pool slot; recorded worktree ${WT:-none} untouched, backup in $DATA/bundles)"
 elif [ "$TEARDOWN_POOL_LISTING_GONE" = 1 ]; then
-  echo "teardown $ID complete (pool slot $WT no longer listed; copy left in place, backup in $DATA/bundles)"
+  echo "teardown $ID complete (pool slot $WT or its lease no longer listed; copy left in place, backup in $DATA/bundles)"
 elif [ "$TEARDOWN_LEGACY_ACCEPTED" = 1 ]; then
   echo "teardown $ID complete (window ${T:-none}, worktree $WT, legacy record accepted without spawn_gen: endpoint $TEARDOWN_LEGACY_ENDPOINT, incarnation $TEARDOWN_META_SPAWN_GEN)"
 elif teardown_owns_worktree; then

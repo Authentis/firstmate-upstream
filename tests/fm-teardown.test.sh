@@ -5677,6 +5677,76 @@ EOF
   pass "invalid pool inventories refuse before cleanup, including invalid rows after a matching lease"
 }
 
+test_missing_pool_lease_uses_backup_without_returning_slot() {
+  local case_dir wt rc head scenario inventory expected flag
+  for scenario in null empty omitted null-force foreign own null-dirty null-dirty-force null-unpushed null-unpushed-force foreign-force; do
+    case_dir=$(make_case "pool-lease-$scenario")
+    wt_commit_file "$case_dir" feature.txt hello "lane work"
+    case "$scenario" in
+      *unpushed*) ;;
+      *) git -C "$case_dir/wt" push -q origin fm/task-x1 ;;
+    esac
+    wt=$(move_case_to_pool_slot "$case_dir" 9)
+    head=$(git -C "$wt" rev-parse HEAD)
+    write_meta "$case_dir" no-mistakes ship "$wt"
+    printf '%s\n' 'lease_id=b628dfff' >> "$case_dir/state/task-x1.meta"
+    case "$scenario" in
+      empty) inventory=$(jq -cn --arg path "$wt" '[{path:$path,lease_id:""}]') ;;
+      omitted) inventory=$(jq -cn --arg path "$wt" '[{path:$path}]') ;;
+      foreign*) inventory=$(jq -cn --arg path "$wt" '[{path:$path,lease_id:"different"}]') ;;
+      own) inventory=$(jq -cn --arg path "$wt" '[{path:$path,lease_id:"b628dfff"}]') ;;
+      *) inventory=$(jq -cn --arg path "$wt" '[{path:$path,lease_id:null}]') ;;
+    esac
+    printf '%s\n' "$inventory" > "$case_dir/inventory.json"
+    case "$scenario" in *dirty*) printf 'scratch\n' > "$wt/scratch.txt" ;; esac
+    : > "$case_dir/treehouse.log"
+    cat > "$case_dir/fakebin/treehouse" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "$case_dir/treehouse.log"
+if [ "\${1:-}" = status ]; then
+  cat "$case_dir/inventory.json"
+fi
+exit 0
+EOF
+    chmod +x "$case_dir/fakebin/treehouse"
+    expected=0
+    case "$scenario" in foreign*|*dirty*|*unpushed*) expected=1 ;; esac
+    flag=
+    case "$scenario" in *-force) flag=--force ;; esac
+    rc=0
+    FM_HOME="$case_dir" run_teardown "$case_dir" ${flag:+"$flag"} \
+      > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+    expect_code "$expected" "$rc" "pool-lease-$scenario: teardown outcome"
+    if [ "$expected" = 1 ]; then
+      assert_present "$case_dir/state/task-x1.meta" "pool-lease-$scenario: refusal removed record"
+      assert_absent "$case_dir/data/bundles/task-x1.bundle" "pool-lease-$scenario: refusal published backup"
+      assert_grep 'REFUSED' "$case_dir/stderr" "pool-lease-$scenario: missing refusal"
+    else
+      assert_absent "$case_dir/state/task-x1.meta" "pool-lease-$scenario: teardown kept record"
+      if [ "$scenario" != own ]; then
+        git bundle verify "$case_dir/data/bundles/task-x1.bundle" >/dev/null 2>&1 \
+          || fail "pool-lease-$scenario: missing verified backup"
+        git bundle list-heads "$case_dir/data/bundles/task-x1.bundle" | grep -q "^$head " \
+          || fail "pool-lease-$scenario: backup lost lane head"
+      fi
+    fi
+    if [ "$scenario" = own ]; then
+      assert_grep 'return --if-lease-id b628dfff' "$case_dir/treehouse.log" \
+        "pool-lease-own: normal cleanup lost its lease binding"
+    else
+      if grep -q '^return' "$case_dir/treehouse.log"; then
+        fail "pool-lease-$scenario: unconfirmed slot was returned"
+      fi
+      [ "$(git -C "$wt" symbolic-ref --short HEAD)" = fm/task-x1 ] \
+        || fail "pool-lease-$scenario: copy was detached"
+      [ "$(git -C "$wt" rev-parse HEAD)" = "$head" ] \
+        || fail "pool-lease-$scenario: copy head changed"
+      case "$scenario" in *dirty*) assert_present "$wt/scratch.txt" "pool-lease-$scenario: dirt discarded" ;; esac
+    fi
+  done
+  pass "missing leases require a backup, foreign leases refuse, and matching leases return normally"
+}
+
 test_gone_pool_listing_with_landed_work_is_backed_up_and_torn_down() {
   local case_dir wt rc head bundle
   case_dir=$(make_case gone-pool-landed)
@@ -5962,6 +6032,7 @@ test_return_that_removes_copy_warns_cannot_verify
 test_scout_ignored_files_survive_scratch_clean
 test_gh_error_and_content_absent_refuses
 test_invalid_pool_inventory_refuses_before_cleanup
+test_missing_pool_lease_uses_backup_without_returning_slot
 test_gone_pool_listing_with_landed_work_is_backed_up_and_torn_down
 test_gone_pool_listing_with_unpushed_work_refuses
 test_gone_pool_listing_with_dirty_work_refuses
