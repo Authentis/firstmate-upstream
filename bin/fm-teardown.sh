@@ -103,8 +103,8 @@
 # product. Teardown proceeds only once the report exists and the shared
 # unresolved-decision completion gate verifies its captain-held inventory.
 # Record-only lanes (record_only=yes, e.g. background-receipt autoland lanes)
-# name no live copy: their recorded worktree is a dummy or shared path that
-# teardown never inspects, scrubs, branch-deletes, or returns. Teardown instead
+# name no live copy: worktree= may be absent or name a dummy or shared path
+# that teardown never inspects, scrubs, branch-deletes, or returns. Teardown instead
 # requires pr= and a 40-hex pr_head=: both origin's refs/pull/<n>/head fetched
 # into the project clone and the merged PR reported by gh must name that head.
 # The background/gate receipt itself is not required. Teardown writes a verified
@@ -260,9 +260,9 @@
 #   missing-endpoint legacy record with or without --legacy-record; the shared
 #   endpoint validator is skipped so it cannot be read as the current window,
 #   kill is skipped, and a still-present worktree still faces the ordinary
-#   landed-work checks. Every other windowless record, including one with a
-#   spawn_gen, a non-tmux backend, or an ambiguous field, still faces the
-#   validator and refuses.
+#   landed-work checks. Apart from the record-only path described above,
+#   every other windowless record, including one with a spawn_gen, a non-tmux
+#   backend, or an ambiguous field, still faces the validator and refuses.
 #
 # Transient / stale worktree git lock recovery (teardown-lock-race): a crew process
 # killed mid-git-operation can leave a .git/worktrees/<wt>/index.lock (or, for a
@@ -3981,11 +3981,10 @@ if teardown_owns_worktree && [ -d "$WT" ] && [ "$FORCE" != "--force" ] && [ "$TE
   fi
 fi
 
-# Gone-pool-slot and record-only lanes prove landing here (backup-first), after
-# every ordinary refusal above has passed and before anything destructive runs
-# below - including the parked-run abort and the process reap. The proof runs
-# unconditionally: --force authorizes discarding this task's unlanded work,
-# never skipping the proof that decides whether anything is unlanded.
+# Run the header's gone-pool or record-only proof and backup after every
+# ordinary refusal above has passed and before anything destructive below,
+# including the parked-run abort and the process reap. Neither proof is
+# bypassed by --force.
 if [ "$TEARDOWN_RECORD_ONLY" = 1 ] && [ "$BACKEND" = orca ]; then
   echo "REFUSED: record_only lane $ID uses the Orca backend, whose recorded worktree cannot be verified from the project clone; reconcile the record and retry teardown" >&2
   exit 1

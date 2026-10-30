@@ -5985,7 +5985,19 @@ test_record_only_lane_with_unverifiable_head_refuses() {
   pass "a record_only lane whose recorded head is not the PR head refuses with the record kept"
 }
 
-# Focused regression entry point; avoid running unrelated teardown cases.
+# Focused regression entry points; avoid running unrelated teardown cases.
+if [ "${1:-}" = --gone-state ]; then
+  test_invalid_pool_inventory_refuses_before_cleanup
+  test_missing_pool_lease_uses_backup_without_returning_slot
+  test_gone_pool_listing_with_landed_work_is_backed_up_and_torn_down
+  test_gone_pool_listing_with_unpushed_work_refuses
+  test_gone_pool_listing_with_dirty_work_refuses
+  test_record_only_bg_receipt_lane_is_backed_up_and_torn_down
+  test_record_only_bg_receipt_lane_is_backed_up_and_torn_down absent
+  test_record_only_bg_receipt_lane_is_backed_up_and_torn_down missing-lsof
+  test_record_only_lane_with_unverifiable_head_refuses
+  exit 0
+fi
 if [ "${1:-}" = --endpointless-missing-lsof ]; then
   test_record_only_bg_receipt_lane_is_backed_up_and_torn_down missing-lsof
   test_lsof_absent_reaps_tmux_process_group
