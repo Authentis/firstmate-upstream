@@ -866,6 +866,74 @@ assert_contains "$out" '  reason: quota-axi --json returned an invalid snapshot'
 cp "$BASE_RULES" "$RULES"
 pass "schema 6: each candidate binds to its account row; schema 5 is unchanged"
 
+# --- Codex credit cover: a spent weekly all_models Codex window stays -------
+# eligible while the latest credit reading clears the floor.
+CREDIT_RULES="$TMP_ROOT/credit-rules.json"
+CREDIT_QUOTA="$TMP_ROOT/credit-quota.json"
+cat > "$CREDIT_RULES" <<'JSON'
+{
+  "rules": [
+    {
+      "when": "Codex work on credits.",
+      "use": [
+        { "harness": "codex", "model": "gpt-6.1-terra" },
+        { "harness": "claude", "model": "sonnet" }
+      ]
+    }
+  ]
+}
+JSON
+cat > "$CREDIT_QUOTA" <<'JSON'
+{
+  "generatedAt": "2030-01-01T00:00:00Z",
+  "schemaVersion": 5,
+  "providers": [
+    { "provider": "codex", "state": { "status": "fresh" }, "quotaSemantics": { "status": "known", "effectiveAvailability": [
+      { "scope": "all_models", "status": "known", "effectivePercentRemaining": 0, "runway": { "status": "exhausted_now", "limitingWindowId": "weekly" }, "selection": { "spendPriority": -3.4 } } ] } },
+    { "provider": "claude", "state": { "status": "fresh" }, "quotaSemantics": { "status": "known", "effectiveAvailability": [
+      { "scope": "all_models", "status": "known", "effectivePercentRemaining": 0, "runway": { "status": "exhausted_now" }, "selection": { "spendPriority": -1 } } ] } }
+  ]
+}
+JSON
+cat > "$RESPONSE" <<'JSON'
+{ "model": "jev-1.13.0",
+  "answers": { "rule": { "type": "choice", "choice": "rule_1", "confidence": 0.9,
+    "probabilities": { "rule_1": 0.97, "default": 0.03 } } },
+  "usage": { "input_tokens": 812, "output_tokens": 60 } }
+JSON
+cp "$CREDIT_RULES" "$RULES"
+mkdir -p "$HOME_DIR/data"
+printf '%s\n' '# captain 10-30 via chief: we can use the credits!' '1793336000 9999 earlier reading' '1793336034 62397 captain 10-30 via chief' > "$HOME_DIR/data/codex-credits.readings"
+reset_log
+TYPESAFE_API_KEY=$KEY QUOTA_AXI_FIXTURE="$CREDIT_QUOTA" run code out err "$BRIEF"
+expect_code 0 "$code" "credit-covered Codex snapshot exits 0"
+assert_contains "$out" '  status: clear' "a credit-covered Codex window resolves"
+assert_contains "$out" 'candidate: codex:gpt-6.1-terra  provider=codex  scope=all_models  remaining=0%  spendPriority=-3.4  runway=exhausted_now  -> eligible' "62397 credits keep the spent weekly Codex window eligible"
+assert_contains "$out" 'candidate: claude:sonnet  provider=claude  scope=all_models  remaining=0%  spendPriority=-  runway=exhausted_now  -> not eligible: runway exhausted_now at all_models' "a non-Codex exhausted window stays ineligible under the same reading"
+assert_contains "$out" "  profile: --harness 'codex' --model 'gpt-6.1-terra'" "the credit-covered Codex candidate is chosen"
+printf '%s\n' '1793336034 9999 captain 10-30 via chief' > "$HOME_DIR/data/codex-credits.readings"
+reset_log
+TYPESAFE_API_KEY=$KEY QUOTA_AXI_FIXTURE="$CREDIT_QUOTA" run code out err "$BRIEF"
+assert_contains "$out" 'candidate: codex:gpt-6.1-terra  provider=codex  scope=all_models  remaining=0%  spendPriority=-  runway=exhausted_now  -> not eligible: runway exhausted_now at all_models' "a reading below the floor keeps the Codex window ineligible"
+assert_contains "$out" '  status: escalate' "no candidate is rankable when the reading is below the floor"
+printf '%s\n' '1793336034 10000 captain 10-30 via chief' > "$HOME_DIR/data/codex-credits.readings"
+reset_log
+TYPESAFE_API_KEY=$KEY QUOTA_AXI_FIXTURE="$CREDIT_QUOTA" run code out err "$BRIEF"
+assert_contains "$out" 'candidate: codex:gpt-6.1-terra  provider=codex  scope=all_models  remaining=0%  spendPriority=-  runway=exhausted_now  -> not eligible: runway exhausted_now at all_models' "a reading at the floor keeps the Codex window ineligible"
+rm "$HOME_DIR/data/codex-credits.readings"
+reset_log
+TYPESAFE_API_KEY=$KEY QUOTA_AXI_FIXTURE="$CREDIT_QUOTA" run code out err "$BRIEF"
+assert_contains "$out" 'candidate: codex:gpt-6.1-terra  provider=codex  scope=all_models  remaining=0%  spendPriority=-  runway=exhausted_now  -> not eligible: runway exhausted_now at all_models' "no readings file keeps today's Codex behavior"
+jq '(.providers[] | select(.provider == "codex").quotaSemantics.effectiveAvailability[0].runway.limitingWindowId) = "five_hour"' \
+  "$CREDIT_QUOTA" > "$TMP_ROOT/credit-session.json"
+printf '%s\n' '1793336034 62397 captain 10-30 via chief' > "$HOME_DIR/data/codex-credits.readings"
+reset_log
+TYPESAFE_API_KEY=$KEY QUOTA_AXI_FIXTURE="$TMP_ROOT/credit-session.json" run code out err "$BRIEF"
+assert_contains "$out" 'candidate: codex:gpt-6.1-terra  provider=codex  scope=all_models  remaining=0%  spendPriority=-  runway=exhausted_now  -> not eligible: runway exhausted_now at all_models' "credits never cover a non-weekly exhausted window"
+rm "$HOME_DIR/data/codex-credits.readings"
+cp "$BASE_RULES" "$RULES"
+pass "Codex credits cover only the spent weekly all_models window above the floor"
+
 # --- quota-axi is read exactly once --------------------------------------------
 reset_log
 write_response "$RESPONSE" rule_4 0.9

@@ -20,6 +20,37 @@
 FM_QUOTA_AXI_MIN=0.1.51
 FM_QUOTA_PROVIDER_ID_RE='^[a-z0-9]+(-[a-z0-9]+)*\z'
 
+# Codex credit cover: the weekly Codex window can read spent while prepaid
+# credits remain, so the captain's latest credit reading keeps Codex-pool
+# profiles eligible while it stays above FM_CODEX_CREDITS_FLOOR. Readings live
+# in the gitignored private file $FM_HOME/data/codex-credits.readings, one
+# reading per line as "<epoch> <credits> <note>", newest line wins,
+# append-only; "#" comment lines and blank lines are ignored. For example:
+#   # captain 10-30 via chief: 'we can use the credits!'
+#   1793335800 62397 captain 10-30 via chief 'we can use the credits!'
+# An absent file, an unreadable file, or a file with no valid reading line
+# means "no credit reading", and dispatch behaves exactly as without it.
+# shellcheck disable=SC2034  # set here, read by the sourcing dispatch consumers
+FM_CODEX_CREDITS_FLOOR=10000
+FM_CODEX_CREDITS_READINGS_FILE=data/codex-credits.readings
+
+# fm_codex_credits_reading [home]
+# Print the newest valid Codex credit balance from
+# <home>/data/codex-credits.readings (default $FM_HOME). Prints nothing and
+# exits 1 when the file is absent, unreadable, or holds no valid line.
+fm_codex_credits_reading() {
+  local file=${1:-${FM_HOME:-.}}/$FM_CODEX_CREDITS_READINGS_FILE
+  [ -r "$file" ] || return 1
+  awk '
+    NF == 0 { next }
+    $1 ~ /^#/ { next }
+    $1 !~ /^[0-9]+$/ { next }
+    $2 !~ /^[0-9]+(\.[0-9]+)?$/ { next }
+    { latest = $2 }
+    END { if (latest == "") exit 1; print latest }
+  ' "$file"
+}
+
 # The eligibility section of .agents/skills/quota-array-dispatch/SKILL.md
 # owns the account-matching contract these jq definitions implement.
 # Prepend them to a consumer's program:

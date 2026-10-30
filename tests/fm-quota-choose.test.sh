@@ -774,4 +774,58 @@ out=$(bash -c 'set -e; . "$1/fm-quota-axi-lib.sh"; fm_quota_single_provider_for_
 [ "$out" = claude ] || fail "provider-table lookup under set -e printed: $out"
 ok "provider-table lookup prints the provider when called directly under set -e"
 
+# Codex credit cover: a spent weekly all_models Codex window stays eligible
+# while the latest credit reading clears the floor.
+CREDIT_HOME="$LAB/credit-home"
+CREDIT_EMPTY="$LAB/credit-empty"
+mkdir -p "$CREDIT_HOME/data" "$CREDIT_EMPTY/data"
+jq '(.providers[] | select(.provider == "codex").quotaSemantics.effectiveAvailability) = [
+  {"scope":"all_models","status":"known","effectivePercentRemaining":0,
+   "runway":{"status":"exhausted_now","limitingWindowId":"weekly"}}]' \
+  "$LAB/captured.json" > "$LAB/credit-exhausted.json"
+printf '%s\n' '# captain 10-30 via chief: we can use the credits!' \
+  '1793336000 9999 earlier reading' \
+  '1793336034 62397 captain 10-30 via chief' > "$CREDIT_HOME/data/codex-credits.readings"
+out=$(FM_HOME="$CREDIT_HOME" call_choose --snapshot "$LAB/credit-exhausted.json" --candidate codex:default)
+[ "$out" = "codex default" ] || fail "credit cover: expected 'codex default', got '$out'"
+ok "62397 credits keep the spent weekly Codex window eligible"
+out=$(FM_HOME="$CREDIT_HOME" call_choose --snapshot "$LAB/credit-exhausted.json" --candidate omp:openai-codex/codex_other)
+[ "$out" = "omp openai-codex/codex_other" ] || fail "credit cover omp: expected 'omp openai-codex/codex_other', got '$out'"
+ok "the credit cover reaches omp profiles routed to openai-codex"
+printf '%s\n' '1793336034 9999 captain 10-30 via chief' > "$CREDIT_HOME/data/codex-credits.readings"
+if out=$(FM_HOME="$CREDIT_HOME" call_choose --snapshot "$LAB/credit-exhausted.json" --candidate codex:default 2>/dev/null); then
+  fail "below-floor reading unexpectedly dispatched"
+fi
+[ "$out" = "none" ] || fail "below-floor reading returned: $out"
+printf '%s\n' '1793336034 10000 captain 10-30 via chief' > "$CREDIT_HOME/data/codex-credits.readings"
+if out=$(FM_HOME="$CREDIT_HOME" call_choose --snapshot "$LAB/credit-exhausted.json" --candidate codex:default 2>/dev/null); then
+  fail "at-floor reading unexpectedly dispatched"
+fi
+[ "$out" = "none" ] || fail "at-floor reading returned: $out"
+ok "readings at or below the floor keep the Codex window ineligible"
+if out=$(FM_HOME="$CREDIT_EMPTY" call_choose --snapshot "$LAB/credit-exhausted.json" --candidate codex:default 2>/dev/null); then
+  fail "missing readings file unexpectedly dispatched"
+fi
+[ "$out" = "none" ] || fail "missing readings file returned: $out"
+ok "no readings file keeps today's Codex behavior"
+printf '%s\n' 'not a reading' > "$CREDIT_HOME/data/codex-credits.readings"
+if out=$(FM_HOME="$CREDIT_HOME" call_choose --snapshot "$LAB/credit-exhausted.json" --candidate codex:default 2>/dev/null); then
+  fail "unparseable readings file unexpectedly dispatched"
+fi
+[ "$out" = "none" ] || fail "unparseable readings file returned: $out"
+ok "an unparseable readings file keeps today's Codex behavior"
+printf '%s\n' '1793336034 62397 captain 10-30 via chief' > "$CREDIT_HOME/data/codex-credits.readings"
+if out=$(FM_HOME="$CREDIT_HOME" call_choose --snapshot "$LAB/captured.json" --candidate kimi:default 2>/dev/null); then
+  fail "non-Codex exhaustion unexpectedly dispatched under a credit reading"
+fi
+[ "$out" = "none" ] || fail "non-Codex exhaustion returned: $out"
+ok "a credit reading never covers a non-Codex provider"
+jq '(.providers[] | select(.provider == "codex").quotaSemantics.effectiveAvailability[0].runway.limitingWindowId) = "five_hour"' \
+  "$LAB/credit-exhausted.json" > "$LAB/credit-session.json"
+if out=$(FM_HOME="$CREDIT_HOME" call_choose --snapshot "$LAB/credit-session.json" --candidate codex:default 2>/dev/null); then
+  fail "non-weekly exhaustion unexpectedly dispatched under a credit reading"
+fi
+[ "$out" = "none" ] || fail "non-weekly exhaustion returned: $out"
+ok "credits never cover a non-weekly exhausted window"
+
 printf '# all fm-quota-choose tests passed\n'

@@ -25,8 +25,8 @@ The canonical shell helper for a worker that has already performed its model-sel
 Pass it the intake's already-captured default TOON or permitted JSON fallback through stdin or `--snapshot`; it never takes another quota snapshot, so it selects from the same quota state as the intake.
 Pass each candidate as `harness:model`, with earlier candidates preferred.
 The helper's header owns its provider mapping and quota selection mechanics.
-An `exhausted_now` runway vetoes the candidate.
-The helper selects a candidate only when its applicable quota has a known `effectivePercentRemaining` greater than zero.
+An `exhausted_now` runway vetoes the candidate, except for the Codex credit cover the helper header owns.
+The helper selects a candidate only when its applicable quota has a known `effectivePercentRemaining` greater than zero or that cover applies.
 This is an optional narrow helper with a known limitation: it maps each harness to one primary provider family only, so a candidate whose established provider differs from that primary family is checked against the wrong quota row.
 omp has no primary family, so the helper keys an `omp:` candidate on its model prefix, mapping only `openai-codex/` and `claude-bridge/` and refusing every other prefix; the helper's header owns that mapping.
 Authoritative multi-provider routing - including provider discovery from the harness catalog and quota matching by that explicit provider - stays owned by this skill's intake procedure above and AGENTS.md section 4, not by the helper.

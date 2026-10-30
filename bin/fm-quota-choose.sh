@@ -11,7 +11,11 @@
 # family, then applies the matched row's provider-wide scopes and exact model
 # or product scopes for <model>. A candidate is eligible only when no
 # applicable runway is `exhausted_now` and its known
-# effective percent remaining is greater than zero. The first eligible
+# effective percent remaining is greater than zero, except for the Codex
+# credit cover: a Codex-pool candidate whose exhausted row is the weekly
+# `all_models` scope stays eligible while the captain's latest Codex credit
+# reading (fm_codex_credits_reading in bin/fm-quota-axi-lib.sh) is above
+# FM_CODEX_CREDITS_FLOOR. The first eligible
 # candidate is printed as "<harness> <model>" and the script exits 0.
 # If no candidate is quota-eligible, it prints "none" and exits 1.
 #
@@ -50,6 +54,8 @@
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
+FM_HOME="${FM_HOME:-$FM_ROOT}"
 
 # shellcheck source=bin/fm-quota-axi-lib.sh
 . "$SCRIPT_DIR/fm-quota-axi-lib.sh"
@@ -319,6 +325,15 @@ fi
 
 printf '%s\n' "$QUOTA_JSON" | fm_quota_json_valid || die "invalid quota-axi provider data"
 
+# The Codex credit cover reads one private number, never a snapshot: an
+# absent or unparseable readings file keeps today's behavior unchanged.
+CODEX_CREDITS=$(fm_codex_credits_reading "$FM_HOME" 2>/dev/null) || CODEX_CREDITS=''
+if [ -n "$CODEX_CREDITS" ]; then
+  CODEX_CREDITS_JSON=$CODEX_CREDITS
+else
+  CODEX_CREDITS_JSON=null
+fi
+
 # provider_for_harness <harness> [<model>]
 # The harness -> primary provider family table is owned by
 # fm_quota_provider_for_harness in bin/fm-quota-axi-lib.sh; see the header
@@ -383,8 +398,21 @@ for c in "${CANDIDATES[@]}"; do
   if [ -z "$effective" ] || [ "$effective" = "null" ]; then
     continue
   fi
-  if printf '%s\n' "$effective" | jq -e '
-    if (.runway.status // "") == "exhausted_now" then false
+  if printf '%s\n' "$effective" | jq -e --arg provider "$provider" \
+    --argjson codex_credits "$CODEX_CREDITS_JSON" \
+    --argjson codex_floor "$FM_CODEX_CREDITS_FLOOR" '
+    # The exhausted row is the weekly all_models window when it says so, or
+    # when the snapshot carries no limiting window to contradict it.
+    def weekly_all_models:
+      .scope == "all_models"
+      and (((.runway.limitingWindowId // null) // "weekly") == "weekly");
+    def credit_covered:
+      $provider == "codex"
+      and (($codex_credits | type) == "number")
+      and $codex_credits > $codex_floor
+      and weekly_all_models;
+    if credit_covered then true
+    elif (.runway.status // "") == "exhausted_now" then false
     elif .status == "unknown" then false
     else
       .effectivePercentRemaining as $remaining |
