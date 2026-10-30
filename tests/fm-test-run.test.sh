@@ -116,6 +116,8 @@ init_changed_fixture_repo() {
     fm-pi-watch-extension.test.sh \
     fm-pi-windows-shell-invocation.test.sh \
     fm-afk-return.test.sh \
+    fm-supervision-host.test.sh \
+    fm-supervision-host-lifecycle.test.sh \
     fm-bearings-snapshot.test.sh \
     fm-backend-cmux.test.sh \
     fm-backend-zellij.test.sh \
@@ -290,6 +292,56 @@ test_changed_runner_surfaces_select_their_family() {
 
   rm -rf "$tmp"
   pass "runner and its documentation surfaces select their curated family, not just their contract owners"
+}
+
+test_supervision_host_split_preserves_targeted_selection() {
+  local tmp repo listed path suite
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/fm-test-run-supervision-selection.XXXXXX")
+  repo="$tmp/repo"
+  init_changed_fixture_repo "$repo"
+  for suite in fm-supervision-host.test.sh fm-supervision-host-lifecycle.test.sh; do
+    # shellcheck disable=SC2016 # the fixture suite must expand $0 itself
+    printf '. "$(dirname "$0")/supervision-host-helpers.sh"\n' >>"$repo/tests/$suite"
+  done
+  for path in \
+    bin/fm-supervision-host.sh bin/fm-supervision-engine-lib.sh \
+    bin/fm-branch-report.sh bin/fm-branch-dispatch.mjs \
+    bin/fm-supervisor-target-lib.sh bin/fm-afk-return.sh \
+    .pi/extensions/fm-branch-supervision.ts \
+    .pi/extensions/lib/fm-async-exec.ts \
+    .pi/extensions/lib/fm-branch-dispatch.ts \
+    .pi/extensions/lib/fm-native-contract.ts \
+    tests/supervision-host-helpers.sh; do
+    : >"$repo/$path"
+  done
+  git -C "$repo" add .
+  git -C "$repo" -c user.name=test -c user.email=test@example.invalid commit -qm supervision-fixtures
+
+  for path in afk \
+    bin/fm-supervision-host.sh bin/fm-supervision-engine-lib.sh \
+    bin/fm-branch-report.sh bin/fm-branch-dispatch.mjs \
+    bin/fm-supervisor-target-lib.sh bin/fm-afk-return.sh \
+    .pi/extensions/fm-branch-supervision.ts \
+    .pi/extensions/lib/fm-async-exec.ts \
+    .pi/extensions/lib/fm-branch-dispatch.ts \
+    .pi/extensions/lib/fm-native-contract.ts \
+    tests/supervision-host-helpers.sh; do
+    if [ "$path" = afk ]; then
+      listed=$("$repo/bin/fm-test-run.sh" --list --family afk) \
+        || fail "afk family selection failed"
+    else
+      printf '\n' >>"$repo/$path"
+      listed=$(cd "$repo" && bin/fm-test-run.sh --list --changed --base HEAD) \
+        || fail "$path changed selection failed"
+      git -C "$repo" checkout -- "$path"
+    fi
+    for suite in fm-supervision-host.test.sh fm-supervision-host-lifecycle.test.sh; do
+      printf '%s\n' "$listed" | grep -qx "tests/$suite" \
+        || fail "$path selection omitted $suite: $listed"
+    done
+  done
+  rm -rf "$tmp"
+  pass "targeted supervision selections retain both halves of the split suite"
 }
 
 test_shell_line_ending_policy_selects_runner_contract() {
@@ -1156,8 +1208,8 @@ test_portable_serial_shards_partition_the_serial_lane() {
   pass "portable serial shards are a deterministic disjoint cover of the serial lane"
 }
 
-test_portable_serial_supervision_host_has_its_own_shard() {
-  local count shard listed host_shard=""
+test_portable_serial_supervision_host_halves_share_no_shard() {
+  local count shard listed host_shard="" lifecycle_shard=""
   count=$("$RUNNER" --list-lanes | grep -c '^portable-serial-[0-9]*of[0-9]*$')
   shard=1
   while [ "$shard" -le "$count" ]; do
@@ -1165,15 +1217,21 @@ test_portable_serial_supervision_host_has_its_own_shard() {
     if printf '%s\n' "$listed" | grep -qx 'tests/fm-supervision-host.test.sh'; then
       [ -z "$host_shard" ] || fail "tests/fm-supervision-host.test.sh is in two shards"
       host_shard=$shard
-      # Observed at 1030s-1620s on hosted runners, it alone nearly fills a
-      # 30-minute job, so no other script may share its runner.
-      [ "$listed" = "tests/fm-supervision-host.test.sh" ] \
-        || fail "tests/fm-supervision-host.test.sh must run alone in its shard, got: $listed"
+    fi
+    if printf '%s\n' "$listed" | grep -qx 'tests/fm-supervision-host-lifecycle.test.sh'; then
+      [ -z "$lifecycle_shard" ] || fail "tests/fm-supervision-host-lifecycle.test.sh is in two shards"
+      lifecycle_shard=$shard
     fi
     shard=$((shard + 1))
   done
   [ -n "$host_shard" ] || fail "tests/fm-supervision-host.test.sh is in no portable serial shard"
-  pass "tests/fm-supervision-host.test.sh owns portable-serial-${host_shard}of${count} alone"
+  [ -n "$lifecycle_shard" ] || fail "tests/fm-supervision-host-lifecycle.test.sh is in no portable serial shard"
+  # The unsplit file measured 1067s-1491s on hosted runners and reached the
+  # 30-minute job cap five times in a row, so its halves must pack into
+  # different shards; reuniting them would rebuild the cancelled lane.
+  [ "$host_shard" != "$lifecycle_shard" ] \
+    || fail "the supervision-host halves share portable-serial-${host_shard}of${count}"
+  pass "supervision-host halves pack apart: portable-serial-${host_shard}of${count} and portable-serial-${lifecycle_shard}of${count}"
 }
 
 test_portable_serial_hint_coverage_is_reported_and_bounded() {
@@ -2120,6 +2178,7 @@ test_single_script_selection
 test_changed_file_selection_is_conservative
 test_task_marker_refuses_the_primary_checkout
 test_changed_runner_surfaces_select_their_family
+test_supervision_host_split_preserves_targeted_selection
 test_shell_line_ending_policy_selects_runner_contract
 test_changed_dependency_selection_and_unmapped_failure
 test_changed_bin_reference_selects_per_script_not_per_family
@@ -2141,7 +2200,7 @@ test_list_scheduled_non_lane_selections_use_serial_weights
 test_portable_shard_union_and_coverage_guard
 test_portable_parallel_lanes_stay_duration_balanced
 test_portable_serial_shards_partition_the_serial_lane
-test_portable_serial_supervision_host_has_its_own_shard
+test_portable_serial_supervision_host_halves_share_no_shard
 test_portable_serial_hint_coverage_is_reported_and_bounded
 test_portable_serial_packing_budget_boundary
 test_portable_serial_shard_lane_refusals
