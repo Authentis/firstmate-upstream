@@ -300,6 +300,7 @@ test_supervision_host_split_preserves_targeted_selection() {
   repo="$tmp/repo"
   init_changed_fixture_repo "$repo"
   for suite in fm-supervision-host.test.sh fm-supervision-host-lifecycle.test.sh; do
+    # shellcheck disable=SC2016 # the fixture suite must expand $0 itself
     printf '. "$(dirname "$0")/supervision-host-helpers.sh"\n' >>"$repo/tests/$suite"
   done
   for path in \
