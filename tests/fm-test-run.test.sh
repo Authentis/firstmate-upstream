@@ -116,6 +116,8 @@ init_changed_fixture_repo() {
     fm-pi-watch-extension.test.sh \
     fm-pi-windows-shell-invocation.test.sh \
     fm-afk-return.test.sh \
+    fm-supervision-host.test.sh \
+    fm-supervision-host-lifecycle.test.sh \
     fm-bearings-snapshot.test.sh \
     fm-backend-cmux.test.sh \
     fm-backend-zellij.test.sh \
@@ -290,6 +292,55 @@ test_changed_runner_surfaces_select_their_family() {
 
   rm -rf "$tmp"
   pass "runner and its documentation surfaces select their curated family, not just their contract owners"
+}
+
+test_supervision_host_split_preserves_targeted_selection() {
+  local tmp repo listed path suite
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/fm-test-run-supervision-selection.XXXXXX")
+  repo="$tmp/repo"
+  init_changed_fixture_repo "$repo"
+  for suite in fm-supervision-host.test.sh fm-supervision-host-lifecycle.test.sh; do
+    printf '. "$(dirname "$0")/supervision-host-helpers.sh"\n' >>"$repo/tests/$suite"
+  done
+  for path in \
+    bin/fm-supervision-host.sh bin/fm-supervision-engine-lib.sh \
+    bin/fm-branch-report.sh bin/fm-branch-dispatch.mjs \
+    bin/fm-supervisor-target-lib.sh bin/fm-afk-return.sh \
+    .pi/extensions/fm-branch-supervision.ts \
+    .pi/extensions/lib/fm-async-exec.ts \
+    .pi/extensions/lib/fm-branch-dispatch.ts \
+    .pi/extensions/lib/fm-native-contract.ts \
+    tests/supervision-host-helpers.sh; do
+    : >"$repo/$path"
+  done
+  git -C "$repo" add .
+  git -C "$repo" -c user.name=test -c user.email=test@example.invalid commit -qm supervision-fixtures
+
+  for path in afk \
+    bin/fm-supervision-host.sh bin/fm-supervision-engine-lib.sh \
+    bin/fm-branch-report.sh bin/fm-branch-dispatch.mjs \
+    bin/fm-supervisor-target-lib.sh bin/fm-afk-return.sh \
+    .pi/extensions/fm-branch-supervision.ts \
+    .pi/extensions/lib/fm-async-exec.ts \
+    .pi/extensions/lib/fm-branch-dispatch.ts \
+    .pi/extensions/lib/fm-native-contract.ts \
+    tests/supervision-host-helpers.sh; do
+    if [ "$path" = afk ]; then
+      listed=$("$repo/bin/fm-test-run.sh" --list --family afk) \
+        || fail "afk family selection failed"
+    else
+      printf '\n' >>"$repo/$path"
+      listed=$(cd "$repo" && bin/fm-test-run.sh --list --changed --base HEAD) \
+        || fail "$path changed selection failed"
+      git -C "$repo" checkout -- "$path"
+    fi
+    for suite in fm-supervision-host.test.sh fm-supervision-host-lifecycle.test.sh; do
+      printf '%s\n' "$listed" | grep -qx "tests/$suite" \
+        || fail "$path selection omitted $suite: $listed"
+    done
+  done
+  rm -rf "$tmp"
+  pass "targeted supervision selections retain both halves of the split suite"
 }
 
 test_shell_line_ending_policy_selects_runner_contract() {
@@ -2126,6 +2177,7 @@ test_single_script_selection
 test_changed_file_selection_is_conservative
 test_task_marker_refuses_the_primary_checkout
 test_changed_runner_surfaces_select_their_family
+test_supervision_host_split_preserves_targeted_selection
 test_shell_line_ending_policy_selects_runner_contract
 test_changed_dependency_selection_and_unmapped_failure
 test_changed_bin_reference_selects_per_script_not_per_family
