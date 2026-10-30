@@ -1,0 +1,648 @@
+[
+  {
+    "name": "62,397 credits open exhausted weekly Codex",
+    "command": [
+      "bash",
+      "{run-worktree}/bin/fm-quota-choose.sh",
+      "--snapshot",
+      "{run-worktree}/.credit-live-jgia3mkc/quota.snapshot",
+      "--candidate",
+      "codex:gpt-6.1-terra"
+    ],
+    "credit_readings": "1793336034 62397 latest\n",
+    "snapshot": "{\"generatedAt\": \"2030-01-01T00:00:00Z\", \"schemaVersion\": 5, \"providers\": [{\"provider\": \"codex\", \"quotaSemantics\": {\"status\": \"known\", \"effectiveAvailability\": [{\"scope\": \"all_models\", \"status\": \"known\", \"effectivePercentRemaining\": 0, \"runway\": {\"status\": \"exhausted_now\", \"limitingWindowId\": \"weekly\"}}]}}]}",
+    "expected_stdout": "codex gpt-6.1-terra",
+    "expected_exit": 0,
+    "stdout": "codex gpt-6.1-terra\n",
+    "stderr": "",
+    "exit_code": 0,
+    "passed": true
+  },
+  {
+    "name": "Codex cover also reaches omp openai-codex routing",
+    "command": [
+      "bash",
+      "{run-worktree}/bin/fm-quota-choose.sh",
+      "--snapshot",
+      "{run-worktree}/.credit-live-jgia3mkc/quota.snapshot",
+      "--candidate",
+      "omp:openai-codex/gpt-6.1-terra"
+    ],
+    "credit_readings": "1793336034 62397 latest\n",
+    "snapshot": "{\"generatedAt\": \"2030-01-01T00:00:00Z\", \"schemaVersion\": 5, \"providers\": [{\"provider\": \"codex\", \"quotaSemantics\": {\"status\": \"known\", \"effectiveAvailability\": [{\"scope\": \"all_models\", \"status\": \"known\", \"effectivePercentRemaining\": 0, \"runway\": {\"status\": \"exhausted_now\", \"limitingWindowId\": \"weekly\"}}]}}]}",
+    "expected_stdout": "omp openai-codex/gpt-6.1-terra",
+    "expected_exit": 0,
+    "stdout": "omp openai-codex/gpt-6.1-terra\n",
+    "stderr": "",
+    "exit_code": 0,
+    "passed": true
+  },
+  {
+    "name": "Strict credit floor 9999",
+    "command": [
+      "bash",
+      "{run-worktree}/bin/fm-quota-choose.sh",
+      "--snapshot",
+      "{run-worktree}/.credit-live-jgia3mkc/quota.snapshot",
+      "--candidate",
+      "codex:gpt-6.1-terra"
+    ],
+    "credit_readings": "1793336034 9999 boundary\n",
+    "snapshot": "{\"generatedAt\": \"2030-01-01T00:00:00Z\", \"schemaVersion\": 5, \"providers\": [{\"provider\": \"codex\", \"quotaSemantics\": {\"status\": \"known\", \"effectiveAvailability\": [{\"scope\": \"all_models\", \"status\": \"known\", \"effectivePercentRemaining\": 0, \"runway\": {\"status\": \"exhausted_now\", \"limitingWindowId\": \"weekly\"}}]}}]}",
+    "expected_stdout": "none",
+    "expected_exit": 1,
+    "stdout": "none\n",
+    "stderr": "",
+    "exit_code": 1,
+    "passed": true
+  },
+  {
+    "name": "Strict credit floor 10000",
+    "command": [
+      "bash",
+      "{run-worktree}/bin/fm-quota-choose.sh",
+      "--snapshot",
+      "{run-worktree}/.credit-live-jgia3mkc/quota.snapshot",
+      "--candidate",
+      "codex:gpt-6.1-terra"
+    ],
+    "credit_readings": "1793336034 10000 boundary\n",
+    "snapshot": "{\"generatedAt\": \"2030-01-01T00:00:00Z\", \"schemaVersion\": 5, \"providers\": [{\"provider\": \"codex\", \"quotaSemantics\": {\"status\": \"known\", \"effectiveAvailability\": [{\"scope\": \"all_models\", \"status\": \"known\", \"effectivePercentRemaining\": 0, \"runway\": {\"status\": \"exhausted_now\", \"limitingWindowId\": \"weekly\"}}]}}]}",
+    "expected_stdout": "none",
+    "expected_exit": 1,
+    "stdout": "none\n",
+    "stderr": "",
+    "exit_code": 1,
+    "passed": true
+  },
+  {
+    "name": "Strict credit floor 10000.01",
+    "command": [
+      "bash",
+      "{run-worktree}/bin/fm-quota-choose.sh",
+      "--snapshot",
+      "{run-worktree}/.credit-live-jgia3mkc/quota.snapshot",
+      "--candidate",
+      "codex:gpt-6.1-terra"
+    ],
+    "credit_readings": "1793336034 10000.01 boundary\n",
+    "snapshot": "{\"generatedAt\": \"2030-01-01T00:00:00Z\", \"schemaVersion\": 5, \"providers\": [{\"provider\": \"codex\", \"quotaSemantics\": {\"status\": \"known\", \"effectiveAvailability\": [{\"scope\": \"all_models\", \"status\": \"known\", \"effectivePercentRemaining\": 0, \"runway\": {\"status\": \"exhausted_now\", \"limitingWindowId\": \"weekly\"}}]}}]}",
+    "expected_stdout": "codex gpt-6.1-terra",
+    "expected_exit": 0,
+    "stdout": "codex gpt-6.1-terra\n",
+    "stderr": "",
+    "exit_code": 0,
+    "passed": true
+  },
+  {
+    "name": "Newest appended low balance closes previously covered pool",
+    "command": [
+      "bash",
+      "{run-worktree}/bin/fm-quota-choose.sh",
+      "--snapshot",
+      "{run-worktree}/.credit-live-jgia3mkc/quota.snapshot",
+      "--candidate",
+      "codex:gpt-6.1-terra"
+    ],
+    "credit_readings": "1793336000 62397 old\n1793336034 9999 newest\n",
+    "snapshot": "{\"generatedAt\": \"2030-01-01T00:00:00Z\", \"schemaVersion\": 5, \"providers\": [{\"provider\": \"codex\", \"quotaSemantics\": {\"status\": \"known\", \"effectiveAvailability\": [{\"scope\": \"all_models\", \"status\": \"known\", \"effectivePercentRemaining\": 0, \"runway\": {\"status\": \"exhausted_now\", \"limitingWindowId\": \"weekly\"}}]}}]}",
+    "expected_stdout": "none",
+    "expected_exit": 1,
+    "stdout": "none\n",
+    "stderr": "",
+    "exit_code": 1,
+    "passed": true
+  },
+  {
+    "name": "Newest appended high balance opens pool despite comments and invalid lines",
+    "command": [
+      "bash",
+      "{run-worktree}/bin/fm-quota-choose.sh",
+      "--snapshot",
+      "{run-worktree}/.credit-live-jgia3mkc/quota.snapshot",
+      "--candidate",
+      "codex:gpt-6.1-terra"
+    ],
+    "credit_readings": "1793336000 9999 old\n1793336034 62397 newest\n# comment\ninvalid input\n\n",
+    "snapshot": "{\"generatedAt\": \"2030-01-01T00:00:00Z\", \"schemaVersion\": 5, \"providers\": [{\"provider\": \"codex\", \"quotaSemantics\": {\"status\": \"known\", \"effectiveAvailability\": [{\"scope\": \"all_models\", \"status\": \"known\", \"effectivePercentRemaining\": 0, \"runway\": {\"status\": \"exhausted_now\", \"limitingWindowId\": \"weekly\"}}]}}]}",
+    "expected_stdout": "codex gpt-6.1-terra",
+    "expected_exit": 0,
+    "stdout": "codex gpt-6.1-terra\n",
+    "stderr": "",
+    "exit_code": 0,
+    "passed": true
+  },
+  {
+    "name": "Absent credit reading preserves exhausted rejection",
+    "command": [
+      "bash",
+      "{run-worktree}/bin/fm-quota-choose.sh",
+      "--snapshot",
+      "{run-worktree}/.credit-live-jgia3mkc/quota.snapshot",
+      "--candidate",
+      "codex:gpt-6.1-terra"
+    ],
+    "credit_readings": null,
+    "snapshot": "{\"generatedAt\": \"2030-01-01T00:00:00Z\", \"schemaVersion\": 5, \"providers\": [{\"provider\": \"codex\", \"quotaSemantics\": {\"status\": \"known\", \"effectiveAvailability\": [{\"scope\": \"all_models\", \"status\": \"known\", \"effectivePercentRemaining\": 0, \"runway\": {\"status\": \"exhausted_now\", \"limitingWindowId\": \"weekly\"}}]}}]}",
+    "expected_stdout": "none",
+    "expected_exit": 1,
+    "stdout": "none\n",
+    "stderr": "",
+    "exit_code": 1,
+    "passed": true
+  },
+  {
+    "name": "Malformed-only credit reading preserves exhausted rejection",
+    "command": [
+      "bash",
+      "{run-worktree}/bin/fm-quota-choose.sh",
+      "--snapshot",
+      "{run-worktree}/.credit-live-jgia3mkc/quota.snapshot",
+      "--candidate",
+      "codex:gpt-6.1-terra"
+    ],
+    "credit_readings": "not a reading\n# comment\n",
+    "snapshot": "{\"generatedAt\": \"2030-01-01T00:00:00Z\", \"schemaVersion\": 5, \"providers\": [{\"provider\": \"codex\", \"quotaSemantics\": {\"status\": \"known\", \"effectiveAvailability\": [{\"scope\": \"all_models\", \"status\": \"known\", \"effectivePercentRemaining\": 0, \"runway\": {\"status\": \"exhausted_now\", \"limitingWindowId\": \"weekly\"}}]}}]}",
+    "expected_stdout": "none",
+    "expected_exit": 1,
+    "stdout": "none\n",
+    "stderr": "",
+    "exit_code": 1,
+    "passed": true
+  },
+  {
+    "name": "JSON limiting windows 'five_hour'",
+    "command": [
+      "bash",
+      "{run-worktree}/bin/fm-quota-choose.sh",
+      "--snapshot",
+      "{run-worktree}/.credit-live-jgia3mkc/quota.snapshot",
+      "--candidate",
+      "codex:gpt-6.1-terra"
+    ],
+    "credit_readings": "1793336034 62397 latest\n",
+    "snapshot": "{\"generatedAt\": \"2030-01-01T00:00:00Z\", \"schemaVersion\": 5, \"providers\": [{\"provider\": \"codex\", \"quotaSemantics\": {\"status\": \"known\", \"effectiveAvailability\": [{\"scope\": \"all_models\", \"status\": \"known\", \"effectivePercentRemaining\": 0, \"runway\": {\"status\": \"exhausted_now\", \"limitingWindowId\": \"five_hour\"}}]}}]}",
+    "expected_stdout": "none",
+    "expected_exit": 1,
+    "stdout": "none\n",
+    "stderr": "",
+    "exit_code": 1,
+    "passed": true
+  },
+  {
+    "name": "JSON limiting windows None",
+    "command": [
+      "bash",
+      "{run-worktree}/bin/fm-quota-choose.sh",
+      "--snapshot",
+      "{run-worktree}/.credit-live-jgia3mkc/quota.snapshot",
+      "--candidate",
+      "codex:gpt-6.1-terra"
+    ],
+    "credit_readings": "1793336034 62397 latest\n",
+    "snapshot": "{\"generatedAt\": \"2030-01-01T00:00:00Z\", \"schemaVersion\": 5, \"providers\": [{\"provider\": \"codex\", \"quotaSemantics\": {\"status\": \"known\", \"effectiveAvailability\": [{\"scope\": \"all_models\", \"status\": \"known\", \"effectivePercentRemaining\": 0, \"runway\": {\"status\": \"exhausted_now\"}}]}}]}",
+    "expected_stdout": "none",
+    "expected_exit": 1,
+    "stdout": "none\n",
+    "stderr": "",
+    "exit_code": 1,
+    "passed": true
+  },
+  {
+    "name": "JSON limiting windows ['weekly', 'five_hour']",
+    "command": [
+      "bash",
+      "{run-worktree}/bin/fm-quota-choose.sh",
+      "--snapshot",
+      "{run-worktree}/.credit-live-jgia3mkc/quota.snapshot",
+      "--candidate",
+      "codex:gpt-6.1-terra"
+    ],
+    "credit_readings": "1793336034 62397 latest\n",
+    "snapshot": "{\"generatedAt\": \"2030-01-01T00:00:00Z\", \"schemaVersion\": 5, \"providers\": [{\"provider\": \"codex\", \"quotaSemantics\": {\"status\": \"known\", \"effectiveAvailability\": [{\"scope\": \"all_models\", \"status\": \"known\", \"effectivePercentRemaining\": 0, \"runway\": {\"status\": \"exhausted_now\"}, \"limitingWindowIds\": [\"weekly\", \"five_hour\"]}]}}]}",
+    "expected_stdout": "none",
+    "expected_exit": 1,
+    "stdout": "none\n",
+    "stderr": "",
+    "exit_code": 1,
+    "passed": true
+  },
+  {
+    "name": "JSON limiting windows ['five_hour', 'weekly']",
+    "command": [
+      "bash",
+      "{run-worktree}/bin/fm-quota-choose.sh",
+      "--snapshot",
+      "{run-worktree}/.credit-live-jgia3mkc/quota.snapshot",
+      "--candidate",
+      "codex:gpt-6.1-terra"
+    ],
+    "credit_readings": "1793336034 62397 latest\n",
+    "snapshot": "{\"generatedAt\": \"2030-01-01T00:00:00Z\", \"schemaVersion\": 5, \"providers\": [{\"provider\": \"codex\", \"quotaSemantics\": {\"status\": \"known\", \"effectiveAvailability\": [{\"scope\": \"all_models\", \"status\": \"known\", \"effectivePercentRemaining\": 0, \"runway\": {\"status\": \"exhausted_now\"}, \"limitingWindowIds\": [\"five_hour\", \"weekly\"]}]}}]}",
+    "expected_stdout": "none",
+    "expected_exit": 1,
+    "stdout": "none\n",
+    "stderr": "",
+    "exit_code": 1,
+    "passed": true
+  },
+  {
+    "name": "JSON limiting windows ['weekly']",
+    "command": [
+      "bash",
+      "{run-worktree}/bin/fm-quota-choose.sh",
+      "--snapshot",
+      "{run-worktree}/.credit-live-jgia3mkc/quota.snapshot",
+      "--candidate",
+      "codex:gpt-6.1-terra"
+    ],
+    "credit_readings": "1793336034 62397 latest\n",
+    "snapshot": "{\"generatedAt\": \"2030-01-01T00:00:00Z\", \"schemaVersion\": 5, \"providers\": [{\"provider\": \"codex\", \"quotaSemantics\": {\"status\": \"known\", \"effectiveAvailability\": [{\"scope\": \"all_models\", \"status\": \"known\", \"effectivePercentRemaining\": 0, \"runway\": {\"status\": \"exhausted_now\"}, \"limitingWindowIds\": [\"weekly\"]}]}}]}",
+    "expected_stdout": "codex gpt-6.1-terra",
+    "expected_exit": 0,
+    "stdout": "codex gpt-6.1-terra\n",
+    "stderr": "",
+    "exit_code": 0,
+    "passed": true
+  },
+  {
+    "name": "JSON limiting windows 'weekly'",
+    "command": [
+      "bash",
+      "{run-worktree}/bin/fm-quota-choose.sh",
+      "--snapshot",
+      "{run-worktree}/.credit-live-jgia3mkc/quota.snapshot",
+      "--candidate",
+      "codex:gpt-6.1-terra"
+    ],
+    "credit_readings": "1793336034 62397 latest\n",
+    "snapshot": "{\"generatedAt\": \"2030-01-01T00:00:00Z\", \"schemaVersion\": 5, \"providers\": [{\"provider\": \"codex\", \"quotaSemantics\": {\"status\": \"known\", \"effectiveAvailability\": [{\"scope\": \"all_models\", \"status\": \"known\", \"effectivePercentRemaining\": 0, \"runway\": {\"status\": \"exhausted_now\"}, \"limitingWindowIds\": \"weekly\"}]}}]}",
+    "expected_stdout": "none",
+    "expected_exit": 1,
+    "stdout": "none\n",
+    "stderr": "",
+    "exit_code": 1,
+    "passed": true
+  },
+  {
+    "name": "Sibling veto model:gpt-6.1-terra exhausted_now",
+    "command": [
+      "bash",
+      "{run-worktree}/bin/fm-quota-choose.sh",
+      "--snapshot",
+      "{run-worktree}/.credit-live-jgia3mkc/quota.snapshot",
+      "--candidate",
+      "codex:gpt-6.1-terra"
+    ],
+    "credit_readings": "1793336034 62397 latest\n",
+    "snapshot": "{\"generatedAt\": \"2030-01-01T00:00:00Z\", \"schemaVersion\": 5, \"providers\": [{\"provider\": \"codex\", \"quotaSemantics\": {\"status\": \"known\", \"effectiveAvailability\": [{\"scope\": \"all_models\", \"status\": \"known\", \"effectivePercentRemaining\": 0, \"runway\": {\"status\": \"exhausted_now\", \"limitingWindowId\": \"weekly\"}}, {\"scope\": \"model:gpt-6.1-terra\", \"status\": \"known\", \"effectivePercentRemaining\": 0, \"runway\": {\"status\": \"exhausted_now\"}}]}}]}",
+    "expected_stdout": "none",
+    "expected_exit": 1,
+    "stdout": "none\n",
+    "stderr": "",
+    "exit_code": 1,
+    "passed": true
+  },
+  {
+    "name": "Sibling veto model:gpt-6.1-terra through_reset",
+    "command": [
+      "bash",
+      "{run-worktree}/bin/fm-quota-choose.sh",
+      "--snapshot",
+      "{run-worktree}/.credit-live-jgia3mkc/quota.snapshot",
+      "--candidate",
+      "codex:gpt-6.1-terra"
+    ],
+    "credit_readings": "1793336034 62397 latest\n",
+    "snapshot": "{\"generatedAt\": \"2030-01-01T00:00:00Z\", \"schemaVersion\": 5, \"providers\": [{\"provider\": \"codex\", \"quotaSemantics\": {\"status\": \"known\", \"effectiveAvailability\": [{\"scope\": \"all_models\", \"status\": \"known\", \"effectivePercentRemaining\": 0, \"runway\": {\"status\": \"exhausted_now\", \"limitingWindowId\": \"weekly\"}}, {\"scope\": \"model:gpt-6.1-terra\", \"status\": \"known\", \"effectivePercentRemaining\": 0, \"runway\": {\"status\": \"through_reset\"}}]}}]}",
+    "expected_stdout": "none",
+    "expected_exit": 1,
+    "stdout": "none\n",
+    "stderr": "",
+    "exit_code": 1,
+    "passed": true
+  },
+  {
+    "name": "Sibling veto product:gpt-6.1-terra exhausted_now",
+    "command": [
+      "bash",
+      "{run-worktree}/bin/fm-quota-choose.sh",
+      "--snapshot",
+      "{run-worktree}/.credit-live-jgia3mkc/quota.snapshot",
+      "--candidate",
+      "codex:gpt-6.1-terra"
+    ],
+    "credit_readings": "1793336034 62397 latest\n",
+    "snapshot": "{\"generatedAt\": \"2030-01-01T00:00:00Z\", \"schemaVersion\": 5, \"providers\": [{\"provider\": \"codex\", \"quotaSemantics\": {\"status\": \"known\", \"effectiveAvailability\": [{\"scope\": \"all_models\", \"status\": \"known\", \"effectivePercentRemaining\": 0, \"runway\": {\"status\": \"exhausted_now\", \"limitingWindowId\": \"weekly\"}}, {\"scope\": \"product:gpt-6.1-terra\", \"status\": \"known\", \"effectivePercentRemaining\": 0, \"runway\": {\"status\": \"exhausted_now\"}}]}}]}",
+    "expected_stdout": "none",
+    "expected_exit": 1,
+    "stdout": "none\n",
+    "stderr": "",
+    "exit_code": 1,
+    "passed": true
+  },
+  {
+    "name": "Sibling veto product:gpt-6.1-terra through_reset",
+    "command": [
+      "bash",
+      "{run-worktree}/bin/fm-quota-choose.sh",
+      "--snapshot",
+      "{run-worktree}/.credit-live-jgia3mkc/quota.snapshot",
+      "--candidate",
+      "codex:gpt-6.1-terra"
+    ],
+    "credit_readings": "1793336034 62397 latest\n",
+    "snapshot": "{\"generatedAt\": \"2030-01-01T00:00:00Z\", \"schemaVersion\": 5, \"providers\": [{\"provider\": \"codex\", \"quotaSemantics\": {\"status\": \"known\", \"effectiveAvailability\": [{\"scope\": \"all_models\", \"status\": \"known\", \"effectivePercentRemaining\": 0, \"runway\": {\"status\": \"exhausted_now\", \"limitingWindowId\": \"weekly\"}}, {\"scope\": \"product:gpt-6.1-terra\", \"status\": \"known\", \"effectivePercentRemaining\": 0, \"runway\": {\"status\": \"through_reset\"}}]}}]}",
+    "expected_stdout": "none",
+    "expected_exit": 1,
+    "stdout": "none\n",
+    "stderr": "",
+    "exit_code": 1,
+    "passed": true
+  },
+  {
+    "name": "Sibling veto all_products exhausted_now",
+    "command": [
+      "bash",
+      "{run-worktree}/bin/fm-quota-choose.sh",
+      "--snapshot",
+      "{run-worktree}/.credit-live-jgia3mkc/quota.snapshot",
+      "--candidate",
+      "codex:gpt-6.1-terra"
+    ],
+    "credit_readings": "1793336034 62397 latest\n",
+    "snapshot": "{\"generatedAt\": \"2030-01-01T00:00:00Z\", \"schemaVersion\": 5, \"providers\": [{\"provider\": \"codex\", \"quotaSemantics\": {\"status\": \"known\", \"effectiveAvailability\": [{\"scope\": \"all_models\", \"status\": \"known\", \"effectivePercentRemaining\": 0, \"runway\": {\"status\": \"exhausted_now\", \"limitingWindowId\": \"weekly\"}}, {\"scope\": \"all_products\", \"status\": \"known\", \"effectivePercentRemaining\": 0, \"runway\": {\"status\": \"exhausted_now\"}}]}}]}",
+    "expected_stdout": "none",
+    "expected_exit": 1,
+    "stdout": "none\n",
+    "stderr": "",
+    "exit_code": 1,
+    "passed": true
+  },
+  {
+    "name": "Sibling veto all_products through_reset",
+    "command": [
+      "bash",
+      "{run-worktree}/bin/fm-quota-choose.sh",
+      "--snapshot",
+      "{run-worktree}/.credit-live-jgia3mkc/quota.snapshot",
+      "--candidate",
+      "codex:gpt-6.1-terra"
+    ],
+    "credit_readings": "1793336034 62397 latest\n",
+    "snapshot": "{\"generatedAt\": \"2030-01-01T00:00:00Z\", \"schemaVersion\": 5, \"providers\": [{\"provider\": \"codex\", \"quotaSemantics\": {\"status\": \"known\", \"effectiveAvailability\": [{\"scope\": \"all_models\", \"status\": \"known\", \"effectivePercentRemaining\": 0, \"runway\": {\"status\": \"exhausted_now\", \"limitingWindowId\": \"weekly\"}}, {\"scope\": \"all_products\", \"status\": \"known\", \"effectivePercentRemaining\": 0, \"runway\": {\"status\": \"through_reset\"}}]}}]}",
+    "expected_stdout": "none",
+    "expected_exit": 1,
+    "stdout": "none\n",
+    "stderr": "",
+    "exit_code": 1,
+    "passed": true
+  },
+  {
+    "name": "Credits never open exhausted Claude",
+    "command": [
+      "bash",
+      "{run-worktree}/bin/fm-quota-choose.sh",
+      "--snapshot",
+      "{run-worktree}/.credit-live-jgia3mkc/quota.snapshot",
+      "--candidate",
+      "claude:sonnet"
+    ],
+    "credit_readings": "1793336034 62397 latest\n",
+    "snapshot": "{\"generatedAt\": \"2030-01-01T00:00:00Z\", \"schemaVersion\": 5, \"providers\": [{\"provider\": \"claude\", \"quotaSemantics\": {\"status\": \"known\", \"effectiveAvailability\": [{\"scope\": \"all_models\", \"status\": \"known\", \"effectivePercentRemaining\": 0, \"runway\": {\"status\": \"exhausted_now\", \"limitingWindowId\": \"weekly\"}}]}}]}",
+    "expected_stdout": "none",
+    "expected_exit": 1,
+    "stdout": "none\n",
+    "stderr": "",
+    "exit_code": 1,
+    "passed": true
+  },
+  {
+    "name": "Partial known quota tolerates unknown model:sonnet",
+    "command": [
+      "bash",
+      "{run-worktree}/bin/fm-quota-choose.sh",
+      "--snapshot",
+      "{run-worktree}/.credit-live-jgia3mkc/quota.snapshot",
+      "--candidate",
+      "claude:sonnet"
+    ],
+    "credit_readings": null,
+    "snapshot": "{\"generatedAt\": \"2030-01-01T00:00:00Z\", \"schemaVersion\": 5, \"providers\": [{\"provider\": \"claude\", \"quotaSemantics\": {\"status\": \"partial\", \"effectiveAvailability\": [{\"scope\": \"all_models\", \"status\": \"known\", \"effectivePercentRemaining\": 80, \"runway\": {\"status\": \"through_reset\"}}, {\"scope\": \"model:sonnet\", \"status\": \"unknown\", \"runway\": {\"status\": \"unknown\"}}]}}]}",
+    "expected_stdout": "claude sonnet",
+    "expected_exit": 0,
+    "stdout": "claude sonnet\n",
+    "stderr": "",
+    "exit_code": 0,
+    "passed": true
+  },
+  {
+    "name": "Partial quota still rejects exhausted model:sonnet",
+    "command": [
+      "bash",
+      "{run-worktree}/bin/fm-quota-choose.sh",
+      "--snapshot",
+      "{run-worktree}/.credit-live-jgia3mkc/quota.snapshot",
+      "--candidate",
+      "claude:sonnet"
+    ],
+    "credit_readings": null,
+    "snapshot": "{\"generatedAt\": \"2030-01-01T00:00:00Z\", \"schemaVersion\": 5, \"providers\": [{\"provider\": \"claude\", \"quotaSemantics\": {\"status\": \"partial\", \"effectiveAvailability\": [{\"scope\": \"all_models\", \"status\": \"known\", \"effectivePercentRemaining\": 80, \"runway\": {\"status\": \"through_reset\"}}, {\"scope\": \"model:sonnet\", \"status\": \"unknown\", \"runway\": {\"status\": \"exhausted_now\"}}]}}]}",
+    "expected_stdout": "none",
+    "expected_exit": 1,
+    "stdout": "none\n",
+    "stderr": "",
+    "exit_code": 1,
+    "passed": true
+  },
+  {
+    "name": "Partial known quota tolerates unknown product:sonnet",
+    "command": [
+      "bash",
+      "{run-worktree}/bin/fm-quota-choose.sh",
+      "--snapshot",
+      "{run-worktree}/.credit-live-jgia3mkc/quota.snapshot",
+      "--candidate",
+      "claude:sonnet"
+    ],
+    "credit_readings": null,
+    "snapshot": "{\"generatedAt\": \"2030-01-01T00:00:00Z\", \"schemaVersion\": 5, \"providers\": [{\"provider\": \"claude\", \"quotaSemantics\": {\"status\": \"partial\", \"effectiveAvailability\": [{\"scope\": \"all_models\", \"status\": \"known\", \"effectivePercentRemaining\": 80, \"runway\": {\"status\": \"through_reset\"}}, {\"scope\": \"product:sonnet\", \"status\": \"unknown\", \"runway\": {\"status\": \"unknown\"}}]}}]}",
+    "expected_stdout": "claude sonnet",
+    "expected_exit": 0,
+    "stdout": "claude sonnet\n",
+    "stderr": "",
+    "exit_code": 0,
+    "passed": true
+  },
+  {
+    "name": "Partial quota still rejects exhausted product:sonnet",
+    "command": [
+      "bash",
+      "{run-worktree}/bin/fm-quota-choose.sh",
+      "--snapshot",
+      "{run-worktree}/.credit-live-jgia3mkc/quota.snapshot",
+      "--candidate",
+      "claude:sonnet"
+    ],
+    "credit_readings": null,
+    "snapshot": "{\"generatedAt\": \"2030-01-01T00:00:00Z\", \"schemaVersion\": 5, \"providers\": [{\"provider\": \"claude\", \"quotaSemantics\": {\"status\": \"partial\", \"effectiveAvailability\": [{\"scope\": \"all_models\", \"status\": \"known\", \"effectivePercentRemaining\": 80, \"runway\": {\"status\": \"through_reset\"}}, {\"scope\": \"product:sonnet\", \"status\": \"unknown\", \"runway\": {\"status\": \"exhausted_now\"}}]}}]}",
+    "expected_stdout": "none",
+    "expected_exit": 1,
+    "stdout": "none\n",
+    "stderr": "",
+    "exit_code": 1,
+    "passed": true
+  },
+  {
+    "name": "Partial known quota tolerates unknown all_products",
+    "command": [
+      "bash",
+      "{run-worktree}/bin/fm-quota-choose.sh",
+      "--snapshot",
+      "{run-worktree}/.credit-live-jgia3mkc/quota.snapshot",
+      "--candidate",
+      "claude:sonnet"
+    ],
+    "credit_readings": null,
+    "snapshot": "{\"generatedAt\": \"2030-01-01T00:00:00Z\", \"schemaVersion\": 5, \"providers\": [{\"provider\": \"claude\", \"quotaSemantics\": {\"status\": \"partial\", \"effectiveAvailability\": [{\"scope\": \"all_models\", \"status\": \"known\", \"effectivePercentRemaining\": 80, \"runway\": {\"status\": \"through_reset\"}}, {\"scope\": \"all_products\", \"status\": \"unknown\", \"runway\": {\"status\": \"unknown\"}}]}}]}",
+    "expected_stdout": "claude sonnet",
+    "expected_exit": 0,
+    "stdout": "claude sonnet\n",
+    "stderr": "",
+    "exit_code": 0,
+    "passed": true
+  },
+  {
+    "name": "Partial quota still rejects exhausted all_products",
+    "command": [
+      "bash",
+      "{run-worktree}/bin/fm-quota-choose.sh",
+      "--snapshot",
+      "{run-worktree}/.credit-live-jgia3mkc/quota.snapshot",
+      "--candidate",
+      "claude:sonnet"
+    ],
+    "credit_readings": null,
+    "snapshot": "{\"generatedAt\": \"2030-01-01T00:00:00Z\", \"schemaVersion\": 5, \"providers\": [{\"provider\": \"claude\", \"quotaSemantics\": {\"status\": \"partial\", \"effectiveAvailability\": [{\"scope\": \"all_models\", \"status\": \"known\", \"effectivePercentRemaining\": 80, \"runway\": {\"status\": \"through_reset\"}}, {\"scope\": \"all_products\", \"status\": \"unknown\", \"runway\": {\"status\": \"exhausted_now\"}}]}}]}",
+    "expected_stdout": "none",
+    "expected_exit": 1,
+    "stdout": "none\n",
+    "stderr": "",
+    "exit_code": 1,
+    "passed": true
+  },
+  {
+    "name": "Schema6 TOON weekly matched account opens",
+    "command": [
+      "bash",
+      "{run-worktree}/bin/fm-quota-choose.sh",
+      "--snapshot",
+      "{run-worktree}/.credit-live-jgia3mkc/quota.snapshot",
+      "--candidate",
+      "codex:gpt-6.1-terra"
+    ],
+    "credit_readings": "1793336034 62397 latest\n",
+    "snapshot": "bin: quota-axi\ngeneratedAt: \"2030-01-01T00:00:00Z\"\nquota[1]{provider,accountKey,scope,effectivePercentRemaining,spendPriority,runway,confidence,limitedBy,resetsAt}:\n  codex,codex-home,all_models,0,-1,exhausted_now,high,weekly,2030-01-02T00:00:00Z\nexhaustion[1]{provider,accountKey,scope,usableRunwaySeconds,projectedExhaustedAt,limitingWindowId}:\n  codex,codex-home,all_models,0,2030-01-01T00:00:00Z,weekly\nattention[0]:\n",
+    "expected_stdout": "codex gpt-6.1-terra",
+    "expected_exit": 0,
+    "stdout": "codex gpt-6.1-terra\n",
+    "stderr": "",
+    "exit_code": 0,
+    "passed": true
+  },
+  {
+    "name": "Schema6 TOON five-hour exhaustion rejects",
+    "command": [
+      "bash",
+      "{run-worktree}/bin/fm-quota-choose.sh",
+      "--snapshot",
+      "{run-worktree}/.credit-live-jgia3mkc/quota.snapshot",
+      "--candidate",
+      "codex:gpt-6.1-terra"
+    ],
+    "credit_readings": "1793336034 62397 latest\n",
+    "snapshot": "bin: quota-axi\ngeneratedAt: \"2030-01-01T00:00:00Z\"\nquota[1]{provider,accountKey,scope,effectivePercentRemaining,spendPriority,runway,confidence,limitedBy,resetsAt}:\n  codex,codex-home,all_models,0,-1,exhausted_now,high,weekly,2030-01-02T00:00:00Z\nexhaustion[1]{provider,accountKey,scope,usableRunwaySeconds,projectedExhaustedAt,limitingWindowId}:\n  codex,codex-home,all_models,0,2030-01-01T00:00:00Z,five_hour\nattention[0]:\n",
+    "expected_stdout": "none",
+    "expected_exit": 1,
+    "stdout": "none\n",
+    "stderr": "",
+    "exit_code": 1,
+    "passed": true
+  },
+  {
+    "name": "TOON foreign identity cannot lend cover codex,other,all_models",
+    "command": [
+      "bash",
+      "{run-worktree}/bin/fm-quota-choose.sh",
+      "--snapshot",
+      "{run-worktree}/.credit-live-jgia3mkc/quota.snapshot",
+      "--candidate",
+      "codex:gpt-6.1-terra"
+    ],
+    "credit_readings": "1793336034 62397 latest\n",
+    "snapshot": "bin: quota-axi\ngeneratedAt: \"2030-01-01T00:00:00Z\"\nquota[1]{provider,accountKey,scope,effectivePercentRemaining,spendPriority,runway,confidence,limitedBy,resetsAt}:\n  codex,codex-home,all_models,0,-1,exhausted_now,high,weekly,2030-01-02T00:00:00Z\nexhaustion[1]{provider,accountKey,scope,usableRunwaySeconds,projectedExhaustedAt,limitingWindowId}:\n  codex,other,all_models,0,2030-01-01T00:00:00Z,weekly\nattention[0]:\n",
+    "expected_stdout": "none",
+    "expected_exit": 1,
+    "stdout": "none\n",
+    "stderr": "",
+    "exit_code": 1,
+    "passed": true
+  },
+  {
+    "name": "TOON foreign identity cannot lend cover claude,codex-home,all_models",
+    "command": [
+      "bash",
+      "{run-worktree}/bin/fm-quota-choose.sh",
+      "--snapshot",
+      "{run-worktree}/.credit-live-jgia3mkc/quota.snapshot",
+      "--candidate",
+      "codex:gpt-6.1-terra"
+    ],
+    "credit_readings": "1793336034 62397 latest\n",
+    "snapshot": "bin: quota-axi\ngeneratedAt: \"2030-01-01T00:00:00Z\"\nquota[1]{provider,accountKey,scope,effectivePercentRemaining,spendPriority,runway,confidence,limitedBy,resetsAt}:\n  codex,codex-home,all_models,0,-1,exhausted_now,high,weekly,2030-01-02T00:00:00Z\nexhaustion[1]{provider,accountKey,scope,usableRunwaySeconds,projectedExhaustedAt,limitingWindowId}:\n  claude,codex-home,all_models,0,2030-01-01T00:00:00Z,weekly\nattention[0]:\n",
+    "expected_stdout": "none",
+    "expected_exit": 1,
+    "stdout": "none\n",
+    "stderr": "",
+    "exit_code": 1,
+    "passed": true
+  },
+  {
+    "name": "TOON foreign identity cannot lend cover codex,codex-home,model:other",
+    "command": [
+      "bash",
+      "{run-worktree}/bin/fm-quota-choose.sh",
+      "--snapshot",
+      "{run-worktree}/.credit-live-jgia3mkc/quota.snapshot",
+      "--candidate",
+      "codex:gpt-6.1-terra"
+    ],
+    "credit_readings": "1793336034 62397 latest\n",
+    "snapshot": "bin: quota-axi\ngeneratedAt: \"2030-01-01T00:00:00Z\"\nquota[1]{provider,accountKey,scope,effectivePercentRemaining,spendPriority,runway,confidence,limitedBy,resetsAt}:\n  codex,codex-home,all_models,0,-1,exhausted_now,high,weekly,2030-01-02T00:00:00Z\nexhaustion[1]{provider,accountKey,scope,usableRunwaySeconds,projectedExhaustedAt,limitingWindowId}:\n  codex,codex-home,model:other,0,2030-01-01T00:00:00Z,weekly\nattention[0]:\n",
+    "expected_stdout": "none",
+    "expected_exit": 1,
+    "stdout": "none\n",
+    "stderr": "",
+    "exit_code": 1,
+    "passed": true
+  },
+  {
+    "name": "TOON mixed weekly and five-hour evidence rejects",
+    "command": [
+      "bash",
+      "{run-worktree}/bin/fm-quota-choose.sh",
+      "--snapshot",
+      "{run-worktree}/.credit-live-jgia3mkc/quota.snapshot",
+      "--candidate",
+      "codex:gpt-6.1-terra"
+    ],
+    "credit_readings": "1793336034 62397 latest\n",
+    "snapshot": "bin: quota-axi\ngeneratedAt: \"2030-01-01T00:00:00Z\"\nquota[1]{provider,accountKey,scope,effectivePercentRemaining,spendPriority,runway,confidence,limitedBy,resetsAt}:\n  codex,codex-home,all_models,0,-1,exhausted_now,high,weekly,2030-01-02T00:00:00Z\nexhaustion[2]{provider,accountKey,scope,usableRunwaySeconds,projectedExhaustedAt,limitingWindowId}:\n  codex,codex-home,all_models,0,2030-01-01T00:00:00Z,weekly\n  codex,codex-home,all_models,0,2030-01-01T00:00:00Z,five_hour\nattention[0]:\n",
+    "expected_stdout": "none",
+    "expected_exit": 1,
+    "stdout": "none\n",
+    "stderr": "",
+    "exit_code": 1,
+    "passed": true
+  }
+]

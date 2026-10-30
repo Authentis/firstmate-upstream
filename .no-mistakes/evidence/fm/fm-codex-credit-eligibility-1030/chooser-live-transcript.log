@@ -1,0 +1,35 @@
+PASS 62,397 credits open exhausted weekly Codex: stdout='codex gpt-6.1-terra', exit=0
+PASS Codex cover also reaches omp openai-codex routing: stdout='omp openai-codex/gpt-6.1-terra', exit=0
+PASS Strict credit floor 9999: stdout='none', exit=1
+PASS Strict credit floor 10000: stdout='none', exit=1
+PASS Strict credit floor 10000.01: stdout='codex gpt-6.1-terra', exit=0
+PASS Newest appended low balance closes previously covered pool: stdout='none', exit=1
+PASS Newest appended high balance opens pool despite comments and invalid lines: stdout='codex gpt-6.1-terra', exit=0
+PASS Absent credit reading preserves exhausted rejection: stdout='none', exit=1
+PASS Malformed-only credit reading preserves exhausted rejection: stdout='none', exit=1
+PASS JSON limiting windows 'five_hour': stdout='none', exit=1
+PASS JSON limiting windows None: stdout='none', exit=1
+PASS JSON limiting windows ['weekly', 'five_hour']: stdout='none', exit=1
+PASS JSON limiting windows ['five_hour', 'weekly']: stdout='none', exit=1
+PASS JSON limiting windows ['weekly']: stdout='codex gpt-6.1-terra', exit=0
+PASS JSON limiting windows 'weekly': stdout='none', exit=1
+PASS Sibling veto model:gpt-6.1-terra exhausted_now: stdout='none', exit=1
+PASS Sibling veto model:gpt-6.1-terra through_reset: stdout='none', exit=1
+PASS Sibling veto product:gpt-6.1-terra exhausted_now: stdout='none', exit=1
+PASS Sibling veto product:gpt-6.1-terra through_reset: stdout='none', exit=1
+PASS Sibling veto all_products exhausted_now: stdout='none', exit=1
+PASS Sibling veto all_products through_reset: stdout='none', exit=1
+PASS Credits never open exhausted Claude: stdout='none', exit=1
+PASS Partial known quota tolerates unknown model:sonnet: stdout='claude sonnet', exit=0
+PASS Partial quota still rejects exhausted model:sonnet: stdout='none', exit=1
+PASS Partial known quota tolerates unknown product:sonnet: stdout='claude sonnet', exit=0
+PASS Partial quota still rejects exhausted product:sonnet: stdout='none', exit=1
+PASS Partial known quota tolerates unknown all_products: stdout='claude sonnet', exit=0
+PASS Partial quota still rejects exhausted all_products: stdout='none', exit=1
+PASS Schema6 TOON weekly matched account opens: stdout='codex gpt-6.1-terra', exit=0
+PASS Schema6 TOON five-hour exhaustion rejects: stdout='none', exit=1
+PASS TOON foreign identity cannot lend cover codex,other,all_models: stdout='none', exit=1
+PASS TOON foreign identity cannot lend cover claude,codex-home,all_models: stdout='none', exit=1
+PASS TOON foreign identity cannot lend cover codex,codex-home,model:other: stdout='none', exit=1
+PASS TOON mixed weekly and five-hour evidence rejects: stdout='none', exit=1
+Disposable home and snapshots removed.
