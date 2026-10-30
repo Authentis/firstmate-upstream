@@ -1484,8 +1484,8 @@ No qualifying option, or two equally probable qualifying options, produces `ambi
 
 **Candidate eligibility and evidence**
 
-- Any applicable `exhausted_now` row or known zero bound makes that candidate ineligible, and a known profile-floor shortfall does the same before unrelated quota uncertainty is considered.
-- The one exception is the Codex credit cover: a Codex-pool candidate whose exhausted row is the weekly `all_models` window stays eligible while the captain's latest reading in the gitignored private `data/codex-credits.readings` file (`<epoch> <credits> <note>` per line, newest line wins, `#` comments ignored) is above the floor the [shared quota library](../bin/fm-quota-axi-lib.sh) names.
+- Any applicable `exhausted_now` row or known zero bound makes that candidate ineligible unless that row qualifies for the [shared quota library's Codex credit cover](../bin/fm-quota-axi-lib.sh), whose header owns the reading-file format, credit floor, and window-evidence requirements.
+- A known profile-floor shortfall makes the candidate ineligible before unrelated quota uncertainty is considered.
 - An explicit profile floor still binds a credit-covered candidate.
 - Missing or nonnumeric `spendPriority` evidence is never ranked, and every candidate is printed beside its evidence or the reason it was not rankable, including on ambiguous and approval-gated outcomes that emit no profile.
 - On the opted-in path, duplicate concrete profiles with the same harness, model, and effort inside one rule or the default array are configuration errors rather than ties.

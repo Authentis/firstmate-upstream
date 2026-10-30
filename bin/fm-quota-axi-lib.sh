@@ -20,16 +20,22 @@
 FM_QUOTA_AXI_MIN=0.1.51
 FM_QUOTA_PROVIDER_ID_RE='^[a-z0-9]+(-[a-z0-9]+)*\z'
 
-# Codex credit cover: the weekly Codex window can read spent while prepaid
-# credits remain, so the captain's latest credit reading keeps Codex-pool
-# profiles eligible while it stays above FM_CODEX_CREDITS_FLOOR. Readings live
-# in the gitignored private file $FM_HOME/data/codex-credits.readings, one
-# reading per line as "<epoch> <credits> <note>", newest line wins,
-# append-only; "#" comment lines and blank lines are ignored. For example:
-#   # captain 10-30 via chief: 'we can use the credits!'
-#   1793335800 62397 captain 10-30 via chief 'we can use the credits!'
+# Codex credit cover (shared by the worker helper and typed resolver): only a
+# known Codex all_models row with exhausted_now is covered, and only while the
+# captain's latest credit reading is strictly above FM_CODEX_CREDITS_FLOOR.
+# Window evidence must be present and exclusively weekly across both
+# runway.limitingWindowId and limitingWindowIds; a non-null limitingWindowIds
+# must be an array. Other applicable exhaustion/zero bounds, declared quota floors,
+# and the consumers' uncertainty and ranking checks remain binding.
+# Readings live in the gitignored private file
+# $FM_HOME/data/codex-credits.readings, appended as "<epoch> <credits> <note>".
+# The last valid line wins (not the greatest epoch): epoch is an unsigned
+# integer, credits an unsigned integer or decimal, and the note is optional.
+# Blank lines, "#" comment lines, and malformed lines are ignored.
 # An absent file, an unreadable file, or a file with no valid reading line
 # means "no credit reading", and dispatch behaves exactly as without it.
+# Regression coverage: tests/fm-quota-choose.test.sh and
+# tests/fm-dispatch-resolve.test.sh.
 # shellcheck disable=SC2034  # set here, read by the sourcing dispatch consumers
 FM_CODEX_CREDITS_FLOOR=10000
 FM_CODEX_CREDITS_READINGS_FILE=data/codex-credits.readings
