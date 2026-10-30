@@ -599,6 +599,13 @@
 # keeps no data/backlog.md. A configured non-markdown adapter remains
 # active without a markdown file; any active automatic backend without
 # compatible tasks-axi refuses before creating lifecycle state.
+# A fresh ship spawn (not --relaunch, not a scout or --secondmate) also refuses
+# up front an id this home has positive proof already landed: its archived lane
+# record data/lane-meta-archive/<id>.meta says kind=ship and state/fleet-ledger.jsonl
+# (docs/fleet-ledger.md) holds a task.merged record for it. The archive alone,
+# or the ledger alone, refuses nothing; with both present and jq missing it
+# refuses for the missing dependency. It checks again once the task's meta lock
+# is held. There is no override, so follow-up work takes a new id.
 # On success prints: spawned <id> harness=<name> kind=<ship|scout|secondmate> [mode=<mode> yolo=<on|off>] window=<backend-target> worktree=<path>
 # A ship task records the explicit mode/yolo it was passed; a secondmate spawn records
 # mode=secondmate, yolo=off, home=, and projects=; a scout records neither, and both the
@@ -4162,11 +4169,33 @@ else
   fi
 fi
 
+# Merged-ship preflight; the header owns the refusal contract.
+# Recheck under the meta lock because cleanup can archive the lane record
+# while this spawn waits for the lock.
+spawn_refuse_merged_ship() {
+  local archive="$DATA/lane-meta-archive/$ID.meta" ledger="$STATE/fleet-ledger.jsonl"
+  [ "$RELAUNCH" -ne 1 ] && [ "$KIND" = ship ] || return 0
+  [ -f "$archive" ] && [ ! -L "$archive" ] &&
+    [ "$(fm_meta_get "$archive" kind)" = ship ] &&
+    [ -f "$ledger" ] && [ ! -L "$ledger" ] || return 0
+  if ! command -v jq >/dev/null 2>&1; then
+    echo "error: ship $ID has an archived lane record ($archive) and a fleet ledger ($ledger), but jq is not installed to check the ledger for its merge; install jq before dispatching it" >&2
+    exit 1
+  fi
+  grep -F -- "\"$ID\"" "$ledger" 2>/dev/null |
+    jq -R -e --arg id "$ID" 'fromjson? | objects | select(.event == "task.merged" and .task == $id)' >/dev/null 2>&1 ||
+    return 0
+  echo "error: ship $ID already merged and its lane was cleaned up ($archive, task.merged in $ledger); refusing to dispatch it again - file follow-up work under a new id" >&2
+  exit 1
+}
+spawn_refuse_merged_ship
+
 if [ "$SPAWN_META_LOCK_HELD" != 1 ]; then
   SPAWN_META_LOCK=$(fm_meta_lock_path "$STATE/$ID.meta") || exit 1
   fm_lock_acquire_wait "$SPAWN_META_LOCK"
   SPAWN_META_LOCK_HELD=1
 fi
+spawn_refuse_merged_ship
 if [ -e "$STATE/$ID.backlog-close" ] || [ -L "$STATE/$ID.backlog-close" ]; then
   echo "error: task $ID has a pending authoritative backlog close at $STATE/$ID.backlog-close; finish or repair that close before dispatching a new worker" >&2
   exit 1
