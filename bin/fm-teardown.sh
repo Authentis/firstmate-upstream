@@ -2184,7 +2184,11 @@ teardown_verify_slot_lease() {
     return 1
     ;;
   esac
-  [ -d "$WT" ] || return 0
+  # A missing leased copy cannot supply the gone-state safety proof or backup.
+  if [ ! -d "$WT" ]; then
+    echo "REFUSED: leased worktree $WT is missing; cannot verify or back up its work, so nothing was changed" >&2
+    return 1
+  fi
   real=$(canonical_existing_dir "$WT") || real=$WT
   if ! command -v jq >/dev/null 2>&1 || ! json=$( cd "$PROJ" && treehouse status --json 2>/dev/null </dev/null ); then
     echo "REFUSED: cannot read the Treehouse pool status to confirm lease $lease still holds $WT; nothing was changed" >&2
@@ -2215,11 +2219,6 @@ teardown_verify_slot_lease() {
   fi
   # No nonempty lease was found for this path in a valid inventory. Absence
   # does not prove reassignment; defer to the gone-pool proof in the header.
-  # A missing copy cannot supply that proof.
-  if [ ! -d "$WT" ]; then
-    echo "REFUSED: Treehouse does not list $WT in its pool, so lease $lease cannot be confirmed; nothing was changed" >&2
-    return 1
-  fi
   TEARDOWN_POOL_LISTING_GONE=1
   return 0
 }
