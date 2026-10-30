@@ -87,7 +87,7 @@ REAL_GIT_FOR_TEST=$(command -v git)
 export REAL_GIT_FOR_TEST
 REAL_PS_FOR_TEST=$(command -v ps)
 export REAL_PS_FOR_TEST
-REAL_LSOF_FOR_TEST=$(command -v lsof)
+REAL_LSOF_FOR_TEST=$(command -v lsof || true)
 export REAL_LSOF_FOR_TEST
 
 # Build a fresh sandbox for one test case. Sets up:
@@ -5907,6 +5907,7 @@ land_pr7_head_on_origin() {
 # no gate-receipt file. The forge reports PR 7 merged at the recorded head.
 test_record_only_bg_receipt_lane_is_backed_up_and_torn_down() {
   local case_dir rc head bundle shape=${1:-dummy}
+  local real_tmux socket path_without_lsof pane_alive
   local -a worktree_field=()
   case_dir=$(make_case "record-only-receipt-$shape")
   if [ "$shape" = dummy ]; then
@@ -5937,11 +5938,35 @@ exit 0
 EOF
   chmod +x "$case_dir/fakebin/treehouse"
 
-  set +e
-  FM_HOME="$case_dir" run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
-  rc=$?
-  set -e
+  if [ "$shape" = missing-lsof ]; then
+    # Oracle: retiring an endpointless receipt must not signal an unrelated
+    # pane. Use a real private server so an empty-target fallback kills the
+    # sleeper and fails this assertion, rather than just checking mock calls.
+    real_tmux=$(command -v tmux) || fail "missing-lsof: tmux is required"
+    socket="$case_dir/tmux.sock"
+    "$real_tmux" -f /dev/null -S "$socket" new-session -d -s unrelated 'exec sleep 300'
+    "$real_tmux" -S "$socket" has-session -t unrelated \
+      || fail "missing-lsof: unrelated pane did not start"
+    cat > "$case_dir/fakebin/tmux" <<EOF
+#!/usr/bin/env bash
+exec '$real_tmux' -S '$socket' "\$@"
+EOF
+    chmod +x "$case_dir/fakebin/tmux"
+    path_without_lsof=$(make_path_without_lsof "$case_dir")
+    PATH="$path_without_lsof" command -v lsof >/dev/null 2>&1 \
+      && fail "missing-lsof: fixture unexpectedly exposes lsof"
+  fi
 
+  rc=0
+  FM_HOME="$case_dir" FM_TEARDOWN_TEST_PATH="${path_without_lsof:-$PATH}" \
+    run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+
+  if [ "$shape" = missing-lsof ]; then
+    pane_alive=0
+    "$real_tmux" -S "$socket" has-session -t unrelated 2>/dev/null && pane_alive=1
+    "$real_tmux" -S "$socket" kill-server 2>/dev/null || true
+    [ "$pane_alive" = 1 ] || fail "missing-lsof: endpointless teardown killed an unrelated pane"
+  fi
   expect_code 0 "$rc" "record-only-receipt: teardown should complete a record_only lane"
   assert_absent "$case_dir/state/task-x1.meta" \
     "record-only-receipt: teardown left the task record behind"
@@ -6006,6 +6031,13 @@ test_record_only_lane_with_unverifiable_head_refuses() {
     "record-only-mismatch: a backup bundle was written for an unverifiable head"
   pass "a record_only lane whose recorded head is not the PR head refuses with the record kept"
 }
+
+# Focused regression entry point; avoid running unrelated teardown cases.
+if [ "${1:-}" = --endpointless-missing-lsof ]; then
+  test_record_only_bg_receipt_lane_is_backed_up_and_torn_down missing-lsof
+  test_lsof_absent_reaps_tmux_process_group
+  exit 0
+fi
 
 test_missing_startup_source_refuses_before_cleanup
 test_unreadable_startup_source_refuses_before_cleanup
@@ -6086,6 +6118,7 @@ test_gone_pool_listing_with_unpushed_work_refuses
 test_gone_pool_listing_with_dirty_work_refuses
 test_record_only_bg_receipt_lane_is_backed_up_and_torn_down
 test_record_only_bg_receipt_lane_is_backed_up_and_torn_down absent
+test_record_only_bg_receipt_lane_is_backed_up_and_torn_down missing-lsof
 test_record_only_lane_with_unverifiable_head_refuses
 test_legacy_record_without_the_flag_refuses
 test_windowless_legacy_record_with_gone_worktree_tears_down

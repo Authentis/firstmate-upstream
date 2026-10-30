@@ -2671,6 +2671,9 @@ $dir_pids"
 
 reap_task_backend_process_group() {  # <label>
   local label=$1 leader leader_start pgid current_pgid own_pgid
+  # Windowless records never validated an owned endpoint. An empty tmux
+  # target selects the ambient pane, not a process group owned by this task.
+  [ "$TEARDOWN_WINDOWLESS" != 1 ] || return 0
   if [ "$BACKEND" != tmux ]; then
     echo "warning: lsof is unavailable; cannot resolve a process-group fallback for $BACKEND task $ID" >&2
     return 0
