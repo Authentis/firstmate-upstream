@@ -61,6 +61,17 @@ fm_codex_credits_reading() {
 #                                  or null; schema 5 ignores $lane.
 # shellcheck disable=SC2016,SC2034  # jq program text, not shell expansion; read by the sourcing consumers
 FM_QUOTA_ROW_JQ='
+  def quota_credit_covered($provider; $credits; $floor):
+    $provider == "codex"
+    and ($credits | type) == "number"
+    and $credits > $floor
+    and .scope == "all_models"
+    and .status == "known"
+    and .runway.status == "exhausted_now"
+    and ((.limitingWindowIds // []) | type == "array")
+    and ([.runway.limitingWindowId // empty,
+          (.limitingWindowIds // [] | .[])] |
+         length > 0 and all(.[]; . == "weekly"));
   def quota_lane($harness; $model):
     if $harness == "codex" then "codex-home"
     elif ($harness == "pi" or $harness == "pi-signed") and (($model // "") | contains("/"))

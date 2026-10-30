@@ -930,6 +930,43 @@ printf '%s\n' '1793336034 62397 captain 10-30 via chief' > "$HOME_DIR/data/codex
 reset_log
 TYPESAFE_API_KEY=$KEY QUOTA_AXI_FIXTURE="$TMP_ROOT/credit-session.json" run code out err "$BRIEF"
 assert_contains "$out" 'candidate: codex:gpt-6.1-terra  provider=codex  scope=all_models  remaining=0%  spendPriority=-  runway=exhausted_now  -> not eligible: runway exhausted_now at all_models' "credits never cover a non-weekly exhausted window"
+for scope in model:gpt-6.1-terra product:gpt-6.1-terra all_products; do
+  for status in exhausted_now through_reset; do
+    jq --arg scope "$scope" --arg status "$status" '(.providers[0].quotaSemantics.effectiveAvailability) += [
+      {scope:$scope,status:"known",effectivePercentRemaining:0,runway:{status:$status},selection:{spendPriority:2}}]' \
+      "$CREDIT_QUOTA" > "$TMP_ROOT/credit-sibling.json"
+    reset_log
+    TYPESAFE_API_KEY=$KEY QUOTA_AXI_FIXTURE="$TMP_ROOT/credit-sibling.json" run code out err "$BRIEF"
+    assert_contains "$out" '  status: escalate' "sibling $scope $status veto remains binding"
+  done
+done
+jq '.rules[0].use[0].floor = {scope:"model:missing",min_percent:10}' "$CREDIT_RULES" > "$RULES"
+reset_log
+TYPESAFE_API_KEY=$KEY QUOTA_AXI_FIXTURE="$CREDIT_QUOTA" run code out err "$BRIEF"
+assert_contains "$out" 'profile floor model:missing is unverifiable: not rankable' "credit cover cannot verify a missing floor"
+cp "$CREDIT_RULES" "$RULES"
+for variant in unknown missing lower; do
+  jq --arg variant "$variant" '(.providers[0].quotaSemantics.effectiveAvailability) += [
+    {scope:"model:gpt-6.1-terra",status:"known",effectivePercentRemaining:50,runway:{status:"through_reset"},selection:{spendPriority:-8}} |
+    if $variant == "unknown" then .status = "unknown" | .runway.status = "unknown" | del(.effectivePercentRemaining, .selection)
+    elif $variant == "missing" then del(.selection) else . end] |
+    if $variant == "unknown" then .providers[0].quotaSemantics.status = "partial" else . end' \
+    "$CREDIT_QUOTA" > "$TMP_ROOT/credit-evidence.json"
+  reset_log
+  TYPESAFE_API_KEY=$KEY QUOTA_AXI_FIXTURE="$TMP_ROOT/credit-evidence.json" run code out err "$BRIEF"
+  case "$variant" in
+    unknown) assert_contains "$out" 'quota row model:gpt-6.1-terra unknown: not rankable' "unknown model evidence remains unranked" ;;
+    missing) assert_contains "$out" 'spendPriority missing or non-numeric at model:gpt-6.1-terra: not rankable' "missing model score remains unranked" ;;
+    lower) assert_contains "$out" 'scope=model:gpt-6.1-terra  remaining=50%  spendPriority=-8' "model score limits the covered candidate" ;;
+  esac
+done
+for windows in '["weekly","five_hour"]' '["five_hour","weekly"]' '"weekly"'; do
+  jq --argjson windows "$windows" '.providers[0].quotaSemantics.effectiveAvailability[0].limitingWindowIds = $windows' \
+    "$CREDIT_QUOTA" > "$TMP_ROOT/credit-windows.json"
+  reset_log
+  TYPESAFE_API_KEY=$KEY QUOTA_AXI_FIXTURE="$TMP_ROOT/credit-windows.json" run code out err "$BRIEF"
+  assert_contains "$out" '  status: escalate' "all supplied window evidence binds"
+done
 rm "$HOME_DIR/data/codex-credits.readings"
 cp "$BASE_RULES" "$RULES"
 pass "Codex credits cover only the spent weekly all_models window above the floor"

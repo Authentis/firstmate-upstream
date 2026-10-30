@@ -289,6 +289,9 @@ else
           error("invalid quota-axi TOON envelope")
         else
           ($quota_lines | map(decoded_row)) as $rows |
+          ($exhaustion_rows | map(decoded_row | keyed_row($k) + {
+            scope: .[1 + $k], limitingWindowId: .[4 + $k]
+          })) as $exhaustion |
           ($attention_rows | attention_entries($k)) as $attention_entries |
           if (($attention_entries | valid_attention_entries) | not) then error("invalid attention identities")
           elif any($rows[]; length != 8 + $k) then error("invalid quota rows")
@@ -296,12 +299,17 @@ else
             {
               schemaVersion: schema_of($k),
               providers: (($rows |
-                map(keyed_row($k) + {
+                map((keyed_row($k)) as $identity | .[1 + $k] as $scope |
+                  $identity + {
                   availability: {
-                    scope: .[1 + $k],
+                    scope: $scope,
                     status: "known",
                     effectivePercentRemaining: (.[2 + $k] | tonumber),
-                    runway: {status: .[4 + $k]}
+                    runway: {status: .[4 + $k]},
+                    limitingWindowIds: [$exhaustion[] | select(
+                      .provider == $identity.provider and
+                      .accountKey == $identity.accountKey and .scope == $scope
+                    ) | .limitingWindowId]
                   }
                 })) +
                 ($attention_entries | map(. as $entry | ($entry | {provider} + account_of) + {
@@ -342,33 +350,19 @@ provider_for_harness() {
   fm_quota_provider_for_harness "$@"
 }
 
-# effective_for_provider_model <provider> <model> <lane>
-# Print the most constraining applicable quota evidence for the provider/model
-# tuple, including provider-wide and exact model or product scopes. The row is
-# bound through quota_row from bin/fm-quota-axi-lib.sh, so <lane> matters only
-# on a schema 6 snapshot.
-effective_for_provider_model() {
+applicable_for_provider_model() {
   local provider=$1 model=${2:-default} lane=${3:-}
   printf '%s\n' "$QUOTA_JSON" | jq -c --arg provider "$provider" --arg model "$model" --arg lane "$lane" "$FM_QUOTA_ROW_JQ"'
     ($model | sub("^model:"; "")) as $model_token |
     quota_row(.; $provider; $lane) as $p |
-    if ($p // null) == null then {status: "unknown"}
+    if ($p // null) == null then []
     else ($p.quotaSemantics.effectiveAvailability // []) |
     map(select(.scope as $scope |
       $scope == "all_models" or $scope == "all_products" or
       ($model_token != "" and $model_token != "default" and
        (($scope | startswith("model:")) or ($scope | startswith("product:"))) and
        ($model_token == ($scope | sub("^(model|product):"; ""))))
-    )) as $applicable |
-    ($applicable | map(select(.status == "known"))) as $known |
-    if ($applicable | length) == 0 then {status: "unknown"}
-    elif any($applicable[]; (.runway.status // "") == "exhausted_now") then
-      ($applicable | map(select((.runway.status // "") == "exhausted_now")) | first)
-    elif ($known | length) == 0 then {status: "unknown"}
-    elif any($known[]; .effectivePercentRemaining == 0) then
-      ($known | map(select(.effectivePercentRemaining == 0)) | first)
-    else ($known | min_by(.effectivePercentRemaining))
-    end
+    ))
     end
   ' 2>/dev/null
 }
@@ -394,32 +388,19 @@ for c in "${CANDIDATES[@]}"; do
   scope_model=$model
   [ "$harness" != omp ] || scope_model=${model#*/}
   lane=$(jq -rn --arg h "$harness" --arg m "$model" "$FM_QUOTA_ROW_JQ"'quota_lane($h; $m)')
-  effective=$(effective_for_provider_model "$provider" "$scope_model" "$lane")
+  effective=$(applicable_for_provider_model "$provider" "$scope_model" "$lane")
   if [ -z "$effective" ] || [ "$effective" = "null" ]; then
     continue
   fi
   if printf '%s\n' "$effective" | jq -e --arg provider "$provider" \
     --argjson codex_credits "$CODEX_CREDITS_JSON" \
-    --argjson codex_floor "$FM_CODEX_CREDITS_FLOOR" '
-    # The exhausted row is the weekly all_models window when it says so, or
-    # when the snapshot carries no limiting window to contradict it.
-    def weekly_all_models:
-      .scope == "all_models"
-      and (((.runway.limitingWindowId // null) // "weekly") == "weekly");
-    def credit_covered:
-      $provider == "codex"
-      and (($codex_credits | type) == "number")
-      and $codex_credits > $codex_floor
-      and weekly_all_models;
-    if credit_covered then true
-    elif (.runway.status // "") == "exhausted_now" then false
-    elif .status == "unknown" then false
-    else
-      .effectivePercentRemaining as $remaining |
-      (($remaining | type) == "number") and
-      ($remaining > 0) and
-      ((.runway.status // "") != "exhausted_now")
-    end
+    --argjson codex_floor "$FM_CODEX_CREDITS_FLOOR" "$FM_QUOTA_ROW_JQ"'
+    length > 0 and all(.[];
+      .status == "known" and
+      (quota_credit_covered($provider; $codex_credits; $codex_floor) or
+       ((.effectivePercentRemaining | type) == "number" and
+        .effectivePercentRemaining > 0 and
+        (.runway.status // "") != "exhausted_now")))
   ' >/dev/null 2>&1; then
     chosen="$harness $model"
     break

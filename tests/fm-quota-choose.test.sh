@@ -828,4 +828,51 @@ fi
 [ "$out" = "none" ] || fail "non-weekly exhaustion returned: $out"
 ok "credits never cover a non-weekly exhausted window"
 
+for scope in model:terra product:terra all_products; do
+  for status in exhausted_now through_reset; do
+    jq --arg scope "$scope" --arg status "$status" '(.providers[] | select(.provider == "codex").quotaSemantics.effectiveAvailability) += [
+      {scope:$scope,status:"known",effectivePercentRemaining:0,runway:{status:$status}}]' \
+      "$LAB/credit-exhausted.json" > "$LAB/credit-sibling.json"
+    if out=$(FM_HOME="$CREDIT_HOME" call_choose --snapshot "$LAB/credit-sibling.json" --candidate codex:terra); then
+      fail "credit cover bypassed sibling $scope $status"
+    fi
+    [ "$out" = none ] || fail "sibling veto returned: $out"
+  done
+done
+for windows in '["weekly","five_hour"]' '["five_hour","weekly"]' '[]' '"weekly"'; do
+  jq --argjson windows "$windows" '(.providers[] | select(.provider == "codex").quotaSemantics.effectiveAvailability[0]) |=
+    (del(.runway.limitingWindowId) | .limitingWindowIds = $windows)' \
+    "$LAB/credit-exhausted.json" > "$LAB/credit-windows.json"
+  if out=$(FM_HOME="$CREDIT_HOME" call_choose --snapshot "$LAB/credit-windows.json" --candidate codex:default); then
+    fail "credit cover accepted mixed or absent window evidence: $windows"
+  fi
+done
+for window in weekly five_hour; do
+  printf '%s\n' 'bin: quota-axi' 'generatedAt: "2030-01-01T00:00:00Z"' \
+    'quota[1]{provider,scope,effectivePercentRemaining,spendPriority,runway,confidence,limitedBy,resetsAt}:' \
+    "  codex,all_models,0,-1,exhausted_now,high,$window,2030-01-02T00:00:00Z" \
+    'exhaustion[1]{provider,scope,usableRunwaySeconds,projectedExhaustedAt,limitingWindowId}:' \
+    "  codex,all_models,0,2030-01-01T00:00:00Z,$window" 'attention[0]:' > "$LAB/credit.toon"
+  out=$(FM_HOME="$CREDIT_HOME" call_choose --snapshot "$LAB/credit.toon" --candidate codex:default) || :
+  if [ "$window" = weekly ]; then
+    [ "$out" = 'codex default' ] || fail "weekly TOON not covered: $out"
+  else
+    [ "$out" = none ] || fail "non-weekly TOON covered: $out"
+  fi
+done
+for identity in 'codex,other,all_models' 'codex,codex-home,model:other' 'claude,codex-home,all_models' 'codex,codex-home,all_models'; do
+  printf '%s\n' 'bin: quota-axi' 'generatedAt: "2030-01-01T00:00:00Z"' \
+    'quota[1]{provider,accountKey,scope,effectivePercentRemaining,spendPriority,runway,confidence,limitedBy,resetsAt}:' \
+    '  codex,codex-home,all_models,0,-1,exhausted_now,high,weekly,2030-01-02T00:00:00Z' \
+    'exhaustion[1]{provider,accountKey,scope,usableRunwaySeconds,projectedExhaustedAt,limitingWindowId}:' \
+    "  $identity,0,2030-01-01T00:00:00Z,weekly" 'attention[0]:' > "$LAB/credit-account.toon"
+  out=$(FM_HOME="$CREDIT_HOME" call_choose --snapshot "$LAB/credit-account.toon" --candidate codex:default) || :
+  if [ "$identity" = 'codex,codex-home,all_models' ]; then
+    [ "$out" = 'codex default' ] || fail "matching account TOON not covered: $out"
+  else
+    [ "$out" = none ] || fail "foreign exhaustion covered candidate: $identity $out"
+  fi
+done
+ok "credit cover preserves sibling vetoes and window evidence"
+
 printf '# all fm-quota-choose tests passed\n'

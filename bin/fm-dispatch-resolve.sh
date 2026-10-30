@@ -389,18 +389,6 @@ RESULT=$(jq -n --arg floor "$CONFIDENCE_FLOOR" --argjson lat "$LAT_MS" --arg non
     end;
   def evidence($rows):
     $rows | map({scope, status, pct: (.effectivePercentRemaining // null), runway: (.runway.status // null), spendPriority: (.selection.spendPriority // null)});
-  # The captain credit cover: a Codex-pool candidate whose exhausted row is
-  # the weekly all_models window stays eligible while the latest Codex credit
-  # reading is above the floor. An explicit profile floor still binds.
-  def credit_covered($p; $bad):
-    $p == "codex"
-    and (($codex_credits | type) == "number")
-    and $codex_credits > $codex_floor
-    and ($bad.scope == "all_models")
-    and (((($bad.runway.limitingWindowId // null)
-      // ($bad.limitingWindowIds | if type == "array" then .[0] else null end)) // "weekly") == "weekly");
-  def credit_reason:
-    "codex credits \($codex_credits) above floor \($codex_floor) cover exhausted weekly all_models window";
   def evaluate($c):
     (provider_of($c)) as $p | (lane_of($c)) as $lane |
     if $p == null then {profile: $c, eligible: false, reason: "no provider family for harness \($c.harness); declare provider on the profile"}
@@ -413,12 +401,12 @@ RESULT=$(jq -n --arg floor "$CONFIDENCE_FLOOR" --argjson lat "$LAT_MS" --arg non
       (applicable($p; $lane; ($c.model // ""))) as $rows |
       (evidence($rows)) as $bounds |
       (floor_state($c.floor; $p; $lane)) as $profile_floor_state |
-      (($rows | map(select((.runway.status // "") == "exhausted_now")) | first) // null) as $bad |
-      (($bad != null) and credit_covered($p; $bad)) as $covered |
-      if ($bad != null) and ($covered | not) then
+      ($rows | map(select(quota_credit_covered($p; $codex_credits; $codex_floor) | not))) as $uncovered |
+      (($uncovered | map(select((.runway.status // "") == "exhausted_now")) | first) // null) as $bad |
+      if $bad != null then
         {profile: $c, provider: $p, bounds: $bounds, scope: $bad.scope, pct: ($bad.effectivePercentRemaining // null), runway: $bad.runway.status, eligible: false, reason: "runway exhausted_now at \($bad.scope)"}
-      elif any($rows[]; .status == "known" and (.effectivePercentRemaining | type) == "number" and .effectivePercentRemaining <= 0) and ($covered | not) then
-        ($rows | map(select(.status == "known" and (.effectivePercentRemaining | type) == "number" and .effectivePercentRemaining <= 0)) | first) as $zero |
+      elif any($uncovered[]; .status == "known" and (.effectivePercentRemaining | type) == "number" and .effectivePercentRemaining <= 0) then
+        ($uncovered | map(select(.status == "known" and (.effectivePercentRemaining | type) == "number" and .effectivePercentRemaining <= 0)) | first) as $zero |
         {profile: $c, provider: $p, bounds: $bounds, scope: $zero.scope, pct: $zero.effectivePercentRemaining, runway: $zero.runway.status, eligible: false, reason: "0% remaining at \($zero.scope)"}
       elif $profile_floor_state == "below" then
         ([rows($p; $lane)[] | select(
@@ -426,15 +414,6 @@ RESULT=$(jq -n --arg floor "$CONFIDENCE_FLOOR" --argjson lat "$LAT_MS" --arg non
           .effectivePercentRemaining < $c.floor.min_percent
         )] | first) as $floor_row |
         {profile: $c, provider: $p, bounds: $bounds, scope: ($floor_row.scope // $c.floor.scope), pct: ($floor_row.effectivePercentRemaining // null), runway: ($floor_row.runway.status // null), eligible: false, reason: "profile floor \($c.floor.scope) below \($c.floor.min_percent)%"}
-      elif $covered then
-        ($bad.selection.spendPriority // null) as $sp |
-        if ($sp | type) == "number" then
-          {profile: $c, provider: $p, bounds: $bounds, scope: $bad.scope, pct: ($bad.effectivePercentRemaining // null),
-           spendPriority: $sp, runway: $bad.runway.status, eligible: true, reason: credit_reason}
-        else
-          {profile: $c, provider: $p, bounds: $bounds, scope: $bad.scope, pct: ($bad.effectivePercentRemaining // null),
-           runway: $bad.runway.status, eligible: true, unranked: true, unknown: true, reason: (credit_reason + "; spendPriority missing or non-numeric: not rankable")}
-        end
       elif (measured($p; $lane) | not) then
         ($rows | first) as $row |
         {profile: $c, provider: $p, bounds: $bounds, scope: ($row.scope // null), pct: ($row.effectivePercentRemaining // null), runway: ($row.runway.status // null), eligible: true, unranked: true, unknown: true, reason: "provider \($p) unmeasured (\(prov($p; $lane).quotaSemantics.status))"}
