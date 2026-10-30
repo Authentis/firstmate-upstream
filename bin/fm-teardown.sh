@@ -8,7 +8,11 @@
 # A task record carrying lease_id= (a slot taken by `treehouse get --lease`, see
 # bin/fm-spawn.sh) is handled in two lease-bound steps. Before any destructive
 # step, a read-only `treehouse status --json` must still show that lease on the
-# slot; a changed, missing, or unreadable lease refuses with nothing touched.
+# slot; a changed or unreadable lease refuses with nothing touched. A slot the
+# pool no longer lists at all (an abandoned pool root, never a changed lease)
+# takes the gone-pool path instead: once the copy itself proves clean and
+# landed, teardown writes a verified bundle of its head under data/bundles/
+# and finishes records-only, touching neither the copy nor the pool.
 # The return itself is `treehouse return --if-lease-id <id>`, with --force added
 # only for an explicit --force teardown or a scout; otherwise a slot left with
 # files after the safety checks is refused by treehouse instead of reset. A
@@ -95,6 +99,13 @@
 # declared scratch and the report at data/<task-id>/report.md is the work
 # product. Teardown proceeds only once the report exists and the shared
 # unresolved-decision completion gate verifies its captain-held inventory.
+# Record-only lanes (record_only=yes, e.g. background-receipt autoland lanes)
+# name no live copy: their recorded worktree is a dummy or shared path that
+# teardown never inspects, scrubs, branch-deletes, or returns. Teardown instead
+# proves the recorded branch head landed from the project clone and the forge
+# (a merged PR naming that exact head; the background/gate receipt itself is
+# not required), writes a verified bundle of the head under data/bundles/,
+# and finishes with no backlog transition, since record-only lanes keep no row.
 # A scratch copy (kind=scout) and a --force run discard untracked content.
 # Treehouse's return resets with `git clean -fd`, which never deletes a nested
 # git repository, so the pool slot stays dirty and later checkouts skip it.
@@ -645,6 +656,11 @@ if [ "$TEARDOWN_META_KIND" = secondmate ]; then
   SM_LIVENESS_LOCK="$STATE/.secondmate-liveness-$ID.lock"
 fi
 TEARDOWN_CLEANUP_RECOVERY=$(fm_meta_get "$META" cleanup_recovery)
+TEARDOWN_RECORD_ONLY=0
+if [ "$(fm_meta_get "$META" record_only)" = yes ]; then
+  TEARDOWN_RECORD_ONLY=1
+fi
+TEARDOWN_POOL_LISTING_GONE=0
 TEARDOWN_META_SPAWN_GEN=
 TEARDOWN_LEGACY_PENDING=0
 TEARDOWN_LEGACY_ACCEPTED=0
@@ -679,8 +695,17 @@ case "$TEARDOWN_WINDOW_COUNT:$(fm_meta_get "$META" window)" in
     esac
     ;;
 esac
+# A record-only lane whose record names no endpoint at all (the shape check
+# above already proved the rest of the record endpoint-coherent) has no
+# endpoint to validate or close, so it is windowless on its own terms rather
+# than through the legacy leftover classification below.
+if [ "$TEARDOWN_RECORD_ONLY" = 1 ] && [ "$TEARDOWN_WINDOWLESS_SHAPE" = 1 ]; then
+  TEARDOWN_WINDOWLESS=1
+fi
 if [ "$TEARDOWN_CLEANUP_RECOVERY" != orca ]; then
-  if fm_backlog_transition_applies "$CONFIG" "$DATA" "$TEARDOWN_META_KIND"; then
+  if [ "$TEARDOWN_RECORD_ONLY" = 1 ]; then
+    TEARDOWN_BACKLOG_SKIP_REASON="record_only lanes keep no backlog row"
+  elif fm_backlog_transition_applies "$CONFIG" "$DATA" "$TEARDOWN_META_KIND"; then
     TEARDOWN_BACKLOG_APPLIES=1
   else
     TEARDOWN_BACKLOG_GATE_STATUS=$?
@@ -1755,8 +1780,53 @@ work_is_landed() {
 # test then sees no unpushed commits; every other outcome returns non-zero and
 # the caller refuses exactly as before. A preserve ref already holding different
 # content is a refusal, never an overwrite.
+# Write a verified git bundle of <head> from <repo-dir> into the task's bundle
+# directory, rotating past taken names. The bundled revision is <rev>, which
+# must name a ref (a bare sha refuses with an empty bundle; FETCH_HEAD works,
+# and then the bundle records that name rather than HEAD). The kept bundle is
+# verified to contain <head>, so a ref that moved mid-write refuses instead of
+# backing up the wrong commit. Prints the kept bundle path; refuses when the
+# bundle cannot be created or verified. A bundle that fails final verification
+# is kept in place and refused, never deleted, since the shared directory may
+# hold another writer's file.
+teardown_write_verified_bundle() {  # <repo-dir> <head> <rev>
+  local repo=$1 head=$2 rev=$3 tmp bundle candidate
+  [ -n "$repo" ] && [ -n "$head" ] && [ -n "$rev" ] || return 1
+  mkdir -p "$DATA/bundles" 2>/dev/null || return 1
+  tmp="$DATA/bundles/$ID.bundle.tmp.$$"
+  if ! git -C "$repo" bundle create "$tmp" "$rev" >/dev/null 2>&1 \
+      || ! git -C "$repo" bundle verify "$tmp" >/dev/null 2>&1; then
+    rm -f "$tmp"
+    return 1
+  fi
+  # Publish to a name that does not exist (no file, directory or symlink), with
+  # an exclusive create so a name taken in between is skipped, never overwritten.
+  bundle=
+  for candidate in "$DATA/bundles/$ID.bundle" "$DATA/bundles/$ID-${head:0:12}.bundle" \
+      "$DATA/bundles/$ID-${head:0:12}".{1..9}.bundle; do
+    if [ -e "$candidate" ] || [ -L "$candidate" ]; then
+      continue
+    fi
+    if ( set -o noclobber; cat "$tmp" > "$candidate" ) 2>/dev/null; then
+      bundle=$candidate
+      break
+    fi
+  done
+  rm -f "$tmp"
+  [ -n "$bundle" ] || return 1
+  if [ -L "$bundle" ] || [ ! -f "$bundle" ] \
+      || ! git -C "$repo" bundle verify "$bundle" >/dev/null 2>&1 \
+      || ! git -C "$repo" bundle list-heads "$bundle" 2>/dev/null | awk -v h="$head" '$1 == h { found = 1 } END { exit !found }'; then
+    # The final pathname is shared, so another writer may have replaced it since
+    # the exclusive create; keep it in place and refuse rather than delete it.
+    echo "Preserve bundle $bundle failed verification; leaving it in place and refusing." >&2
+    return 1
+  fi
+  printf '%s\n' "$bundle"
+}
+
 preserve_merged_lane_commits() {
-  local branch=$1 target view state head ref bundle tmp remote_line remote_sha left
+  local branch=$1 target view state head ref bundle remote_line remote_sha left
   [ -n "$branch" ] && [ "$branch" != HEAD ] || return 1
   git -C "$WT" remote get-url origin >/dev/null 2>&1 || return 1
   if [ -n "$PR_URL" ]; then
@@ -1780,36 +1850,7 @@ preserve_merged_lane_commits() {
     echo "Preserve ref $ref already exists on origin with different content; not overwriting it." >&2
     return 1
   fi
-  mkdir -p "$DATA/bundles" 2>/dev/null || return 1
-  tmp="$DATA/bundles/$ID.bundle.tmp.$$"
-  if ! git -C "$WT" bundle create "$tmp" HEAD >/dev/null 2>&1 \
-      || ! git -C "$WT" bundle verify "$tmp" >/dev/null 2>&1; then
-    rm -f "$tmp"
-    return 1
-  fi
-  # Publish to a name that does not exist (no file, directory or symlink), with
-  # an exclusive create so a name taken in between is skipped, never overwritten.
-  bundle=
-  for candidate in "$DATA/bundles/$ID.bundle" "$DATA/bundles/$ID-${head:0:12}.bundle" \
-      "$DATA/bundles/$ID-${head:0:12}".{1..9}.bundle; do
-    if [ -e "$candidate" ] || [ -L "$candidate" ]; then
-      continue
-    fi
-    if ( set -o noclobber; cat "$tmp" > "$candidate" ) 2>/dev/null; then
-      bundle=$candidate
-      break
-    fi
-  done
-  rm -f "$tmp"
-  [ -n "$bundle" ] || return 1
-  if [ -L "$bundle" ] || [ ! -f "$bundle" ] \
-      || ! git -C "$WT" bundle verify "$bundle" >/dev/null 2>&1 \
-      || ! git -C "$WT" bundle list-heads "$bundle" 2>/dev/null | awk -v h="$head" '$1 == h && $2 == "HEAD" { found = 1 } END { exit !found }'; then
-    # The final pathname is shared, so another writer may have replaced it since
-    # the exclusive create; keep it in place and refuse rather than delete it.
-    echo "Preserve bundle $bundle failed verification; leaving it in place and refusing." >&2
-    return 1
-  fi
+  bundle=$(teardown_write_verified_bundle "$WT" "$head" HEAD) || return 1
   if [ -z "$remote_sha" ]; then
     # Creation-only: an empty expected value makes the remote accept the push
     # only while the ref is absent, so a ref that appeared after the lookup above
@@ -1822,6 +1863,125 @@ preserve_merged_lane_commits() {
   [ -z "$left" ] || return 1
   echo "Preserved unpublished commits of merged-PR lane $ID: ref origin/preserve/$branch, bundle $bundle"
   return 0
+}
+
+# Gone-pool-slot proof and backup (see the script header): the pool no longer
+# lists this slot, so the copy itself plus the forge are the only evidence.
+# Requires the copy inspectable, clean, and pushed-or-landed, then writes a
+# verified bundle of its head. No pushes, no pool contact. Refuses on any
+# doubt: a missing or unreadable copy, uncommitted changes, unlanded work, or
+# a backup that cannot be created or verified. Returns
+# TEARDOWN_WORKTREE_SAFETY_LOCK_BLOCKED when a git index.lock blocks
+# inspection and is not provably stale, so the caller can clear it and retry.
+teardown_backup_gone_pool_slot() {
+  local dirty unpushed branch head bundle
+  inspectable_git_worktree "$WT" || {
+    echo "REFUSED: worktree $WT is missing or not an inspectable git worktree, so its head cannot be verified; nothing was changed" >&2
+    return 1
+  }
+  head=$(git -C "$WT" rev-parse --verify HEAD 2>/dev/null) || {
+    echo "REFUSED: cannot resolve the branch head in worktree $WT; nothing was changed" >&2
+    return 1
+  }
+  if ! dirty=$(git -C "$WT" status --porcelain 2>/dev/null); then
+    if worktree_safety_blocked_by_lock "uncommitted changes"; then
+      return "$TEARDOWN_WORKTREE_SAFETY_LOCK_BLOCKED"
+    fi
+    echo "REFUSED: cannot inspect worktree $WT for uncommitted changes; nothing was changed" >&2
+    return 1
+  fi
+  dirty=$(printf '%s\n' "$dirty" | grep -vE '^\?\? (\.claude/|\.fm-(grok|kimi)-turnend$)' || true)
+  if [ -n "$dirty" ]; then
+    echo "REFUSED: gone-pool-slot worktree $WT has uncommitted changes; the pool no longer lists this slot, so nothing was returned and nothing was discarded - clean the copy or back it up by hand, then retry teardown." >&2
+    report_worktree_dirt "$dirty"
+    return 1
+  fi
+  if ! unpushed=$(git -C "$WT" log --oneline HEAD --not "${REAL_REMOTES[@]}" -- 2>/dev/null); then
+    if worktree_safety_blocked_by_lock "commits not on a remote"; then
+      return "$TEARDOWN_WORKTREE_SAFETY_LOCK_BLOCKED"
+    fi
+    echo "REFUSED: cannot inspect worktree $WT for commits not on a remote; nothing was changed" >&2
+    return 1
+  fi
+  if [ -n "$unpushed" ]; then
+    branch=$(git -C "$WT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo HEAD)
+    if ! work_is_landed "$branch"; then
+      echo "REFUSED: gone-pool-slot worktree $WT has work not on any remote and not landed; the pool no longer lists this slot, so nothing was returned and nothing was discarded - push the branch or land its PR, then retry teardown." >&2
+      printf 'unpushed commits:\n%s\n' "$unpushed" >&2
+      return 1
+    fi
+  fi
+  bundle=$(teardown_write_verified_bundle "$WT" "$head" HEAD) || {
+    echo "REFUSED: could not write a verified backup bundle of $head for $ID; nothing was changed" >&2
+    return 1
+  }
+  echo "Preserved gone-pool-slot lane $ID: bundle $bundle"
+}
+
+# Record-only proof and backup (see the script header): the recorded worktree
+# is a dummy or shared path that is never inspected or mutated, so the project
+# clone plus the forge are the evidence. Requires the recorded head to be the
+# merged head of the recorded PR, then writes a verified bundle of that head
+# from the project clone. The background/gate receipt (gate_receipt_source=)
+# is not required: a merged forge PR naming this exact head proves landing
+# whether or not that receipt file survives. Refuses on any doubt.
+teardown_backup_record_only_lane() {
+  local pr_head n head view state remainder forge_head bundle
+  [ -n "$PR_URL" ] || {
+    echo "REFUSED: record_only lane $ID records no pr=, so its branch head cannot be verified; nothing was changed" >&2
+    return 1
+  }
+  pr_head=$(fm_meta_get "$META" pr_head)
+  case "$pr_head" in
+    ''|*[!0-9a-f]*) pr_head= ;;
+  esac
+  if [ "${#pr_head}" != 40 ]; then
+    echo "REFUSED: record_only lane $ID records no verifiable 40-hex pr_head=, so its branch head cannot be verified; nothing was changed" >&2
+    return 1
+  fi
+  n=$(pr_number_from_target "$PR_URL") || {
+    echo "REFUSED: record_only lane $ID records no PR number in $PR_URL, so its branch head cannot be verified; nothing was changed" >&2
+    return 1
+  }
+  git -C "$PROJ" remote get-url origin >/dev/null 2>&1 || {
+    echo "REFUSED: project $PROJ has no origin to fetch the recorded head for $ID; nothing was changed" >&2
+    return 1
+  }
+  git -C "$PROJ" fetch --quiet origin "refs/pull/$n/head" >/dev/null 2>&1 || {
+    echo "REFUSED: cannot fetch the PR head for $PR_URL into $PROJ, so the recorded head for $ID cannot be verified; nothing was changed" >&2
+    return 1
+  }
+  head=$(git -C "$PROJ" rev-parse --verify FETCH_HEAD 2>/dev/null) || {
+    echo "REFUSED: cannot resolve the fetched PR head for $ID in $PROJ; nothing was changed" >&2
+    return 1
+  }
+  [ "$head" = "$pr_head" ] || {
+    echo "REFUSED: record_only lane $ID records pr_head ${pr_head:0:12}, but the PR now heads $head; the recorded head cannot be verified - reconcile the record and retry teardown" >&2
+    return 1
+  }
+  view=$(cd "$PROJ" && gh pr view "$PR_URL" --json state,headRefOid,url -q '.state + "\t" + .headRefOid + "\t" + .url' 2>/dev/null) || {
+    echo "REFUSED: cannot read the forge state of $PR_URL for record_only lane $ID, so landing cannot be verified; nothing was changed" >&2
+    return 1
+  }
+  state=${view%%$'\t'*}
+  remainder=${view#*$'\t'}
+  forge_head=${remainder%%$'\t'*}
+  case "$state" in
+    MERGED|merged) ;;
+    *)
+      echo "REFUSED: $PR_URL for record_only lane $ID is not merged (state ${state:-unknown}), so landing cannot be verified; nothing was changed" >&2
+      return 1
+      ;;
+  esac
+  [ "$forge_head" = "$pr_head" ] || {
+    echo "REFUSED: $PR_URL for record_only lane $ID names head ${forge_head:0:12}, not the recorded ${pr_head:0:12}; nothing was changed" >&2
+    return 1
+  }
+  bundle=$(teardown_write_verified_bundle "$PROJ" "$head" FETCH_HEAD) || {
+    echo "REFUSED: could not write a verified backup bundle of $head for $ID; nothing was changed" >&2
+    return 1
+  }
+  echo "Preserved record_only lane $ID: bundle $bundle"
 }
 
 # The completion links this teardown already holds locally. A scout's
@@ -2039,10 +2199,20 @@ teardown_verify_slot_lease() {
   done < <(printf '%s' "$json" | jq -r '.[] | [.path, (.lease_id // "")] | @tsv' 2>/dev/null)
   if [ "$found" = 1 ]; then
     echo "REFUSED: Treehouse no longer reports lease $lease on $WT (the slot's lease changed); the slot may belong to someone else now, so nothing was reaped, detached, deleted, or returned" >&2
-  else
-    echo "REFUSED: Treehouse does not list $WT in its pool, so lease $lease cannot be confirmed; nothing was changed" >&2
+    return 1
   fi
-  return 1
+  # The pool no longer lists this slot at all. That alone does not prove the
+  # slot belongs to someone else - only that the pool that listed it is gone -
+  # so teardown defers the refusal: once the copy itself proves clean and
+  # landed below, it is backed up and the record finishes without touching the
+  # copy or the pool. A worktree that is itself gone still refuses, since its
+  # head can no longer be verified from the copy.
+  if [ ! -d "$WT" ]; then
+    echo "REFUSED: Treehouse does not list $WT in its pool, so lease $lease cannot be confirmed; nothing was changed" >&2
+    return 1
+  fi
+  TEARDOWN_POOL_LISTING_GONE=1
+  return 0
 }
 
 # Return a worktree/home via `treehouse return` (see return_args), tolerating a transient or
@@ -3792,7 +3962,7 @@ if [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ] && teardown_owns_worktree
   teardown_verify_slot_lease || exit 1
 fi
 
-if teardown_owns_worktree && [ -d "$WT" ] && [ "$FORCE" != "--force" ]; then
+if teardown_owns_worktree && [ -d "$WT" ] && [ "$FORCE" != "--force" ] && [ "$TEARDOWN_RECORD_ONLY" != 1 ]; then
   if validate_worktree_teardown_safety; then
     :
   else
@@ -3804,6 +3974,31 @@ if teardown_owns_worktree && [ -d "$WT" ] && [ "$FORCE" != "--force" ]; then
       exit 1
     fi
   fi
+fi
+
+# Gone-pool-slot and record-only lanes prove landing here (backup-first), after
+# every ordinary refusal above has passed and before anything destructive runs
+# below - including the parked-run abort and the process reap. The proof runs
+# unconditionally: --force authorizes discarding this task's unlanded work,
+# never skipping the proof that decides whether anything is unlanded.
+if [ "$TEARDOWN_RECORD_ONLY" = 1 ] && [ "$BACKEND" = orca ]; then
+  echo "REFUSED: record_only lane $ID uses the Orca backend, whose recorded worktree cannot be verified from the project clone; reconcile the record and retry teardown" >&2
+  exit 1
+fi
+if [ "$TEARDOWN_POOL_LISTING_GONE" = 1 ]; then
+  if teardown_backup_gone_pool_slot; then
+    :
+  else
+    safety_rc=$?
+    if [ "$safety_rc" -eq "$TEARDOWN_WORKTREE_SAFETY_LOCK_BLOCKED" ]; then
+      cleanup_stale_lock_for_safety_check "$WT" || exit 1
+      teardown_backup_gone_pool_slot || exit 1
+    else
+      exit 1
+    fi
+  fi
+elif [ "$TEARDOWN_RECORD_ONLY" = 1 ]; then
+  teardown_backup_record_only_lane || exit 1
 fi
 
 # A Herdr close may reposition shared workspace order, so the whole
@@ -3908,7 +4103,7 @@ fi
 # kind=secondmate: a secondmate home's own runtime lifecycle is owned by the
 # dedicated process-event and firstmate-home removal machinery further below,
 # not by task-worktree cleanup.
-if [ "$KIND" != secondmate ] && teardown_owns_worktree; then
+if [ "$KIND" != secondmate ] && teardown_owns_worktree && [ "$TEARDOWN_RECORD_ONLY" != 1 ]; then
   conclude_task_no_mistakes_run "$WT"
   reap_task_worktree_processes worktree "$WT" "$TASK_TMP"
   refuse_branch_custody_held "$WT"
@@ -3949,7 +4144,7 @@ if [ "$BACKEND" = orca ] && [ "$KIND" != secondmate ]; then
   fm_backend_remove_worktree "$BACKEND" "$ORCA_WORKTREE_ID"
 elif [ "$KIND" != secondmate ] && ! teardown_owns_worktree; then
   :
-elif [ -d "$WT" ] && [ "$KIND" != secondmate ]; then
+elif [ -d "$WT" ] && [ "$KIND" != secondmate ] && [ "$TEARDOWN_RECORD_ONLY" != 1 ] && [ "$TEARDOWN_POOL_LISTING_GONE" != 1 ]; then
   branch=$(git -C "$WT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo HEAD)
   if [ "$branch" != "HEAD" ]; then
     if git -C "$WT" checkout --detach -q 2>/dev/null; then
@@ -4225,6 +4420,10 @@ if [ -d "$STATE" ]; then
 fi
 if [ "$TEARDOWN_POOL_SLOT_LOST" = 1 ]; then
   echo "teardown $ID finished its cleanup and removed its task record, but a returned pool slot did not come back clean (see the warning above); clear those paths so the pool can reuse the slot" >&2
+elif [ "$TEARDOWN_RECORD_ONLY" = 1 ]; then
+  echo "teardown $ID complete (record_only lane, no pool slot; recorded worktree ${WT:-none} untouched, backup in $DATA/bundles)"
+elif [ "$TEARDOWN_POOL_LISTING_GONE" = 1 ]; then
+  echo "teardown $ID complete (pool slot $WT no longer listed; copy left in place, backup in $DATA/bundles)"
 elif [ "$TEARDOWN_LEGACY_ACCEPTED" = 1 ]; then
   echo "teardown $ID complete (window ${T:-none}, worktree $WT, legacy record accepted without spawn_gen: endpoint $TEARDOWN_LEGACY_ENDPOINT, incarnation $TEARDOWN_META_SPAWN_GEN)"
 elif teardown_owns_worktree; then
