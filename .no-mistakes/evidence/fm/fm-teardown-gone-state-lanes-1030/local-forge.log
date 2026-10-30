@@ -1,0 +1,8 @@
+{"query": "\n\tquery PullRequestByNumber($owner: String!, $repo: String!, $pr_number: Int!) {\n\t\trepository(owner: $owner, name: $repo) {\n\t\t\tpullRequest(number: $pr_number) {state,headRefOid,url,id,number}\n\t\t}\n\t}", "variables": {"owner": "example", "pr_number": 7, "repo": "repo"}}
+127.0.0.1 - - [30/Oct/2026 13:43:52] "POST /api/graphql HTTP/1.1" 200 -
+{"query": "\n\tquery PullRequestByNumber($owner: String!, $repo: String!, $pr_number: Int!) {\n\t\trepository(owner: $owner, name: $repo) {\n\t\t\tpullRequest(number: $pr_number) {state,headRefOid,url,id,number}\n\t\t}\n\t}", "variables": {"owner": "example", "pr_number": 7, "repo": "repo"}}
+127.0.0.1 - - [30/Oct/2026 13:43:53] "POST /api/graphql HTTP/1.1" 200 -
+{"query": "\n\tquery PullRequestByNumber($owner: String!, $repo: String!, $pr_number: Int!) {\n\t\trepository(owner: $owner, name: $repo) {\n\t\t\tpullRequest(number: $pr_number) {state,headRefOid,url,id,number}\n\t\t}\n\t}", "variables": {"owner": "example", "pr_number": 7, "repo": "repo"}}
+127.0.0.1 - - [30/Oct/2026 13:43:57] "POST /api/graphql HTTP/1.1" 200 -
+{"query": "\n\tquery PullRequestByNumber($owner: String!, $repo: String!, $pr_number: Int!) {\n\t\trepository(owner: $owner, name: $repo) {\n\t\t\tpullRequest(number: $pr_number) {state,headRefOid,url,id,number}\n\t\t}\n\t}", "variables": {"owner": "example", "pr_number": 7, "repo": "repo"}}
+127.0.0.1 - - [30/Oct/2026 13:44:02] "POST /api/graphql HTTP/1.1" 200 -

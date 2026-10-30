@@ -1,0 +1,58 @@
+=== record-only match, absent receipt, real gh + local HTTPS forge ===
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.test-live/home
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+Preserved record_only lane receipt-lane: bundle {run-worktree}/.test-live/home/data/bundles/receipt-lane-7994a6c2bc12.bundle
+teardown: reaping leaked tasktmp process group for receipt-lane: 4042453
+teardown: force-killing leaked tasktmp process group for receipt-lane: 4042453
+{run-worktree}/.test-live/project: already current
+teardown receipt-lane complete (record_only lane, no pool slot; recorded worktree {run-worktree}/.test-live/shared untouched, backup in {run-worktree}/.test-live/home/data/bundles)
+Backlog: receipt-lane just finished (record_only lanes keep no backlog row). Update {run-worktree}/.test-live/home/data/backlog.md - move receipt-lane to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+exit=0
+{run-worktree}/.test-live/home/data/bundles/receipt-lane-7994a6c2bc12.bundle is okay
+The bundle contains this ref:
+7994a6c2bc12c9578eef209113d346ae94fd80f4 FETCH_HEAD
+The bundle records a complete history.
+The bundle uses this hash algorithm: sha1
+7994a6c2bc12c9578eef209113d346ae94fd80f4 FETCH_HEAD
+shared sentinel preserved; receipt absent
+=== record-only no-worktree, absent receipt, real gh + local HTTPS forge ===
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.test-live/home
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Preserved record_only lane receipt-lane: bundle {run-worktree}/.test-live/home/data/bundles/receipt-lane-7994a6c2bc12.1.bundle
+teardown: reaping leaked tasktmp process group for receipt-lane: 2657694
+teardown: force-killing leaked tasktmp process group for receipt-lane: 2657694
+{run-worktree}/.test-live/project: already current
+teardown receipt-lane complete (record_only lane, no pool slot; recorded worktree none untouched, backup in {run-worktree}/.test-live/home/data/bundles)
+Backlog: receipt-lane just finished (record_only lanes keep no backlog row). Update {run-worktree}/.test-live/home/data/backlog.md - move receipt-lane to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+exit=0
+{run-worktree}/.test-live/home/data/bundles/receipt-lane-7994a6c2bc12.1.bundle is okay
+The bundle contains this ref:
+7994a6c2bc12c9578eef209113d346ae94fd80f4 FETCH_HEAD
+The bundle records a complete history.
+The bundle uses this hash algorithm: sha1
+7994a6c2bc12c9578eef209113d346ae94fd80f4 FETCH_HEAD
+shared sentinel preserved; receipt absent
+=== record-only mismatch, absent receipt, real gh + local HTTPS forge ===
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.test-live/home
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REFUSED: record_only lane receipt-lane records pr_head 000000000000, but the PR now heads 7994a6c2bc12c9578eef209113d346ae94fd80f4; the recorded head cannot be verified - reconcile the record and retry teardown
+exit=1
+shared sentinel preserved; receipt absent
+=== record-only open, absent receipt, real gh + local HTTPS forge ===
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.test-live/home
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+REFUSED: https://forge.test.invalid/example/repo/pull/7 for record_only lane receipt-lane is not merged (state OPEN), so landing cannot be verified; nothing was changed
+exit=1
+shared sentinel preserved; receipt absent

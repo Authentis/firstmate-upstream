@@ -1,0 +1,111 @@
+A new version of treehouse is available: v3.1.6 → v3.1.7
+Run "treehouse update" to update
+
+🌳 Worktree returned to pool.
+=== missing-lease: real teardown, Treehouse and Git, disposable local origin ===
+A new version of treehouse is available: v3.1.6 → v3.1.7
+Run "treehouse update" to update
+
+[{"name":"1","path":"{run-worktree}/.test-live/pool/.treehouse/project-414bee/1/project","status":"available","branch":"fm/lab","flavor":"git","lease_id":"","lease_holder":"","leased_at":null,"processes":[]}]
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.test-live/home
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+Preserved gone-pool-slot lane live-lane: bundle {run-worktree}/.test-live/home/data/bundles/live-lane-c3393c526e5a.bundle
+warning: lsof is unavailable; cannot resolve the tmux pane process group for live-lane
+teardown live-lane complete (pool slot {run-worktree}/.test-live/pool/.treehouse/project-414bee/1/project or its lease no longer listed; copy left in place, backup in {run-worktree}/.test-live/home/data/bundles)
+Backlog: live-lane just finished (this home keeps no markdown backlog at {run-worktree}/.test-live/home/data/backlog.md). Update {run-worktree}/.test-live/home/data/backlog.md - move live-lane to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+exit=0
+{run-worktree}/.test-live/home/data/bundles/live-lane-c3393c526e5a.bundle is okay
+The bundle contains this ref:
+c3393c526e5ae4142eab1b86ad08a4bbe8392c60 HEAD
+The bundle records a complete history.
+The bundle uses this hash algorithm: sha1
+c3393c526e5ae4142eab1b86ad08a4bbe8392c60 HEAD
+copy branch and HEAD retained
+=== dirty-force: real teardown, Treehouse and Git, disposable local origin ===
+A new version of treehouse is available: v3.1.6 → v3.1.7
+Run "treehouse update" to update
+
+[{"name":"1","path":"{run-worktree}/.test-live/pool/.treehouse/project-414bee/1/project","status":"available","branch":"fm/lab","flavor":"git","lease_id":"","lease_holder":"","leased_at":null,"processes":[]}]
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.test-live/home
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+REFUSED: gone-pool-slot worktree {run-worktree}/.test-live/pool/.treehouse/project-414bee/1/project has uncommitted changes; the pool no longer lists this slot, so nothing was returned and nothing was discarded - clean the copy or back it up by hand, then retry teardown.
+uncommitted changes present (untracked-only leftovers)
+untracked paths (up to 10):
+  scratch
+exit=1
+copy branch and HEAD retained
+untracked work retained despite --force
+=== unpushed-force: real teardown, Treehouse and Git, disposable local origin ===
+A new version of treehouse is available: v3.1.6 → v3.1.7
+Run "treehouse update" to update
+
+[{"name":"1","path":"{run-worktree}/.test-live/pool/.treehouse/project-414bee/1/project","status":"available","branch":"fm/lab","flavor":"git","lease_id":"","lease_holder":"","leased_at":null,"processes":[]}]
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.test-live/home
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+REFUSED: gone-pool-slot worktree {run-worktree}/.test-live/pool/.treehouse/project-414bee/1/project has work not on any remote and not landed; the pool no longer lists this slot, so nothing was returned and nothing was discarded - push the branch or land its PR, then retry teardown.
+unpushed commits:
+f83e9a9 unpushed
+exit=1
+copy branch and HEAD retained
+unpushed work retained despite --force (fixture reset after assertion)
+=== foreign-force: real teardown, Treehouse and Git, disposable local origin ===
+A new version of treehouse is available: v3.1.6 → v3.1.7
+Run "treehouse update" to update
+
+🌳 Leased worktree 1 at ~/.no-mistakes/worktrees/c9e23aecc4aa/01M66BN74HWH511G9TWY2XJ2R5/.test-live/pool/.treehouse/project-414bee/1/project. Run 'treehouse return ~/.no-mistakes/worktrees/c9e23aecc4aa/01M66BN74HWH511G9TWY2XJ2R5/.test-live/pool/.treehouse/project-414bee/1/project' to release it.
+{"path":"{run-worktree}/.test-live/pool/.treehouse/project-414bee/1/project","lease_id":"704ecee4170a7ba3d2de14ace9165d2c","lease_holder":"","leased_at":"2026-10-30T13:47:44.072049545+01:00","base_branch":"main"}
+A new version of treehouse is available: v3.1.6 → v3.1.7
+Run "treehouse update" to update
+
+[{"name":"1","path":"{run-worktree}/.test-live/pool/.treehouse/project-414bee/1/project","status":"leased","branch":"fm/lab","flavor":"git","lease_id":"704ecee4170a7ba3d2de14ace9165d2c","lease_holder":"","leased_at":"2026-10-30T13:47:44.072049545+01:00","processes":[]}]
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.test-live/home
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+REFUSED: Treehouse no longer reports lease 8b2a06b0022c0063f2abb4c5dc7b4628 on {run-worktree}/.test-live/pool/.treehouse/project-414bee/1/project (the slot's lease changed); the slot may belong to someone else now, so nothing was reaped, detached, deleted, or returned
+exit=1
+copy branch and HEAD retained
+=== gone-listing: real teardown, Treehouse and Git, disposable local origin ===
+A new version of treehouse is available: v3.1.6 → v3.1.7
+Run "treehouse update" to update
+
+[]
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.test-live/home
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+Preserved gone-pool-slot lane live-lane: bundle {run-worktree}/.test-live/home/data/bundles/live-lane-c3393c526e5a.1.bundle
+warning: lsof is unavailable; cannot resolve the tmux pane process group for live-lane
+teardown live-lane complete (pool slot {run-worktree}/.test-live/pool/.treehouse/project-414bee/1/project or its lease no longer listed; copy left in place, backup in {run-worktree}/.test-live/home/data/bundles)
+Backlog: live-lane just finished (this home keeps no markdown backlog at {run-worktree}/.test-live/home/data/backlog.md). Update {run-worktree}/.test-live/home/data/backlog.md - move live-lane to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+exit=0
+{run-worktree}/.test-live/home/data/bundles/live-lane-c3393c526e5a.1.bundle is okay
+The bundle contains this ref:
+c3393c526e5ae4142eab1b86ad08a4bbe8392c60 HEAD
+The bundle records a complete history.
+The bundle uses this hash algorithm: sha1
+c3393c526e5ae4142eab1b86ad08a4bbe8392c60 HEAD
+copy branch and HEAD retained
+=== gone-dirty-force: real teardown, Treehouse and Git, disposable local origin ===
+A new version of treehouse is available: v3.1.6 → v3.1.7
+Run "treehouse update" to update
+
+[]
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.test-live/home
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+REFUSED: gone-pool-slot worktree {run-worktree}/.test-live/pool/.treehouse/project-414bee/1/project has uncommitted changes; the pool no longer lists this slot, so nothing was returned and nothing was discarded - clean the copy or back it up by hand, then retry teardown.
+uncommitted changes present (untracked-only leftovers)
+untracked paths (up to 10):
+  scratch
+exit=1
+copy branch and HEAD retained
+untracked work retained despite --force
+=== gone-unpushed-force: real teardown, Treehouse and Git, disposable local origin ===
+A new version of treehouse is available: v3.1.6 → v3.1.7
+Run "treehouse update" to update
+
+[]
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.test-live/home
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+REFUSED: gone-pool-slot worktree {run-worktree}/.test-live/pool/.treehouse/project-414bee/1/project has work not on any remote and not landed; the pool no longer lists this slot, so nothing was returned and nothing was discarded - push the branch or land its PR, then retry teardown.
+unpushed commits:
+da12065 unpushed
+exit=1
+copy branch and HEAD retained
+unpushed work retained despite --force (fixture reset after assertion)

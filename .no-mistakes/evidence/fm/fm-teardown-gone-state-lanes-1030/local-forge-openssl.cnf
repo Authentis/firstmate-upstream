@@ -1,0 +1,9 @@
+[req]
+distinguished_name=dn
+x509_extensions=ext
+prompt=no
+[dn]
+CN=forge.test.invalid
+[ext]
+subjectAltName=DNS:forge.test.invalid
+basicConstraints=critical,CA:TRUE
