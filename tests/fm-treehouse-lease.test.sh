@@ -413,24 +413,43 @@ SH
 }
 
 test_unconfirmable_lease_stops_teardown_before_anything_destructive() {
-  local case_dir out status mode
-  for mode in absent unreadable; do
-    case_dir=$(make_teardown_case "td-unconfirmed-$mode")
-    write_teardown_meta "$case_dir" "lease_id=lease0123abcd"
-    add_hook "$case_dir"
-    if [ "$mode" = absent ]; then
-      out=$(FM_FAKE_POOL_PATH='' FM_FAKE_SLOT_LEASE=lease0123abcd run_teardown "$case_dir")
-    else
-      out=$(FM_FAKE_TH_STATUS_FAIL=1 FM_FAKE_SLOT_LEASE=lease0123abcd run_teardown "$case_dir")
-    fi
-    status=$?
-    [ "$status" -ne 0 ] || fail "a lease treehouse cannot confirm ($mode) must abort teardown"$'\n'"$out"
-    assert_present "$case_dir/state/task-x1.meta" "$mode: the task record must be kept"
-    [ "$(wt_branch "$case_dir")" = fm/task-x1 ] || fail "$mode: the branch must stay checked out"
-    assert_present "$case_dir/wt/.claude/settings.local.json" "$mode: the hooks must be kept"
-    assert_no_grep "return" "$case_dir/treehouse.log" "$mode: no return may be attempted"
-  done
-  pass "a lease treehouse does not list or cannot report stops teardown before anything destructive"
+  local case_dir out status
+  case_dir=$(make_teardown_case "td-unconfirmed-unreadable")
+  write_teardown_meta "$case_dir" "lease_id=lease0123abcd"
+  add_hook "$case_dir"
+  out=$(FM_FAKE_TH_STATUS_FAIL=1 FM_FAKE_SLOT_LEASE=lease0123abcd run_teardown "$case_dir")
+  status=$?
+  [ "$status" -ne 0 ] || fail "a lease treehouse cannot report (unreadable) must abort teardown"$'\n'"$out"
+  assert_present "$case_dir/state/task-x1.meta" "unreadable: the task record must be kept"
+  [ "$(wt_branch "$case_dir")" = fm/task-x1 ] || fail "unreadable: the branch must stay checked out"
+  assert_present "$case_dir/wt/.claude/settings.local.json" "unreadable: the hooks must be kept"
+  assert_no_grep "return" "$case_dir/treehouse.log" "unreadable: no return may be attempted"
+  pass "a lease treehouse that cannot report stops teardown before anything destructive"
+}
+
+test_absent_pool_listing_completes_records_only_after_backup() {
+  local case_dir out status head
+  case_dir=$(make_teardown_case "td-unconfirmed-absent")
+  write_teardown_meta "$case_dir" "lease_id=lease0123abcd"
+  add_hook "$case_dir"
+  head=$(git -C "$case_dir/wt" rev-parse HEAD)
+  out=$(FM_FAKE_POOL_PATH='' FM_FAKE_SLOT_LEASE=lease0123abcd run_teardown "$case_dir")
+  status=$?
+  [ "$status" -eq 0 ] || fail "an absent pool listing must complete records-only after the safety proof"$'\n'"$out"
+  assert_contains "$out" "or its lease no longer listed; copy left in place, backup in " \
+    "absent: teardown did not report records-only completion"
+  assert_contains "$out" "Preserved gone-pool-slot lane task-x1: bundle " \
+    "absent: the safety proof did not preserve a backup"
+  git bundle verify "$case_dir/data/bundles/task-x1.bundle" >/dev/null 2>&1 \
+    || fail "absent: the backup bundle is missing or invalid"
+  git bundle list-heads "$case_dir/data/bundles/task-x1.bundle" | grep -q "^$head " \
+    || fail "absent: the backup bundle lost the lane head"
+  assert_absent "$case_dir/state/task-x1.meta" "absent: the task record must be retired"
+  [ "$(wt_branch "$case_dir")" = fm/task-x1 ] || fail "absent: the copy must stay checked out"
+  [ "$(git -C "$case_dir/wt" rev-parse HEAD)" = "$head" ] || fail "absent: the copy head changed"
+  assert_present "$case_dir/wt/.claude/settings.local.json" "absent: the hooks must be kept"
+  assert_no_grep "return" "$case_dir/treehouse.log" "absent: no return may be attempted"
+  pass "an absent pool listing completes records-only after a verified backup, leaving the copy in place"
 }
 
 test_dirty_slot_return_is_refused_not_forced() {
@@ -743,6 +762,7 @@ test_teardown_without_a_lease_returns_as_before
 test_changed_lease_stops_teardown_before_anything_destructive
 test_changed_lease_stops_teardown_before_a_stale_lock_is_removed
 test_unconfirmable_lease_stops_teardown_before_anything_destructive
+test_absent_pool_listing_completes_records_only_after_backup
 test_dirty_slot_return_is_refused_not_forced
 test_forced_and_scout_teardowns_force_the_lease_bound_return
 test_forced_return_refused_by_a_lease_change_is_reported_as_such
