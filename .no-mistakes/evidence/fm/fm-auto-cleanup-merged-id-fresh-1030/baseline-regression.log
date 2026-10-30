@@ -1,0 +1,7 @@
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.test-scratch/live-home
+warning: {run-worktree}/.test-scratch/live-home/data/merged-live/launch-brief.md records no ship branch; defaulting to legacy branch fm/merged-live
+error: task merged-live has a pending authoritative backlog close at {run-worktree}/.test-scratch/live-home/state/merged-live.backlog-close; finish or repair that close before dispatching a new worker
+baseline exit=1
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.test-scratch/live-home
+warning: {run-worktree}/.test-scratch/live-home/data/merged-live/launch-brief.md records no ship branch; defaulting to legacy branch fm/merged-live
+error: ship merged-live already merged and its lane was cleaned up ({run-worktree}/.test-scratch/live-home/data/lane-meta-archive/merged-live.meta, task.merged in {run-worktree}/.test-scratch/live-home/state/fleet-ledger.jsonl); refusing to dispatch it again - file follow-up work under a new id

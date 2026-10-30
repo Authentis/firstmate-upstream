@@ -1,0 +1,3 @@
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.test-scratch/live-driver/merge-during-wait
+warning: {run-worktree}/.test-scratch/live-driver/merge-during-wait/data/merge-during-wait/launch-brief.md records no ship branch; defaulting to legacy branch fm/merge-during-wait
+error: ship merge-during-wait already merged and its lane was cleaned up ({run-worktree}/.test-scratch/live-driver/merge-during-wait/data/lane-meta-archive/merge-during-wait.meta, task.merged in {run-worktree}/.test-scratch/live-driver/merge-during-wait/state/fleet-ledger.jsonl); refusing to dispatch it again - file follow-up work under a new id

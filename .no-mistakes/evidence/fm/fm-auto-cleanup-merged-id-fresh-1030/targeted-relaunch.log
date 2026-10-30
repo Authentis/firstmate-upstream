@@ -1,0 +1,16 @@
+ok - fm-spawn --relaunch: merged-ship proof never refuses relaunching a recorded task
+rm: cannot remove '{run-worktree}/.test-scratch/fm-control-relaunch.OyqRYL/spawnmerged-27680/home/state/rl22.git-hooks/pre-push': Permission denied
+rm: cannot remove '{run-worktree}/.test-scratch/fm-control-relaunch.OyqRYL/spawnmerged-27680/home/state/rl22.git-hooks/post-commit': Permission denied
+rm: cannot remove '{run-worktree}/.test-scratch/fm-control-relaunch.OyqRYL/spawnmerged-27680/home/state/rl22.git-hooks/sendemail-validate': Permission denied
+rm: cannot remove '{run-worktree}/.test-scratch/fm-control-relaunch.OyqRYL/spawnmerged-27680/home/state/rl22.git-hooks/post-rewrite': Permission denied
+rm: cannot remove '{run-worktree}/.test-scratch/fm-control-relaunch.OyqRYL/spawnmerged-27680/home/state/rl22.git-hooks/commit-msg': Permission denied
+rm: cannot remove '{run-worktree}/.test-scratch/fm-control-relaunch.OyqRYL/spawnmerged-27680/home/state/rl22.git-hooks/post-merge': Permission denied
+rm: cannot remove '{run-worktree}/.test-scratch/fm-control-relaunch.OyqRYL/spawnmerged-27680/home/state/rl22.git-hooks/pre-auto-gc': Permission denied
+rm: cannot remove '{run-worktree}/.test-scratch/fm-control-relaunch.OyqRYL/spawnmerged-27680/home/state/rl22.git-hooks/pre-commit': Permission denied
+rm: cannot remove '{run-worktree}/.test-scratch/fm-control-relaunch.OyqRYL/spawnmerged-27680/home/state/rl22.git-hooks/pre-merge-commit': Permission denied
+rm: cannot remove '{run-worktree}/.test-scratch/fm-control-relaunch.OyqRYL/spawnmerged-27680/home/state/rl22.git-hooks/prepare-commit-msg': Permission denied
+rm: cannot remove '{run-worktree}/.test-scratch/fm-control-relaunch.OyqRYL/spawnmerged-27680/home/state/rl22.git-hooks/post-checkout': Permission denied
+rm: cannot remove '{run-worktree}/.test-scratch/fm-control-relaunch.OyqRYL/spawnmerged-27680/home/state/rl22.git-hooks/post-applypatch': Permission denied
+rm: cannot remove '{run-worktree}/.test-scratch/fm-control-relaunch.OyqRYL/spawnmerged-27680/home/state/rl22.git-hooks/pre-rebase': Permission denied
+rm: cannot remove '{run-worktree}/.test-scratch/fm-control-relaunch.OyqRYL/spawnmerged-27680/home/state/rl22.git-hooks/applypatch-msg': Permission denied
+rm: cannot remove '{run-worktree}/.test-scratch/fm-control-relaunch.OyqRYL/spawnmerged-27680/home/state/rl22.git-hooks/pre-applypatch': Permission denied

@@ -1,0 +1,57 @@
+=== merged-proof ===
+exit=1
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.test-scratch/live-driver/merged-proof
+warning: {run-worktree}/.test-scratch/live-driver/merged-proof/data/merged-proof/launch-brief.md records no ship branch; defaulting to legacy branch fm/merged-proof
+error: ship merged-proof already merged and its lane was cleaned up ({run-worktree}/.test-scratch/live-driver/merged-proof/data/lane-meta-archive/merged-proof.meta, task.merged in {run-worktree}/.test-scratch/live-driver/merged-proof/state/fleet-ledger.jsonl); refusing to dispatch it again - file follow-up work under a new id
+Observed: no task metadata, task meta lock, or lease remains. No worker launched.
+
+=== prefix-only ===
+exit=1
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.test-scratch/live-driver/prefix-only
+warning: {run-worktree}/.test-scratch/live-driver/prefix-only/data/prefix-only/launch-brief.md records no ship branch; defaulting to legacy branch fm/prefix-only
+error: task prefix-only has a pending authoritative backlog close at {run-worktree}/.test-scratch/live-driver/prefix-only/state/prefix-only.backlog-close; finish or repair that close before dispatching a new worker
+Observed: no task metadata, task meta lock, or lease remains. No worker launched.
+
+=== archive-only ===
+exit=1
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.test-scratch/live-driver/archive-only
+warning: {run-worktree}/.test-scratch/live-driver/archive-only/data/archive-only/launch-brief.md records no ship branch; defaulting to legacy branch fm/archive-only
+error: task archive-only has a pending authoritative backlog close at {run-worktree}/.test-scratch/live-driver/archive-only/state/archive-only.backlog-close; finish or repair that close before dispatching a new worker
+Observed: no task metadata, task meta lock, or lease remains. No worker launched.
+
+=== ledger-only ===
+exit=1
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.test-scratch/live-driver/ledger-only
+warning: {run-worktree}/.test-scratch/live-driver/ledger-only/data/ledger-only/launch-brief.md records no ship branch; defaulting to legacy branch fm/ledger-only
+error: task ledger-only has a pending authoritative backlog close at {run-worktree}/.test-scratch/live-driver/ledger-only/state/ledger-only.backlog-close; finish or repair that close before dispatching a new worker
+Observed: no task metadata, task meta lock, or lease remains. No worker launched.
+
+=== archived-scout ===
+exit=1
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.test-scratch/live-driver/archived-scout
+warning: {run-worktree}/.test-scratch/live-driver/archived-scout/data/archived-scout/launch-brief.md records no ship branch; defaulting to legacy branch fm/archived-scout
+error: task archived-scout has a pending authoritative backlog close at {run-worktree}/.test-scratch/live-driver/archived-scout/state/archived-scout.backlog-close; finish or repair that close before dispatching a new worker
+Observed: no task metadata, task meta lock, or lease remains. No worker launched.
+
+=== scout-request ===
+exit=1
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.test-scratch/live-driver/scout-request
+error: task scout-request has a pending authoritative backlog close at {run-worktree}/.test-scratch/live-driver/scout-request/state/scout-request.backlog-close; finish or repair that close before dispatching a new worker
+Observed: no task metadata, task meta lock, or lease remains. No worker launched.
+
+=== merged-no-jq ===
+exit=1
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.test-scratch/live-driver/merged-no-jq
+warning: {run-worktree}/.test-scratch/live-driver/merged-no-jq/data/merged-no-jq/launch-brief.md records no ship branch; defaulting to legacy branch fm/merged-no-jq
+error: ship merged-no-jq has an archived lane record ({run-worktree}/.test-scratch/live-driver/merged-no-jq/data/lane-meta-archive/merged-no-jq.meta) and a fleet ledger ({run-worktree}/.test-scratch/live-driver/merged-no-jq/state/fleet-ledger.jsonl), but jq is not installed to check the ledger for its merge; install jq before dispatching it
+Observed: no task metadata, task meta lock, or lease remains. No worker launched.
+
+Race setup: actual meta lock held by another live process; runtime trace confirmed spawn waiting before archive appeared; released actual lock.
+=== merge-during-wait ===
+exit=1
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.test-scratch/live-driver/merge-during-wait
+warning: {run-worktree}/.test-scratch/live-driver/merge-during-wait/data/merge-during-wait/launch-brief.md records no ship branch; defaulting to legacy branch fm/merge-during-wait
+error: ship merge-during-wait already merged and its lane was cleaned up ({run-worktree}/.test-scratch/live-driver/merge-during-wait/data/lane-meta-archive/merge-during-wait.meta, task.merged in {run-worktree}/.test-scratch/live-driver/merge-during-wait/state/fleet-ledger.jsonl); refusing to dispatch it again - file follow-up work under a new id
+Observed: no task metadata, task meta lock, or lease remains. No worker launched.
+
+All live CLI guard scenarios passed; each subprocess exit was awaited.

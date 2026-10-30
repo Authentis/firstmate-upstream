@@ -1,0 +1,6 @@
+ok - dispatch refuses an archived ship id with a ledger merge before creating resources
+ok - dispatch rechecks merge proof once it holds the task's meta lock
+ok - dispatch refuses rather than skips merge proof it cannot read without jq
+ok - an archived ship id without a ledger merge record still dispatches
+ok - a ledger merge record without an archived ship lane still dispatches
+ok - merge proof never refuses a scout spawn
