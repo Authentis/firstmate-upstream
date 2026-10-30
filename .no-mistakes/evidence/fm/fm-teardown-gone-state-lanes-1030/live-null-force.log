@@ -1,0 +1,34 @@
+Acquire real Treehouse slot:
+🌳 Setting up worktree...
+🌳 Leased worktree at ~/pool/.treehouse/project-dd7a5d/1/project. Run 'treehouse return ~/pool/.treehouse/project-dd7a5d/1/project' to release it.
+{"path":"{run-worktree}/.lab/a/pool/.treehouse/project-dd7a5d/1/project","lease_id":"f01af519639a06f44ce99f48757dfb99","lease_holder":"","leased_at":"2026-10-30T17:27:13.982819347+01:00","base_branch":"main"}
+
+Real pool status before teardown:
+A new version of treehouse is available: v3.1.6 → v3.1.8
+Run "treehouse update" to update
+
+[{"name":"1","path":"{run-worktree}/.lab/a/pool/.treehouse/project-dd7a5d/1/project","status":"available","branch":"fm/lane","flavor":"git","lease_id":"","lease_holder":"","leased_at":null,"processes":[]}]
+
+Teardown stdout/stderr:
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.lab/a
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Preserved gone-pool-slot lane lane: bundle {run-worktree}/.lab/a/data/bundles/lane.bundle
+warning: lsof is unavailable; cannot resolve the tmux pane process group for lane
+{run-worktree}/.lab/a/project: already current
+teardown lane complete (pool slot {run-worktree}/.lab/a/pool/.treehouse/project-dd7a5d/1/project or its lease no longer listed; copy left in place, backup in {run-worktree}/.lab/a/data/bundles)
+Backlog: lane just finished (config/backlog-backend selects manual editing). Update {run-worktree}/.lab/a/data/backlog.md - move lane to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+
+exit=0
+Bundle heads:
+fa8a700d8ee21e5b1a9b5e47d31284f08edd32ed HEAD
+
+Copy retained on branch fm/lane at fa8a700d8ee21e5b1a9b5e47d31284f08edd32ed
+Unrelated private tmux pane survived.
+Task record removed.
+PASS

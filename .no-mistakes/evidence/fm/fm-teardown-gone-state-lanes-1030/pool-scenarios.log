@@ -1,0 +1,328 @@
+===== gone =====
+Acquire real Treehouse slot:
+🌳 Setting up worktree...
+🌳 Leased worktree at ~/pool/.treehouse/project-dd7a5d/1/project. Run 'treehouse return ~/pool/.treehouse/project-dd7a5d/1/project' to release it.
+{"path":"{run-worktree}/.lab/a/pool/.treehouse/project-dd7a5d/1/project","lease_id":"179ebf6826318d1d801f1feab418bd33","lease_holder":"","leased_at":"2026-10-30T17:27:04.383414532+01:00","base_branch":"main"}
+
+Real pool status before teardown:
+[]
+
+Teardown stdout/stderr:
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.lab/a
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 0s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Preserved gone-pool-slot lane lane: bundle {run-worktree}/.lab/a/data/bundles/lane.bundle
+warning: lsof is unavailable; cannot resolve the tmux pane process group for lane
+{run-worktree}/.lab/a/project: already current
+teardown lane complete (pool slot {run-worktree}/.lab/a/pool/.treehouse/project-dd7a5d/1/project or its lease no longer listed; copy left in place, backup in {run-worktree}/.lab/a/data/bundles)
+Backlog: lane just finished (config/backlog-backend selects manual editing). Update {run-worktree}/.lab/a/data/backlog.md - move lane to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+
+exit=0
+Bundle heads:
+0c09e68704b9d0f09a9408a58b63853b49f657af HEAD
+
+Copy retained on branch fm/lane at 0c09e68704b9d0f09a9408a58b63853b49f657af
+Unrelated private tmux pane survived.
+Task record removed.
+PASS
+
+===== gone-force =====
+Acquire real Treehouse slot:
+🌳 Setting up worktree...
+🌳 Leased worktree at ~/pool/.treehouse/project-dd7a5d/1/project. Run 'treehouse return ~/pool/.treehouse/project-dd7a5d/1/project' to release it.
+{"path":"{run-worktree}/.lab/a/pool/.treehouse/project-dd7a5d/1/project","lease_id":"8ccbd8274d6b2a517187abd1240c06f7","lease_holder":"","leased_at":"2026-10-30T17:27:07.573791587+01:00","base_branch":"main"}
+
+Real pool status before teardown:
+A new version of treehouse is available: v3.1.6 → v3.1.8
+Run "treehouse update" to update
+
+[]
+
+Teardown stdout/stderr:
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.lab/a
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 0s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Preserved gone-pool-slot lane lane: bundle {run-worktree}/.lab/a/data/bundles/lane.bundle
+warning: lsof is unavailable; cannot resolve the tmux pane process group for lane
+{run-worktree}/.lab/a/project: already current
+teardown lane complete (pool slot {run-worktree}/.lab/a/pool/.treehouse/project-dd7a5d/1/project or its lease no longer listed; copy left in place, backup in {run-worktree}/.lab/a/data/bundles)
+Backlog: lane just finished (config/backlog-backend selects manual editing). Update {run-worktree}/.lab/a/data/backlog.md - move lane to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+
+exit=0
+Bundle heads:
+6ca7714fcd2434d48898d25a0223fb5c4c37269d HEAD
+
+Copy retained on branch fm/lane at 6ca7714fcd2434d48898d25a0223fb5c4c37269d
+Unrelated private tmux pane survived.
+Task record removed.
+PASS
+
+===== null =====
+Acquire real Treehouse slot:
+🌳 Setting up worktree...
+🌳 Leased worktree at ~/pool/.treehouse/project-dd7a5d/1/project. Run 'treehouse return ~/pool/.treehouse/project-dd7a5d/1/project' to release it.
+{"path":"{run-worktree}/.lab/a/pool/.treehouse/project-dd7a5d/1/project","lease_id":"b72864af6d7814003cdc3d4d14249a23","lease_holder":"","leased_at":"2026-10-30T17:27:10.595709093+01:00","base_branch":"main"}
+
+Real pool status before teardown:
+A new version of treehouse is available: v3.1.6 → v3.1.8
+Run "treehouse update" to update
+
+[{"name":"1","path":"{run-worktree}/.lab/a/pool/.treehouse/project-dd7a5d/1/project","status":"available","branch":"fm/lane","flavor":"git","lease_id":"","lease_holder":"","leased_at":null,"processes":[]}]
+
+Teardown stdout/stderr:
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.lab/a
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Preserved gone-pool-slot lane lane: bundle {run-worktree}/.lab/a/data/bundles/lane.bundle
+warning: lsof is unavailable; cannot resolve the tmux pane process group for lane
+{run-worktree}/.lab/a/project: already current
+teardown lane complete (pool slot {run-worktree}/.lab/a/pool/.treehouse/project-dd7a5d/1/project or its lease no longer listed; copy left in place, backup in {run-worktree}/.lab/a/data/bundles)
+Backlog: lane just finished (config/backlog-backend selects manual editing). Update {run-worktree}/.lab/a/data/backlog.md - move lane to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+
+exit=0
+Bundle heads:
+d078476c20a41d1d054240dc04f993c136ca6333 HEAD
+
+Copy retained on branch fm/lane at d078476c20a41d1d054240dc04f993c136ca6333
+Unrelated private tmux pane survived.
+Task record removed.
+PASS
+
+===== null-force =====
+Acquire real Treehouse slot:
+🌳 Setting up worktree...
+🌳 Leased worktree at ~/pool/.treehouse/project-dd7a5d/1/project. Run 'treehouse return ~/pool/.treehouse/project-dd7a5d/1/project' to release it.
+{"path":"{run-worktree}/.lab/a/pool/.treehouse/project-dd7a5d/1/project","lease_id":"f01af519639a06f44ce99f48757dfb99","lease_holder":"","leased_at":"2026-10-30T17:27:13.982819347+01:00","base_branch":"main"}
+
+Real pool status before teardown:
+A new version of treehouse is available: v3.1.6 → v3.1.8
+Run "treehouse update" to update
+
+[{"name":"1","path":"{run-worktree}/.lab/a/pool/.treehouse/project-dd7a5d/1/project","status":"available","branch":"fm/lane","flavor":"git","lease_id":"","lease_holder":"","leased_at":null,"processes":[]}]
+
+Teardown stdout/stderr:
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.lab/a
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Preserved gone-pool-slot lane lane: bundle {run-worktree}/.lab/a/data/bundles/lane.bundle
+warning: lsof is unavailable; cannot resolve the tmux pane process group for lane
+{run-worktree}/.lab/a/project: already current
+teardown lane complete (pool slot {run-worktree}/.lab/a/pool/.treehouse/project-dd7a5d/1/project or its lease no longer listed; copy left in place, backup in {run-worktree}/.lab/a/data/bundles)
+Backlog: lane just finished (config/backlog-backend selects manual editing). Update {run-worktree}/.lab/a/data/backlog.md - move lane to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+
+exit=0
+Bundle heads:
+fa8a700d8ee21e5b1a9b5e47d31284f08edd32ed HEAD
+
+Copy retained on branch fm/lane at fa8a700d8ee21e5b1a9b5e47d31284f08edd32ed
+Unrelated private tmux pane survived.
+Task record removed.
+PASS
+
+===== dirty-force =====
+Acquire real Treehouse slot:
+🌳 Setting up worktree...
+🌳 Leased worktree at ~/pool/.treehouse/project-dd7a5d/1/project. Run 'treehouse return ~/pool/.treehouse/project-dd7a5d/1/project' to release it.
+{"path":"{run-worktree}/.lab/a/pool/.treehouse/project-dd7a5d/1/project","lease_id":"222428e1e6db836bfaf6fc782ec7e4f8","lease_holder":"","leased_at":"2026-10-30T17:27:18.276150123+01:00","base_branch":"main"}
+
+Real pool status before teardown:
+A new version of treehouse is available: v3.1.6 → v3.1.8
+Run "treehouse update" to update
+
+[]
+
+Teardown stdout/stderr:
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.lab/a
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 0s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REFUSED: gone-pool-slot worktree {run-worktree}/.lab/a/pool/.treehouse/project-dd7a5d/1/project has uncommitted changes; the pool no longer lists this slot, so nothing was returned and nothing was discarded - clean the copy or back it up by hand, then retry teardown.
+uncommitted changes present (untracked-only leftovers)
+untracked paths (up to 10):
+  scratch.txt
+
+exit=1
+Copy retained on branch fm/lane at 23ff6b35ecd2d579cfbfb68a4385a0efa58addff
+Unrelated private tmux pane survived.
+Record retained.
+PASS
+
+===== unpushed-force =====
+Acquire real Treehouse slot:
+🌳 Setting up worktree...
+🌳 Leased worktree at ~/pool/.treehouse/project-dd7a5d/1/project. Run 'treehouse return ~/pool/.treehouse/project-dd7a5d/1/project' to release it.
+{"path":"{run-worktree}/.lab/a/pool/.treehouse/project-dd7a5d/1/project","lease_id":"cb66a656a701dc05c0ab554dbf780918","lease_holder":"","leased_at":"2026-10-30T17:27:20.455163213+01:00","base_branch":"main"}
+
+Real pool status before teardown:
+A new version of treehouse is available: v3.1.6 → v3.1.8
+Run "treehouse update" to update
+
+[]
+
+Teardown stdout/stderr:
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.lab/a
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 0s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REFUSED: gone-pool-slot worktree {run-worktree}/.lab/a/pool/.treehouse/project-dd7a5d/1/project has work not on any remote and not landed; the pool no longer lists this slot, so nothing was returned and nothing was discarded - push the branch or land its PR, then retry teardown.
+unpushed commits:
+7db9355 feature
+
+exit=1
+Copy retained on branch fm/lane at 7db9355de8e7b20a38fb4bf0f1cc5679da262384
+Unrelated private tmux pane survived.
+Record retained.
+PASS
+
+===== foreign =====
+Acquire real Treehouse slot:
+🌳 Setting up worktree...
+🌳 Leased worktree at ~/pool/.treehouse/project-dd7a5d/1/project. Run 'treehouse return ~/pool/.treehouse/project-dd7a5d/1/project' to release it.
+{"path":"{run-worktree}/.lab/a/pool/.treehouse/project-dd7a5d/1/project","lease_id":"750ec3e959125720346a6495764a8eb6","lease_holder":"","leased_at":"2026-10-30T17:27:22.601004644+01:00","base_branch":"main"}
+
+Re-lease:
+A new version of treehouse is available: v3.1.6 → v3.1.8
+Run "treehouse update" to update
+
+🌳 Leased worktree 1 at ~/pool/.treehouse/project-dd7a5d/1/project. Run 'treehouse return ~/pool/.treehouse/project-dd7a5d/1/project' to release it.
+{"path":"{run-worktree}/.lab/a/pool/.treehouse/project-dd7a5d/1/project","lease_id":"730084639ca7d5aab48c6df677ecb5ab","lease_holder":"","leased_at":"2026-10-30T17:27:22.847123422+01:00","base_branch":"main"}
+
+Real pool status before teardown:
+A new version of treehouse is available: v3.1.6 → v3.1.8
+Run "treehouse update" to update
+
+[{"name":"1","path":"{run-worktree}/.lab/a/pool/.treehouse/project-dd7a5d/1/project","status":"leased","branch":"fm/lane","flavor":"git","lease_id":"730084639ca7d5aab48c6df677ecb5ab","lease_holder":"","leased_at":"2026-10-30T17:27:22.847123422+01:00","processes":[]}]
+
+Teardown stdout/stderr:
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.lab/a
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REFUSED: Treehouse no longer reports lease 750ec3e959125720346a6495764a8eb6 on {run-worktree}/.lab/a/pool/.treehouse/project-dd7a5d/1/project (the slot's lease changed); the slot may belong to someone else now, so nothing was reaped, detached, deleted, or returned
+
+exit=1
+Copy retained on branch fm/lane at cbf0e9e5568fce853b85f95693ea67a1e6eec99e
+Unrelated private tmux pane survived.
+Record retained.
+PASS
+
+===== missing-copy =====
+Acquire real Treehouse slot:
+🌳 Setting up worktree...
+🌳 Leased worktree at ~/pool/.treehouse/project-dd7a5d/1/project. Run 'treehouse return ~/pool/.treehouse/project-dd7a5d/1/project' to release it.
+{"path":"{run-worktree}/.lab/a/pool/.treehouse/project-dd7a5d/1/project","lease_id":"f38e8edd4ac6b9365bc164a19a7284f5","lease_holder":"","leased_at":"2026-10-30T17:27:24.966815801+01:00","base_branch":"main"}
+
+Real pool status before teardown:
+A new version of treehouse is available: v3.1.6 → v3.1.8
+Run "treehouse update" to update
+
+[{"name":"1","path":"{run-worktree}/.lab/a/pool/.treehouse/project-dd7a5d/1/project-saved","status":"available","branch":"fm/lane","flavor":"git","lease_id":"","lease_holder":"","leased_at":null,"processes":[]}]
+
+Teardown stdout/stderr:
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.lab/a
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+warning: lsof is unavailable; cannot resolve the tmux pane process group for lane
+{run-worktree}/.lab/a/project: already current
+teardown lane complete (window lab:fm-lane, worktree {run-worktree}/.lab/a/pool/.treehouse/project-dd7a5d/1/project)
+Backlog: lane just finished (config/backlog-backend selects manual editing). Update {run-worktree}/.lab/a/data/backlog.md - move lane to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+
+exit=0
+Unrelated private tmux pane survived.
+Task record removed.
+PASS
+
+===== pool-unreadable =====
+Acquire real Treehouse slot:
+🌳 Setting up worktree...
+🌳 Leased worktree at ~/pool/.treehouse/project-dd7a5d/1/project. Run 'treehouse return ~/pool/.treehouse/project-dd7a5d/1/project' to release it.
+{"path":"{run-worktree}/.lab/a/pool/.treehouse/project-dd7a5d/1/project","lease_id":"247d2f11b5f79ef81d7ad934e2cd44e3","lease_holder":"","leased_at":"2026-10-30T17:27:28.356940307+01:00","base_branch":"main"}
+
+Real pool status before teardown:
+A new version of treehouse is available: v3.1.6 → v3.1.8
+Run "treehouse update" to update
+
+mkdir {run-worktree}/.lab/a/blocked: not a directory
+
+Teardown stdout/stderr:
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.lab/a
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 0s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REFUSED: cannot read the Treehouse pool status to confirm lease 247d2f11b5f79ef81d7ad934e2cd44e3 still holds {run-worktree}/.lab/a/pool/.treehouse/project-dd7a5d/1/project; nothing was changed
+
+exit=1
+Copy retained on branch fm/lane at 539dc39da6a09cddc4cc112d2a5fd5ff85962ba0
+Unrelated private tmux pane survived.
+Record retained.
+PASS
+
+===== backup-blocked =====
+Acquire real Treehouse slot:
+🌳 Setting up worktree...
+🌳 Leased worktree at ~/pool/.treehouse/project-dd7a5d/1/project. Run 'treehouse return ~/pool/.treehouse/project-dd7a5d/1/project' to release it.
+{"path":"{run-worktree}/.lab/a/pool/.treehouse/project-dd7a5d/1/project","lease_id":"7563a490a1efb7752c0cb72b1504a8ad","lease_holder":"","leased_at":"2026-10-30T17:27:30.676031253+01:00","base_branch":"main"}
+
+Real pool status before teardown:
+A new version of treehouse is available: v3.1.6 → v3.1.8
+Run "treehouse update" to update
+
+[]
+
+Teardown stdout/stderr:
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.lab/a
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REFUSED: could not write a verified backup bundle of 12051448a62987daa06bfee86a043b380f211ec4 for lane; nothing was changed
+
+exit=1
+Copy retained on branch fm/lane at 12051448a62987daa06bfee86a043b380f211ec4
+Unrelated private tmux pane survived.
+Record retained.
+PASS

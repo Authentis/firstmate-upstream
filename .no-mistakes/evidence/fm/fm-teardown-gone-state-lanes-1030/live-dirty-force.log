@@ -1,30 +1,30 @@
-{run-worktree}/.live/home
-warning: You appear to have cloned an empty repository.
-A new version of treehouse is available: v3.1.6 → v3.1.8
-Run "treehouse update" to update
-
+Acquire real Treehouse slot:
 🌳 Setting up worktree...
-🌳 Leased worktree at ~/.no-mistakes/worktrees/c9e23aecc4aa/01M66J43JFVBFMC5S2DQNZTSTE/.live/home/pool/.treehouse/project-d4b597/1/project. Run 'treehouse return ~/.no-mistakes/worktrees/c9e23aecc4aa/01M66J43JFVBFMC5S2DQNZTSTE/.live/home/pool/.treehouse/project-d4b597/1/project' to release it.
-=== allocated real treehouse slot ===
-{"path":"{run-worktree}/.live/home/pool/.treehouse/project-d4b597/1/project","lease_id":"5f235e00adead47b77473a2974dae6c6","lease_holder":"","leased_at":"2026-10-30T15:12:52.42205975+01:00","base_branch":"main"}
-=== scenario dirty-force ===
+🌳 Leased worktree at ~/pool/.treehouse/project-dd7a5d/1/project. Run 'treehouse return ~/pool/.treehouse/project-dd7a5d/1/project' to release it.
+{"path":"{run-worktree}/.lab/a/pool/.treehouse/project-dd7a5d/1/project","lease_id":"222428e1e6db836bfaf6fc782ec7e4f8","lease_holder":"","leased_at":"2026-10-30T17:27:18.276150123+01:00","base_branch":"main"}
+
+Real pool status before teardown:
 A new version of treehouse is available: v3.1.6 → v3.1.8
 Run "treehouse update" to update
 
 []
-fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live/home
+
+Teardown stdout/stderr:
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.lab/a
 ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ●  WATCHER DOWN - SUPERVISION IS OFF
-●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 0s ago).
 ●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
 ●  This is a supervision warning only; the guarded operation WILL still run.
 ●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
 ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-REFUSED: gone-pool-slot worktree {run-worktree}/.live/home/pool/.treehouse/project-d4b597/1/project has uncommitted changes; the pool no longer lists this slot, so nothing was returned and nothing was discarded - clean the copy or back it up by hand, then retry teardown.
+REFUSED: gone-pool-slot worktree {run-worktree}/.lab/a/pool/.treehouse/project-dd7a5d/1/project has uncommitted changes; the pool no longer lists this slot, so nothing was returned and nothing was discarded - clean the copy or back it up by hand, then retry teardown.
 uncommitted changes present (untracked-only leftovers)
 untracked paths (up to 10):
-  sentinel
-TEARDOWN_EXIT=1
-RECORD_PRESENT=yes
-HEAD=2e55c8d1b6a219d7bc5924b99ea4f222a8f24efc BRANCH=fm/task-live
-SCENARIO_VERIFIED=dirty-force
+  scratch.txt
+
+exit=1
+Copy retained on branch fm/lane at 23ff6b35ecd2d579cfbfb68a4385a0efa58addff
+Unrelated private tmux pane survived.
+Record retained.
+PASS

@@ -1,0 +1,34 @@
+Acquire real Treehouse slot:
+🌳 Setting up worktree...
+🌳 Leased worktree at ~/pool/.treehouse/project-dd7a5d/1/project. Run 'treehouse return ~/pool/.treehouse/project-dd7a5d/1/project' to release it.
+{"path":"{run-worktree}/.lab/a/pool/.treehouse/project-dd7a5d/1/project","lease_id":"750ec3e959125720346a6495764a8eb6","lease_holder":"","leased_at":"2026-10-30T17:27:22.601004644+01:00","base_branch":"main"}
+
+Re-lease:
+A new version of treehouse is available: v3.1.6 → v3.1.8
+Run "treehouse update" to update
+
+🌳 Leased worktree 1 at ~/pool/.treehouse/project-dd7a5d/1/project. Run 'treehouse return ~/pool/.treehouse/project-dd7a5d/1/project' to release it.
+{"path":"{run-worktree}/.lab/a/pool/.treehouse/project-dd7a5d/1/project","lease_id":"730084639ca7d5aab48c6df677ecb5ab","lease_holder":"","leased_at":"2026-10-30T17:27:22.847123422+01:00","base_branch":"main"}
+
+Real pool status before teardown:
+A new version of treehouse is available: v3.1.6 → v3.1.8
+Run "treehouse update" to update
+
+[{"name":"1","path":"{run-worktree}/.lab/a/pool/.treehouse/project-dd7a5d/1/project","status":"leased","branch":"fm/lane","flavor":"git","lease_id":"730084639ca7d5aab48c6df677ecb5ab","lease_holder":"","leased_at":"2026-10-30T17:27:22.847123422+01:00","processes":[]}]
+
+Teardown stdout/stderr:
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.lab/a
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REFUSED: Treehouse no longer reports lease 750ec3e959125720346a6495764a8eb6 on {run-worktree}/.lab/a/pool/.treehouse/project-dd7a5d/1/project (the slot's lease changed); the slot may belong to someone else now, so nothing was reaped, detached, deleted, or returned
+
+exit=1
+Copy retained on branch fm/lane at cbf0e9e5568fce853b85f95693ea67a1e6eec99e
+Unrelated private tmux pane survived.
+Record retained.
+PASS

@@ -1,0 +1,23 @@
+Real gh / local HTTPS emulator probe:
+MERGED	fe079397fc319be462c4067937d9bc073f990574	https://fm-lab.invalid/example/repo/pull/7
+
+gh exit=0
+No lsof on product PATH. No receipt file. No owned endpoint.
+Actual fm-teardown output:
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.lab/a
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REFUSED: record_only lane lane records pr_head aaaaaaaaaaaa, but the PR now heads fe079397fc319be462c4067937d9bc073f990574; the recorded head cannot be verified - reconcile the record and retry teardown
+
+exit=1
+Shared dummy sentinel unchanged.
+Unrelated private tmux pane alive after endpointless cleanup.
+Record retained.
+PASS
+GraphQL requests observed by local emulator:
+{"query":"\n\tquery PullRequestByNumber($owner: String!, $repo: String!, $pr_number: Int!) {\n\t\trepository(owner: $owner, name: $repo) {\n\t\t\tpullRequest(number: $pr_number) {state,headRefOid,url,id,number}\n\t\t}\n\t}","variables":{"owner":"example","pr_number":7,"repo":"repo"}}

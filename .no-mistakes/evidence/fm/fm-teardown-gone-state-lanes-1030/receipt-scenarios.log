@@ -1,0 +1,172 @@
+===== receipt-endpointless =====
+Real gh / local HTTPS emulator probe:
+MERGED	7f86800f3c7d95d879fcd3bfc8021bf987f51b86	https://fm-lab.invalid/example/repo/pull/7
+
+gh exit=0
+No lsof on product PATH. No receipt file. No owned endpoint.
+Actual fm-teardown output:
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.lab/a
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Preserved record_only lane lane: bundle {run-worktree}/.lab/a/data/bundles/lane.bundle
+{run-worktree}/.lab/a/project: already current
+teardown lane complete (record_only lane, no pool slot; recorded worktree {run-worktree}/.lab/a/dummy untouched, backup in {run-worktree}/.lab/a/data/bundles)
+Backlog: lane just finished (record_only lanes keep no backlog row). Update {run-worktree}/.lab/a/data/backlog.md - move lane to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+
+exit=0
+Verified bundle heads:
+7f86800f3c7d95d879fcd3bfc8021bf987f51b86 FETCH_HEAD
+
+Shared dummy sentinel unchanged.
+Unrelated private tmux pane alive after endpointless cleanup.
+Task record removed.
+PASS
+GraphQL requests observed by local emulator:
+{"query":"\n\tquery PullRequestByNumber($owner: String!, $repo: String!, $pr_number: Int!) {\n\t\trepository(owner: $owner, name: $repo) {\n\t\t\tpullRequest(number: $pr_number) {state,headRefOid,url,id,number}\n\t\t}\n\t}","variables":{"owner":"example","pr_number":7,"repo":"repo"}}
+{"query":"\n\tquery PullRequestByNumber($owner: String!, $repo: String!, $pr_number: Int!) {\n\t\trepository(owner: $owner, name: $repo) {\n\t\t\tpullRequest(number: $pr_number) {state,headRefOid,url,id,number}\n\t\t}\n\t}","variables":{"owner":"example","pr_number":7,"repo":"repo"}}
+
+===== receipt-no-worktree =====
+Real gh / local HTTPS emulator probe:
+MERGED	559990b736bb628e5c5f784791f234c9e610110e	https://fm-lab.invalid/example/repo/pull/7
+
+gh exit=0
+No lsof on product PATH. No receipt file. No owned endpoint.
+Actual fm-teardown output:
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.lab/a
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Preserved record_only lane lane: bundle {run-worktree}/.lab/a/data/bundles/lane.bundle
+{run-worktree}/.lab/a/project: already current
+teardown lane complete (record_only lane, no pool slot; recorded worktree none untouched, backup in {run-worktree}/.lab/a/data/bundles)
+Backlog: lane just finished (record_only lanes keep no backlog row). Update {run-worktree}/.lab/a/data/backlog.md - move lane to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+
+exit=0
+Verified bundle heads:
+559990b736bb628e5c5f784791f234c9e610110e FETCH_HEAD
+
+Shared dummy sentinel unchanged.
+Unrelated private tmux pane alive after endpointless cleanup.
+Task record removed.
+PASS
+GraphQL requests observed by local emulator:
+{"query":"\n\tquery PullRequestByNumber($owner: String!, $repo: String!, $pr_number: Int!) {\n\t\trepository(owner: $owner, name: $repo) {\n\t\t\tpullRequest(number: $pr_number) {state,headRefOid,url,id,number}\n\t\t}\n\t}","variables":{"owner":"example","pr_number":7,"repo":"repo"}}
+{"query":"\n\tquery PullRequestByNumber($owner: String!, $repo: String!, $pr_number: Int!) {\n\t\trepository(owner: $owner, name: $repo) {\n\t\t\tpullRequest(number: $pr_number) {state,headRefOid,url,id,number}\n\t\t}\n\t}","variables":{"owner":"example","pr_number":7,"repo":"repo"}}
+
+===== receipt-receipt-force =====
+Real gh / local HTTPS emulator probe:
+MERGED	df664c11ca90cce629809555e64cc7f6a8b9e784	https://fm-lab.invalid/example/repo/pull/7
+
+gh exit=0
+No lsof on product PATH. No receipt file. No owned endpoint.
+Actual fm-teardown output:
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.lab/a
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Preserved record_only lane lane: bundle {run-worktree}/.lab/a/data/bundles/lane.bundle
+{run-worktree}/.lab/a/project: already current
+teardown lane complete (record_only lane, no pool slot; recorded worktree {run-worktree}/.lab/a/dummy untouched, backup in {run-worktree}/.lab/a/data/bundles)
+Backlog: lane just finished (record_only lanes keep no backlog row). Update {run-worktree}/.lab/a/data/backlog.md - move lane to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+
+exit=0
+Verified bundle heads:
+df664c11ca90cce629809555e64cc7f6a8b9e784 FETCH_HEAD
+
+Shared dummy sentinel unchanged.
+Unrelated private tmux pane alive after endpointless cleanup.
+Task record removed.
+PASS
+GraphQL requests observed by local emulator:
+{"query":"\n\tquery PullRequestByNumber($owner: String!, $repo: String!, $pr_number: Int!) {\n\t\trepository(owner: $owner, name: $repo) {\n\t\t\tpullRequest(number: $pr_number) {state,headRefOid,url,id,number}\n\t\t}\n\t}","variables":{"owner":"example","pr_number":7,"repo":"repo"}}
+{"query":"\n\tquery PullRequestByNumber($owner: String!, $repo: String!, $pr_number: Int!) {\n\t\trepository(owner: $owner, name: $repo) {\n\t\t\tpullRequest(number: $pr_number) {state,headRefOid,url,id,number}\n\t\t}\n\t}","variables":{"owner":"example","pr_number":7,"repo":"repo"}}
+
+===== receipt-mismatch =====
+Real gh / local HTTPS emulator probe:
+MERGED	fe079397fc319be462c4067937d9bc073f990574	https://fm-lab.invalid/example/repo/pull/7
+
+gh exit=0
+No lsof on product PATH. No receipt file. No owned endpoint.
+Actual fm-teardown output:
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.lab/a
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REFUSED: record_only lane lane records pr_head aaaaaaaaaaaa, but the PR now heads fe079397fc319be462c4067937d9bc073f990574; the recorded head cannot be verified - reconcile the record and retry teardown
+
+exit=1
+Shared dummy sentinel unchanged.
+Unrelated private tmux pane alive after endpointless cleanup.
+Record retained.
+PASS
+GraphQL requests observed by local emulator:
+{"query":"\n\tquery PullRequestByNumber($owner: String!, $repo: String!, $pr_number: Int!) {\n\t\trepository(owner: $owner, name: $repo) {\n\t\t\tpullRequest(number: $pr_number) {state,headRefOid,url,id,number}\n\t\t}\n\t}","variables":{"owner":"example","pr_number":7,"repo":"repo"}}
+
+===== receipt-open-force =====
+Real gh / local HTTPS emulator probe:
+MERGED	51b29ff3440a15c9eda6a6adfd34381755df051b	https://fm-lab.invalid/example/repo/pull/7
+
+gh exit=0
+No lsof on product PATH. No receipt file. No owned endpoint.
+Actual fm-teardown output:
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.lab/a
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REFUSED: https://fm-lab.invalid/example/repo/pull/7 for record_only lane lane is not merged (state OPEN), so landing cannot be verified; nothing was changed
+
+exit=1
+Shared dummy sentinel unchanged.
+Unrelated private tmux pane alive after endpointless cleanup.
+Record retained.
+PASS
+GraphQL requests observed by local emulator:
+{"query":"\n\tquery PullRequestByNumber($owner: String!, $repo: String!, $pr_number: Int!) {\n\t\trepository(owner: $owner, name: $repo) {\n\t\t\tpullRequest(number: $pr_number) {state,headRefOid,url,id,number}\n\t\t}\n\t}","variables":{"owner":"example","pr_number":7,"repo":"repo"}}
+{"query":"\n\tquery PullRequestByNumber($owner: String!, $repo: String!, $pr_number: Int!) {\n\t\trepository(owner: $owner, name: $repo) {\n\t\t\tpullRequest(number: $pr_number) {state,headRefOid,url,id,number}\n\t\t}\n\t}","variables":{"owner":"example","pr_number":7,"repo":"repo"}}
+
+===== receipt-forge-mismatch =====
+Real gh / local HTTPS emulator probe:
+MERGED	688e1e6eadb0b603b037d90bf2316fca31a3fffb	https://fm-lab.invalid/example/repo/pull/7
+
+gh exit=0
+No lsof on product PATH. No receipt file. No owned endpoint.
+Actual fm-teardown output:
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.lab/a
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REFUSED: https://fm-lab.invalid/example/repo/pull/7 for record_only lane lane names head bbbbbbbbbbbb, not the recorded 688e1e6eadb0; nothing was changed
+
+exit=1
+Shared dummy sentinel unchanged.
+Unrelated private tmux pane alive after endpointless cleanup.
+Record retained.
+PASS
+GraphQL requests observed by local emulator:
+{"query":"\n\tquery PullRequestByNumber($owner: String!, $repo: String!, $pr_number: Int!) {\n\t\trepository(owner: $owner, name: $repo) {\n\t\t\tpullRequest(number: $pr_number) {state,headRefOid,url,id,number}\n\t\t}\n\t}","variables":{"owner":"example","pr_number":7,"repo":"repo"}}
+{"query":"\n\tquery PullRequestByNumber($owner: String!, $repo: String!, $pr_number: Int!) {\n\t\trepository(owner: $owner, name: $repo) {\n\t\t\tpullRequest(number: $pr_number) {state,headRefOid,url,id,number}\n\t\t}\n\t}","variables":{"owner":"example","pr_number":7,"repo":"repo"}}
