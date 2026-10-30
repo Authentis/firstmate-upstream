@@ -5633,6 +5633,50 @@ EOF
   chmod +x "$case_dir/fakebin/treehouse"
 }
 
+test_invalid_pool_inventory_refuses_before_cleanup() {
+  local case_dir wt rc inventory label
+  for label in malformed null object bad-path bad-lease lease-newline bad-later-row multiple-documents empty; do
+    case_dir=$(make_case "invalid-pool-$label")
+    wt=$(move_case_to_pool_slot "$case_dir" 9)
+    write_meta "$case_dir" no-mistakes ship "$wt"
+    printf '%s\n' 'lease_id=b628dfff' >> "$case_dir/state/task-x1.meta"
+    case "$label" in
+      malformed) inventory='[{' ;;
+      null) inventory='null' ;;
+      object) inventory='{}' ;;
+      bad-path) inventory='[{"path":42,"lease_id":null}]' ;;
+      bad-lease) inventory='[{"path":"/other","lease_id":42}]' ;;
+      lease-newline) inventory='[{"path":"/other","lease_id":"abc\n"}]' ;;
+      bad-later-row) inventory="[{\"path\":\"$wt\",\"lease_id\":\"b628dfff\"},{\"lease_id\":null}]" ;;
+      multiple-documents) inventory='[] []' ;;
+      empty) inventory='' ;;
+    esac
+    printf '%s' "$inventory" > "$case_dir/inventory.json"
+    : > "$case_dir/treehouse.log"
+    cat > "$case_dir/fakebin/treehouse" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "$case_dir/treehouse.log"
+if [ "\${1:-}" = status ]; then
+  cat "$case_dir/inventory.json"
+fi
+EOF
+    chmod +x "$case_dir/fakebin/treehouse"
+    rc=0
+    FM_HOME="$case_dir" run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+    expect_code 1 "$rc" "invalid-pool-$label: invalid inventory must refuse"
+    assert_grep 'invalid Treehouse pool status' "$case_dir/stderr" \
+      "invalid-pool-$label: refusal must cite inventory validation"
+    assert_present "$case_dir/state/task-x1.meta" "invalid-pool-$label: task record removed"
+    assert_absent "$case_dir/data/bundles/task-x1.bundle" "invalid-pool-$label: backup authorized"
+    [ "$(git -C "$wt" symbolic-ref --short HEAD)" = fm/task-x1 ] \
+      || fail "invalid-pool-$label: worktree detached"
+    if grep -q '^return' "$case_dir/treehouse.log"; then
+      fail "invalid-pool-$label: pool return attempted"
+    fi
+  done
+  pass "invalid pool inventories refuse before cleanup, including invalid rows after a matching lease"
+}
+
 test_gone_pool_listing_with_landed_work_is_backed_up_and_torn_down() {
   local case_dir wt rc head bundle
   case_dir=$(make_case gone-pool-landed)
@@ -5648,7 +5692,7 @@ test_gone_pool_listing_with_landed_work_is_backed_up_and_torn_down() {
   add_treehouse_missing_pool_listing "$case_dir"
 
   set +e
-  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  FM_HOME="$case_dir" run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
   rc=$?
   set -e
 
@@ -5683,7 +5727,7 @@ test_gone_pool_listing_with_unpushed_work_refuses() {
   add_treehouse_missing_pool_listing "$case_dir"
 
   set +e
-  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  FM_HOME="$case_dir" run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
   rc=$?
   set -e
 
@@ -5710,7 +5754,7 @@ test_gone_pool_listing_with_dirty_work_refuses() {
   add_treehouse_missing_pool_listing "$case_dir"
 
   set +e
-  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  FM_HOME="$case_dir" run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
   rc=$?
   set -e
 
@@ -5745,8 +5789,12 @@ land_pr7_head_on_origin() {
 # close), a dummy worktree path that must never be touched, and - by design -
 # no gate-receipt file. The forge reports PR 7 merged at the recorded head.
 test_record_only_bg_receipt_lane_is_backed_up_and_torn_down() {
-  local case_dir rc head bundle
-  case_dir=$(make_case record-only-receipt)
+  local case_dir rc head bundle shape=${1:-dummy}
+  local -a worktree_field=()
+  case_dir=$(make_case "record-only-receipt-$shape")
+  if [ "$shape" = dummy ]; then
+    worktree_field=("worktree=$case_dir/dummy-shared")
+  fi
   head=$(land_pr7_head_on_origin "$case_dir")
   add_gh_pr_merged_for_head "$case_dir" "$head"
   mkdir -p "$case_dir/dummy-shared"
@@ -5763,7 +5811,7 @@ test_record_only_bg_receipt_lane_is_backed_up_and_torn_down() {
     "gate_receipt_source=bosgame:data/gate-receipts/7.json" \
     "pr=https://github.com/example/repo/pull/7" \
     "pr_head=$head" \
-    "worktree=$case_dir/dummy-shared"
+    "${worktree_field[@]}"
   : > "$case_dir/treehouse.log"
   cat > "$case_dir/fakebin/treehouse" <<EOF
 #!/usr/bin/env bash
@@ -5773,7 +5821,7 @@ EOF
   chmod +x "$case_dir/fakebin/treehouse"
 
   set +e
-  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  FM_HOME="$case_dir" run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
   rc=$?
   set -e
 
@@ -5824,11 +5872,10 @@ test_record_only_lane_with_unverifiable_head_refuses() {
     "record_only=yes" \
     "gate_receipt_source=bosgame:data/gate-receipts/7.json" \
     "pr=https://github.com/example/repo/pull/7" \
-    "pr_head=$recorded" \
-    "worktree=$case_dir/missing-dummy"
+    "pr_head=$recorded"
 
   set +e
-  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  FM_HOME="$case_dir" run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
   rc=$?
   set -e
 
@@ -5914,10 +5961,12 @@ test_forced_secondmate_dirty_child_return_warns_and_completes
 test_return_that_removes_copy_warns_cannot_verify
 test_scout_ignored_files_survive_scratch_clean
 test_gh_error_and_content_absent_refuses
+test_invalid_pool_inventory_refuses_before_cleanup
 test_gone_pool_listing_with_landed_work_is_backed_up_and_torn_down
 test_gone_pool_listing_with_unpushed_work_refuses
 test_gone_pool_listing_with_dirty_work_refuses
 test_record_only_bg_receipt_lane_is_backed_up_and_torn_down
+test_record_only_bg_receipt_lane_is_backed_up_and_torn_down absent
 test_record_only_lane_with_unverifiable_head_refuses
 test_legacy_record_without_the_flag_refuses
 test_windowless_legacy_record_with_gone_worktree_tears_down

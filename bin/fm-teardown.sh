@@ -683,13 +683,28 @@ case "$TEARDOWN_WINDOW_COUNT:$(fm_meta_get "$META" window)" in
             || TEARDOWN_FOREIGN_ENDPOINT_KEYS="$TEARDOWN_FOREIGN_ENDPOINT_KEYS|^${TEARDOWN_FOREIGN_BACKEND}_"
         done
         if ! LC_ALL=C grep -Eq "$TEARDOWN_FOREIGN_ENDPOINT_KEYS" "$META" 2>/dev/null; then
-          TEARDOWN_SHAPE_META=$(umask 077; mktemp "${TMPDIR:-/tmp}/fm-teardown-shape.XXXXXX") || exit 1
-          { LC_ALL=C grep -v '^window=' "$META" || true; printf 'window=leftover:fm-%s\n' "$ID"; } \
-            > "$TEARDOWN_SHAPE_META"
-          if fm_backend_validate_task_endpoint "$TEARDOWN_SHAPE_META" "$ID" 2>/dev/null; then
-            TEARDOWN_WINDOWLESS_SHAPE=1
+          if [ "$TEARDOWN_RECORD_ONLY" = 1 ]; then
+            TEARDOWN_SHAPE_PROJECT=$(fm_backend_meta_exact_value "$META" project) || TEARDOWN_SHAPE_PROJECT=
+            TEARDOWN_SHAPE_BINDING_COUNT=$(LC_ALL=C grep -c '^endpoint_task_id=' "$META" || true)
+            TEARDOWN_SHAPE_BINDING=$(fm_backend_meta_exact_value "$META" endpoint_task_id) || TEARDOWN_SHAPE_BINDING=
+            case "$TEARDOWN_SHAPE_PROJECT" in
+              ''|*$'\n'*|*$'\r'*|*$'\t'*) ;;
+              *)
+                if [ "$TEARDOWN_SHAPE_BINDING_COUNT" = 0 ] \
+                  || { [ "$TEARDOWN_SHAPE_BINDING_COUNT" = 1 ] && [ "$TEARDOWN_SHAPE_BINDING" = "$ID" ]; }; then
+                  TEARDOWN_WINDOWLESS_SHAPE=1
+                fi
+                ;;
+            esac
+          else
+            TEARDOWN_SHAPE_META=$(umask 077; mktemp "${TMPDIR:-/tmp}/fm-teardown-shape.XXXXXX") || exit 1
+            { LC_ALL=C grep -v '^window=' "$META" || true; printf 'window=leftover:fm-%s\n' "$ID"; } \
+              > "$TEARDOWN_SHAPE_META"
+            if fm_backend_validate_task_endpoint "$TEARDOWN_SHAPE_META" "$ID" 2>/dev/null; then
+              TEARDOWN_WINDOWLESS_SHAPE=1
+            fi
+            rm -f "$TEARDOWN_SHAPE_META"
           fi
-          rm -f "$TEARDOWN_SHAPE_META"
         fi
         ;;
     esac
@@ -2176,7 +2191,7 @@ TEARDOWN_RETURN_LEASE_ID=
 # else now, so teardown stops with a report instead of reaping processes,
 # detaching HEAD, deleting the branch, or removing hooks inside it.
 teardown_verify_slot_lease() {
-  local lease path_in_pool lease_in_pool real json found=0
+  local lease path_in_pool lease_in_pool real json rows found=0
   lease=$(meta_value "$META" lease_id)
   [ -n "$lease" ] || return 0
   case "$lease" in
@@ -2191,12 +2206,24 @@ teardown_verify_slot_lease() {
     echo "REFUSED: cannot read the Treehouse pool status to confirm lease $lease still holds $WT; nothing was changed" >&2
     return 1
   fi
+  if ! rows=$(printf '%s' "$json" | jq -er -s '
+    if length == 1 and (.[0] | type == "array") then .[0] else error("invalid inventory") end
+    | if all(.[];
+        type == "object"
+        and (.path | type == "string" and startswith("/") and (test("[\\x00-\\x1f\\x7f]") | not))
+        and (.lease_id == null or (.lease_id | type == "string" and (test("[^A-Za-z0-9_-]") | not))))
+      then map(.path + "\t" + (.lease_id // "")) | join("\n")
+      else error("invalid slot") end
+  ' 2>/dev/null); then
+    echo "REFUSED: invalid Treehouse pool status; lease $lease on $WT cannot be confirmed; nothing was changed" >&2
+    return 1
+  fi
   while IFS=$'\t' read -r path_in_pool lease_in_pool; do
     [ -n "$path_in_pool" ] || continue
     [ "$(canonical_existing_dir "$path_in_pool" 2>/dev/null || printf '%s' "$path_in_pool")" = "$real" ] || continue
     found=1
     [ "$lease_in_pool" = "$lease" ] && { TEARDOWN_RETURN_LEASE_ID=$lease; return 0; }
-  done < <(printf '%s' "$json" | jq -r '.[] | [.path, (.lease_id // "")] | @tsv' 2>/dev/null)
+  done <<< "$rows"
   if [ "$found" = 1 ]; then
     echo "REFUSED: Treehouse no longer reports lease $lease on $WT (the slot's lease changed); the slot may belong to someone else now, so nothing was reaped, detached, deleted, or returned" >&2
     return 1
