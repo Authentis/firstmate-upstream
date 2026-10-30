@@ -9,10 +9,12 @@
 # bin/fm-quota-axi-lib.sh owns schema compatibility and the shared row join.
 # For each --candidate in order, it maps <harness> to its primary provider
 # family, then applies the matched row's provider-wide scopes and exact model
-# or product scopes for <model>. A candidate is eligible only when no
-# applicable runway is `exhausted_now` and its known
-# effective percent remaining is greater than zero. The first eligible
-# candidate is printed as "<harness> <model>" and the script exits 0.
+# or product scopes for <model>. A candidate needs at least one known
+# applicable row; every applicable exhausted_now or known zero bound vetoes
+# it unless that row qualifies for the Codex credit cover owned by
+# bin/fm-quota-axi-lib.sh. Unknown sibling rows do not veto positive evidence
+# unless their runway is exhausted_now. The first eligible candidate is
+# printed as "<harness> <model>" and the script exits 0.
 # If no candidate is quota-eligible, it prints "none" and exits 1.
 #
 # Candidates are accepted as `--candidate <harness:model>` or as positional
@@ -50,6 +52,8 @@
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
+FM_HOME="${FM_HOME:-$FM_ROOT}"
 
 # shellcheck source=bin/fm-quota-axi-lib.sh
 . "$SCRIPT_DIR/fm-quota-axi-lib.sh"
@@ -283,6 +287,9 @@ else
           error("invalid quota-axi TOON envelope")
         else
           ($quota_lines | map(decoded_row)) as $rows |
+          ($exhaustion_rows | map(decoded_row | keyed_row($k) + {
+            scope: .[1 + $k], limitingWindowId: .[4 + $k]
+          })) as $exhaustion |
           ($attention_rows | attention_entries($k)) as $attention_entries |
           if (($attention_entries | valid_attention_entries) | not) then error("invalid attention identities")
           elif any($rows[]; length != 8 + $k) then error("invalid quota rows")
@@ -290,12 +297,17 @@ else
             {
               schemaVersion: schema_of($k),
               providers: (($rows |
-                map(keyed_row($k) + {
+                map((keyed_row($k)) as $identity | .[1 + $k] as $scope |
+                  $identity + {
                   availability: {
-                    scope: .[1 + $k],
+                    scope: $scope,
                     status: "known",
                     effectivePercentRemaining: (.[2 + $k] | tonumber),
-                    runway: {status: .[4 + $k]}
+                    runway: {status: .[4 + $k]},
+                    limitingWindowIds: [$exhaustion[] | select(
+                      .provider == $identity.provider and
+                      .accountKey == $identity.accountKey and .scope == $scope
+                    ) | .limitingWindowId]
                   }
                 })) +
                 ($attention_entries | map(. as $entry | ($entry | {provider} + account_of) + {
@@ -319,6 +331,15 @@ fi
 
 printf '%s\n' "$QUOTA_JSON" | fm_quota_json_valid || die "invalid quota-axi provider data"
 
+# The Codex credit cover reads one private number, never a snapshot: an
+# absent or unparseable readings file keeps today's behavior unchanged.
+CODEX_CREDITS=$(fm_codex_credits_reading "$FM_HOME" 2>/dev/null) || CODEX_CREDITS=''
+if [ -n "$CODEX_CREDITS" ]; then
+  CODEX_CREDITS_JSON=$CODEX_CREDITS
+else
+  CODEX_CREDITS_JSON=null
+fi
+
 # provider_for_harness <harness> [<model>]
 # The harness -> primary provider family table is owned by
 # fm_quota_provider_for_harness in bin/fm-quota-axi-lib.sh; see the header
@@ -327,33 +348,19 @@ provider_for_harness() {
   fm_quota_provider_for_harness "$@"
 }
 
-# effective_for_provider_model <provider> <model> <lane>
-# Print the most constraining applicable quota evidence for the provider/model
-# tuple, including provider-wide and exact model or product scopes. The row is
-# bound through quota_row from bin/fm-quota-axi-lib.sh, so <lane> matters only
-# on a schema 6 snapshot.
-effective_for_provider_model() {
+applicable_for_provider_model() {
   local provider=$1 model=${2:-default} lane=${3:-}
   printf '%s\n' "$QUOTA_JSON" | jq -c --arg provider "$provider" --arg model "$model" --arg lane "$lane" "$FM_QUOTA_ROW_JQ"'
     ($model | sub("^model:"; "")) as $model_token |
     quota_row(.; $provider; $lane) as $p |
-    if ($p // null) == null then {status: "unknown"}
+    if ($p // null) == null then []
     else ($p.quotaSemantics.effectiveAvailability // []) |
     map(select(.scope as $scope |
       $scope == "all_models" or $scope == "all_products" or
       ($model_token != "" and $model_token != "default" and
        (($scope | startswith("model:")) or ($scope | startswith("product:"))) and
        ($model_token == ($scope | sub("^(model|product):"; ""))))
-    )) as $applicable |
-    ($applicable | map(select(.status == "known"))) as $known |
-    if ($applicable | length) == 0 then {status: "unknown"}
-    elif any($applicable[]; (.runway.status // "") == "exhausted_now") then
-      ($applicable | map(select((.runway.status // "") == "exhausted_now")) | first)
-    elif ($known | length) == 0 then {status: "unknown"}
-    elif any($known[]; .effectivePercentRemaining == 0) then
-      ($known | map(select(.effectivePercentRemaining == 0)) | first)
-    else ($known | min_by(.effectivePercentRemaining))
-    end
+    ))
     end
   ' 2>/dev/null
 }
@@ -379,19 +386,17 @@ for c in "${CANDIDATES[@]}"; do
   scope_model=$model
   [ "$harness" != omp ] || scope_model=${model#*/}
   lane=$(jq -rn --arg h "$harness" --arg m "$model" "$FM_QUOTA_ROW_JQ"'quota_lane($h; $m)')
-  effective=$(effective_for_provider_model "$provider" "$scope_model" "$lane")
+  effective=$(applicable_for_provider_model "$provider" "$scope_model" "$lane")
   if [ -z "$effective" ] || [ "$effective" = "null" ]; then
     continue
   fi
-  if printf '%s\n' "$effective" | jq -e '
-    if (.runway.status // "") == "exhausted_now" then false
-    elif .status == "unknown" then false
-    else
-      .effectivePercentRemaining as $remaining |
-      (($remaining | type) == "number") and
-      ($remaining > 0) and
-      ((.runway.status // "") != "exhausted_now")
-    end
+  if printf '%s\n' "$effective" | jq -e --arg provider "$provider" \
+    --argjson codex_credits "$CODEX_CREDITS_JSON" \
+    --argjson codex_floor "$FM_CODEX_CREDITS_FLOOR" "$FM_QUOTA_ROW_JQ"'
+    any(.[]; .status == "known") and all(.[];
+      quota_credit_covered($provider; $codex_credits; $codex_floor) or
+      ((.runway.status // "") != "exhausted_now" and
+       (.status != "known" or .effectivePercentRemaining > 0)))
   ' >/dev/null 2>&1; then
     chosen="$harness $model"
     break

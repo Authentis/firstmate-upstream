@@ -350,8 +350,18 @@ command -v quota-axi >/dev/null 2>&1 || emit_error "quota-axi not installed"
 quota-axi --json > "$QUOTA" 2>/dev/null || emit_error "quota-axi --json failed"
 fm_quota_json_valid < "$QUOTA" || emit_error "quota-axi --json returned an invalid snapshot"
 
+# The Codex credit cover reads one private number, never a snapshot: an
+# absent or unparseable readings file keeps today's behavior unchanged.
+CODEX_CREDITS=$(fm_codex_credits_reading "$FM_HOME" 2>/dev/null) || CODEX_CREDITS=''
+if [ -n "$CODEX_CREDITS" ]; then
+  CODEX_CREDITS_JSON=$CODEX_CREDITS
+else
+  CODEX_CREDITS_JSON=null
+fi
+
 # ---- resolution: declared gates + quota evidence + argmax, all in jq ------------
 RESULT=$(jq -n --arg floor "$CONFIDENCE_FLOOR" --argjson lat "$LAT_MS" --arg none_criterion "$DEFAULT_WHEN" --argjson pmap "$PMAP" \
+  --argjson codex_credits "$CODEX_CREDITS_JSON" --argjson codex_floor "$FM_CODEX_CREDITS_FLOOR" \
   --slurpfile resp "$RESP_FILE" --slurpfile rules "$RULES" --slurpfile quota "$QUOTA" "$FM_QUOTA_ROW_JQ"'
   ($resp[0]) as $r | ($rules[0]) as $cfg | ($quota[0]) as $q | ($r.answers.rule) as $a |
   def profiles($v): if ($v | type) == "array" then $v elif ($v | type) == "object" then [$v] else [] end;
@@ -391,12 +401,13 @@ RESULT=$(jq -n --arg floor "$CONFIDENCE_FLOOR" --argjson lat "$LAT_MS" --arg non
       (applicable($p; $lane; ($c.model // ""))) as $rows |
       (evidence($rows)) as $bounds |
       (floor_state($c.floor; $p; $lane)) as $profile_floor_state |
-      if any($rows[]; (.runway.status // "") == "exhausted_now") then
-        ($rows | map(select((.runway.status // "") == "exhausted_now")) | first) as $bad |
+      ($rows | map(select(quota_credit_covered($p; $codex_credits; $codex_floor) | not))) as $uncovered |
+      (($uncovered | map(select((.runway.status // "") == "exhausted_now")) | first) // null) as $bad |
+      if $bad != null then
         {profile: $c, provider: $p, bounds: $bounds, scope: $bad.scope, pct: ($bad.effectivePercentRemaining // null), runway: $bad.runway.status, eligible: false, reason: "runway exhausted_now at \($bad.scope)"}
-      elif any($rows[]; .status == "known" and (.effectivePercentRemaining | type) == "number" and .effectivePercentRemaining <= 0) then
-        ($rows | map(select(.status == "known" and (.effectivePercentRemaining | type) == "number" and .effectivePercentRemaining <= 0)) | first) as $bad |
-        {profile: $c, provider: $p, bounds: $bounds, scope: $bad.scope, pct: $bad.effectivePercentRemaining, runway: $bad.runway.status, eligible: false, reason: "0% remaining at \($bad.scope)"}
+      elif any($uncovered[]; .status == "known" and (.effectivePercentRemaining | type) == "number" and .effectivePercentRemaining <= 0) then
+        ($uncovered | map(select(.status == "known" and (.effectivePercentRemaining | type) == "number" and .effectivePercentRemaining <= 0)) | first) as $zero |
+        {profile: $c, provider: $p, bounds: $bounds, scope: $zero.scope, pct: $zero.effectivePercentRemaining, runway: $zero.runway.status, eligible: false, reason: "0% remaining at \($zero.scope)"}
       elif $profile_floor_state == "below" then
         ([rows($p; $lane)[] | select(
           .scope == $c.floor.scope and

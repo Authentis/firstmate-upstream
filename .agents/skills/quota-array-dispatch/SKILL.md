@@ -25,8 +25,7 @@ The canonical shell helper for a worker that has already performed its model-sel
 Pass it the intake's already-captured default TOON or permitted JSON fallback through stdin or `--snapshot`; it never takes another quota snapshot, so it selects from the same quota state as the intake.
 Pass each candidate as `harness:model`, with earlier candidates preferred.
 The helper's header owns its provider mapping and quota selection mechanics.
-An `exhausted_now` runway vetoes the candidate.
-The helper selects a candidate only when its applicable quota has a known `effectivePercentRemaining` greater than zero.
+The [shared quota library](../../../bin/fm-quota-axi-lib.sh) owns the Codex credit-cover exception used by both deterministic consumers.
 This is an optional narrow helper with a known limitation: it maps each harness to one primary provider family only, so a candidate whose established provider differs from that primary family is checked against the wrong quota row.
 omp has no primary family, so the helper keys an `omp:` candidate on its model prefix, mapping only `openai-codex/` and `claude-bridge/` and refusing every other prefix; the helper's header owns that mapping.
 Authoritative multi-provider routing - including provider discovery from the harness catalog and quota matching by that explicit provider - stays owned by this skill's intake procedure above and AGENTS.md section 4, not by the helper.
@@ -104,7 +103,7 @@ When every remaining candidate is tight, dispatch inside the strongest-reasoning
 
 Known runway that will not last until the inspectable likely-completion horizon fails this gate, even when that candidate has the highest `spendPriority`.
 Read `runway` from the `quota[]` row: `through_reset` passes this generic feasibility floor because the window reaches its refill without exhausting; never compare its `resetsAt` with the completion horizon as though reset were an exhaustion deadline.
-`exhausted_now` is zero, and `projected_exhaustion` uses the matching `exhaustion[]` row's `usableRunwaySeconds`.
+`exhausted_now` is zero unless the [shared Codex credit cover](../../../bin/fm-quota-axi-lib.sh) applies, and `projected_exhaustion` uses the matching `exhaustion[]` row's `usableRunwaySeconds`.
 A high `spendPriority` on a nearly empty window that will exhaust soon must not route into a mid-task stall.
 Unknown or unmeasurable runway stays eligible with disclosed uncertainty and is never assumed to pass.
 Do not invent a generic percentage floor, and honor an explicit captain floor for a candidate when one exists.
