@@ -8,11 +8,13 @@
 # A task record carrying lease_id= (a slot taken by `treehouse get --lease`, see
 # bin/fm-spawn.sh) is handled in two lease-bound steps. Before any destructive
 # step, a read-only `treehouse status --json` must still show that lease on the
-# slot; a changed or unreadable lease refuses with nothing touched. A slot the
-# pool no longer lists at all (an abandoned pool root, never a changed lease)
-# takes the gone-pool path instead: once the copy itself proves clean and
-# landed, teardown writes a verified bundle of its head under data/bundles/
-# and finishes records-only, touching neither the copy nor the pool.
+# slot; a different nonempty lease or unreadable/invalid pool status refuses.
+# A slot absent from a valid inventory, or listed with a null, empty, or omitted
+# lease_id, takes the gone-pool path instead: the copy must remain inspectable,
+# clean, and pushed-or-landed even under --force. Teardown writes a verified
+# bundle of its head under data/bundles/ and completes without detaching HEAD,
+# deleting the branch, scrubbing files, or returning the slot. Ordinary endpoint
+# and process cleanup still applies; a missing copy refuses.
 # The return itself is `treehouse return --if-lease-id <id>`, with --force added
 # only for an explicit --force teardown or a scout; otherwise a slot left with
 # files after the safety checks is refused by treehouse instead of reset. A
@@ -102,10 +104,13 @@
 # Record-only lanes (record_only=yes, e.g. background-receipt autoland lanes)
 # name no live copy: their recorded worktree is a dummy or shared path that
 # teardown never inspects, scrubs, branch-deletes, or returns. Teardown instead
-# proves the recorded branch head landed from the project clone and the forge
-# (a merged PR naming that exact head; the background/gate receipt itself is
-# not required), writes a verified bundle of the head under data/bundles/,
-# and finishes with no backlog transition, since record-only lanes keep no row.
+# requires pr= and a 40-hex pr_head=: both origin's refs/pull/<n>/head fetched
+# into the project clone and the merged PR reported by gh must name that head.
+# The background/gate receipt itself is not required. Teardown writes a verified
+# bundle of the head under data/bundles/ and finishes with no backlog transition,
+# since record-only lanes keep no row. This proof is required even under --force;
+# record-only Orca lanes refuse. A record naming no endpoint can finish without
+# one when its project and optional endpoint_task_id binding validate.
 # A scratch copy (kind=scout) and a --force run discard untracked content.
 # Treehouse's return resets with `git clean -fd`, which never deletes a nested
 # git repository, so the pool slot stays dirty and later checkouts skip it.
@@ -1784,17 +1789,6 @@ work_is_landed() {
   content_in_default
 }
 
-# A lane whose PR is verified MERGED on the forge but whose local commits sit on
-# no remote and are not provably inside the merged PR (typically earlier
-# iterations a squash merge superseded) has nothing left to protect except those
-# commits themselves. Preserve them instead of asking for a discard: keep a
-# verified bundle under data/bundles/ and push the exact commits to a NEW
-# refs/heads/preserve/<branch> ref on origin (creation-only, never advancing an
-# existing ref, never the default or PR branch). Succeeds only when the PR is proved merged, origin
-# exists, the bundle verifies, the push lands, and a fresh remote-reachability
-# test then sees no unpushed commits; every other outcome returns non-zero and
-# the caller refuses exactly as before. A preserve ref already holding different
-# content is a refusal, never an overwrite.
 # Write a verified git bundle of <head> from <repo-dir> into the task's bundle
 # directory, rotating past taken names. The bundled revision is <rev>, which
 # must name a ref (a bare sha refuses with an empty bundle; FETCH_HEAD works,
@@ -1840,6 +1834,7 @@ teardown_write_verified_bundle() {  # <repo-dir> <head> <rev>
   printf '%s\n' "$bundle"
 }
 
+# Merged-lane preservation: see the script header for the safety contract.
 preserve_merged_lane_commits() {
   local branch=$1 target view state head ref bundle remote_line remote_sha left
   [ -n "$branch" ] && [ "$branch" != HEAD ] || return 1
@@ -1880,13 +1875,8 @@ preserve_merged_lane_commits() {
   return 0
 }
 
-# Gone-pool-slot proof and backup (see the script header): the pool no longer
-# lists this slot, so the copy itself plus the forge are the only evidence.
-# Requires the copy inspectable, clean, and pushed-or-landed, then writes a
-# verified bundle of its head. No pushes, no pool contact. Refuses on any
-# doubt: a missing or unreadable copy, uncommitted changes, unlanded work, or
-# a backup that cannot be created or verified. Returns
-# TEARDOWN_WORKTREE_SAFETY_LOCK_BLOCKED when a git index.lock blocks
+# Gone-pool proof and backup: see the script header for the safety contract.
+# Returns TEARDOWN_WORKTREE_SAFETY_LOCK_BLOCKED when a git index.lock blocks
 # inspection and is not provably stale, so the caller can clear it and retry.
 teardown_backup_gone_pool_slot() {
   local dirty unpushed branch head bundle
@@ -1933,13 +1923,7 @@ teardown_backup_gone_pool_slot() {
   echo "Preserved gone-pool-slot lane $ID: bundle $bundle"
 }
 
-# Record-only proof and backup (see the script header): the recorded worktree
-# is a dummy or shared path that is never inspected or mutated, so the project
-# clone plus the forge are the evidence. Requires the recorded head to be the
-# merged head of the recorded PR, then writes a verified bundle of that head
-# from the project clone. The background/gate receipt (gate_receipt_source=)
-# is not required: a merged forge PR naming this exact head proves landing
-# whether or not that receipt file survives. Refuses on any doubt.
+# Record-only proof and backup: see the script header for the safety contract.
 teardown_backup_record_only_lane() {
   local pr_head n head view state remainder forge_head bundle
   [ -n "$PR_URL" ] || {
@@ -2229,12 +2213,9 @@ teardown_verify_slot_lease() {
     echo "REFUSED: Treehouse no longer reports lease $lease on $WT (the slot's lease changed); the slot may belong to someone else now, so nothing was reaped, detached, deleted, or returned" >&2
     return 1
   fi
-  # The pool no longer lists this slot at all. That alone does not prove the
-  # slot belongs to someone else - only that the pool that listed it is gone -
-  # so teardown defers the refusal: once the copy itself proves clean and
-  # landed below, it is backed up and the record finishes without touching the
-  # copy or the pool. A worktree that is itself gone still refuses, since its
-  # head can no longer be verified from the copy.
+  # No nonempty lease was found for this path in a valid inventory. Absence
+  # does not prove reassignment; defer to the gone-pool proof in the header.
+  # A missing copy cannot supply that proof.
   if [ ! -d "$WT" ]; then
     echo "REFUSED: Treehouse does not list $WT in its pool, so lease $lease cannot be confirmed; nothing was changed" >&2
     return 1
