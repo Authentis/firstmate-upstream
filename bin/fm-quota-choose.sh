@@ -395,12 +395,10 @@ for c in "${CANDIDATES[@]}"; do
   if printf '%s\n' "$effective" | jq -e --arg provider "$provider" \
     --argjson codex_credits "$CODEX_CREDITS_JSON" \
     --argjson codex_floor "$FM_CODEX_CREDITS_FLOOR" "$FM_QUOTA_ROW_JQ"'
-    length > 0 and all(.[];
-      .status == "known" and
-      (quota_credit_covered($provider; $codex_credits; $codex_floor) or
-       ((.effectivePercentRemaining | type) == "number" and
-        .effectivePercentRemaining > 0 and
-        (.runway.status // "") != "exhausted_now")))
+    any(.[]; .status == "known") and all(.[];
+      quota_credit_covered($provider; $codex_credits; $codex_floor) or
+      ((.runway.status // "") != "exhausted_now" and
+       (.status != "known" or .effectivePercentRemaining > 0)))
   ' >/dev/null 2>&1; then
     chosen="$harness $model"
     break

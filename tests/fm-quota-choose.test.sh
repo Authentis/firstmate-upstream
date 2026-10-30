@@ -326,6 +326,23 @@ out=$(call_choose --snapshot "$PARTIAL" --candidate claude:default)
 [ "$out" = "claude default" ] || fail "valid partial semantics were rejected: $out"
 ok "partial semantics accept mixed availability"
 
+for scope in model:sonnet product:sonnet all_products; do
+  jq --arg scope "$scope" '(.providers[] | select(.provider == "claude").quotaSemantics) = {
+    status:"partial",effectiveAvailability:[
+      {scope:"all_models",status:"known",effectivePercentRemaining:80,runway:{status:"through_reset"}},
+      {scope:$scope,status:"unknown",runway:{status:"unknown"}}
+    ]}' "$LAB/captured.json" > "$PARTIAL"
+  out=$(FM_HOME="$LAB/no-credit-home" call_choose --snapshot "$PARTIAL" --candidate claude:sonnet)
+  [ "$out" = "claude sonnet" ] || fail "unknown sibling $scope vetoed positive quota: $out"
+  jq '(.providers[] | select(.provider == "claude").quotaSemantics.effectiveAvailability[1].runway.status) = "exhausted_now"' \
+    "$PARTIAL" > "$LAB/partial-exhausted.json"
+  if out=$(FM_HOME="$LAB/no-credit-home" call_choose --snapshot "$LAB/partial-exhausted.json" --candidate claude:sonnet); then
+    fail "exhausted unknown sibling $scope unexpectedly dispatched"
+  fi
+  [ "$out" = none ] || fail "exhausted sibling returned: $out"
+done
+ok "partial quota preserves uncertainty without bypassing exhaustion"
+
 out=$(call_choose --candidate claude:default < "$LAB/captured.json")
 [ "$out" = "claude default" ] || fail "stdin snapshot returned '$out'"
 ok "stdin snapshot is accepted"
