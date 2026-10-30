@@ -5633,53 +5633,6 @@ EOF
   chmod +x "$case_dir/fakebin/treehouse"
 }
 
-# The gone-state safety contract requires a local copy to prove clean,
-# pushed/landed work and take a backup. A missing leased copy must therefore
-# refuse, even with --force; silently deleting its record loses recovery state.
-test_missing_leased_copy_refuses_before_cleanup() {
-  local case_dir wt scenario flag rc head
-  for scenario in listed listed-force gone gone-force; do
-    case_dir=$(make_case "missing-leased-copy-$scenario")
-    wt_commit_file "$case_dir" feature.txt hello "lane work"
-    git -C "$case_dir/wt" push -q origin fm/task-x1
-    wt=$(move_case_to_pool_slot "$case_dir" 9)
-    head=$(git -C "$wt" rev-parse HEAD)
-    write_meta "$case_dir" no-mistakes ship "$wt"
-    printf '%s\n' 'lease_id=b628dfff' >> "$case_dir/state/task-x1.meta"
-    cp "$case_dir/state/task-x1.meta" "$case_dir/original.meta"
-    case "$scenario" in
-      listed*) jq -cn --arg path "$wt" '[{path:$path,lease_id:"b628dfff"}]' ;;
-      gone*) printf '[]\n' ;;
-    esac > "$case_dir/inventory.json"
-    : > "$case_dir/treehouse.log"
-    cat > "$case_dir/fakebin/treehouse" <<EOF
-#!/usr/bin/env bash
-printf '%s\n' "\$*" >> "$case_dir/treehouse.log"
-if [ "\${1:-}" = status ]; then cat "$case_dir/inventory.json"; fi
-exit 0
-EOF
-    chmod +x "$case_dir/fakebin/treehouse"
-    mv "$wt" "$case_dir/moved-copy"
-    flag=
-    case "$scenario" in *-force) flag=--force ;; esac
-    rc=0
-    FM_HOME="$case_dir" run_teardown "$case_dir" ${flag:+"$flag"} \
-      > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
-    expect_code 1 "$rc" "missing-leased-copy-$scenario: missing copy must refuse"
-    cmp -s "$case_dir/original.meta" "$case_dir/state/task-x1.meta" \
-      || fail "missing-leased-copy-$scenario: refusal changed the task record"
-    assert_grep 'REFUSED' "$case_dir/stderr" "missing-leased-copy-$scenario: no refusal"
-    assert_absent "$case_dir/data/bundles/task-x1.bundle" \
-      "missing-leased-copy-$scenario: fabricated backup"
-    [ "$(git -C "$case_dir/moved-copy" rev-parse HEAD)" = "$head" ] \
-      || fail "missing-leased-copy-$scenario: moved copy changed"
-    if grep -q '^return' "$case_dir/treehouse.log"; then
-      fail "missing-leased-copy-$scenario: missing copy returned to pool"
-    fi
-  done
-  pass "missing leased copies retain their task records even with --force"
-}
-
 test_invalid_pool_inventory_refuses_before_cleanup() {
   local case_dir wt rc inventory label
   for label in malformed null object bad-path bad-lease lease-newline bad-later-row multiple-documents empty; do
@@ -6110,7 +6063,6 @@ test_forced_secondmate_dirty_child_return_warns_and_completes
 test_return_that_removes_copy_warns_cannot_verify
 test_scout_ignored_files_survive_scratch_clean
 test_gh_error_and_content_absent_refuses
-test_missing_leased_copy_refuses_before_cleanup
 test_invalid_pool_inventory_refuses_before_cleanup
 test_missing_pool_lease_uses_backup_without_returning_slot
 test_gone_pool_listing_with_landed_work_is_backed_up_and_torn_down

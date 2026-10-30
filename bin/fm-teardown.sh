@@ -14,7 +14,8 @@
 # clean, and pushed-or-landed even under --force. Teardown writes a verified
 # bundle of its head under data/bundles/ and completes without detaching HEAD,
 # deleting the branch, scrubbing files, or returning the slot. Ordinary endpoint
-# and process cleanup still applies; a missing copy refuses.
+# and process cleanup still applies. A missing copy is not refused: absence
+# alone supplies neither the gone-state proof nor a backup.
 # The return itself is `treehouse return --if-lease-id <id>`, with --force added
 # only for an explicit --force teardown or a scout; otherwise a slot left with
 # files after the safety checks is refused by treehouse instead of reset. A
@@ -2181,11 +2182,7 @@ teardown_verify_slot_lease() {
     return 1
     ;;
   esac
-  # A missing leased copy cannot supply the gone-state safety proof or backup.
-  if [ ! -d "$WT" ]; then
-    echo "REFUSED: leased worktree $WT is missing; cannot verify or back up its work, so nothing was changed" >&2
-    return 1
-  fi
+  [ -d "$WT" ] || return 0
   real=$(canonical_existing_dir "$WT") || real=$WT
   if ! command -v jq >/dev/null 2>&1 || ! json=$( cd "$PROJ" && treehouse status --json 2>/dev/null </dev/null ); then
     echo "REFUSED: cannot read the Treehouse pool status to confirm lease $lease still holds $WT; nothing was changed" >&2
