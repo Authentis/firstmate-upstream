@@ -1,0 +1,34 @@
+{run-worktree}/.live/home
+warning: You appear to have cloned an empty repository.
+A new version of treehouse is available: v3.1.6 → v3.1.8
+Run "treehouse update" to update
+
+🌳 Setting up worktree...
+🌳 Leased worktree at ~/.no-mistakes/worktrees/c9e23aecc4aa/01M66J43JFVBFMC5S2DQNZTSTE/.live/home/pool/.treehouse/project-d4b597/1/project. Run 'treehouse return ~/.no-mistakes/worktrees/c9e23aecc4aa/01M66J43JFVBFMC5S2DQNZTSTE/.live/home/pool/.treehouse/project-d4b597/1/project' to release it.
+=== allocated real treehouse slot ===
+{"path":"{run-worktree}/.live/home/pool/.treehouse/project-d4b597/1/project","lease_id":"0cc750b45fdb25aa9619cd1c03d13af5","lease_holder":"","leased_at":"2026-10-30T15:18:07.001315951+01:00","base_branch":"main"}
+=== scenario null-unpushed-force ===
+=== real treehouse lease release ===
+A new version of treehouse is available: v3.1.6 → v3.1.8
+Run "treehouse update" to update
+
+🌳 Worktree returned to pool.
+A new version of treehouse is available: v3.1.6 → v3.1.8
+Run "treehouse update" to update
+
+[{"name":"1","path":"{run-worktree}/.live/home/pool/.treehouse/project-d4b597/1/project","status":"available","branch":"fm/task-live","flavor":"git","lease_id":"","lease_holder":"","leased_at":null,"processes":[]}]
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live/home
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 0s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REFUSED: gone-pool-slot worktree {run-worktree}/.live/home/pool/.treehouse/project-d4b597/1/project has work not on any remote and not landed; the pool no longer lists this slot, so nothing was returned and nothing was discarded - push the branch or land its PR, then retry teardown.
+unpushed commits:
+71b0778 lane
+TEARDOWN_EXIT=1
+RECORD_PRESENT=yes
+HEAD=71b0778cfd4be45c6b725231d0411dca10c782eb BRANCH=fm/task-live
+SCENARIO_VERIFIED=null-unpushed-force

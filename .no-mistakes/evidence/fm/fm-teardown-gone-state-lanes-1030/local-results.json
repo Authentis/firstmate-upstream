@@ -1,0 +1,30 @@
+[
+  {
+    "name": "gone-clean",
+    "result": "pass"
+  },
+  {
+    "name": "lease-gone-clean",
+    "result": "pass"
+  },
+  {
+    "name": "gone-dirty-force",
+    "result": "pass"
+  },
+  {
+    "name": "gone-unpushed-force",
+    "result": "pass"
+  },
+  {
+    "name": "foreign-lease",
+    "result": "pass"
+  },
+  {
+    "name": "gone-missing",
+    "result": "pass"
+  },
+  {
+    "name": "gone-backup-blocked",
+    "result": "pass"
+  }
+]

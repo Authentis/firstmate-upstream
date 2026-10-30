@@ -1,0 +1,2 @@
+ok - a record_only bg-receipt lane with a merged PR head is backed up from the project clone and torn down
+ok - missing lsof falls back to reaping the tmux pane process group

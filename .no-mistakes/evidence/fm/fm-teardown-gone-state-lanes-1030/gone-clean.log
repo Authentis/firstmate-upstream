@@ -1,0 +1,82 @@
+$ bin/fm-lab-home.sh create {run-worktree}/.live-teardown/gone-clean/home
+{run-worktree}/.live-teardown/gone-clean/home
+[exit 0]
+$ git init -q --bare --initial-branch=main {run-worktree}/.live-teardown/gone-clean/origin.git
+[exit 0]
+$ git clone -q {run-worktree}/.live-teardown/gone-clean/origin.git {run-worktree}/.live-teardown/gone-clean/project
+warning: You appear to have cloned an empty repository.
+[exit 0]
+$ git add README
+[exit 0]
+$ git commit -qm seed
+[exit 0]
+$ git push -qu origin main
+[exit 0]
+$ treehouse get --lease --json --no-fetch -b fm/lab-lane
+A new version of treehouse is available: v3.1.6 → v3.1.8
+Run "treehouse update" to update
+
+🌳 Setting up worktree...
+🌳 Leased worktree at ~/.no-mistakes/worktrees/c9e23aecc4aa/01M66J43JFVBFMC5S2DQNZTSTE/.live-teardown/gone-clean/pool/.treehouse/project-da44ae/1/project. Run 'treehouse return ~/.no-mistakes/worktrees/c9e23aecc4aa/01M66J43JFVBFMC5S2DQNZTSTE/.live-teardown/gone-clean/pool/.treehouse/project-da44ae/1/project' to release it.
+{"path":"{run-worktree}/.live-teardown/gone-clean/pool/.treehouse/project-da44ae/1/project","lease_id":"498b4d6cd3a8963407b5a653ae37ab6d","lease_holder":"","leased_at":"2026-10-30T16:04:12.383662785+01:00","base_branch":"main"}
+[exit 0]
+allocation={'path': '{run-worktree}/.live-teardown/gone-clean/pool/.treehouse/project-da44ae/1/project', 'lease_id': '498b4d6cd3a8963407b5a653ae37ab6d', 'lease_holder': '', 'leased_at': '2026-10-30T16:04:12.383662785+01:00', 'base_branch': 'main'}
+$ git rev-parse HEAD
+8b3829635036d4c9ceeb8abe1422021d4b3faaca
+[exit 0]
+$ git push -q origin fm/lab-lane
+[exit 0]
+$ tmux -f /dev/null -S ~/.no-mistakes/evidence/01M66J43JFVBFMC5S2DQNZTSTE/live-tmux.sock new-session -d -s lab -n unrelated sleep 300
+[exit 0]
+$ tmux -S ~/.no-mistakes/evidence/01M66J43JFVBFMC5S2DQNZTSTE/live-tmux.sock new-window -d -t lab -n fm-lab-lane sleep 300
+[exit 0]
+$ tmux -S ~/.no-mistakes/evidence/01M66J43JFVBFMC5S2DQNZTSTE/live-tmux.sock set-option -w -t lab:fm-lab-lane @fm_task_id lab-lane
+[exit 0]
+$ tmux -S ~/.no-mistakes/evidence/01M66J43JFVBFMC5S2DQNZTSTE/live-tmux.sock set-option -w -t lab:fm-lab-lane @fm_spawn_gen live-lab-gen
+[exit 0]
+$ treehouse status --json
+A new version of treehouse is available: v3.1.6 → v3.1.8
+Run "treehouse update" to update
+
+[]
+[exit 0]
+$ git rev-parse HEAD
+8b3829635036d4c9ceeb8abe1422021d4b3faaca
+[exit 0]
+$ bin/fm-teardown.sh lab-lane
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live-teardown/gone-clean/home
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Preserved gone-pool-slot lane lab-lane: bundle {run-worktree}/.live-teardown/gone-clean/home/data/bundles/lab-lane.bundle
+teardown: reaping leaked worktree process group for lab-lane: 3317935
+{run-worktree}/.live-teardown/gone-clean/project: already current
+teardown lab-lane complete (pool slot {run-worktree}/.live-teardown/gone-clean/pool/.treehouse/project-da44ae/1/project or its lease no longer listed; copy left in place, backup in {run-worktree}/.live-teardown/gone-clean/home/data/bundles)
+Backlog: lab-lane just finished (this home keeps no markdown backlog at {run-worktree}/.live-teardown/gone-clean/home/data/backlog.md). Update {run-worktree}/.live-teardown/gone-clean/home/data/backlog.md - move lab-lane to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+[exit 0]
+$ tmux -S ~/.no-mistakes/evidence/01M66J43JFVBFMC5S2DQNZTSTE/live-tmux.sock has-session -t lab
+[exit 0]
+$ tmux -S ~/.no-mistakes/evidence/01M66J43JFVBFMC5S2DQNZTSTE/live-tmux.sock list-windows -t lab -F #{window_name}
+unrelated
+[exit 0]
+$ git bundle verify {run-worktree}/.live-teardown/gone-clean/home/data/bundles/lab-lane.bundle
+{run-worktree}/.live-teardown/gone-clean/home/data/bundles/lab-lane.bundle is okay
+The bundle contains this ref:
+8b3829635036d4c9ceeb8abe1422021d4b3faaca HEAD
+The bundle records a complete history.
+The bundle uses this hash algorithm: sha1
+[exit 0]
+$ git bundle list-heads {run-worktree}/.live-teardown/gone-clean/home/data/bundles/lab-lane.bundle
+8b3829635036d4c9ceeb8abe1422021d4b3faaca HEAD
+[exit 0]
+$ git rev-parse HEAD
+8b3829635036d4c9ceeb8abe1422021d4b3faaca
+[exit 0]
+$ git symbolic-ref --short HEAD
+fm/lab-lane
+[exit 0]
+OBSERVED: record removed; verified backup; branch and copy preserved; unrelated private tmux window survived.

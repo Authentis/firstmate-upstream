@@ -1,0 +1,99 @@
+=== receipt-merged-endpointless ===
+LOCAL FORGE REQUEST /api/graphql {"query":"\n\tquery PullRequestByNumber($owner: String!, $repo: String!, $pr_number: Int!) {\n\t\trepository(owner: $owner, name: $repo) {\n\t\t\tpullRequest(number: $pr_number) {state,headRefOid,url,id,number}\n\t\t}\n\t}","variables":{"owner":"owner","pr_number":7,"repo":"repo"}}
+$ gh pr view https://fm-lab.invalid/owner/repo/pull/7 --json state,headRefOid,url -q .state + "\t" + .headRefOid + "\t" + .url
+MERGED	88c8d7ae186d780d2f75431e6f1f2e74043433f8	https://fm-lab.invalid/owner/repo/pull/7
+[exit 0]
+No background or gate receipt exists. No owned endpoint exists. lsof available=False
+LOCAL FORGE REQUEST /api/graphql {"query":"\n\tquery PullRequestByNumber($owner: String!, $repo: String!, $pr_number: Int!) {\n\t\trepository(owner: $owner, name: $repo) {\n\t\t\tpullRequest(number: $pr_number) {state,headRefOid,url,id,number}\n\t\t}\n\t}","variables":{"owner":"owner","pr_number":7,"repo":"repo"}}
+$ bin/fm-teardown.sh receipt-lane
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live-receipt/merged-endpointless/home
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Preserved record_only lane receipt-lane: bundle {run-worktree}/.live-receipt/merged-endpointless/home/data/bundles/receipt-lane.bundle
+{run-worktree}/.live-receipt/merged-endpointless/project: already current
+teardown receipt-lane complete (record_only lane, no pool slot; recorded worktree {run-worktree}/.live-receipt/merged-endpointless/shared untouched, backup in {run-worktree}/.live-receipt/merged-endpointless/home/data/bundles)
+Backlog: receipt-lane just finished (record_only lanes keep no backlog row). Update {run-worktree}/.live-receipt/merged-endpointless/home/data/backlog.md - move receipt-lane to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+[exit 0]
+$ tmux -S ~/.no-mistakes/evidence/01M66J43JFVBFMC5S2DQNZTSTE/receipt-tmux.sock has-session -t unrelated
+[exit 0]
+$ git bundle verify {run-worktree}/.live-receipt/merged-endpointless/home/data/bundles/receipt-lane.bundle
+{run-worktree}/.live-receipt/merged-endpointless/home/data/bundles/receipt-lane.bundle is okay
+The bundle contains this ref:
+88c8d7ae186d780d2f75431e6f1f2e74043433f8 FETCH_HEAD
+The bundle records a complete history.
+The bundle uses this hash algorithm: sha1
+[exit 0]
+$ git bundle list-heads {run-worktree}/.live-receipt/merged-endpointless/home/data/bundles/receipt-lane.bundle
+88c8d7ae186d780d2f75431e6f1f2e74043433f8 FETCH_HEAD
+[exit 0]
+OBSERVED: receipt-less record retired with verified head backup; shared dummy path unchanged; unrelated private tmux session survived.
+
+=== receipt-record-mismatch ===
+LOCAL FORGE REQUEST /api/graphql {"query":"\n\tquery PullRequestByNumber($owner: String!, $repo: String!, $pr_number: Int!) {\n\t\trepository(owner: $owner, name: $repo) {\n\t\t\tpullRequest(number: $pr_number) {state,headRefOid,url,id,number}\n\t\t}\n\t}","variables":{"owner":"owner","pr_number":7,"repo":"repo"}}
+$ gh pr view https://fm-lab.invalid/owner/repo/pull/7 --json state,headRefOid,url -q .state + "\t" + .headRefOid + "\t" + .url
+MERGED	744c41633faa7ec88193cc4d6dd73c0fc88a5a96	https://fm-lab.invalid/owner/repo/pull/7
+[exit 0]
+No background or gate receipt exists. No owned endpoint exists. lsof available=False
+$ bin/fm-teardown.sh receipt-lane
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live-receipt/record-mismatch/home
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 2s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REFUSED: record_only lane receipt-lane records pr_head bbbbbbbbbbbb, but the PR now heads 744c41633faa7ec88193cc4d6dd73c0fc88a5a96; the recorded head cannot be verified - reconcile the record and retry teardown
+[exit 1]
+$ tmux -S ~/.no-mistakes/evidence/01M66J43JFVBFMC5S2DQNZTSTE/receipt-tmux.sock has-session -t unrelated
+[exit 0]
+OBSERVED: refused with record retained; shared dummy path unchanged; unrelated private tmux session survived.
+
+=== receipt-forge-mismatch ===
+LOCAL FORGE REQUEST /api/graphql {"query":"\n\tquery PullRequestByNumber($owner: String!, $repo: String!, $pr_number: Int!) {\n\t\trepository(owner: $owner, name: $repo) {\n\t\t\tpullRequest(number: $pr_number) {state,headRefOid,url,id,number}\n\t\t}\n\t}","variables":{"owner":"owner","pr_number":7,"repo":"repo"}}
+$ gh pr view https://fm-lab.invalid/owner/repo/pull/7 --json state,headRefOid,url -q .state + "\t" + .headRefOid + "\t" + .url
+MERGED	aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa	https://fm-lab.invalid/owner/repo/pull/7
+[exit 0]
+No background or gate receipt exists. No owned endpoint exists. lsof available=False
+LOCAL FORGE REQUEST /api/graphql {"query":"\n\tquery PullRequestByNumber($owner: String!, $repo: String!, $pr_number: Int!) {\n\t\trepository(owner: $owner, name: $repo) {\n\t\t\tpullRequest(number: $pr_number) {state,headRefOid,url,id,number}\n\t\t}\n\t}","variables":{"owner":"owner","pr_number":7,"repo":"repo"}}
+$ bin/fm-teardown.sh receipt-lane
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live-receipt/forge-mismatch/home
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REFUSED: https://fm-lab.invalid/owner/repo/pull/7 for record_only lane receipt-lane names head aaaaaaaaaaaa, not the recorded 73f8b4bae48d; nothing was changed
+[exit 1]
+$ tmux -S ~/.no-mistakes/evidence/01M66J43JFVBFMC5S2DQNZTSTE/receipt-tmux.sock has-session -t unrelated
+[exit 0]
+OBSERVED: refused with record retained; shared dummy path unchanged; unrelated private tmux session survived.
+
+=== receipt-open-force ===
+LOCAL FORGE REQUEST /api/graphql {"query":"\n\tquery PullRequestByNumber($owner: String!, $repo: String!, $pr_number: Int!) {\n\t\trepository(owner: $owner, name: $repo) {\n\t\t\tpullRequest(number: $pr_number) {state,headRefOid,url,id,number}\n\t\t}\n\t}","variables":{"owner":"owner","pr_number":7,"repo":"repo"}}
+$ gh pr view https://fm-lab.invalid/owner/repo/pull/7 --json state,headRefOid,url -q .state + "\t" + .headRefOid + "\t" + .url
+OPEN	bcdbf015a4b896a350f402bec7acb5c5c5302ea4	https://fm-lab.invalid/owner/repo/pull/7
+[exit 0]
+No background or gate receipt exists. No owned endpoint exists. lsof available=False
+LOCAL FORGE REQUEST /api/graphql {"query":"\n\tquery PullRequestByNumber($owner: String!, $repo: String!, $pr_number: Int!) {\n\t\trepository(owner: $owner, name: $repo) {\n\t\t\tpullRequest(number: $pr_number) {state,headRefOid,url,id,number}\n\t\t}\n\t}","variables":{"owner":"owner","pr_number":7,"repo":"repo"}}
+$ bin/fm-teardown.sh receipt-lane --force
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live-receipt/open-force/home
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REFUSED: https://fm-lab.invalid/owner/repo/pull/7 for record_only lane receipt-lane is not merged (state OPEN), so landing cannot be verified; nothing was changed
+[exit 1]
+$ tmux -S ~/.no-mistakes/evidence/01M66J43JFVBFMC5S2DQNZTSTE/receipt-tmux.sock has-session -t unrelated
+[exit 0]
+OBSERVED: refused with record retained; shared dummy path unchanged; unrelated private tmux session survived.

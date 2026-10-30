@@ -1,0 +1,29 @@
+{run-worktree}/.record/home
+warning: You appear to have cloned an empty repository.
+=== synthetic forge, real gh CLI ===
+{"headRefOid":"f4ca534e73b1fa8ca46ee98c9c6d895594c57a05","state":"MERGED","url":"https://localhost:34463/example/repo/pull/7"}
+RECEIPT_PRESENT=no
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.record/home
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Preserved record_only lane task-receipt: bundle {run-worktree}/.record/home/data/bundles/task-receipt.bundle
+teardown: reaping leaked tasktmp process group for task-receipt: 182393
+teardown: force-killing leaked tasktmp process group for task-receipt: 182393
+project: already current
+teardown task-receipt complete (record_only lane, no pool slot; recorded worktree {run-worktree}/.record/home/shared untouched, backup in {run-worktree}/.record/home/data/bundles)
+Backlog: task-receipt just finished (record_only lanes keep no backlog row). Update {run-worktree}/.record/home/data/backlog.md - move task-receipt to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+TEARDOWN_EXIT=0
+RECORD_PRESENT=no
+SHARED_SENTINEL=shared data, do not touch
+{run-worktree}/.record/home/data/bundles/task-receipt.bundle is okay
+The bundle contains this ref:
+f4ca534e73b1fa8ca46ee98c9c6d895594c57a05 FETCH_HEAD
+The bundle records a complete history.
+The bundle uses this hash algorithm: sha1
+f4ca534e73b1fa8ca46ee98c9c6d895594c57a05 FETCH_HEAD
+SCENARIO_VERIFIED=merged

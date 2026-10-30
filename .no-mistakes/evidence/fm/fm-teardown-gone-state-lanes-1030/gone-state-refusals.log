@@ -1,0 +1,91 @@
+
+===== gone-dirty-force =====
+Real Treehouse inventory before teardown:
+[]
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live-test/gone-dirty-force
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 0s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REFUSED: gone-pool-slot worktree {run-worktree}/.live-test/gone-dirty-force/pool/.treehouse/project-8ba5d1/1/project has uncommitted changes; the pool no longer lists this slot, so nothing was returned and nothing was discarded - clean the copy or back it up by hand, then retry teardown.
+uncommitted changes present (includes tracked edits)
+
+Observed teardown exit: 1
+Original head: 915321522697370815ff382a84214608683030cf
+Observed: refusal retained byte-identical task metadata and original HEAD; no backup fabricated.
+
+===== null-dirty-force =====
+Real Treehouse inventory before teardown:
+[{"name":"1","path":"{run-worktree}/.live-test/null-dirty-force/pool/.treehouse/project-66b035/1/project","status":"dirty","branch":"fm/task-x1","flavor":"git","lease_id":"","lease_holder":"","leased_at":null,"processes":[]}]
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live-test/null-dirty-force
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REFUSED: gone-pool-slot worktree {run-worktree}/.live-test/null-dirty-force/pool/.treehouse/project-66b035/1/project has uncommitted changes; the pool no longer lists this slot, so nothing was returned and nothing was discarded - clean the copy or back it up by hand, then retry teardown.
+uncommitted changes present (includes tracked edits)
+
+Observed teardown exit: 1
+Original head: 998444730294dd376bbbeff16a2a7e5a39855fd2
+Observed: refusal retained byte-identical task metadata and original HEAD; no backup fabricated.
+
+===== gone-unpushed-force =====
+Real Treehouse inventory before teardown:
+[]
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live-test/gone-unpushed-force
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 0s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REFUSED: gone-pool-slot worktree {run-worktree}/.live-test/gone-unpushed-force/pool/.treehouse/project-a0dd6b/1/project has work not on any remote and not landed; the pool no longer lists this slot, so nothing was returned and nothing was discarded - push the branch or land its PR, then retry teardown.
+unpushed commits:
+ea0ee1e work
+
+Observed teardown exit: 1
+Original head: ea0ee1e53b72c1510bb037495a8d17a8b53d2eb9
+Observed: refusal retained byte-identical task metadata and original HEAD; no backup fabricated.
+
+===== null-unpushed-force =====
+Real Treehouse inventory before teardown:
+[{"name":"1","path":"{run-worktree}/.live-test/null-unpushed-force/pool/.treehouse/project-a6d4b8/1/project","status":"available","branch":"fm/task-x1","flavor":"git","lease_id":"","lease_holder":"","leased_at":null,"processes":[]}]
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live-test/null-unpushed-force
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 0s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REFUSED: gone-pool-slot worktree {run-worktree}/.live-test/null-unpushed-force/pool/.treehouse/project-a6d4b8/1/project has work not on any remote and not landed; the pool no longer lists this slot, so nothing was returned and nothing was discarded - push the branch or land its PR, then retry teardown.
+unpushed commits:
+c3af38a work
+
+Observed teardown exit: 1
+Original head: c3af38af0d8cacafb4d44059fde49e3f4a669d6d
+Observed: refusal retained byte-identical task metadata and original HEAD; no backup fabricated.
+
+===== foreign-force =====
+Real Treehouse inventory before teardown:
+[{"name":"1","path":"{run-worktree}/.live-test/foreign-force/pool/.treehouse/project-121a45/1/project","status":"leased","branch":"fm/task-x1","flavor":"git","lease_id":"99f154c8bddaebc9d6bf9aa53c665bde","lease_holder":"","leased_at":"2026-10-30T15:37:39.690821234+01:00","processes":[]}]
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live-test/foreign-force
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REFUSED: Treehouse no longer reports lease a5d0421fcc1d01ad8ce6f847dc28f29f on {run-worktree}/.live-test/foreign-force/pool/.treehouse/project-121a45/1/project (the slot's lease changed); the slot may belong to someone else now, so nothing was reaped, detached, deleted, or returned
+
+Observed teardown exit: 1
+Original head: c7c1d7e1be41931eb6a1fc214fe8acbb442e988e
+Observed: refusal retained byte-identical task metadata and original HEAD; no backup fabricated.

@@ -1,0 +1,25 @@
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.receipt-live/receipt-endpointless-isolation
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Preserved record_only lane task-x1: bundle {run-worktree}/.receipt-live/receipt-endpointless-isolation/data/bundles/task-x1.bundle
+teardown: reaping leaked tasktmp process group for task-x1: 3835670
+{run-worktree}/.receipt-live/receipt-endpointless-isolation/project: STUCK: on diverged main, 0 commits behind origin/main - needs attention
+teardown task-x1 complete (record_only lane, no pool slot; recorded worktree {run-worktree}/.receipt-live/receipt-endpointless-isolation/shared-copy untouched, backup in {run-worktree}/.receipt-live/receipt-endpointless-isolation/data/bundles)
+Backlog: task-x1 just finished (record_only lanes keep no backlog row). Update {run-worktree}/.receipt-live/receipt-endpointless-isolation/data/backlog.md - move task-x1 to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+
+Observed teardown exit: 0
+Local PR ref head: 242226841724645001c2ec98eccf5e8a2761ae26
+{run-worktree}/.receipt-live/receipt-endpointless-isolation/data/bundles/task-x1.bundle is okay
+The bundle contains this ref:
+242226841724645001c2ec98eccf5e8a2761ae26 FETCH_HEAD
+The bundle records a complete history.
+The bundle uses this hash algorithm: sha1
+242226841724645001c2ec98eccf5e8a2761ae26 FETCH_HEAD
+Observed: receipt file never existed; record removed; shared dummy path untouched; recorded head backed up.
+Unrelated private-lab pane before teardown: unrelated 3835670
+Private-lab panes after teardown (exit 1): no server running on ~/.no-mistakes/evidence/01M66J43JFVBFMC5S2DQNZTSTE/receipt-private-socket

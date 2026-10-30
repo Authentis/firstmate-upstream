@@ -1,0 +1,13 @@
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live-test/foreign-force
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REFUSED: Treehouse no longer reports lease a5d0421fcc1d01ad8ce6f847dc28f29f on {run-worktree}/.live-test/foreign-force/pool/.treehouse/project-121a45/1/project (the slot's lease changed); the slot may belong to someone else now, so nothing was reaped, detached, deleted, or returned
+
+Observed teardown exit: 1
+Original head: c7c1d7e1be41931eb6a1fc214fe8acbb442e988e
+Observed: refusal retained byte-identical task metadata and original HEAD; no backup fabricated.

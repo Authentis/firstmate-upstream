@@ -1,0 +1,5 @@
+from pathlib import Path
+p=Path('tests/fm-teardown.test.sh').read_text()
+p=p[:p.index('\ntest_missing_startup_source_refuses_before_cleanup\n')]
+p+='\ntest_invalid_pool_inventory_refuses_before_cleanup\ntest_missing_pool_lease_uses_backup_without_returning_slot\ntest_gone_pool_listing_with_landed_work_is_backed_up_and_torn_down\ntest_gone_pool_listing_with_unpushed_work_refuses\ntest_gone_pool_listing_with_dirty_work_refuses\ntest_record_only_bg_receipt_lane_is_backed_up_and_torn_down\ntest_record_only_bg_receipt_lane_is_backed_up_and_torn_down absent\ntest_record_only_lane_with_unverifiable_head_refuses\n'
+Path('tests/.targeted-gone-state.test.sh').write_text(p)

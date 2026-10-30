@@ -1,0 +1,13 @@
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live-test/missing-gone
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 0s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REFUSED: leased worktree {run-worktree}/.live-test/missing-gone/pool/.treehouse/project-e5e515/1/project is missing; cannot verify or back up its work, so nothing was changed
+
+Observed teardown exit: 1
+Original head: 1f8517badc45690b1f7448a8acb03dff83c99d91
+Observed: refusal retained byte-identical task metadata and original HEAD; no backup fabricated.

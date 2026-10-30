@@ -1,0 +1,8 @@
+ok - invalid pool inventories refuse before cleanup, including invalid rows after a matching lease
+ok - missing leases require a backup, foreign leases refuse, and matching leases return normally
+ok - a clean landed copy whose pool listing is gone is backed up, then torn down records-only
+ok - unpushed unlanded work whose pool listing is gone refuses with the record kept
+ok - a dirty copy whose pool listing is gone refuses with the record kept
+ok - a record_only bg-receipt lane with a merged PR head is backed up from the project clone and torn down
+ok - a record_only bg-receipt lane with a merged PR head is backed up from the project clone and torn down
+ok - a record_only lane whose recorded head is not the PR head refuses with the record kept

@@ -1,0 +1,14 @@
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live-test/null-dirty-force
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REFUSED: gone-pool-slot worktree {run-worktree}/.live-test/null-dirty-force/pool/.treehouse/project-66b035/1/project has uncommitted changes; the pool no longer lists this slot, so nothing was returned and nothing was discarded - clean the copy or back it up by hand, then retry teardown.
+uncommitted changes present (includes tracked edits)
+
+Observed teardown exit: 1
+Original head: 998444730294dd376bbbeff16a2a7e5a39855fd2
+Observed: refusal retained byte-identical task metadata and original HEAD; no backup fabricated.

@@ -1,0 +1,17 @@
+A new version of treehouse is available: v3.1.6 → v3.1.8
+Run "treehouse update" to update
+
+🌳 Setting up worktree...
+🌳 Leased worktree at ~/.no-mistakes/worktrees/c9e23aecc4aa/01M66J43JFVBFMC5S2DQNZTSTE/.live-test/foreign-force/pool/.treehouse/project-121a45/1/project. Run 'treehouse return ~/.no-mistakes/worktrees/c9e23aecc4aa/01M66J43JFVBFMC5S2DQNZTSTE/.live-test/foreign-force/pool/.treehouse/project-121a45/1/project' to release it.
+A new version of treehouse is available: v3.1.6 → v3.1.8
+Run "treehouse update" to update
+
+🌳 Worktree returned to pool.
+A new version of treehouse is available: v3.1.6 → v3.1.8
+Run "treehouse update" to update
+
+🌳 Leased worktree 1 at ~/.no-mistakes/worktrees/c9e23aecc4aa/01M66J43JFVBFMC5S2DQNZTSTE/.live-test/foreign-force/pool/.treehouse/project-121a45/1/project. Run 'treehouse return ~/.no-mistakes/worktrees/c9e23aecc4aa/01M66J43JFVBFMC5S2DQNZTSTE/.live-test/foreign-force/pool/.treehouse/project-121a45/1/project' to release it.
+{"path":"{run-worktree}/.live-test/foreign-force/pool/.treehouse/project-121a45/1/project","lease_id":"99f154c8bddaebc9d6bf9aa53c665bde","lease_holder":"","leased_at":"2026-10-30T15:37:39.690821234+01:00","base_branch":"main"}
+A new version of treehouse is available: v3.1.6 → v3.1.8
+Run "treehouse update" to update
+

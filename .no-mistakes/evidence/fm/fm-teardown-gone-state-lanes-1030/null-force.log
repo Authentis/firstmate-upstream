@@ -1,0 +1,22 @@
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live-test/null-force
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Preserved gone-pool-slot lane task-x1: bundle {run-worktree}/.live-test/null-force/data/bundles/task-x1.bundle
+warning: lsof is unavailable; cannot resolve the tmux pane process group for task-x1
+teardown task-x1 complete (pool slot {run-worktree}/.live-test/null-force/pool/.treehouse/project-04ab1c/1/project or its lease no longer listed; copy left in place, backup in {run-worktree}/.live-test/null-force/data/bundles)
+Backlog: task-x1 just finished (this home keeps no markdown backlog at {run-worktree}/.live-test/null-force/data/backlog.md). Update {run-worktree}/.live-test/null-force/data/backlog.md - move task-x1 to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+
+Observed teardown exit: 0
+Original head: dd9334f21c7f47e332eaff888917d3b22337c56e
+{run-worktree}/.live-test/null-force/data/bundles/task-x1.bundle is okay
+The bundle contains this ref:
+dd9334f21c7f47e332eaff888917d3b22337c56e HEAD
+The bundle records a complete history.
+The bundle uses this hash algorithm: sha1
+dd9334f21c7f47e332eaff888917d3b22337c56e HEAD
+Observed: task record removed; copy clean, original branch and HEAD intact; bundle verified.

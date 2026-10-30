@@ -1,0 +1,13 @@
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.receipt-live/receipt-head-mismatch
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 0s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REFUSED: record_only lane task-x1 records pr_head 000000000000, but the PR now heads f239e8d6ea8ee1784f176f2d0c3918a250a5c661; the recorded head cannot be verified - reconcile the record and retry teardown
+
+Observed teardown exit: 1
+Local PR ref head: f239e8d6ea8ee1784f176f2d0c3918a250a5c661
+Observed: refusal retained byte-identical record and sentinel; no backup fabricated.

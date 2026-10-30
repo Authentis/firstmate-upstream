@@ -1,0 +1,35 @@
+{run-worktree}/.live/home
+warning: You appear to have cloned an empty repository.
+A new version of treehouse is available: v3.1.6 → v3.1.8
+Run "treehouse update" to update
+
+🌳 Setting up worktree...
+🌳 Leased worktree at ~/.no-mistakes/worktrees/c9e23aecc4aa/01M66J43JFVBFMC5S2DQNZTSTE/.live/home/pool/.treehouse/project-d4b597/1/project. Run 'treehouse return ~/.no-mistakes/worktrees/c9e23aecc4aa/01M66J43JFVBFMC5S2DQNZTSTE/.live/home/pool/.treehouse/project-d4b597/1/project' to release it.
+=== allocated real treehouse slot ===
+{"path":"{run-worktree}/.live/home/pool/.treehouse/project-d4b597/1/project","lease_id":"960c22ccc739a1f0b60a072ed7134171","lease_holder":"","leased_at":"2026-10-30T15:11:29.591003566+01:00","base_branch":"main"}
+=== switch to empty disposable pool inventory ===
+A new version of treehouse is available: v3.1.6 → v3.1.8
+Run "treehouse update" to update
+
+[]
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live/home
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Preserved gone-pool-slot lane task-live: bundle {run-worktree}/.live/home/data/bundles/task-live.bundle
+teardown: reaping leaked worktree process group for task-live: 380285
+teardown task-live complete (pool slot {run-worktree}/.live/home/pool/.treehouse/project-d4b597/1/project or its lease no longer listed; copy left in place, backup in {run-worktree}/.live/home/data/bundles)
+Backlog: task-live just finished (this home keeps no markdown backlog at {run-worktree}/.live/home/data/backlog.md). Update {run-worktree}/.live/home/data/backlog.md - move task-live to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+TEARDOWN_EXIT=0
+RECORD_PRESENT=no
+HEAD=3f0b9fce16d78b182bfcfa7e501830bf77f1ccf8 BRANCH=fm/task-live
+{run-worktree}/.live/home/data/bundles/task-live.bundle is okay
+The bundle contains this ref:
+3f0b9fce16d78b182bfcfa7e501830bf77f1ccf8 HEAD
+The bundle records a complete history.
+The bundle uses this hash algorithm: sha1
+3f0b9fce16d78b182bfcfa7e501830bf77f1ccf8 HEAD

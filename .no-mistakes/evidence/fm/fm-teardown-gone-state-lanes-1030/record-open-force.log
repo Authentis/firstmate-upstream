@@ -1,0 +1,18 @@
+{run-worktree}/.record/home
+warning: You appear to have cloned an empty repository.
+=== synthetic forge, real gh CLI ===
+{"headRefOid":"6a56e1b23475b459f2dd605012ba940403431857","state":"OPEN","url":"https://localhost:34463/example/repo/pull/7"}
+RECEIPT_PRESENT=no
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.record/home
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REFUSED: 7 for record_only lane task-receipt is not merged (state OPEN), so landing cannot be verified; nothing was changed
+TEARDOWN_EXIT=1
+RECORD_PRESENT=yes
+SHARED_SENTINEL=shared data, do not touch
+SCENARIO_VERIFIED=open-force

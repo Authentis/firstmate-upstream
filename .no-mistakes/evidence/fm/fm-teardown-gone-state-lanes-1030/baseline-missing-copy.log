@@ -1,0 +1,27 @@
+{run-worktree}/.live/home
+warning: You appear to have cloned an empty repository.
+A new version of treehouse is available: v3.1.6 → v3.1.8
+Run "treehouse update" to update
+
+🌳 Setting up worktree...
+🌳 Leased worktree at ~/.no-mistakes/worktrees/c9e23aecc4aa/01M66J43JFVBFMC5S2DQNZTSTE/.live/home/pool/.treehouse/project-d4b597/1/project. Run 'treehouse return ~/.no-mistakes/worktrees/c9e23aecc4aa/01M66J43JFVBFMC5S2DQNZTSTE/.live/home/pool/.treehouse/project-d4b597/1/project' to release it.
+=== allocated real treehouse slot ===
+{"path":"{run-worktree}/.live/home/pool/.treehouse/project-d4b597/1/project","lease_id":"ecb5364f91a98163e0a6a8c595f22d00","lease_holder":"","leased_at":"2026-10-30T15:16:45.681805005+01:00","base_branch":"main"}
+=== scenario missing-copy ===
+A new version of treehouse is available: v3.1.6 → v3.1.8
+Run "treehouse update" to update
+
+[]
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live/home
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+teardown: reaping leaked worktree process group for task-live: 1070402
+teardown task-live complete (window firstmate:fm-task-live, worktree {run-worktree}/.live/home/pool/.treehouse/project-d4b597/1/project)
+Backlog: task-live just finished (this home keeps no markdown backlog at {run-worktree}/.live/home/data/backlog.md). Update {run-worktree}/.live/home/data/backlog.md - move task-live to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+TEARDOWN_EXIT=0
+RECORD_PRESENT=no
