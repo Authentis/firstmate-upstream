@@ -188,6 +188,9 @@ jobs:
   # a machine: each shard is still strictly serial in itself. Shard membership
   # and the shard count both belong to bin/fm-test-run.sh, which refuses a lane
   # whose "ofN" disagrees with it (docs/fm-test-portable-shards.md).
+  # The supervision-host suite is split in two files so no shard carries the
+  # whole file: unsplit it measured 1067s-1491s green and hit this 30-minute
+  # cap on five consecutive runs with no single hanging test.
   tests-portable-serial:
     name: Behavior portable serial ${{ matrix.shard }}
     runs-on: ubuntu-latest

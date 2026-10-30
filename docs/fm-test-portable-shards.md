@@ -22,10 +22,12 @@ A failed script's duration is excluded even when its lane uploaded an artifact.
 In particular, run 36664663190's serial 5 finished in 22m15s with an assertion failure, not a timeout; treating that as a healthy whole-lane sample would hide the failure.
 Collect successful per-script measurements for every member before calculating a split.
 
-`tests/fm-supervision-host.test.sh` runs alone in its own portable serial shard.
-Its wait-bound cases took 1030 s and 1620 s on two hosted runs of the same head, so its older 789123 ms hint let the planner stack about 150 s of other scripts behind it until the 30-minute job limit cancelled the lane.
-Its hint is therefore the lane's 1200000 ms packing budget rather than a measured maximum: that weight exceeds every other shard's load, so the longest-processing-time planner never places another script beside it, and `tests/fm-test-run.test.sh` requires the isolation.
-Do not lower the hint toward a measured sample without keeping the script alone, and do not use the job timeout to absorb its variance.
+`tests/fm-supervision-host.test.sh` and `tests/fm-supervision-host-lifecycle.test.sh` are the 2026-10-30 split of one suite that outgrew its shard.
+The unsplit file measured 1067 s on green main run 40233975873, 1346 s, 1467 s, and 1491 s on green PR runs 40890707398, 40862080581, and 40947419730, then exceeded the 30-minute job cap on main runs 40869150764, 40947233848, and 40960036475 and on PR 38 (run 41007701460), with no single hanging test: all 72 completed cases passed and the per-case slowdown was uniform.
+Its hints are therefore the green-run per-half measurements scaled by the slowest observed file-level variance (1.4x): 810000 ms for the routing and handoff half, 620000 ms for the latch, park, and ownership half.
+`tests/fm-test-run.test.sh` requires the halves to pack into different shards; reuniting them would rebuild the cancelled lane.
+Refresh both hints from the post-split CI timing artifacts.
+Do not use the job timeout to absorb the variance.
 The native-Windows-only `tests/fm-pi-windows-shell-invocation.test.sh` retains its separate 5121 ms measurement from 2026-09-06T21:02Z instead of a portable capability skip.
 The session-start hint retains its pre-optimization maximum until CI measures the shorter fixture-only home-summary bound; do not discount a local speedup from CI packing weights.
 

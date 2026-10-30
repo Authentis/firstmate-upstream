@@ -412,7 +412,8 @@ Each arm owner's own suite covers its host mode against a stub host.
 
 | Test | What it covers |
 |---|---|
-| `tests/fm-supervision-host.test.sh` | Drives the real host, auto-arm, grant, drain, report, and lease scripts against a stub engine, in both postures, including the shared offer rule and the drain's `BRANCH OUTCOMES` section. |
+| `tests/fm-supervision-host.test.sh` | Drives the real host, auto-arm, grant, drain, report, and lease scripts against a stub engine, in both postures: the report surface, the drain's `BRANCH OUTCOMES` section, routing, hook pass-throughs, and engine-turn handoffs. |
+| `tests/fm-supervision-host-lifecycle.test.sh` | The host loop's lifecycle limits against the same stub engine and shared fixture: the engine-error latch and its probes, engine bounding and reaping, restarts, the park boundary and its clock, first-cycle status, held outcomes, and session ownership. |
 | `tests/fm-offer-wake-fold.test.sh` | The offer rule's treatment of wake-fold rows: the offer-probe verdict table, the fold digest close and the re-arm that stays main's, every retained veto, and `config/wake-fold` off restoring the unfolded verdicts. |
 | `tests/fm-claude-stop-autoarm.test.sh` | The Claude arm owner's host mode against a stub host. |
 | `tests/fm-cursor-primary.test.sh` | The Cursor arm owner's host mode against a stub host. |
