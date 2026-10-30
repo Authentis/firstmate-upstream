@@ -6,9 +6,9 @@
 # since secondmates are not backlog items), then refresh/prune the project's
 # clone for PR-based ship tasks.
 # A task record carrying lease_id= (a slot taken by `treehouse get --lease`, see
-# bin/fm-spawn.sh) is handled in two lease-bound steps. Before any destructive
-# step, a read-only `treehouse status --json` must still show that lease on the
-# slot; a different nonempty lease or unreadable/invalid pool status refuses.
+# bin/fm-spawn.sh) is checked before destructive cleanup with a read-only
+# `treehouse status --json`. A matching lease permits a lease-bound return;
+# a different nonempty lease or unreadable/invalid pool status refuses.
 # A slot absent from a valid inventory, or listed with a null, empty, or omitted
 # lease_id, takes the gone-pool path instead: the copy must remain inspectable,
 # clean, and pushed-or-landed even under --force. Teardown writes a verified
@@ -2169,11 +2169,8 @@ cleanup_stale_lock_for_safety_check() {
 }
 
 TEARDOWN_RETURN_LEASE_ID=
-# A leased slot (lease_id= in the record) is verified read-only BEFORE any
-# destructive step: treehouse must still report this task's lease on this path.
-# A slot re-leased outside Firstmate, or no longer leased, belongs to someone
-# else now, so teardown stops with a report instead of reaping processes,
-# detaching HEAD, deleting the branch, or removing hooks inside it.
+# Classify the recorded lease before cleanup; the script header owns the
+# lease-bound return, reassignment refusal, and gone-pool safety contract.
 teardown_verify_slot_lease() {
   local lease path_in_pool lease_in_pool real json rows found=0
   lease=$(meta_value "$META" lease_id)
@@ -3967,7 +3964,7 @@ if [ "$BACKEND" = orca ] && [ "$KIND" != scout ] && [ "$KIND" != secondmate ] &&
   ORCA_PATH_MATCH_VERIFIED=1
 fi
 
-# The lease is confirmed before ANY slot mutation, including the stale index
+# Classify the lease before any slot mutation, including the stale index
 # lock removal inside the safety check below.
 if [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ] && teardown_owns_worktree; then
   teardown_verify_slot_lease || exit 1
