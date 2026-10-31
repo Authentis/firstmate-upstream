@@ -588,6 +588,63 @@ test_attended_routine_wake_is_handled_on_the_engine_and_stays_off_main() {
   pass "host: an attended wake the branch may take is handled on the engine, and its routine outcome never wakes main"
 }
 
+test_secondmate_awareness_waits_for_natural_drain() {
+  local home drained
+  home=$(make_home secondmate-awareness attended)
+  printf 'sm-fixture\n' > "$home/.fm-secondmate-home"
+  echo awareness > "$home/stub-mode"
+  start_host "$home"
+  wait_until 150 watcher_live "$home" || fail "awareness: watcher never started"
+  append_status "$home" 'worker is working'
+  wait_until 250 handled_at_least "$home" 1 || fail "awareness: engine never handled wake: $(cat "$home/host.out" "$home/state/.supervision-host.log" "$home/engine-report.log" 2>/dev/null)"
+  wait_until 250 bash -c '[ -s "$1/state/.supervision-host-awareness-deferred" ] || [ -s "$1/host.rc" ]' _ "$home" \
+    || fail "awareness: final hand-back decision never completed"
+  [ ! -s "$home/host.rc" ] || fail "awareness-only outcome woke secondmate main"
+  assert_absent "$home/state/.branch-outcomes-processed" "deferral acknowledged the outcome"
+  assert_absent "$home/state/.branch-outcomes-cursor" "deferral marked the outcome read"
+  # Stop only this fixture host; main's next natural drain presents the row.
+  stop_home_processes "$home"
+  drained=$(FM_HOME="$home" "$FAKE_CLAUDE" -c '"$0" 2>&1' "$ROOT/bin/fm-wake-drain.sh")
+  assert_contains "$drained" 'ago] demo: worker finished' "next natural drain lost deferred outcome"
+  assert_contains "$drained" 'AWARENESS OUTCOMES DEFERRED: 1' "deferral counter was not visible"
+  FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" mark-processed --through 1 >/dev/null \
+    || fail "deferred outcome could not be acknowledged after presentation"
+  drained=$(FM_HOME="$home" "$FAKE_CLAUDE" -c '"$0" 2>&1' "$ROOT/bin/fm-wake-drain.sh")
+  assert_not_contains "$drained" 'ago] demo: worker finished' "acknowledged deferral repeated"
+  assert_not_contains "$drained" 'AWARENESS OUTCOMES DEFERRED' "a counter alone created drain work"
+  pass "secondmate awareness stays durable until a natural drain and acknowledgement"
+}
+
+test_secondmate_instruction_and_mixed_turn_wake() {
+  local home mode
+  for mode in instruction extra-text multiline unknown status-ask mixed primary; do
+    home=$(make_home "secondmate-$mode" attended)
+    [ "$mode" = primary ] || printf 'sm-fixture\n' > "$home/.fm-secondmate-home"
+    echo awareness > "$home/stub-mode"
+    case "$mode" in
+      instruction) printf 'Please decide whether to merge\n' > "$home/stub-summary" ;;
+      extra-text) printf 'worker finished; continue the next task\n' > "$home/stub-summary" ;;
+      multiline) printf 'worker finished\nContinue the next task\n' > "$home/stub-summary" ;;
+      unknown) printf 'The migration situation changed\n' > "$home/stub-summary" ;;
+      mixed) echo awareness-mixed > "$home/stub-mode" ;;
+    esac
+    start_host "$home"
+    wait_until 150 watcher_live "$home" || fail "$mode: watcher never started"
+    if [ "$mode" = status-ask ]; then
+      append_status "$home" 'Please decide whether to continue'
+    else
+      append_status "$home" 'worker is working'
+    fi
+    wait_until 250 host_exited "$home" || fail "$mode: actionable outcome did not wake main"
+    assert_re '^supervision-host: branch-outcome:' "$home/host.out" "$mode: hand-back missing"
+    if [ "$mode" = mixed ]; then
+      assert_grep 'store rows 1, 2)' "$home/host.out" "mixed turn must hand back the instruction"
+      assert_absent "$home/state/.supervision-host-awareness-deferred" "mixed turn counted immediate delivery as deferred"
+    fi
+  done
+  pass "secondmate instructions, unknown text, mixed outcomes, and primary awareness still wake main"
+}
+
 test_attended_captain_outcome_reaches_main_through_branch_outcomes() {
   local home drained
   home=$(make_home attended-captain attended)
@@ -1825,11 +1882,14 @@ SH
   pass "host: parked child-exit sampling uses ordinary half-second sleeps"
 }
 
+test_secondmate_awareness_waits_for_natural_drain
+test_secondmate_instruction_and_mixed_turn_wake
 test_claude_stop_hook_restores_handoff_when_successor_closed_before_exit_to_main
 test_claude_stop_hook_restores_handoff_when_successor_closed_mid_engine_turn
 test_claude_stop_hook_notifies_when_closed_successor_downtime_restore_fails
 test_claude_stop_hook_notifies_when_closed_announced_successor_downtime_restore_fails
 test_park_exit_probe_uses_half_second_child_sleeps
+
 test_report_surface_enforces_actor_turn_and_scope
 test_report_after_the_return_is_queued_for_main
 test_dispatch_entry_scopes_rows_and_renders_the_away_tail
