@@ -682,9 +682,10 @@ The flag is a home-local supervision-noise preference and is not inherited by se
 ## Wake fold (config/wake-fold)
 
 The wake fold is on by default and spends a supervisor turn only on wakes that carry something new.
-With the local, gitignored `config/wake-fold` absent or containing `on`, the watcher queues two kinds of routine wake durably without waking the supervisor:
+With the local, gitignored `config/wake-fold` absent or containing `on`, the watcher queues three kinds of routine wake durably without waking the supervisor:
 
 - A registered custom check printing text identical to one of its recent deliveries.
+- The cloud-branch check printing only `quiet:` heads that an earlier delivered wake from that check already surfaced; `new:` tokens, first-time heads, malformed output, a nonzero check exit, or missing delivery history still wake.
 - A watcher re-arm whose whole queue is those folded rows.
 
 A remote secondmate home's own outbound parent channel never reaches the fold: the watcher's signal scan excludes it, so its reports neither wake nor queue (`secondmate-parent-channel.md`).
