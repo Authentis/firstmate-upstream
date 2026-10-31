@@ -459,11 +459,15 @@ wake_fold_active() {
 }
 
 # 0 when every named signal file is the .status log of a persistent secondmate
-# lane carrying only unmarked working:/paused: lines, so a wake with no captain-relevant event in it is progress the batched
-# digest may carry (bin/fm-wake-classify-lib.sh). A .turn-ended marker is never
+# lane whose new span passes the digest classification in fm-classify-lib.sh;
+# the batch store carries it (bin/fm-wake-classify-lib.sh). Outcome classification
+# stays per file: ordinary progress beside an outcome keeps its normal batch
+# window and stall eligibility, and does not count as a deferred outcome.
+# A .turn-ended marker is never
 # progress: a bare turn-end may be a silent finish or a wedge, so it keeps waking.
 signal_files_all_secondmate() {  # <file> ...
   local f id
+  FM_SECONDMATE_ROUTINE_OUTCOME_FILES=''
   [ "$#" -gt 0 ] || return 1
   for f in "$@"; do
     id=$(basename "$f")
@@ -472,9 +476,10 @@ signal_files_all_secondmate() {  # <file> ...
       *) return 1 ;;
     esac
     [ "$(fm_meta_get "$STATE/$id.meta" kind 2>/dev/null)" = secondmate ] || return 1
-    # Only unmarked working:/paused: lines are progress; a note:, a corr= reply,
-    # or an unknown verb is parent-directed content that keeps waking.
-    _fm_secondmate_status_new_lines_routine "$f" "$STATE" || return 1
+    # The shared classifier owns the conservative digest-only outcome rule.
+    _fm_secondmate_status_new_lines_routine "$f" "$STATE" digest || return 1
+    _fm_secondmate_status_new_lines_routine "$f" "$STATE" \
+      || FM_SECONDMATE_ROUTINE_OUTCOME_FILES="$FM_SECONDMATE_ROUTINE_OUTCOME_FILES $f"
   done
 }
 
@@ -966,7 +971,7 @@ secondmate_oldest_queue_row() {  # <queue-path>
     BEGIN {
       while ((getline line < batch) > 0) {
         split(line, bf, "\t")
-        if (bf[1] ~ /^[0-9]+$/) batched[bf[1]] = 1
+        if (bf[1] ~ /^[0-9]+$/) batched[bf[1]] = bf[3]
       }
     }
     function declared_external_pause(kind, payload) {
@@ -974,7 +979,8 @@ secondmate_oldest_queue_row() {  # <queue-path>
         && payload ~ /^stale: .*\(paused [0-9]+s, awaiting external - declared (pause,|paused\))/
     }
     function young_batched(seq, epoch) {
-      return (seq in batched) && now - epoch < grace
+      if (!(seq in batched)) return 0
+      return batched[seq] == "secondmate-outcome" || now - epoch < grace
     }
     NF >= 5 && $1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+$/ \
       && !declared_external_pause($3, $5) && !young_batched($2, $1) {
@@ -3417,7 +3423,7 @@ EOF
         signal_batched=1
         signal_batch_class=relay-batch
         signal_batch_log="relay-batch secondmate signal"
-      elif [ "$signal_actionable" -ne 0 ] && ! afk_present && wake_fold_active \
+      elif ! afk_present && wake_fold_active \
         && fm_wake_classify_enabled && signal_files_all_secondmate $files \
         && [ "$(fm_wake_classify signal "$files" "$reason" secondmate-progress)" = nonurgent ]; then
         signal_batched=1
@@ -3427,7 +3433,13 @@ EOF
         file_reason="$reason"
         case " $FM_SIGNAL_NEEDS_DECISION_FILES " in *" $f "*) file_reason="needs-decision:$files" ;; esac
         if [ "$signal_batched" -eq 1 ]; then
-          fm_wake_batch_append signal "$(basename "$f")" "$file_reason" "$signal_batch_class" || exit 1
+          file_batch_class=$signal_batch_class
+          if [ "$file_batch_class" = nonurgent ]; then
+            case " $FM_SECONDMATE_ROUTINE_OUTCOME_FILES " in
+              *" $f "*) file_batch_class=secondmate-outcome ;;
+            esac
+          fi
+          fm_wake_batch_append signal "$(basename "$f")" "$file_reason" "$file_batch_class" || exit 1
         else
           fm_wake_append signal "$(basename "$f")" "$file_reason" || exit 1
         fi

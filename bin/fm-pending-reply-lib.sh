@@ -189,6 +189,31 @@ fm_pending_reply_corr_token() {  # <corr_id>
   printf 'corr=%s' "$1"
 }
 
+# Prove every correlation on a status line has no parent request record.
+# Existing records, including resolved requests, keep the wake urgent: receipt
+# does not prove the parent has presented the answer. Malformed tokens also wake.
+fm_pending_reply_line_has_no_open_corr() {  # <state-dir> <status-line>
+  local state=$1 line=$2 word corr rec rest prefix dir
+  dir=$(fm_pending_reply_dir "$state")
+  if [ -e "$dir" ] || [ -L "$dir" ]; then
+    [ -d "$dir" ] && [ -r "$dir" ] && [ -x "$dir" ] && [ ! -L "$dir" ] || return 1
+  fi
+  rest=$line
+  while [[ "$rest" == *corr=* ]]; do
+    prefix=${rest%%corr=*}
+    case "$prefix" in *[[:alnum:]_]) return 1 ;; esac
+    rest=${rest#*corr=}
+    word=${rest%%[[:space:]\]:]*}
+    [[ "$word" =~ ^[a-fA-F0-9]{16}$ ]] || return 1
+    corr=$(printf '%s' "$word" | tr 'A-F' 'a-f')
+    rec=$(fm_pending_reply_path "$state" "$corr")
+    if [ -e "$rec" ] || [ -L "$rec" ]; then
+      return 1
+    fi
+  done
+  return 0
+}
+
 # Extract the first corr=<16hex> token from free text, or empty.
 fm_pending_reply_extract_corr() {  # <text>
   local text=$1

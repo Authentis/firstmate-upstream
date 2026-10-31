@@ -571,6 +571,53 @@ secondmate_stall_watch_leg() { # <dir> <leg> <mode> [arg...]
   wait_for_exit "$pid" "$limit" || true
 }
 
+test_secondmate_deferred_outcome_rows_do_not_feed_stall_escalation() {
+  local dir state sub fakebin real_date
+  dir=$(make_case secondmate-deferred-outcome-queue)
+  state="$dir/state"
+  sub="$dir/secondmate"
+  mkdir -p "$sub/state"
+  printf 'mate\n' > "$sub/.fm-secondmate-home"
+  printf 'window=firstmate:fm-mate\nkind=secondmate\nharness=claude\nbackend=tmux\nhome=%s\n' \
+    "$sub" > "$state/mate.meta"
+  fakebin="$dir/fakebin"
+  real_date=$(command -v date)
+  cat > "$fakebin/date" <<SH
+#!/usr/bin/env bash
+if [ "\${1:-}" = +%s ]; then
+  cat "\${FM_FAKE_NOW_FILE:?}"
+else
+  exec "$real_date" "\$@"
+fi
+SH
+  chmod +x "$fakebin/date"
+  printf '100\t7\tsecondmate-status\tchild-pr-1\tsecondmate-status: done child-pr-1\n' > "$sub/state/.wake-queue"
+  printf '7\t100\tsecondmate-outcome\n' > "$sub/state/.wake-batch"
+  printf '1000\n' > "$dir/now"
+  PATH="$fakebin:$PATH" FM_FAKE_NOW_FILE="$dir/now" FM_HOME="$dir" FM_ROOT_OVERRIDE="$ROOT" \
+    FM_STATE_OVERRIDE="$state" FM_FAKE_TMUX_WINDOW='firstmate:fm-mate' \
+    FM_SECONDMATE_WAKE_STALL_SECS=1 FM_POLL=1 FM_SIGNAL_GRACE=0 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
+    secondmate_stall_watch_leg "$dir" "first" cleared
+  printf '5000\n' > "$dir/now"
+  PATH="$fakebin:$PATH" FM_FAKE_NOW_FILE="$dir/now" FM_HOME="$dir" FM_ROOT_OVERRIDE="$ROOT" \
+    FM_STATE_OVERRIDE="$state" FM_FAKE_TMUX_WINDOW='firstmate:fm-mate' \
+    FM_SECONDMATE_WAKE_STALL_SECS=1 FM_POLL=1 FM_SIGNAL_GRACE=0 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
+    secondmate_stall_watch_leg "$dir" "second" cleared
+  [ ! -s "$state/.wake-queue" ] \
+    || fail "an aged deferred outcome row fed the secondmate wake-loop escalation"
+  ! grep -F 'secondmate wake-loop stalled' "$dir/watch-first.out" "$dir/watch-second.out" >/dev/null \
+    || fail "a deferred routine outcome was mislabeled as a stalled wake loop"
+
+  printf '100\t8\tcheck\tgenuine\tcheck: genuine row\n' >> "$sub/state/.wake-queue"
+  foreign_stall_watch_leg "$dir" mixed-first 5100 "$(printf '5100\t100-8')"
+  foreign_stall_watch_leg "$dir" mixed-stalled 5102
+  grep -F 'check: secondmate wake-loop stalled: mate=mate row=8 idle=2s' "$dir/watch-mixed-stalled.out" >/dev/null \
+    || fail "a genuine row behind a deferred outcome did not alert: $(cat "$dir/watch-mixed-stalled.out")"
+  pass "deferred secondmate outcome rows do not feed wake-loop escalation but genuine rows still do"
+}
+
 test_secondmate_declared_pause_rows_do_not_feed_stall_escalation() {
   local dir state sub fakebin real_date
   dir=$(make_case secondmate-declared-pause-queue)
@@ -3725,6 +3772,7 @@ test_live_presentation_holder_is_deadlined_without_weakening_ack
 test_malformed_presentation_lock_reports_acquire_failure
 test_secondmate_foreign_queue_stall_tracks_progress_and_alerts_once
 test_secondmate_declared_pause_rows_do_not_feed_stall_escalation
+test_secondmate_deferred_outcome_rows_do_not_feed_stall_escalation
 test_secondmate_reprovisioned_queue_starts_a_fresh_interval
 test_secondmate_active_turn_defers_stall_until_the_turn_ends
 test_secondmate_long_lived_mate_mid_turn_is_not_a_stall

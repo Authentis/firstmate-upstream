@@ -726,7 +726,7 @@ test_drain_prints_the_wake_turn_stats() {
   } > "$state/.wake-turns.log"
   append_wake "$state" signal task.status "signal: $state/task.status" || fail "could not queue a row"
   drain "$dir" || fail "drain failed"
-  grep -q '^WAKE TURN STATS (last 6h): turns=4 (urgent=2, batched-digest=1, fold-digest=1) routine-acked-by-watcher=1 batched-rows=1$' "$dir/drain.out" \
+  grep -q '^WAKE TURN STATS (last 6h): turns=4 (urgent=2, batched-digest=1, fold-digest=1) routine-acked-by-watcher=1 batched-rows=1 secondmate-outcomes-deferred=0$' "$dir/drain.out" \
     || fail "the drain did not print the trailing-window stats: $(cat "$dir/drain.out")"
   pass "the drain prints wake-started turns, routine acknowledgements, and batched rows for the trailing six hours"
 }
@@ -1058,6 +1058,78 @@ test_relay_batch_optin_and_urgent_spans
 test_relay_batch_hour_window
 test_urgent_check_carries_held_relay
 
+test_secondmate_routine_outcomes_natural_drain() {
+  local dir state variant line
+  for variant in child-pr approval missing-yolo conflicting-yolo merged orphan resolved resolved-working resolved-paused open decision note blocked unknown-key malformed mixed multi-corr binary bad-store; do
+    dir=$(make_classify_case "secondmate-outcome-$variant"); state="$dir/state"
+    printf 'window=remote:mate\nkind=secondmate\nmode=secondmate\n' > "$state/mate.meta"
+    line='done [key=child-pr-123]: child PR is green yolo=on'
+    case "$variant" in
+      approval) line='done [key=child-pr-123]: child PR ready for approval yolo=off' ;;
+      missing-yolo) line='done [key=child-pr-123]: child PR ready for review' ;;
+      conflicting-yolo) line='done [key=child-pr-123]: child PR ready yolo=off yolo=on' ;;
+      merged) line='done [key=merged-123]: child landed' ;;
+      bad-store)
+        printf 'not a directory\n' > "$state/pending-replies"
+        line='working corr=0123456789abcdef: unknown reply store'
+        ;;
+      orphan) line='working corr=0123456789abcdef: supervising children' ;;
+      resolved|open)
+        mkdir -p "$state/pending-replies"
+        printf 'phase=%s\n' "$([ "$variant" = resolved ] && echo resolved || echo awaiting_report)" > "$state/pending-replies/0123456789abcdef"
+        line='paused [corr=0123456789abcdef]: waiting on child CI'
+        ;;
+      resolved-working|resolved-paused)
+        mkdir -p "$state/pending-replies"
+        printf 'phase=awaiting_report\ndelivered_epoch=1\nparent_status=%s\n' "$state/mate.status" > "$state/pending-replies/0123456789abcdef"
+        line="${variant#resolved-} [corr=0123456789abcdef]: fresh answer to the parent request"
+        ;;
+      multi-corr)
+        mkdir -p "$state/pending-replies"
+        printf 'phase=awaiting_report\n' > "$state/pending-replies/fedcba9876543210"
+        line='working corr=0123456789abcdef corr=fedcba9876543210: two replies'
+        ;;
+      decision) line='needs-decision [key=child-pr-123]: choose a route' ;;
+      note) line='note: a ruling needs attention' ;;
+      blocked) line='blocked [key=unknown]: dependency unavailable' ;;
+      unknown-key) line='done [key=unknown]: unknown outcome' ;;
+      malformed) line='working corr=bad: unknown reply' ;;
+      mixed) line="$line"$'\n''needs-decision: choose a route' ;;
+    esac
+    printf '%s\n' "$line" > "$state/mate.status"
+    case "$variant" in
+      resolved-working|resolved-paused)
+        # Reconciliation proves receipt before any drain has presented the answer.
+        # shellcheck disable=SC2016 # Expansion belongs to the library shell.
+        lib "$dir" '. "$root/bin/fm-pending-reply-lib.sh"; fm_pending_reply_try_resolve "$STATE" "$1"' 0123456789abcdef \
+          || fail "$variant could not reconcile its fresh answer"
+        grep -qx 'phase=resolved' "$state/pending-replies/0123456789abcdef" || fail "$variant did not reach resolved before presentation"
+        ;;
+    esac
+    [ "$variant" != binary ] || printf '\000' >> "$state/mate.status"
+    watch_bg "$dir" FM_WAKE_BATCH_SECS=0
+    case "$variant" in
+      child-pr|merged|orphan)
+        wait_poll_cycle "$state" "$WATCH_PID" || fail "$variant woke immediately"
+        wait_poll_cycle "$state" "$WATCH_PID" || fail "$variant started an age-only digest turn"
+        stop_watcher
+        [ "$(queue_rows "$dir")" -eq 1 ] || fail "$variant did not remain durable"
+        grep -q $'\tsecondmate-outcome$' "$state/.wake-batch" || fail "$variant lost its batch class"
+        drain "$dir" --ack-if-routine || fail "$variant natural drain failed"
+        grep -q 'secondmate-outcomes-deferred=1' "$dir/drain.out" || fail "$variant counter invisible"
+        grep -F "${line##*: }" "$dir/drain.out" >/dev/null || fail "$variant evidence absent from drain"
+        grep -q WAKE_ACK_REQUIRED "$dir/drain.err" || fail "$variant silently acknowledged"
+        ;;
+      *)
+        wait_for_exit "$WATCH_PID" 100 || fail "$variant did not wake"
+        WATCH_PID=
+        [ ! -s "$state/.wake-batch" ] || fail "$variant was batched"
+        ;;
+    esac
+  done
+  pass 'known secondmate outcomes wait durably for a natural drain with a counter; requests, unknowns and mixed spans wake'
+}
+
 test_classifier_sorts_routine_nonurgent_urgent
 test_batch_record_is_durable_deduped_and_not_routine
 test_batch_digest_honors_window_and_one_per_window
@@ -1070,9 +1142,79 @@ test_watcher_wakes_for_a_custom_check_that_is_not_an_opted_in_reporter
 test_watcher_delivers_one_batched_digest_per_window
 test_classification_switched_off_still_delivers_a_recorded_batch
 test_watcher_batches_secondmate_progress_and_wakes_events
+test_secondmate_routine_outcomes_natural_drain
 test_watcher_acknowledgement_refuses_unproven_recovery_state_and_pending_outcomes
 test_fold_switched_off_after_queueing_still_delivers_through_the_digest
 test_measurement_rotation_keeps_in_window_turns
 test_changed_decision_set_holds_the_watcher_acknowledgement
 test_skipped_presentation_does_not_record_the_decision_fingerprint
 test_drain_prints_the_wake_turn_stats
+
+# A progress row already queued for this file must not swallow an outcome's class.
+test_secondmate_outcome_after_progress_and_natural_trigger() {
+  local dir state
+  dir=$(make_classify_case secondmate-outcome-after-progress); state="$dir/state"
+  printf 'window=remote:mate\nkind=secondmate\nmode=secondmate\n' > "$state/mate.meta"
+  batch_append "$dir" signal mate.status "signal: $state/mate.status" || fail 'could not seed progress'
+  printf 'done [key=child-pr-123]: child ready for review yolo=on\n' > "$state/mate.status"
+  watch_bg "$dir"
+  wait_poll_cycle "$state" "$WATCH_PID" || fail 'outcome after progress woke early'
+  stop_watcher
+  [ "$(queue_rows "$dir")" -eq 2 ] || fail 'progress swallowed the outcome row'
+  grep -q $'\tsecondmate-outcome$' "$state/.wake-batch" || fail 'progress swallowed the outcome class'
+
+  # A real check failure delivers both held rows, including after watcher restart.
+  register_check "$dir" service 'failed: service health check'
+  watch_bg "$dir" FM_CHECK_INTERVAL=0
+  wait_for_exit "$WATCH_PID" 100 || fail 'check failure was delayed by held outcome'
+  WATCH_PID=
+  drain "$dir" --ack-if-routine || fail 'natural-trigger drain failed'
+  grep -q 'child ready for review' "$dir/drain.out" || fail 'natural drain lost outcome'
+  grep -q 'failed: service health check' "$dir/drain.out" || fail 'natural drain lost failure'
+  grep -q 'secondmate-outcomes-deferred=1' "$dir/drain.out" || fail 'natural drain lost counter'
+  ack_drain_err "$state" "$dir/drain.err" >/dev/null 2>&1 || fail 'ordinary acknowledgement failed'
+  [ ! -s "$state/.wake-queue" ] || fail 'ordinary acknowledgement left rows queued'
+  pass 'a queued progress row preserves the later outcome counter and a check failure naturally drains both after restart'
+}
+test_secondmate_outcome_after_progress_and_natural_trigger
+
+test_secondmate_simultaneous_outcome_and_progress() {
+  local dir state id
+  dir=$(make_classify_case secondmate-simultaneous-outcome-progress); state="$dir/state"
+  for id in outcome progress; do
+    printf 'window=remote:%s\nkind=secondmate\nmode=secondmate\n' "$id" > "$state/$id.meta"
+  done
+  printf 'done [key=child-pr-123]: child ready for review yolo=on\n' > "$state/outcome.status"
+  printf 'working: supervising ordinary work\n' > "$state/progress.status"
+  watch_bg "$dir"
+  wait_poll_cycle "$state" "$WATCH_PID" || fail 'simultaneous routine files woke immediately'
+  stop_watcher
+  [ "$(queue_rows "$dir")" -eq 2 ] || fail 'simultaneous files lost a queued row'
+  [ "$(awk -F '\t' '$3 == "secondmate-outcome" { n++ } END { print n + 0 }' "$state/.wake-batch")" -eq 1 ] \
+    || fail 'ordinary progress inherited the simultaneous outcome class'
+  awk -F '\t' '
+    FNR == NR { classes[$1] = $3; next }
+    $4 == "outcome.status" && classes[$2] == "secondmate-outcome" { outcome++ }
+    $4 == "progress.status" && classes[$2] == "nonurgent" { progress++ }
+    END { exit outcome == 1 && progress == 1 ? 0 : 1 }
+  ' "$state/.wake-batch" "$state/.wake-queue" || fail 'simultaneous files did not retain their own batch classes'
+  drain "$dir" --ack-if-routine || fail 'simultaneous files drain failed'
+  grep -q 'secondmate-outcomes-deferred=1' "$dir/drain.out" || fail 'simultaneous outcome counter was inflated'
+  grep -q 'supervising ordinary work' "$dir/drain.out" || fail 'simultaneous progress evidence was lost'
+  grep -q WAKE_ACK_REQUIRED "$dir/drain.err" || fail 'simultaneous rows were silently acknowledged'
+
+  # Age both rows: ordinary progress must still cause the normal digest,
+  # carrying the outcome without counting progress as another outcome.
+  age_record "$state/.wake-batch" 1000
+  watch_bg "$dir" FM_WAKE_BATCH_SECS=900
+  wait_for_exit "$WATCH_PID" 100 || fail 'ordinary progress lost age-based delivery beside an outcome'
+  WATCH_PID=
+  grep -q '^check: wake digest:' "$dir/watch.out" || fail 'ordinary progress did not start the normal digest'
+  [ "$(queue_rows "$dir")" -eq 2 ] || fail 'age-based delivery dropped a simultaneous row'
+  drain "$dir" --ack-if-routine || fail 'aged simultaneous files drain failed'
+  grep -q 'secondmate-outcomes-deferred=1' "$dir/drain.out" || fail 'aged digest inflated the outcome counter'
+  ack_drain_err "$state" "$dir/drain.err" >/dev/null 2>&1 || fail 'simultaneous rows acknowledgement failed'
+  [ ! -s "$state/.wake-queue" ] || fail 'simultaneous rows remained after explicit acknowledgement'
+  pass 'simultaneous outcome and progress retain separate classes, one outcome count and normal progress age delivery'
+}
+test_secondmate_simultaneous_outcome_and_progress
