@@ -1060,11 +1060,14 @@ test_urgent_check_carries_held_relay
 
 test_secondmate_routine_outcomes_natural_drain() {
   local dir state variant line
-  for variant in child-pr merged orphan resolved open decision note blocked unknown-key malformed mixed multi-corr binary bad-store; do
+  for variant in child-pr approval missing-yolo conflicting-yolo merged orphan resolved resolved-working resolved-paused open decision note blocked unknown-key malformed mixed multi-corr binary bad-store; do
     dir=$(make_classify_case "secondmate-outcome-$variant"); state="$dir/state"
     printf 'window=remote:mate\nkind=secondmate\nmode=secondmate\n' > "$state/mate.meta"
-    line='done [key=child-pr-123]: child PR is green'
+    line='done [key=child-pr-123]: child PR is green yolo=on'
     case "$variant" in
+      approval) line='done [key=child-pr-123]: child PR ready for approval yolo=off' ;;
+      missing-yolo) line='done [key=child-pr-123]: child PR ready for review' ;;
+      conflicting-yolo) line='done [key=child-pr-123]: child PR ready yolo=off yolo=on' ;;
       merged) line='done [key=merged-123]: child landed' ;;
       bad-store)
         printf 'not a directory\n' > "$state/pending-replies"
@@ -1075,6 +1078,11 @@ test_secondmate_routine_outcomes_natural_drain() {
         mkdir -p "$state/pending-replies"
         printf 'phase=%s\n' "$([ "$variant" = resolved ] && echo resolved || echo awaiting_report)" > "$state/pending-replies/0123456789abcdef"
         line='paused [corr=0123456789abcdef]: waiting on child CI'
+        ;;
+      resolved-working|resolved-paused)
+        mkdir -p "$state/pending-replies"
+        printf 'phase=awaiting_report\ndelivered_epoch=1\nparent_status=%s\n' "$state/mate.status" > "$state/pending-replies/0123456789abcdef"
+        line="${variant#resolved-} [corr=0123456789abcdef]: fresh answer to the parent request"
         ;;
       multi-corr)
         mkdir -p "$state/pending-replies"
@@ -1089,10 +1097,19 @@ test_secondmate_routine_outcomes_natural_drain() {
       mixed) line="$line"$'\n''needs-decision: choose a route' ;;
     esac
     printf '%s\n' "$line" > "$state/mate.status"
+    case "$variant" in
+      resolved-working|resolved-paused)
+        # Reconciliation proves receipt before any drain has presented the answer.
+        # shellcheck disable=SC2016 # Expansion belongs to the library shell.
+        lib "$dir" '. "$root/bin/fm-pending-reply-lib.sh"; fm_pending_reply_try_resolve "$STATE" "$1"' 0123456789abcdef \
+          || fail "$variant could not reconcile its fresh answer"
+        grep -qx 'phase=resolved' "$state/pending-replies/0123456789abcdef" || fail "$variant did not reach resolved before presentation"
+        ;;
+    esac
     [ "$variant" != binary ] || printf '\000' >> "$state/mate.status"
     watch_bg "$dir" FM_WAKE_BATCH_SECS=0
     case "$variant" in
-      child-pr|merged|orphan|resolved)
+      child-pr|merged|orphan)
         wait_poll_cycle "$state" "$WATCH_PID" || fail "$variant woke immediately"
         wait_poll_cycle "$state" "$WATCH_PID" || fail "$variant started an age-only digest turn"
         stop_watcher
@@ -1139,7 +1156,7 @@ test_secondmate_outcome_after_progress_and_natural_trigger() {
   dir=$(make_classify_case secondmate-outcome-after-progress); state="$dir/state"
   printf 'window=remote:mate\nkind=secondmate\nmode=secondmate\n' > "$state/mate.meta"
   batch_append "$dir" signal mate.status "signal: $state/mate.status" || fail 'could not seed progress'
-  printf 'done [key=child-pr-123]: child ready for review\n' > "$state/mate.status"
+  printf 'done [key=child-pr-123]: child ready for review yolo=on\n' > "$state/mate.status"
   watch_bg "$dir"
   wait_poll_cycle "$state" "$WATCH_PID" || fail 'outcome after progress woke early'
   stop_watcher
@@ -1167,7 +1184,7 @@ test_secondmate_simultaneous_outcome_and_progress() {
   for id in outcome progress; do
     printf 'window=remote:%s\nkind=secondmate\nmode=secondmate\n' "$id" > "$state/$id.meta"
   done
-  printf 'done [key=child-pr-123]: child ready for review\n' > "$state/outcome.status"
+  printf 'done [key=child-pr-123]: child ready for review yolo=on\n' > "$state/outcome.status"
   printf 'working: supervising ordinary work\n' > "$state/progress.status"
   watch_bg "$dir"
   wait_poll_cycle "$state" "$WATCH_PID" || fail 'simultaneous routine files woke immediately'

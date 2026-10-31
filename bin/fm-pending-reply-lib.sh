@@ -189,8 +189,9 @@ fm_pending_reply_corr_token() {  # <corr_id>
   printf 'corr=%s' "$1"
 }
 
-# Prove every correlation on a status line is not an open parent request.
-# Malformed tokens or unreadable/non-regular records keep the wake urgent.
+# Prove every correlation on a status line has no parent request record.
+# Existing records, including resolved requests, keep the wake urgent: receipt
+# does not prove the parent has presented the answer. Malformed tokens also wake.
 fm_pending_reply_line_has_no_open_corr() {  # <state-dir> <status-line>
   local state=$1 line=$2 word corr rec rest prefix dir
   dir=$(fm_pending_reply_dir "$state")
@@ -207,8 +208,7 @@ fm_pending_reply_line_has_no_open_corr() {  # <state-dir> <status-line>
     corr=$(printf '%s' "$word" | tr 'A-F' 'a-f')
     rec=$(fm_pending_reply_path "$state" "$corr")
     if [ -e "$rec" ] || [ -L "$rec" ]; then
-      [ -f "$rec" ] && [ -r "$rec" ] && [ ! -L "$rec" ] || return 1
-      [ "$(fm_pending_reply_get "$rec" phase)" = resolved ] || return 1
+      return 1
     fi
   done
   return 0

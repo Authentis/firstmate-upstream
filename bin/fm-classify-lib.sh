@@ -6,9 +6,11 @@
 # (bin/fm-watch.sh) and the away-mode daemon (bin/fm-supervise-daemon.sh) so the
 # overlapping triage policy lives in one place instead of two copies that can
 # drift apart.
-# Secondmate digest classification alone also accepts done lines keyed child-pr-*
-# or merged-* and working/paused lines with valid correlations proven absent
-# from open parent requests (bin/fm-pending-reply-lib.sh).
+# Secondmate digest classification alone also accepts done lines keyed merged-*
+# or child-pr-* with exactly one yolo=on token, and working/paused lines whose
+# valid correlations have no parent request record (bin/fm-pending-reply-lib.sh).
+# A resolved request proves receipt, not presentation, so its replies still wake.
+# PR-ready lines without proven automatic merge authority still wake for approval.
 # Unknown keys/verbs, malformed correlations, notes, decisions and blockers wake.
 #
 # Most functions are pure, side-effect-free reads of status files: each takes
@@ -2812,7 +2814,8 @@ crew_worktree_written_since() {  # <id> <state> <anchor-file>
 # The optional digest mode uses the header rule; absorb never gains terminal
 # outcomes or marked replies, which must be durably queued rather than absorbed.
 _fm_secondmate_status_new_lines_routine() {  # <status-file> <state> [absorb|digest]
-  local f=$1 state=$2 mode=${3:-absorb} start=0 size chunk line verb key
+  local f=$1 state=$2 mode=${3:-absorb} start=0 size chunk line verb key word yolo
+  local -a words
   if command -v fm_wake_signal_seen_size >/dev/null 2>&1; then
     start=$(fm_wake_signal_seen_size "$state" "$f")
   fi
@@ -2840,7 +2843,20 @@ _fm_secondmate_status_new_lines_routine() {  # <status-file> <state> [absorb|dig
       done)
         [ "$mode" = digest ] || return 1
         key=$(_fm_decision_key "$line") || return 1
-        case "$key" in child-pr-?*|merged-?*) ;; *) return 1 ;; esac
+        case "$key" in
+          merged-?*) ;;
+          child-pr-?*)
+            yolo=0
+            read -r -a words <<< "$line"
+            for word in "${words[@]}"; do
+              case "$word" in
+                yolo=*) [ "$word" = yolo=on ] || return 1; yolo=$((yolo + 1)) ;;
+              esac
+            done
+            [ "$yolo" -eq 1 ] || return 1
+            ;;
+          *) return 1 ;;
+        esac
         ;;
       *) return 1 ;;
     esac
