@@ -1324,6 +1324,102 @@ test_watcher_dead_pane_ignores_stale_busy_state() {
   pass "watcher: dead-pane recovery overrides stale busy state"
 }
 
+# Exercise the same public ring used by local sends and remote idempotent sends.
+batch_ring() {
+  PATH="$1/fakebin:$PATH" FM_SEND_LOG="$1/send.log" FM_FAKE_TMUX_AGENT=claude \
+    FM_FAKE_TMUX_CAPTURE="$(idle_capture "$1")" \
+    inbox_lib "$1/state" fm_task_inbox_ring tmux sess:fm-t1 "$2" fm-t1 claude
+}
+
+test_secondmate_batches_doorbells() {
+  local dir state first second third rings
+  dir=$(setup_watch_case batch-doorbells)
+  state="$dir/state"
+  printf 'kind=secondmate\nharness=claude\nwindow=sess:fm-t1\n' > "$state/t1.meta"
+  first=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 'first instruction')
+  second=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 'needs-decision: choose alpha')
+  batch_ring "$dir" "$first" || fail 'first batch did not ring immediately'
+  batch_ring "$dir" "$second" || fail 'covered message was not coalesced successfully'
+  batch_ring "$dir" "$first" || fail 'repeat was not coalesced successfully'
+  rings=$(grep -cF 'Firstmate instruction waiting' "$dir/send.log" || true)
+  [ "$rings" = 1 ] || fail "one snapshot should ring once, got $rings"
+  [ "$(cat "$state/t1.inbox/.doorbell-coalesced" 2>/dev/null)" = 2 ] \
+    || fail 'doorbells_coalesced counter must visibly count both suppressed rings'
+  [ -f "$first" ] && [ -f "$second" ] || fail 'batching acknowledged an instruction'
+  third=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 'captain instruction: stop')
+  batch_ring "$dir" "$third" || fail 'new instruction did not ring immediately'
+  [ "$(grep -cF 'Firstmate instruction waiting' "$dir/send.log")" = 2 ] \
+    || fail 'new instruction was hidden behind an unacknowledged batch'
+  inbox_lib "$state" fm_task_inbox_acknowledge "$state" t1 001 >/dev/null
+  batch_ring "$dir" "$second" || fail 'changed batch did not ring'
+  [ "$(grep -cF 'Firstmate instruction waiting' "$dir/send.log")" = 3 ] \
+    || fail 'partial drain must invalidate the batch snapshot'
+  printf 'kind=secondmate\nharness=claude\nwindow=sess:fm-t1\nlaunch=new\n' > "$state/t1.meta"
+  batch_ring "$dir" "$second" || fail 'relaunch did not ring'
+  [ "$(grep -cF 'Firstmate instruction waiting' "$dir/send.log")" = 4 ] \
+    || fail 'changed endpoint metadata must invalidate the batch snapshot'
+  pass 'inbox: secondmate snapshots coalesce repeats, count them, and ring new instructions immediately'
+}
+
+test_secondmate_failed_ring_is_not_batched() {
+  local dir rec
+  dir=$(setup_watch_case batch-failure)
+  printf 'kind=secondmate\n' > "$dir/state/t1.meta"
+  rec=$(inbox_lib "$dir/state" fm_task_inbox_write "$dir/state" t1 'real instruction')
+  FM_FAKE_TMUX_SEND_FAIL=1 batch_ring "$dir" "$rec" && fail 'send failure unexpectedly succeeded'
+  batch_ring "$dir" "$rec" || fail 'failed send suppressed a later successful attempt'
+  [ "$(grep -cF 'Firstmate instruction waiting' "$dir/send.log")" = 1 ] \
+    || fail 'failed send must remain eligible for delivery'
+  [ ! -e "$dir/state/t1.inbox/.doorbell-coalesced" ] || fail 'failed send was counted as coalesced'
+  pass 'inbox: failed sends keep ringing'
+}
+
+test_secondmate_watcher_coalesces_but_escalates() {
+  local dir state rec pid
+  dir=$(setup_watch_case batch-watcher)
+  state="$dir/state"
+  printf 'kind=secondmate\nharness=claude\nwindow=sess:fm-t1\n' > "$state/t1.meta"
+  rec=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 'please act')
+  age_path "$rec"
+  watch_bg "$state" "$dir/fakebin" "$dir/watch.out" \
+    FM_SEND_LOG="$dir/send.log" FM_FAKE_TMUX_AGENT=claude FM_FAKE_TMUX_CAPTURE="$(idle_capture "$dir")" \
+    FM_TASK_INBOX_RING_MAX=3
+  pid=$!
+  wait_watcher_gone "$pid" 200 || { kill "$pid" 2>/dev/null; fail 'batching hid stale escalation'; }
+  [ "$(grep -cF 'Firstmate instruction waiting' "$dir/send.log")" = 1 ] \
+    || fail 'watcher repeated a successfully submitted batch doorbell'
+  [ "$(cat "$state/t1.inbox/.doorbell-coalesced" 2>/dev/null)" = 2 ] \
+    || fail 'watcher coalescing counter should be two'
+  grep -qF 'stale:' "$dir/watch.out" || fail 'unacknowledged batch never woke recovery'
+  [ -f "$rec" ] || fail 'watcher silently acknowledged the batch'
+  pass 'watcher executable: repeated secondmate doorbells coalesce while stale recovery still wakes'
+}
+
+test_secondmate_uncertain_counter_keeps_ringing() {
+  local dir rec invalid
+  dir=$(setup_watch_case batch-counter)
+  printf 'kind=secondmate\n' > "$dir/state/t1.meta"
+  rec=$(inbox_lib "$dir/state" fm_task_inbox_write "$dir/state" t1 'instruction')
+  batch_ring "$dir" "$rec" || fail 'first ring failed'
+  for invalid in bad 999999999999999999999999999999 ''; do
+    printf '%s\n' "$invalid" > "$dir/state/t1.inbox/.doorbell-coalesced"
+    batch_ring "$dir" "$rec" || fail 'uncertain counter prevented ordinary delivery'
+  done
+  [ "$(grep -cF 'Firstmate instruction waiting' "$dir/send.log")" = 4 ] \
+    || fail 'invalid counters must keep ringing instead of suppressing without a receipt'
+  rm "$dir/state/t1.inbox/.doorbell-coalesced"
+  mkdir "$dir/state/t1.inbox/.doorbell-coalesced"
+  batch_ring "$dir" "$rec" || fail 'counter directory prevented ordinary delivery'
+  [ "$(grep -cF 'Firstmate instruction waiting' "$dir/send.log")" = 5 ] \
+    || fail 'a counter directory suppressed delivery without a readable counter'
+  pass 'inbox: uncertain counter bookkeeping keeps ordinary delivery'
+}
+
+test_secondmate_batches_doorbells
+test_secondmate_failed_ring_is_not_batched
+test_secondmate_uncertain_counter_keeps_ringing
+test_secondmate_watcher_coalesces_but_escalates
+
 test_write_is_durable_and_exact
 test_doorbell_is_a_shell_noop
 test_doorbell_rejects_terminal_controls

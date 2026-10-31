@@ -14,13 +14,30 @@
 # Design (captain-adopted, data/fm-send-reliability-reframe-s1/report.md): the
 # payload moves to the filesystem, which is reliable; the terminal carries only
 # a short constant doorbell line. While the endpoint remains available, that
-# line does not need to be reliable because ringing it again is free. A
+# line can be retried when delivery is uncertain. A
 # duplicated doorbell is a no-op by construction (the worker finds the inbox
 # empty or already handled), and a swallowed doorbell is detected by the
-# absence of the worker's acknowledgement and re-rung on a bounded schedule.
+# absence of acknowledgement and reaches bounded retry or stale recovery.
 # A positively dead or missing endpoint bypasses that schedule without being
 # typed into, and its unhandled record surfaces through the ordinary stale wake
 # into stuck-crewmate-recovery.
+#
+# Secondmate batch classification: coalesce only an identical waiting-record
+# snapshot for the same backend, target, label, harness, and endpoint metadata,
+# after a successful transport submission and a proven empty composer on a
+# live endpoint, with kind=secondmate proven by the inbox's sibling .meta file. Every new record or partial drain changes the
+# snapshot and rings immediately, irrespective of its body (including asks,
+# decisions, blockers, rulings and captain instructions). Unknown metadata,
+# failed/refused sends and bookkeeping failures retain ordinary delivery.
+# This is notification deduplication, never acknowledgement or delivery proof:
+# the watcher still spends its existing attempt budget and surfaces stale
+# recovery for any unacknowledged record. No status/check/outcome wake changes.
+# .doorbell-batch stores the last submitted snapshot; .doorbell-batch.lock
+# serializes ring attempts without waiting (contention falls back to ringing).
+# .doorbell-coalesced is the cumulative doorbells_coalesced counter, retained
+# across acknowledgements and printed to stderr whenever a ring is coalesced.
+# The snapshot is taken before submission so a concurrent arrival cannot be
+# accidentally covered by a notification sent before that arrival.
 #
 # Layout under <state-dir>:
 #   <task>.inbox/NNN.msg       one durable steer, numeric sequence, atomic rename
@@ -383,7 +400,7 @@ fm_task_inbox_doorbell_line() {  # <record-path>
 # reported on stderr with return 2 rather than retried again. This is the only
 # screen the ring alters, and a draft that is anything else is never cleared,
 # only refused.
-fm_task_inbox_ring() {  # <backend> <target> <record-path> [expected-label] [harness]
+_fm_task_inbox_ring_submit() {  # <backend> <target> <record-path> [expected-label] [harness]
   local backend=$1 target=$2 rec=$3 label=${4:-} harness=${5:-} line cstate verdict errf
   case "$(fm_backend_agent_state "$backend" "$target" 2>/dev/null || true)" in
     dead|missing) return 3 ;;
@@ -440,6 +457,58 @@ fm_task_inbox_ring() {  # <backend> <target> <record-path> [expected-label] [har
   [ "$verdict" != send-failed ] || return 2
   return 0
 }
+
+# Shared by local enqueue, remote idempotent enqueue and watcher re-rings.
+# A subshell confines the lock-release trap to this ring attempt.
+fm_task_inbox_ring() (  # <backend> <target> <record-path> [expected-label] [harness]
+  local dir=${3%/*} meta snapshot previous count tmp rc=0 f
+  meta="${dir%.inbox}.meta"
+  if [ "$(fm_meta_get "$meta" kind 2>/dev/null)" != secondmate ] \
+    || [ ! -f "$3" ] \
+    || [ "$(fm_backend_agent_state "$1" "$2" 2>/dev/null)" != alive ] \
+    || ! fm_lock_try_acquire "$dir/.doorbell-batch.lock"; then
+    _fm_task_inbox_ring_submit "$@"
+    return $?
+  fi
+  trap 'fm_lock_release "$dir/.doorbell-batch.lock"' EXIT
+  # Include all arguments and metadata, so endpoint replacement cannot inherit
+  # another endpoint's submitted notification. Message records are immutable.
+  snapshot=$(printf '%s\n' "$1" "$2" "${4:-}" "${5:-}"; cat "$meta" || exit 1; for f in "$dir"/*.msg; do
+    [ ! -f "$f" ] || printf '%s\n' "${f##*/}"
+  done) || { _fm_task_inbox_ring_submit "$@"; return $?; }
+  # The caller's record is not part of the notification identity: every record
+  # in a waiting snapshot is covered by the same inbox-wide doorbell.
+  previous=$(cat "$dir/.doorbell-batch" 2>/dev/null) || previous=
+  if [ -n "$previous" ] && [ "$snapshot" = "$previous" ] \
+    && [ "$(fm_backend_composer_state "$1" "$2" "${4:-}" 2>/dev/null)" = empty ]; then
+    count=$(cat "$dir/.doorbell-coalesced" 2>/dev/null) || count=0
+    case "$count" in ''|*[!0-9]*) count=invalid-counter ;; esac
+    # Refuse to suppress if the counter cannot be durably recorded.
+    if [ "${#count}" -lt 15 ]; then
+      tmp=$(mktemp "$dir/.coalesced.XXXXXX") || tmp=
+      if [ -n "$tmp" ] && printf '%s\n' "$((10#$count + 1))" > "$tmp" \
+        && [ ! -d "$dir/.doorbell-coalesced" ] \
+        && mv "$tmp" "$dir/.doorbell-coalesced"; then
+        printf 'fm-ring: doorbells_coalesced=%s store=%s/.doorbell-coalesced\n' "$((10#$count + 1))" "$dir" >&2
+        return 0
+      fi
+      [ -z "$tmp" ] || rm -f "$tmp"
+    fi
+  fi
+  # A failed fresh submission must invalidate earlier transport evidence.
+  rm -f "$dir/.doorbell-batch" 2>/dev/null || true
+  _fm_task_inbox_ring_submit "$@" || rc=$?
+  if [ "$rc" -eq 0 ] \
+    && [ "$(fm_backend_composer_state "$1" "$2" "${4:-}" 2>/dev/null)" = empty ]; then
+    tmp=$(mktemp "$dir/.batch.XXXXXX") || tmp=
+    if [ -n "$tmp" ]; then
+      { printf '%s\n' "$snapshot" > "$tmp" \
+        && [ ! -d "$dir/.doorbell-batch" ] && mv "$tmp" "$dir/.doorbell-batch"; } \
+        || rm -f "$tmp"
+    fi
+  fi
+  return "$rc"
+)
 
 # The shortest prefix of the doorbell line, counted without whitespace, that
 # the ring still treats as its own: the constant head through the `/*.msg`
