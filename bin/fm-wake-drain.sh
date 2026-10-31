@@ -706,6 +706,14 @@ ROWS
   if [ "$shown" -gt 0 ]; then
     text="BRANCH OUTCOMES (captain outcomes the supervision session recorded for you, one line per task, oldest first; each says what was true when it was recorded, so check the task's current state first, including its still-open decisions listed above under OPEN DECISIONS, and sort them into still open and already settled, such as a decision since answered, a PR since merged, or a task since finished - process the still-open ones as firstmate: tell the captain, land or merge what is ready, answer or escalate a decision, or act on a blocker; your reply to the captain covers only those, as if the settled ones had never been listed, and a settled one needs only the acknowledgement):
 "
+    if [ -r "$STATE/.supervision-host-awareness-deferred" ]; then
+      local awareness_deferred
+      awareness_deferred=$(cat "$STATE/.supervision-host-awareness-deferred") || awareness_deferred=''
+      case "$awareness_deferred" in ''|*[!0-9]*) ;; *)
+        text="${text}AWARENESS OUTCOMES DEFERRED: $awareness_deferred (cumulative awareness_rows_deferred; bin/fm-supervision-host.sh)
+"
+        ;; esac
+    fi
     for line in "${captain_lines[@]}"; do
       text="$text$line
 "

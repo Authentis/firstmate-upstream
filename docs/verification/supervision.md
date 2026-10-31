@@ -717,6 +717,35 @@ tests/fm-watch-arm.test.sh
 ```
 
 
+### Secondmate awareness outcomes
+
+The classification and counter contract is owned by the header of [`fm-supervision-host.sh`](../../bin/fm-supervision-host.sh).
+Portable executable coverage on 2026-10-31 used GNU Bash 5.2.21 and Node v24.18.0, with a stub engine and isolated fixture homes rather than live model sessions:
+
+```sh
+bash bin/fm-test-run.sh tests/fm-supervision-host.test.sh tests/fm-supervision-host-lifecycle.test.sh
+```
+
+The regression checks deferred-row durability, natural-drain presentation and acknowledgement, immediate instruction and mixed-turn delivery, and unchanged primary-home delivery.
+The existing cases also exercise failed turns, away mode, and captain return during a turn.
+Both suites exited 0 and emitted:
+
+```text
+ok - secondmate awareness stays durable until a natural drain and acknowledgement
+ok - secondmate instructions, unknown text, mixed outcomes, and primary awareness still wake main
+FM_TEST_SUMMARY total=2 failed=0 skipped_gate=0 duration_ms=788776
+```
+
+Static integration review inspected `fm-supervision-engine-lib.sh`, `fm-host-mirror.sh`, `fm-supervision-instructions.sh`, the OpenCode and omp watch owners, the Pi watch extension, and `fm-backend.sh` with each of its five adapters.
+Claude and Cursor have verified attended mirrors and reach the shared final hand-back.
+Codex, OpenCode, omp, Grok, and Kimi have no verified attended mirror, so this attended-only deferral is currently inapplicable to them.
+Pi and pi-signed use their native branch extension instead of the host outcome path.
+Gemini, Muse, Rovo, agy, Devin, and CommandCode are worker-only surfaces with no attended primary host path.
+The tmux, Herdr, Zellij, Orca, and cmux adapters provide endpoints below the shared wake, receipt, and outcome-store layer, with no separate classification branch.
+Codex App is not a selectable runtime backend and is not applicable.
+These are integration inspections, not new live harness or backend certifications.
+
+
 ### Non-Pi primaries
 
 This supports the per-primary routing in [supervision-host.md](../supervision-host.md): with `config/supervision-host`, the Cursor, OpenCode, Grok, and Codex arm owners run the host with the Claude engine, and without it nothing changes.

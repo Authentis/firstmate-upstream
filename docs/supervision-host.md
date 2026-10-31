@@ -127,7 +127,7 @@ It also passes the close through unchanged, with no added line, when any of thes
 
 A close the engine takes is handled as in [One wake](#one-wake), with the dialog mirror at the head of the wake message.
 A handled wake with only routine outcomes never reaches main.
-A handled wake that recorded a captain outcome while the captain is still attended exits with one `supervision-host: branch-outcome:` line naming its store rows, without the close it handled; see [Captain outcomes](#captain-outcomes).
+A handled wake that recorded a captain outcome while the captain is still attended exits with one `supervision-host: branch-outcome:` line naming its store rows, without the close it handled; see [Captain outcomes](#captain-outcomes) (a secondmate home defers pure-awareness rows).
 A turn that fails hands its close to main with one `supervision-host:` line, as away.
 Main-only rows that share the queue with the branch's rows stay queued for main, which is woken for each on its own triggering close, as on Pi.
 The engine turn runs beside a captain who is present, so its guarded actions take the task leases that keep it and main off the same task.
@@ -204,6 +204,8 @@ One example is a Cursor park superseded by the return turn's own end, which stop
 ## Captain outcomes
 
 A captain outcome the attended engine records while the captain remains attended wakes main once, through the owner's ordinary wake path, with one `supervision-host: branch-outcome:` line naming its store rows.
+In a secondmate home, a turn whose captain rows are all proven pure awareness (a worker finished or went idle, a PR opened, a heartbeat summary) does not wake main; the rows wait for its next natural drain, unmarked.
+Any other row, or any doubt, wakes main as above; the host header (`bin/fm-supervision-host.sh`) owns the allowlist and the `AWARENESS OUTCOMES DEFERRED` counter the drain shows.
 Main drains, and `bin/fm-wake-drain.sh` presents it in its `BRANCH OUTCOMES` section with the exact `bin/fm-branch-outcome.sh mark-processed --through <seq>` acknowledgement.
 That presentation is what the Pi branch's visible entry is, so it advances the store's read cursor through the rows it presents.
 Every later drain, including the session-start digest, presents unprocessed captain outcomes again until main acknowledges them, so an ignored outcome costs no extra turn and is never lost.

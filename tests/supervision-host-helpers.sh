@@ -90,12 +90,19 @@ verdict=routine
 [ "$mode" != go-away ] || verdict=captain
 case "$mode" in
   fail) exit 3 ;;
-  handle|captain|captain-close-before-return|held|captain-held|hold-lease|return|return-silent|return-fail|return-fail-silent|return-many|return-lookup-fail|return-first|noack|emptyresult|go-away)
+  awareness|awareness-mixed|handle|captain|captain-close-before-return|held|captain-held|hold-lease|return|return-silent|return-fail|return-fail-silent|return-many|return-lookup-fail|return-first|noack|emptyresult|go-away)
     case "$mode" in held|captain-held) read -r _ < "$FM_HOME/stub-release" ;; esac
     [ "$mode" != return-first ] || "$FM_REPO/bin/fm-afk-contract.sh" archive >> "$FM_HOME/engine-return.log" 2>&1
     [ "$mode" != go-away ] || "$FM_REPO/bin/fm-afk-contract.sh" enter --words 'gone mid-turn' >> "$FM_HOME/engine-return.log" 2>&1
     "$FM_REPO/bin/fm-lease.sh" claim "$task" >> "$FM_HOME/engine-lease.log" 2>&1
-    if [ "$mode" = captain ] || [ "$mode" = captain-held ] \
+    if [ "$mode" = awareness ] || [ "$mode" = awareness-mixed ]; then
+      "$FM_REPO/bin/fm-branch-report.sh" --task "$task" --verdict captain \
+        --summary "$(cat "$FM_HOME/stub-summary" 2>/dev/null || printf 'worker finished')" >> "$FM_HOME/engine-report.log" 2>&1
+      if [ "$mode" = awareness-mixed ]; then
+        "$FM_REPO/bin/fm-branch-report.sh" --task "$task" --verdict captain \
+          --summary 'Please decide whether to merge' >> "$FM_HOME/engine-report.log" 2>&1
+      fi
+    elif [ "$mode" = captain ] || [ "$mode" = captain-held ] \
       || [ "$mode" = captain-close-before-return ]; then
       "$FM_REPO/bin/fm-branch-report.sh" --task "$task" --verdict captain \
         --summary "stub escalated: $(printf '%s\n' "$drain" | grep -v '^WAKE_' | tr '\n' ' ' | cut -c1-400)" \

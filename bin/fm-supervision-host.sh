@@ -83,7 +83,20 @@
 # attended wake that recorded a captain outcome exits with one "supervision-host: branch-outcome:"
 # line naming its store rows, without the close it handled; main drains, where
 # the BRANCH OUTCOMES section (bin/fm-wake-drain.sh) presents every
-# unprocessed captain outcome until main acknowledges it. Otherwise the host
+# unprocessed captain outcome until main acknowledges it.
+# In a secondmate home (.fm-secondmate-home), only this final attended hand-back
+# defers proven awareness: both the summary and the unchanged recorded status
+# must be complete statements from awareness_statement's allowlist, with status
+# kind done, working, or idle and an exact single-task signal wake; an exact
+# fleet heartbeat instead requires an allowlisted heartbeat summary.
+# Unknown wording, extra text, missing provenance, other wake kinds (including
+# stale, checks, captain inbox, decisions, blockers, and asks) always wake main.
+# This never changes failure, return, or away exits, nor marks deferred rows
+# read or processed; the next natural main drain presents them normally.
+# .supervision-host-awareness-deferred is the cumulative awareness_rows_deferred
+# counter for wholly deferred turns, displayed by main's drain as
+# AWARENESS OUTCOMES DEFERRED.
+# Otherwise the host
 # parks on the successor.
 # Every other outcome exits with the close's own reason line plus one
 # "supervision-host:" line saying why main has this wake, after stopping the
@@ -1075,6 +1088,66 @@ turn_captain_seqs() {  # <turn>
   awk -F '\t' -v turn="$1" '$1 == turn && $3 == "captain" { printf "%s%s", sep, $2; sep = ", " }' "$RECEIPTS" 2>/dev/null
 }
 
+# Filter only the final attended hand-back; failure means retain every row.
+# Does not touch the outcome store or either acknowledgement cursor.
+secondmate_actionable_seqs() {  # <comma-separated captain sequences>
+  local seqs=$1 rows row task wake summary endpoint ident status file
+  local deferred=0 total=0 counter="$STATE/.supervision-host-awareness-deferred"
+  [ -f "$FM_HOME/.fm-secondmate-home" ] || { printf '%s' "$seqs"; return; }
+  rows=$("$SCRIPT_DIR/fm-branch-outcome.sh" lookup --seqs "${seqs// /}") || { printf '%s' "$seqs"; return; }
+  while IFS= read -r row; do
+    task=$(printf '%s\n' "$row" | jq -r '.task')
+    wake=$(printf '%s\n' "$row" | jq -r '.wake')
+    summary=$(printf '%s\n' "$row" | jq -r '.summary')
+    status=''
+    # An exact heartbeat has no status file. All other accepted wakes name
+    # exactly one task, with unchanged status provenance from the stored row.
+    if [ "$wake" != "$REASON" ]; then
+      : # A report override cannot change the underlying wake class.
+    elif [ "$wake" = heartbeat ] && [ "$task" = fleet ]; then
+      case "$summary" in heartbeat:*) status=$summary ;; esac
+    elif { [ "$wake" = "signal: $task.status" ] || [ "$wake" = "signal: $STATE/$task.status" ]; }; then
+      case "$task" in ''|*[!A-Za-z0-9._-]*) task='' ;; esac
+      endpoint=$(printf '%s\n' "$row" | jq -r '.statusEndpoint // 0')
+      ident=$(printf '%s\n' "$row" | jq -r '.statusIdent // "-"')
+      file="$STATE/$task.status"
+      if [ -n "$task" ] && [ -f "$file" ] && [ ! -L "$file" ] \
+        && [ "$endpoint" -gt 0 ] \
+        && [ "$(_fm_status_file_size "$file")" = "$endpoint" ] \
+        && [ "$(_fm_open_decisions_file_ident "$file")" = "$ident" ]; then
+        status=$(tail -n 1 "$file" | sed -nE 's/^(done|working|idle) \[at=[0-9]+\]: (.*)$/\2/p')
+        # A concurrent append or replacement is uncertain, hence actionable.
+        if [ "$(_fm_status_file_size "$file")" != "$endpoint" ] \
+          || [ "$(_fm_open_decisions_file_ident "$file")" != "$ident" ]; then status=''; fi
+      fi
+    fi
+    if awareness_statement "$summary" && awareness_statement "$status"; then
+      deferred=$((deferred + 1))
+    else
+      printf '%s' "$seqs"; return
+    fi
+  done <<< "$rows"
+  if [ "$deferred" -gt 0 ]; then
+    if [ -e "$counter" ]; then
+      total=$(cat "$counter") || { printf '%s' "$seqs"; return; }
+      case "$total" in ''|*[!0-9]*) printf '%s' "$seqs"; return ;; esac
+      [ "${#total}" -lt 15 ] || { printf '%s' "$seqs"; return; }
+    fi
+    total=$((total + deferred))
+    if ! { printf '%s\n' "$total" > "$counter.tmp" && mv "$counter.tmp" "$counter"; }; then
+      printf '%s' "$seqs"; return
+    fi
+    log_line "awareness-deferred	turn=$LAST_TURN	awareness_rows_deferred=$deferred	total=$total"
+  fi
+  return 0
+}
+
+awareness_statement() {
+  # Full-string allowlist, never a keyword blacklist: extra text wakes main.
+  case "$1" in *$'\n'*|*$'\r'*) return 1 ;; esac
+  printf '%s\n' "$1" | LC_ALL=C grep -Eq '^(worker (finished|completed|went idle|is idle|is working)|task (finished|completed|went idle|is idle|is working)|PR opened( https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[0-9]+)?|heartbeat: (all workers idle|no changes|workers working))\.?$'
+}
+
 # Why an attended close stays with main exactly as the plain arm delivers it,
 # or nothing when the supervision session may take it. Sets ATTENDED_WHY, and
 # ATTENDED_OFFER to the offer's verdict and the scope it judged.
@@ -1233,6 +1306,11 @@ while :; do
   # itself was handled, so only the host's lines reach main.
   if [ -n "$LAST_TURN" ] && ! fm_afk_contract_away_present "$STATE"; then
     CAPTAIN_SEQS=$(turn_captain_seqs "$LAST_TURN")
+    if [ -n "$CAPTAIN_SEQS" ]; then
+      if ACTIONABLE_SEQS=$(secondmate_actionable_seqs "$CAPTAIN_SEQS"); then
+        CAPTAIN_SEQS=$ACTIONABLE_SEQS
+      fi
+    fi
     if [ -n "$CAPTAIN_SEQS" ]; then
       ARM_TEXT=
       exit_to_main "branch-outcome: the supervision session handled this wake and recorded captain outcomes for you (store rows $CAPTAIN_SEQS); run bin/fm-wake-drain.sh, act on its BRANCH OUTCOMES section, and acknowledge them as it prints" \
