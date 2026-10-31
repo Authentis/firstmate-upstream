@@ -10,6 +10,9 @@
 # model rows its --ack-if-routine drain then acknowledged unread, and every
 # changing-text check or idle secondmate progress line still woke at once.
 #
+# Secondmate routine outcomes use class secondmate-outcome, remain durable
+# until a natural drain, and never start a digest turn by age alone.
+# WAKE TURN STATS counts them as secondmate-outcomes-deferred.
 # CLASSES (fm_wake_classify):
 #   routine    a row the wake fold records (own-outbound, check-repeat) - the
 #              very class bin/fm-wake-drain.sh --ack-if-routine acknowledges.
@@ -49,7 +52,7 @@
 # custom check: mail, merge, and growth checks all arrive as custom checks and
 # carry things the captain waits on, so only a named reporter may wait.
 #
-# BATCH RECORD. "<seq>\t<epoch>\t<nonurgent|relay-batch>" lines in $STATE/.wake-batch, appended
+# BATCH RECORD. "<seq>\t<epoch>\t<nonurgent|relay-batch|secondmate-outcome>" lines in $STATE/.wake-batch, appended
 # under the queue lock atomically with the queue row (fm_wake_batch_append). It
 # is deliberately separate from the fold record: the Pi branch dispatcher and
 # the supervision host read that record as "foldable", and a batched row is an
@@ -247,26 +250,29 @@ fm_wake_measure_summary() {
     $1 ~ /^[0-9]+$/ && $1 >= cutoff {
       if ($2 == "turn") { turns++; if ($3 == "batched-digest") digests++; else if ($3 == "fold-digest") folds++; else urgent++ }
       else if ($2 == "routine-ack") acked++
-      else if ($2 == "batched") batched++
+      else if ($2 == "batched") { batched++; if ($3 == "secondmate-outcome") outcomes++ }
     }
     END {
-      printf "WAKE TURN STATS (last %dh): turns=%d (urgent=%d, batched-digest=%d, fold-digest=%d) routine-acked-by-watcher=%d batched-rows=%d\n",
-        win / 3600, turns, urgent, digests, folds, acked, batched
+      printf "WAKE TURN STATS (last %dh): turns=%d (urgent=%d, batched-digest=%d, fold-digest=%d) routine-acked-by-watcher=%d batched-rows=%d secondmate-outcomes-deferred=%d\n",
+        win / 3600, turns, urgent, digests, folds, acked, batched, outcomes
     }' "$FM_WAKE_MEASURE_LOG" 2>/dev/null
 }
 
 # fm_wake_batch_append <kind> <key> <payload> [nonurgent|relay-batch]
 # Queue one non-urgent row and record it as batched, atomically under the queue
 # lock. A row identical to one still queued adds nothing the drain would not
-# already present, so it is not appended again.
+# already present, so it is not appended again. A secondmate outcome must also
+# match the batch class, so queued progress cannot hide its deferred-row counter.
 fm_wake_batch_append() {
   local kind=$1 key=$2 payload=$3 class=${4:-nonurgent} status=0 seq clean_key clean_payload
-  case "$class" in nonurgent|relay-batch) ;; *) return 1 ;; esac
+  case "$class" in nonurgent|relay-batch|secondmate-outcome) ;; *) return 1 ;; esac
   clean_key=$(printf '%s' "$key" | fm_wake_clean_field)
   clean_payload=$(printf '%s' "$payload" | fm_wake_clean_field)
   fm_lock_acquire_wait "$FM_WAKE_QUEUE_LOCK" || return 1
-  if awk -F '\t' -v k="$kind" -v key="$clean_key" -v p="$clean_payload" '
-    NF >= 5 && $3 == k && $4 == key && $5 == p { found = 1 }
+  if awk -F '\t' -v k="$kind" -v key="$clean_key" -v p="$clean_payload" \
+    -v class="$class" -v record="$FM_WAKE_BATCH_RECORD" '
+    BEGIN { while ((getline line < record) > 0) { split(line, f, "\t"); classes[f[1]] = f[3] } }
+    NF >= 5 && $3 == k && $4 == key && $5 == p && (class != "secondmate-outcome" || classes[$2] == class) { found = 1 }
     END { exit found ? 0 : 1 }' "$FM_WAKE_QUEUE" 2>/dev/null; then
     fm_lock_release "$FM_WAKE_QUEUE_LOCK"
     return 0
@@ -318,8 +324,9 @@ fm_wake_batch_digest_due() {
   case "$last" in ''|*[!0-9]*) last=0 ;; esac
   case "$relay_last" in ''|*[!0-9]*) relay_last=0 ;; esac
   due=$(printf '%s\n' "$live" | awk -F '\t' -v now="$now" -v normal="$FM_WAKE_BATCH_SECS" \
-    -v last="$last" -v relay_last="$relay_last" \
+    -v last="$last" -v relay_last="$relay_last" -v classify_on="$(fm_wake_classify_enabled && echo 1)" \
     -v relay_on="$(fm_wake_relay_batch_enabled && fm_wake_classify_enabled && echo 1)" '
+    $3 == "secondmate-outcome" && classify_on == 1 { next }
     $3 == "relay-batch" {
       if (relay_on != 1 || (now - $2 >= 3600 && now - relay_last >= 3600)) relay=1
       next

@@ -6,6 +6,10 @@
 # (bin/fm-watch.sh) and the away-mode daemon (bin/fm-supervise-daemon.sh) so the
 # overlapping triage policy lives in one place instead of two copies that can
 # drift apart.
+# Secondmate digest classification alone also accepts done lines keyed child-pr-*
+# or merged-* and working/paused lines with valid correlations proven absent
+# from open parent requests (bin/fm-pending-reply-lib.sh).
+# Unknown keys/verbs, malformed correlations, notes, decisions and blockers wake.
 #
 # Most functions are pure, side-effect-free reads of status files: each takes
 # what it needs as arguments and touches no globals beyond the optional
@@ -2805,8 +2809,10 @@ crew_worktree_written_since() {  # <id> <state> <anchor-file>
 # caller); a caller without that library reads the whole log, which can only
 # surface more. An unreadable span surfaces. Scoped to .status files - a mate's
 # bare turn-ended ping always used the ordinary provably-working absorb.
-_fm_secondmate_status_new_lines_routine() {  # <status-file> <state>
-  local f=$1 state=$2 start=0 size chunk line verb
+# The optional digest mode uses the header rule; absorb never gains terminal
+# outcomes or marked replies, which must be durably queued rather than absorbed.
+_fm_secondmate_status_new_lines_routine() {  # <status-file> <state> [absorb|digest]
+  local f=$1 state=$2 mode=${3:-absorb} start=0 size chunk line verb key
   if command -v fm_wake_signal_seen_size >/dev/null 2>&1; then
     start=$(fm_wake_signal_seen_size "$state" "$f")
   fi
@@ -2816,13 +2822,26 @@ _fm_secondmate_status_new_lines_routine() {  # <status-file> <state>
   case "$size" in ''|*[!0-9]*) return 1 ;; esac
   [ "$start" -le "$size" ] || start=0
   [ "$start" -lt "$size" ] || return 0
-  chunk=$(_fm_status_read_span "$f" "$start" "$((size - start))") || return 1
+  chunk=$(_fm_status_read_span "$f" "$start" "$((size - start))" && printf '.') || return 1
+  chunk=${chunk%.}
+  [ "$(printf '%s' "$chunk" | LC_ALL=C wc -c | tr -d '[:space:]')" = "$((size - start))" ] || return 1
   while IFS= read -r line || [ -n "$line" ]; do
     case "$line" in *[![:space:]]*) ;; *) continue ;; esac
-    case "$line" in *corr=*) return 1 ;; esac
+    case "$line" in
+      *corr=*)
+        [ "$mode" = digest ] || return 1
+        command -v fm_pending_reply_line_has_no_open_corr >/dev/null 2>&1 || return 1
+        fm_pending_reply_line_has_no_open_corr "$state" "$line" || return 1
+        ;;
+    esac
     status_line_verb "$line" verb
     case "$verb" in
       working|"${FM_CLASSIFY_PAUSED_VERB:-$FM_CLASSIFY_PAUSED_VERB_DEFAULT}") ;;
+      done)
+        [ "$mode" = digest ] || return 1
+        key=$(_fm_decision_key "$line") || return 1
+        case "$key" in child-pr-?*|merged-?*) ;; *) return 1 ;; esac
+        ;;
       *) return 1 ;;
     esac
   done <<EOF
