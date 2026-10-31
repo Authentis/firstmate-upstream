@@ -968,7 +968,7 @@ secondmate_oldest_queue_row() {  # <queue-path>
     BEGIN {
       while ((getline line < batch) > 0) {
         split(line, bf, "\t")
-        if (bf[1] ~ /^[0-9]+$/) batched[bf[1]] = 1
+        if (bf[1] ~ /^[0-9]+$/) batched[bf[1]] = bf[3]
       }
     }
     function declared_external_pause(kind, payload) {
@@ -976,7 +976,8 @@ secondmate_oldest_queue_row() {  # <queue-path>
         && payload ~ /^stale: .*\(paused [0-9]+s, awaiting external - declared (pause,|paused\))/
     }
     function young_batched(seq, epoch) {
-      return (seq in batched) && now - epoch < grace
+      if (!(seq in batched)) return 0
+      return batched[seq] == "secondmate-outcome" || now - epoch < grace
     }
     NF >= 5 && $1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+$/ \
       && !declared_external_pause($3, $5) && !young_batched($2, $1) {
