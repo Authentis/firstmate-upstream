@@ -6,6 +6,39 @@ This record contains reusable version-scoped evidence for active runtime guarant
 The backend guides own current setup, safety boundaries, and limitations.
 Exact task chronology, branch names, temporary homes, local paths, process ids, thread ids, and delivery transcripts remain in private reports or PR evidence.
 
+## Secondmate inbox doorbell batching
+
+The classification and counter contract belongs to the header of `bin/fm-task-inbox-lib.sh`.
+Verified on 2026-10-31 with GNU Bash 5.2.21 and ShellCheck 0.11.0 using the public inbox interface and the `fm-watch.sh` executable with fixture terminal transport:
+
+```sh
+bin/fm-test-run.sh tests/fm-task-inbox.test.sh
+bin/fm-lint.sh
+shellcheck -x -S warning bin/fm-task-inbox-lib.sh tests/fm-task-inbox.test.sh
+```
+
+Relevant regression output:
+
+```text
+ok - inbox: secondmate snapshots coalesce repeats, count them, and ring new instructions immediately
+ok - inbox: failed sends keep ringing
+ok - inbox: uncertain counter bookkeeping keeps ordinary delivery
+ok - watcher executable: repeated secondmate doorbells coalesce while stale recovery still wakes
+```
+
+Compatibility inspection covered `fm-harness.sh`, `fm-composer-lib.sh`, the runtime dispatch in `fm-backend.sh`, all five backend adapters, the local send and watcher callers, and the host-local remote secondmate send caller.
+These are interface and fixture receipts, with no claim of a new live vendor-harness run.
+Existing liveness and composer classifiers supply the observations; this change adds no vendor string or key binding.
+
+| Axis inspected | Result |
+| --- | --- |
+| claude, codex, opencode, pi, pi-signed, grok, kimi, cursor, gemini, muse, rovo, omp, agy, devin, commandcode | All use the shared ring interface; the existing harness-specific delivery guards still apply. |
+| tmux | Applies through local sends and watcher retries; the regression exercises this transport with fixtures. |
+| Herdr | Applies through the shared ring interface, including remote secondmate sends; no lifecycle operation is involved. |
+| Zellij | No batching with its currently unverified recovery-grade agent state, as inspected in `fm_backend_agent_state`. |
+| Orca and cmux | Not applicable to supported secondmate launches: `fm-spawn.sh` explicitly rejects them. |
+| Codex App | Not applicable: no registered runtime adapter or supported secondmate send path exists. |
+
 ## Harness detection precedence
 
 Firstmate's own harness comes from two kinds of evidence, and `bin/fm-harness.sh` owns how they combine: an environment marker names its harness, and the nearest harness process in the parent chain proves who owns the process tree.
