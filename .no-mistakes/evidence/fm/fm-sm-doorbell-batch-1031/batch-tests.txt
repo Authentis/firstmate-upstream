@@ -1,0 +1,3 @@
+ok - inbox: secondmate snapshots coalesce repeats, count them, and ring new instructions immediately
+ok - inbox: failed sends keep ringing
+ok - watcher executable: repeated secondmate doorbells coalesce while stale recovery still wakes
