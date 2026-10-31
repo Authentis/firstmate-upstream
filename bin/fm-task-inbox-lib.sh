@@ -467,6 +467,7 @@ fm_task_inbox_ring() (  # <backend> <target> <record-path> [expected-label] [har
     || [ ! -f "$3" ] \
     || [ "$(fm_backend_agent_state "$1" "$2" 2>/dev/null)" != alive ] \
     || ! fm_lock_try_acquire "$dir/.doorbell-batch.lock"; then
+    rm -f "$dir/.doorbell-batch" 2>/dev/null || true
     _fm_task_inbox_ring_submit "$@"
     return $?
   fi

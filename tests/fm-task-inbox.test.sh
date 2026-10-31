@@ -1358,6 +1358,12 @@ test_secondmate_batches_doorbells() {
   batch_ring "$dir" "$second" || fail 'relaunch did not ring'
   [ "$(grep -cF 'Firstmate instruction waiting' "$dir/send.log")" = 4 ] \
     || fail 'changed endpoint metadata must invalidate the batch snapshot'
+  PATH="$dir/fakebin:$PATH" FM_SEND_LOG="$dir/send.log" FM_FAKE_TMUX_AGENT=zsh \
+    FM_FAKE_TMUX_CAPTURE="$(idle_capture "$dir")" \
+    inbox_lib "$state" fm_task_inbox_ring tmux sess:fm-t1 "$second" fm-t1 claude >/dev/null 2>&1 || true
+  batch_ring "$dir" "$second" || fail 'unchanged-meta relaunch did not ring'
+  [ "$(grep -cF 'Firstmate instruction waiting' "$dir/send.log")" -ge 5 ] \
+    || fail 'a ring to a dead endpoint must not leave evidence for a relaunch with unchanged metadata'
   pass 'inbox: secondmate snapshots coalesce repeats, count them, and ring new instructions immediately'
 }
 
