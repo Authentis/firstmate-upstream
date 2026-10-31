@@ -6,8 +6,8 @@
 # (bin/fm-watch.sh) and the away-mode daemon (bin/fm-supervise-daemon.sh) so the
 # overlapping triage policy lives in one place instead of two copies that can
 # drift apart.
-# Secondmate digest classification alone also accepts done lines keyed merged-*
-# or child-pr-* with exactly one yolo=on token, and working/paused lines whose
+# Secondmate digest classification alone also accepts done lines keyed merged-*,
+# or keyed child-pr-* with exactly one yolo=on token, and working/paused lines whose
 # valid correlations have no parent request record (bin/fm-pending-reply-lib.sh).
 # A resolved request proves receipt, not presentation, so its replies still wake.
 # PR-ready lines without proven automatic merge authority still wake for approval.
