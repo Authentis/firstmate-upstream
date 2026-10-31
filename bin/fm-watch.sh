@@ -460,11 +460,14 @@ wake_fold_active() {
 
 # 0 when every named signal file is the .status log of a persistent secondmate
 # lane whose new span passes the digest classification in fm-classify-lib.sh;
-# the batch store carries it (bin/fm-wake-classify-lib.sh). A .turn-ended marker is never
+# the batch store carries it (bin/fm-wake-classify-lib.sh). Outcome classification
+# stays per file: ordinary progress beside an outcome keeps its normal batch
+# window and stall eligibility, and does not count as a deferred outcome.
+# A .turn-ended marker is never
 # progress: a bare turn-end may be a silent finish or a wedge, so it keeps waking.
 signal_files_all_secondmate() {  # <file> ...
   local f id
-  FM_SECONDMATE_ROUTINE_OUTCOME=0
+  FM_SECONDMATE_ROUTINE_OUTCOME_FILES=''
   [ "$#" -gt 0 ] || return 1
   for f in "$@"; do
     id=$(basename "$f")
@@ -476,7 +479,7 @@ signal_files_all_secondmate() {  # <file> ...
     # The shared classifier owns the conservative digest-only outcome rule.
     _fm_secondmate_status_new_lines_routine "$f" "$STATE" digest || return 1
     _fm_secondmate_status_new_lines_routine "$f" "$STATE" \
-      || FM_SECONDMATE_ROUTINE_OUTCOME=1
+      || FM_SECONDMATE_ROUTINE_OUTCOME_FILES="$FM_SECONDMATE_ROUTINE_OUTCOME_FILES $f"
   done
 }
 
@@ -3401,16 +3404,19 @@ EOF
         && fm_wake_classify_enabled && signal_files_all_secondmate $files \
         && [ "$(fm_wake_classify signal "$files" "$reason" secondmate-progress)" = nonurgent ]; then
         signal_batched=1
-        if [ "$FM_SECONDMATE_ROUTINE_OUTCOME" -eq 1 ]; then
-          signal_batch_class=secondmate-outcome
-        fi
       fi
       while IFS=$(printf '\t') read -r sf sig f; do
         [ -n "$sf" ] || continue
         file_reason="$reason"
         case " $FM_SIGNAL_NEEDS_DECISION_FILES " in *" $f "*) file_reason="needs-decision:$files" ;; esac
         if [ "$signal_batched" -eq 1 ]; then
-          fm_wake_batch_append signal "$(basename "$f")" "$file_reason" "$signal_batch_class" || exit 1
+          file_batch_class=$signal_batch_class
+          if [ "$file_batch_class" = nonurgent ]; then
+            case " $FM_SECONDMATE_ROUTINE_OUTCOME_FILES " in
+              *" $f "*) file_batch_class=secondmate-outcome ;;
+            esac
+          fi
+          fm_wake_batch_append signal "$(basename "$f")" "$file_reason" "$file_batch_class" || exit 1
         else
           fm_wake_append signal "$(basename "$f")" "$file_reason" || exit 1
         fi

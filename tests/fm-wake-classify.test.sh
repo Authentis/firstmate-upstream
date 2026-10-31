@@ -1028,3 +1028,44 @@ test_secondmate_outcome_after_progress_and_natural_trigger() {
   pass 'a queued progress row preserves the later outcome counter and a check failure naturally drains both after restart'
 }
 test_secondmate_outcome_after_progress_and_natural_trigger
+
+test_secondmate_simultaneous_outcome_and_progress() {
+  local dir state id
+  dir=$(make_classify_case secondmate-simultaneous-outcome-progress); state="$dir/state"
+  for id in outcome progress; do
+    printf 'window=remote:%s\nkind=secondmate\nmode=secondmate\n' "$id" > "$state/$id.meta"
+  done
+  printf 'done [key=child-pr-123]: child ready for review\n' > "$state/outcome.status"
+  printf 'working: supervising ordinary work\n' > "$state/progress.status"
+  watch_bg "$dir"
+  wait_poll_cycle "$state" "$WATCH_PID" || fail 'simultaneous routine files woke immediately'
+  stop_watcher
+  [ "$(queue_rows "$dir")" -eq 2 ] || fail 'simultaneous files lost a queued row'
+  [ "$(awk -F '\t' '$3 == "secondmate-outcome" { n++ } END { print n + 0 }' "$state/.wake-batch")" -eq 1 ] \
+    || fail 'ordinary progress inherited the simultaneous outcome class'
+  awk -F '\t' '
+    FNR == NR { classes[$1] = $3; next }
+    $4 == "outcome.status" && classes[$2] == "secondmate-outcome" { outcome++ }
+    $4 == "progress.status" && classes[$2] == "nonurgent" { progress++ }
+    END { exit outcome == 1 && progress == 1 ? 0 : 1 }
+  ' "$state/.wake-batch" "$state/.wake-queue" || fail 'simultaneous files did not retain their own batch classes'
+  drain "$dir" --ack-if-routine || fail 'simultaneous files drain failed'
+  grep -q 'secondmate-outcomes-deferred=1' "$dir/drain.out" || fail 'simultaneous outcome counter was inflated'
+  grep -q 'supervising ordinary work' "$dir/drain.out" || fail 'simultaneous progress evidence was lost'
+  grep -q WAKE_ACK_REQUIRED "$dir/drain.err" || fail 'simultaneous rows were silently acknowledged'
+
+  # Age both rows: ordinary progress must still cause the normal digest,
+  # carrying the outcome without counting progress as another outcome.
+  age_record "$state/.wake-batch" 1000
+  watch_bg "$dir" FM_WAKE_BATCH_SECS=900
+  wait_for_exit "$WATCH_PID" 100 || fail 'ordinary progress lost age-based delivery beside an outcome'
+  WATCH_PID=
+  grep -q '^check: wake digest:' "$dir/watch.out" || fail 'ordinary progress did not start the normal digest'
+  [ "$(queue_rows "$dir")" -eq 2 ] || fail 'age-based delivery dropped a simultaneous row'
+  drain "$dir" --ack-if-routine || fail 'aged simultaneous files drain failed'
+  grep -q 'secondmate-outcomes-deferred=1' "$dir/drain.out" || fail 'aged digest inflated the outcome counter'
+  ack_drain_err "$state" "$dir/drain.err" >/dev/null 2>&1 || fail 'simultaneous rows acknowledgement failed'
+  [ ! -s "$state/.wake-queue" ] || fail 'simultaneous rows remained after explicit acknowledgement'
+  pass 'simultaneous outcome and progress retain separate classes, one outcome count and normal progress age delivery'
+}
+test_secondmate_simultaneous_outcome_and_progress
