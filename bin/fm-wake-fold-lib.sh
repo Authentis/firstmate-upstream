@@ -24,9 +24,22 @@
 #                   so the watcher never reaches this class for a remote mate;
 #                   it stays a valid class for rows queued directly.
 #   - check-repeat  a registered custom check (never a PR poll, the Relay poll,
-#                   or the contributions check) whose output is byte-identical
+#                   the contributions check, or the cloud check below) whose output is byte-identical
 #                   to one of the last FM_WAKE_FOLD_CHECK_MEMORY (8) outputs it
 #                   already delivered. Any new text wakes at once.
+#   - cloud-repeat the authenticated cloud-workers-0926.check.sh output consists
+#                   entirely of quiet:refs/heads/claude/<ref>@<9 lowercase hex>
+#                   tokens already surfaced by an earlier delivered wake from
+#                   that same check in .watch-deliveries.log. Token order and
+#                   grouping do not matter. new:, first-time heads, extra text,
+#                   malformed output, nonzero check exits, and missing/rotated
+#                   delivery proof wake.
+#                   These rows reuse check-repeat records and the existing
+#                   routine-acked-by-watcher counter; they stay durable until
+#                   a natural drain or the guarded routine acknowledgement.
+#                   Re-arm also records already-queued proven cloud repeats
+#                   before testing whether every row is folded; mixed queues,
+#                   crash recovery, and unread decisions retain their backstops.
 #   - rearm         a fresh watcher cycle's `check: rearm-resurface` when the
 #                   queue is non-empty and every queued row is a folded row.
 #                   An empty queue, a crashed watcher's lock recovery, and any
@@ -236,4 +249,76 @@ fm_wake_fold_own_outbound_task() {
   task=$(basename "$dest" .status)
   [ "$dest" = "$STATE/$task.status" ] || return 1
   printf '%s\n' "$task"
+}
+
+# 0 only for a complete quiet-only cloud check whose every head has already
+# appeared in a delivered wake. The delivery owner writes this bounded log
+# AFTER printing the reason (fm-push-transition-lib.sh); absent/rotated history
+# cannot prove a repeat. Reject maximum-length reasons because they may have
+# been truncated. Do not trust the generic repeated-output checksum for this
+# check: even an identical new: announcement must keep waking.
+fm_wake_fold_cloud_check() {  # <check-path>
+  [ "$1" = "$STATE/cloud-workers-0926.check.sh" ]
+}
+
+fm_wake_fold_cloud_repeat() {  # <check-path> <output>
+  local log="$STATE/.watch-deliveries.log"
+  fm_wake_fold_cloud_check "$1" || return 1
+  [ -f "$log" ] && [ -r "$log" ] && [ ! -L "$log" ] || return 1
+  # Pass arbitrary output as data, never as an awk -v escape-decoded string.
+  printf '%s\n' "$2" | awk -F '\t' -v prefix="check: $1: " -v journal="$log" '
+    function parse(text, history,    n, f, i, tok) {
+      n = split(text, f, " ")
+      if (n < 2 || f[1] != "cloud-branch:") return 0
+      for (i = 2; i <= n; i++) {
+        tok = f[i]
+        if (tok ~ /^quiet:refs\/heads\/claude\/[A-Za-z0-9._\/-]+@[0-9a-f]+$/) {
+          sub(/^.*@/, "", tok)
+          if (length(tok) != 9) return 0
+        } else if (!(history && tok ~ /^new:refs\/heads\/claude\/[A-Za-z0-9._\/-]+$/)) return 0
+      }
+      for (i = 2; i <= n; i++) {
+        if (history) seen[f[i]] = 1
+        else if (!(f[i] in seen)) return 0
+      }
+      return 1
+    }
+    BEGIN {
+      while ((getline row < journal) > 0) {
+        if (split(row, d, "\t") != 3 || d[1] !~ /^[0-9]+$/ || d[2] == "" || length(d[3]) >= 4096) continue
+        if (index(d[3], prefix) == 1) parse(substr(d[3], length(prefix) + 1), 1)
+      }
+    }
+    { if (NR != 1 || NF != 1 || !parse($0, 0)) bad = 1 }
+    END { exit NR == 1 && !bad ? 0 : 1 }
+  '
+}
+
+# Extend re-arm suppression only for exact cloud check rows with delivered
+# provenance. Under the queue lock, add their ordinary fold records atomically;
+# never consume a row here. Any other queued row still forces the normal wake.
+fm_wake_fold_cloud_resurface() {
+  local epoch seq kind key payload extra tmp now rc=0
+  [ -s "$FM_WAKE_QUEUE" ] || return 0
+  fm_lock_acquire_wait "$FM_WAKE_QUEUE_LOCK" || return 1
+  tmp=$(mktemp "$STATE/.wake-fold.tmp.XXXXXX") || { fm_lock_release "$FM_WAKE_QUEUE_LOCK"; return 1; }
+  if [ -e "$FM_WAKE_FOLD_RECORD" ]; then
+    cat "$FM_WAKE_FOLD_RECORD" > "$tmp" || rc=1
+  fi
+  now=$(date +%s)
+  while IFS=$'\t' read -r epoch seq kind key payload extra; do
+    [ "$rc" -eq 0 ] || break
+    [ "$kind" = check ] && [ -z "$extra" ] || continue
+    case "$seq" in ""|*[!0-9]*) continue ;; esac
+    [ "$payload" != "${payload#"check: $key: "}" ] || continue
+    fm_wake_fold_cloud_repeat "$key" "${payload#"check: $key: "}" || continue
+    awk -F '\t' -v seq="$seq" '$1 == seq { found=1 } END { exit found ? 0 : 1 }' "$tmp" && continue
+    printf '%s\t%s\tcheck-repeat\n' "$seq" "$now" >> "$tmp" || rc=1
+  done < "$FM_WAKE_QUEUE"
+  if [ "$rc" -eq 0 ]; then
+    _fm_atomic_replace "$tmp" "$FM_WAKE_FOLD_RECORD" || rc=1
+  fi
+  rm -f -- "$tmp"
+  fm_lock_release "$FM_WAKE_QUEUE_LOCK"
+  return "$rc"
 }

@@ -2442,7 +2442,8 @@ run_check_capture() {
     fm_check_output_cleanup
     return 1
   fi
-  wait "$FM_ACTIVE_CHECK_PID" 2>/dev/null || true
+  FM_CHECK_EXIT_STATUS=0
+  wait "$FM_ACTIVE_CHECK_PID" 2>/dev/null || FM_CHECK_EXIT_STATUS=$?
   FM_ACTIVE_CHECK_PID=
   fm_active_check_stop || return 1
   FM_CHECK_RESULT=$(cat "$FM_CHECK_OUTPUT" 2>/dev/null || true)
@@ -2998,6 +2999,9 @@ resurface_after_downtime() {
     fi
     [ "$FM_RECOVERY_MARKER_ACTION" = recover ] || return 0
   fi
+  if [ -z "${FM_LOCK_RECOVERED_PID:-}" ] && wake_fold_active && fm_wake_classify_enabled; then
+    fm_wake_fold_cloud_resurface || triage_log "cloud re-surface proof could not be recorded"
+  fi
   # A re-arm whose whole queue is folded rows announces nothing the digest
   # will not deliver; a crashed predecessor's lock recovery still re-arms.
   if [ -z "${FM_LOCK_RECOVERED_PID:-}" ] && wake_fold_active \
@@ -3212,6 +3216,12 @@ while :; do
           continue
         fi
       fi
+      if fm_wake_fold_cloud_check "$c" && [ "${FM_CHECK_EXIT_STATUS:-0}" -ne 0 ]; then
+        # A failed cloud query is never routine, even if it printed quiet
+        # tokens or nothing. Keep the failure in the durable reason too, so
+        # re-arm cannot mistake it for a previously delivered quiet result.
+        out="check failed (exit $FM_CHECK_EXIT_STATUS): $out"
+      fi
       if [ -n "$out" ]; then
         if [ "$(basename "$c")" = contributions.check.sh ]; then
           contribution_check_output=
@@ -3277,6 +3287,19 @@ EOF
         pr_poll_control_release || exit 1
         if [ "$is_pr_poll" -eq 0 ] && [ "$(basename "$c")" != x-watch.check.sh ] \
           && [ "$(basename "$c")" != contributions.check.sh ] && wake_fold_active; then
+          if fm_wake_fold_cloud_check "$c"; then
+            if fm_wake_classify_enabled && fm_wake_fold_cloud_repeat "$c" "$out"; then
+              fm_wake_fold_append check "$c" "$reason" check-repeat || exit 1
+              touch "$STATE/.last-check"
+              triage_log "folded already-surfaced quiet cloud heads: $c"
+              continue
+            fi
+            # First-time heads, new: tokens, and unknown cloud output must
+            # bypass generic checksum folding and reporter batching entirely.
+            fm_wake_append check "$c" "$reason" || exit 1
+            touch "$STATE/.last-check"
+            wake "$reason"
+          fi
           if fm_wake_fold_check_repeat "$c" "$out"; then
             fm_wake_fold_append check "$c" "$reason" check-repeat || exit 1
             touch "$STATE/.last-check"

@@ -100,9 +100,10 @@ queue_rows() {  # <dir>
   awk 'END { print NR }' "$1/state/.wake-queue" 2>/dev/null || echo 0
 }
 
-register_check() {  # <dir> <id> <output>
+register_check() {  # <dir> <id> <output> [exit-status]
   local file="$1/state/$2.check.sh"
   printf '#!/usr/bin/env bash\nprintf '"'"'%%s\\n'"'"' %q\n' "$3" > "$file"
+  printf '\nexit %s\n' "${4:-0}" >> "$file"
   chmod 0700 "$file"
   FM_STATE_OVERRIDE="$1/state" "$ROOT/bin/fm-check-register.sh" "$2" >/dev/null \
     || fail "could not register check $2"
@@ -919,6 +920,120 @@ test_urgent_check_carries_held_relay() {
   [ ! -s "$state/.wake-queue" ] || fail 'mixed acknowledgement left rows queued'
   pass 'urgent check wakes immediately with held relay evidence and ordinary acknowledgement loses no rows'
 }
+
+# Real registered cloud checks and the real delivered-wake journal provide the
+# provenance. No hand-written history or classifier source assertions.
+test_cloud_quiet_repeats_use_delivered_heads_and_visible_ack_counter() {
+  local dir state first second
+  dir=$(make_classify_case cloud-repeat); state="$dir/state"
+  first='quiet:refs/heads/claude/one@012345678'
+  second='quiet:refs/heads/claude/two@abcdef012'
+  register_check "$dir" cloud-workers-0926 "cloud-branch: $first $second"
+  watch_bg "$dir" FM_CHECK_INTERVAL=0
+  wait_for_exit "$WATCH_PID" 100 || fail 'first quiet heads did not wake'
+  WATCH_PID=
+  grep -F "cloud-branch: $first $second" "$dir/watch.out" >/dev/null || fail 'first quiet wake missing'
+  grep -F "cloud-branch: $first $second" "$state/.watch-deliveries.log" >/dev/null || fail 'no durable delivery proof'
+  drain "$dir" || fail 'cloud first drain failed'
+  ack_drain_err "$state" "$dir/drain.err" >/dev/null 2>&1 || fail 'cloud first ack failed'
+
+  # A different grouping/order still carries only heads already delivered.
+  register_check "$dir" cloud-workers-0926 "cloud-branch: $second $first"
+  watch_bg "$dir" FM_CHECK_INTERVAL=0
+  wait_poll_cycle "$state" "$WATCH_PID" || fail "known heads in a new order woke: $(cat "$dir/watch.out" "$dir/watch.err")"
+  stop_watcher
+  [ ! -s "$dir/watch.out" ] || fail 'cloud repeat printed a model wake'
+  [ "$(queue_rows "$dir")" -eq 1 ] || fail 'cloud repeat was not durably queued'
+  grep -q $'\tcheck-repeat$' "$state/.wake-fold" || fail 'cloud repeat has no fold audit record'
+  age_record "$state/.wake-fold" 1000
+  watch_bg "$dir" FM_WAKE_FOLD_DIGEST_SECS=900
+  wait_poll_cycle "$state" "$WATCH_PID" || fail 'aged cloud repeat woke instead of auto-acking'
+  stop_watcher
+  [ ! -s "$state/.wake-queue" ] || fail 'watcher did not auto-ack cloud repeat'
+  [ "$(measure_count "$dir" routine-ack)" -eq 1 ] || fail 'cloud auto-ack not counted exactly once'
+  append_wake "$state" check audit 'check: audit stats' || fail 'could not queue audit wake'
+  drain "$dir" || fail 'cloud stats drain failed'
+  grep -q 'routine-acked-by-watcher=1' "$dir/drain.out" || fail 'cloud ack counter is not visible in drain'
+  ack_drain_err "$state" "$dir/drain.err" >/dev/null 2>&1 || fail 'cloud audit ack failed'
+  # A failed check is actionable even when it prints previously delivered heads.
+  register_check "$dir" cloud-workers-0926 "cloud-branch: $first $second" 1
+  watch_bg "$dir" FM_CHECK_INTERVAL=0
+  wait_for_exit "$WATCH_PID" 100 || fail 'failed quiet cloud check was silenced'
+  WATCH_PID=
+  grep -q 'check failed (exit 1)' "$dir/watch.out" || fail 'cloud failure is absent from its durable reason'
+  watch_bg "$dir"
+  wait_for_exit "$WATCH_PID" 100 || fail 'failed cloud check rearm was suppressed'
+  WATCH_PID=
+  grep -qx 'check: rearm-resurface' "$dir/watch.out" || fail 'cloud failure did not retain its recovery wake'
+  pass 'known quiet cloud heads fold, auto-ack visibly, and a nonzero check exit still wakes and resurfaces'
+}
+
+test_cloud_unknown_and_actionable_outputs_always_wake() {
+  local dir state output attempt
+  for output in \
+    'cloud-branch: new:refs/heads/claude/new-task' \
+    'cloud-branch: quiet:refs/heads/claude/new-head@987654321' \
+    'cloud-branch: quiet:refs/heads/claude/one@012345678 new:refs/heads/claude/new-task' \
+    'cloud-branch: quiet:refs/heads/claude/one@012345678 FAILED' \
+    'cloud-branch: quiet:refs/heads/claude/one@012345678 note: please decide' \
+    'cloud-branch: quiet:refs/heads/claude/one@01234567' \
+    $'cloud-branch: quiet:refs/heads/claude/one@012345678\nneeds-decision: choose'; do
+    dir=$(make_classify_case cloud-actionable); state="$dir/state"
+    register_check "$dir" cloud-workers-0926 "$output"
+    # An identical new:/failure/malformed output must also bypass the old
+    # generic check-repeat memory on the second cycle.
+    for attempt in 1 2; do
+      watch_bg "$dir" FM_CHECK_INTERVAL=0
+      wait_for_exit "$WATCH_PID" 100 || fail "cloud output was delayed on attempt $attempt: $output"
+      WATCH_PID=
+      grep -q '^check: .*cloud-workers-0926.check.sh:' "$dir/watch.out" || fail 'cloud actionable reason missing'
+      [ ! -s "$state/.wake-fold" ] || fail 'actionable cloud output was folded'
+      drain "$dir" || fail 'cloud actionable drain failed'
+      grep -q WAKE_ACK_REQUIRED "$dir/drain.err" || fail 'cloud actionable was auto-acked'
+      ack_drain_err "$state" "$dir/drain.err" >/dev/null 2>&1 || fail 'cloud actionable ack failed'
+      # First-time quiet wakes on its first appearance; once delivered it is
+      # routine, so do not require a second immediate wake for that case.
+      case "$output" in 'cloud-branch: quiet:refs/heads/claude/new-head@987654321') break ;; esac
+    done
+  done
+  pass 'first quiet heads, new announcements, failures, notes, and malformed cloud output keep waking'
+}
+
+test_cloud_rearm_suppresses_only_proven_routine_queues() {
+  local dir state mode output
+  for mode in routine mixed no-proof off; do
+    dir=$(make_classify_case "cloud-rearm-$mode"); state="$dir/state"
+    output='cloud-branch: quiet:refs/heads/claude/one@012345678'
+    register_check "$dir" cloud-workers-0926 "$output"
+    watch_bg "$dir" FM_CHECK_INTERVAL=0
+    wait_for_exit "$WATCH_PID" 100 || fail 'cloud setup did not wake'
+    WATCH_PID=
+    # Leave the delivered check queued, as a lost acknowledgement does.
+    case "$mode" in
+      mixed) append_wake "$state" stale missing 'stale: missing' || fail 'mixed stale setup failed' ;;
+      no-proof) rm -f "$state/.watch-deliveries.log" ;;
+      off) printf 'off\n' > "$dir/config/wake-classify" ;;
+    esac
+    watch_bg "$dir"
+    if [ "$mode" = routine ]; then
+      wait_poll_cycle "$state" "$WATCH_PID" || fail 'already-delivered routine cloud queue resurfaced'
+      stop_watcher
+      [ ! -s "$dir/watch.out" ] || fail 'routine rearm printed a wake'
+      grep -q $'\tcheck-repeat$' "$state/.wake-fold" || fail 'routine rearm has no durable fold record'
+      [ "$(queue_rows "$dir")" -eq 1 ] || fail 'routine rearm lost the row before acknowledgement'
+    else
+      wait_for_exit "$WATCH_PID" 100 || fail "$mode rearm was incorrectly suppressed"
+      WATCH_PID=
+      grep -qx 'check: rearm-resurface' "$dir/watch.out" || fail "$mode did not keep the original rearm reason"
+      [ -s "$state/.wake-queue" ] || fail "$mode lost durable rows"
+    fi
+  done
+  pass 'rearm suppresses proven quiet cloud repeats, while mixed stale queues, absent delivery proof, and classification off still wake'
+}
+
+test_cloud_quiet_repeats_use_delivered_heads_and_visible_ack_counter
+test_cloud_unknown_and_actionable_outputs_always_wake
+test_cloud_rearm_suppresses_only_proven_routine_queues
 
 test_report_producer_reduces_wake_turns
 test_report_producer_keeps_urgent_and_unknown_immediate
