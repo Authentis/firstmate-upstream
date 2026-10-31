@@ -965,7 +965,24 @@ test_cloud_quiet_repeats_use_delivered_heads_and_visible_ack_counter() {
   wait_for_exit "$WATCH_PID" 100 || fail 'failed cloud check rearm was suppressed'
   WATCH_PID=
   grep -qx 'check: rearm-resurface' "$dir/watch.out" || fail 'cloud failure did not retain its recovery wake'
-  pass 'known quiet cloud heads fold, auto-ack visibly, and a nonzero check exit still wakes and resurfaces'
+  drain "$dir" || fail 'cloud failure drain failed'
+  ack_drain_err "$state" "$dir/drain.err" >/dev/null 2>&1 || fail 'cloud failure ack failed'
+  # The portable timeout fallback must preserve signal deaths as failures,
+  # even after a check has printed an otherwise routine, already-seen head.
+  printf '%s\n' '#!/usr/bin/env bash' \
+    "printf '%s\\n' 'cloud-branch: $first $second'" \
+    'kill -TERM "$$"' > "$state/cloud-workers-0926.check.sh"
+  FM_STATE_OVERRIDE="$state" "$ROOT/bin/fm-check-register.sh" cloud-workers-0926 >/dev/null \
+    || fail 'could not register signal-terminated cloud check'
+  watch_bg "$dir" FM_CHECK_INTERVAL=0 FM_CHECK_FORCE_FALLBACK=1
+  wait_for_exit "$WATCH_PID" 100 || fail 'signal-terminated quiet cloud check was silenced'
+  WATCH_PID=
+  grep -q 'check failed (exit 143)' "$dir/watch.out" || fail "cloud signal death lost its failure status: $(cat "$dir/watch.out" "$dir/watch.err")"
+  [ ! -s "$state/.wake-fold" ] || fail 'signal-terminated cloud output was folded'
+  drain "$dir" || fail 'cloud signal failure drain failed'
+  grep -q WAKE_ACK_REQUIRED "$dir/drain.err" || fail 'cloud signal failure was auto-acked'
+  ack_drain_err "$state" "$dir/drain.err" >/dev/null 2>&1 || fail 'cloud signal failure ack failed'
+  pass 'known quiet cloud heads fold and auto-ack visibly; nonzero and fallback signal exits still wake'
 }
 
 test_cloud_unknown_and_actionable_outputs_always_wake() {
