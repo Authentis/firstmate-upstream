@@ -3,7 +3,7 @@
 # close an idle done lane through a plain teardown once that is opted in.
 #
 # Usage:
-#   fm-lane-reaper.sh scan [--live] [--close-live]
+#   fm-lane-reaper.sh scan [--live]
 #
 # A direct ship or scout lane is a candidate only when ALL of these hold:
 #   idle-status   fm-crew-state.sh reads done or paused NOW (a lane with an open
@@ -37,15 +37,14 @@
 # idle, quiet, and clean as above, is a close candidate even with unpushed
 # commits, and every dry-run scan logs `close <id>: would-close (<how kept>)`.
 # Live closing is off unless bin/fm-lane-close-lib.sh's opt-in holds for this
-# home (config/lane-close-live), `--close-live` is passed, or
-# FM_REAPER_CLOSE_LIVE=1. A live close re-evaluates the lane, then keeps every
-# commit no remote has: it writes data/bundles/<id>-close.bundle and verifies it
+# home (config/lane-close-live). A live close re-evaluates the lane, then keeps every
+# commit no real remote has: it writes a unique data/bundles/<id>-close.*.bundle and verifies it
 # holds HEAD (no verified bundle, no close), and plainly pushes HEAD to the
 # branch's configured upstream unless that upstream is the no-mistakes mirror
 # (never forced; a failed push refuses the close, bundle kept). It then runs
 # fm-teardown.sh <id> without --force, whose landed-work test decides; a lane
-# with no upstream closes only if that test accepts it. A refusal is logged once
-# per status line and never forced; an unreadable history refuses the close.
+# with no upstream closes only if that test accepts it. A refusal is never
+# forced and is retried on later scans; an unreadable history refuses the close.
 # Each secondmate home's own watcher scans its lanes under its own opt-in.
 # Every scan appends its lines to state/lane-reaper.log (dry-run and live, so a
 # day of dry-run logs exists before the flip). Scans are throttled to once per
@@ -71,21 +70,19 @@ QUIET_SECS=${FM_REAPER_QUIET_SECS:-1800}
 SCAN_SECS=${FM_REAPER_SCAN_SECS:-900}
 LOG="$STATE/lane-reaper.log"
 SEEN="$STATE/.lane-reaper-seen"
-BUNDLES="$FM_HOME/data/bundles"
 
 # shellcheck source=bin/fm-lane-close-lib.sh
 . "$SCRIPT_DIR/fm-lane-close-lib.sh"
 
-USAGE="usage: fm-lane-reaper.sh scan [--live] [--close-live]"
+USAGE="usage: fm-lane-reaper.sh scan [--live]"
 [ "${1:-}" = scan ] || { echo "$USAGE" >&2; exit 2; }
 shift
 LIVE=${FM_REAPER_LIVE:-0}
-CLOSE_LIVE=${FM_REAPER_CLOSE_LIVE:-0}
+CLOSE_LIVE=0
 ! fm_lane_close_live "$FM_HOME" || CLOSE_LIVE=1
 for a in "$@"; do
   case "$a" in
     --live) LIVE=1 ;;
-    --close-live) CLOSE_LIVE=1 ;;
     *) echo "$USAGE" >&2; exit 2 ;;
   esac
 done
@@ -231,25 +228,6 @@ close_kind() {
   esac
 }
 
-# keep_commits <id> <worktree>: 0 when every commit of HEAD is on a remote, or a
-# verified bundle at data/bundles/<id>-close.bundle now holds HEAD.
-keep_commits() {
-  local id=$1 wt=$2 head n file
-  head=$(git -C "$wt" rev-parse HEAD 2>/dev/null) || return 1
-  n=$(git -C "$wt" rev-list --count HEAD --not --remotes 2>/dev/null) || return 1
-  [ "$n" -gt 0 ] || return 0
-  file="$BUNDLES/$id-close.bundle"
-  mkdir -p "$BUNDLES" 2>/dev/null || return 1
-  if git -C "$wt" bundle create -q "$file.tmp" HEAD --not --remotes >/dev/null 2>&1 \
-    && git -C "$wt" bundle verify -q "$file.tmp" >/dev/null 2>&1 \
-    && mv -f "$file.tmp" "$file" 2>/dev/null \
-    && git -C "$wt" bundle list-heads "$file" 2>/dev/null | grep -q "^$head HEAD"; then
-    return 0
-  fi
-  rm -f "$file.tmp"
-  return 1
-}
-
 # push_upstream <worktree>: plain push of HEAD to the branch's upstream; 0 when
 # pushed or when the upstream is the no-mistakes mirror (kept by the bundle only).
 push_upstream() {
@@ -266,7 +244,7 @@ close_lane() {
   local id=$1 meta=$2 how wt rc=0
   how=$(close_kind "$id" "$(evaluate "$id" "$meta")") || { echo spared-on-recheck; return; }
   wt=$(meta_get "$meta" worktree)
-  keep_commits "$id" "$wt" || { echo "refused: no verified bundle of its commits"; return; }
+  fm_lane_close_keep_commits "$FM_HOME" "$id" "$wt" || { echo "refused: no verified bundle of its commits"; return; }
   if [ "$how" = push ] && ! push_upstream "$wt"; then
     echo "refused: push to upstream failed; bundle kept"; return
   fi
@@ -286,14 +264,12 @@ for meta in "$STATE"/*.meta; do
   id=$(basename "$meta" .meta)
   verdict=$(evaluate "$id" "$meta")
   if how=$(close_kind "$id" "$verdict"); then
-    lastline=$(tail -n1 "$STATE/$id.status" 2>/dev/null)
     if [ "$CLOSE_LIVE" != 1 ]; then
       printf '[at=%s] %s\n' "$NOW" "dry-run close $id: would-close ($how)" | tee -a "$LOG"
-    elif [ "$(cat "$SEEN/$id.close" 2>/dev/null)" != "$lastline" ]; then
+    else
       res=$(close_lane "$id" "$meta")
       printf '[at=%s] %s\n' "$NOW" "$close_mode close $id: $res" | tee -a "$LOG"
       [ "$res" != closed ] || continue
-      printf '%s\n' "$lastline" > "$SEEN/$id.close"
     fi
   fi
   case "$verdict" in

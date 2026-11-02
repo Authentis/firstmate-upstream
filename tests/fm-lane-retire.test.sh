@@ -207,7 +207,21 @@ merge_local_lane "$H" lane-b
 out=$(run_merge_local "$H" lane-b 2>&1) || fail "local merge failed with closing on: $out"
 assert_contains "$out" "lane close: tore down lane-b after the merge" "teardown reported"
 assert_equals "lane-b" "$(cat "$H/teardown.log")" "merge runs a plain teardown, no --force"
+for bundle in "$H/data/bundles/"*.bundle; do
+  git clone -q "$bundle" "$H/restored" 2>/dev/null || fail "local-only merge bundle cannot restore independently"
+done
+assert_equals "$(git -C "$H/wt-lane-b" rev-parse HEAD)" "$(git -C "$H/restored" rev-parse HEAD)" "local-only merged head preserved"
 pass "local merge runs a plain teardown right after the proven fast-forward"
+
+H=$(new_home merge-local-preserve-fails)
+: > "$H/config/lane-close-live"
+merge_local_lane "$H" lane-f
+: > "$H/data/bundles"
+out=$(run_merge_local "$H" lane-f 2>&1) || fail "preservation failure failed the proven merge"
+assert_contains "$out" "preservation of lane-f failed" "preservation refusal reported"
+assert_absent "$H/teardown.log" "teardown ran without preservation"
+assert_present "$H/state/lane-f.meta" "unpreserved lane kept"
+pass "preservation failure keeps the merged lane without teardown"
 
 cat > "$TMP_ROOT/teardown-refuses" <<'SH'
 #!/usr/bin/env bash

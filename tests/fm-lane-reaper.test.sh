@@ -160,16 +160,40 @@ add_teardown() {
   printf '#!/usr/bin/env bash\necho "$*" >> %q\nrc=$(cat %q 2>/dev/null || echo 0)\n[ "$rc" != 0 ] || rm -f "$FM_STATE_OVERRIDE/$1.meta"\nexit "$rc"\n' \
     "$TEARDOWNS" "$W/teardown.rc" > "$W/bin/teardown"
   chmod +x "$W/bin/teardown"
+  mkdir -p "$W/config"
+  : > "$W/config/lane-close-live"
 }
 
 run_close() {
   FM_TEST_SEAM=1 FM_LANE_CLOSE_TEARDOWN="$W/bin/teardown" run_reaper "$@"
 }
 
+assert_saved_head() {
+  local bundle
+  for bundle in "$W/data/bundles/"*.bundle; do
+    [ -f "$bundle" ] || continue
+    git clone -q "$bundle" "$W/restored-$RANDOM" 2>/dev/null || fail "bundle not independently restorable"
+    git bundle list-heads "$bundle" | grep -qx "$1 HEAD" && return 0
+  done
+  fail "no independently restorable bundle of HEAD"
+}
+
+test_close_mirror_only_commits_are_bundled() {
+  new_world close-mirror; make_lane a; add_teardown
+  git -C "$W/wt-a" commit -q --allow-empty -m mirror-only
+  git -C "$W/wt-a" remote rename origin no-mistakes
+  git -C "$W/wt-a" push -q no-mistakes fm/a
+  out=$(run_close)
+  assert_contains "$out" "live close a: closed" "mirror lane closes"
+  assert_saved_head "$(git -C "$W/wt-a" rev-parse HEAD)"
+  pass "validation mirror alone requires an independently restorable bundle"
+}
+
 test_close_is_off_by_default_and_dry_run_reports() {
   new_world close-off; make_lane a; add_teardown
-  mkdir -p "$W/config"; : > "$W/config/lane-reaper-live"
-  out=$(run_close --live)
+  rm "$W/config/lane-close-live"
+  : > "$W/config/lane-reaper-live"
+  out=$(FM_REAPER_CLOSE_LIVE=1 run_close --live)
   assert_contains "$out" "dry-run close a: would-close (pushed)" "dry-run close line"
   [ ! -s "$TEARDOWNS" ] || fail "teardown ran without the close opt-in"
   assert_present "$W/state/a.meta" "record kept"
@@ -182,7 +206,7 @@ test_close_pushed_clean_lane_tears_down_without_force() {
   out=$(run_close)
   assert_contains "$out" "live close a: closed" "closed line"
   assert_equals "a" "$(cat "$TEARDOWNS")" "plain teardown, no --force"
-  assert_absent "$W/data/bundles/a-close.bundle" "a pushed lane needs no bundle"
+  [ ! -d "$W/data/bundles" ] || fail "a pushed lane needs no bundle"
   pass "config/lane-close-live closes a pushed clean done lane through plain teardown"
 }
 
@@ -191,13 +215,14 @@ test_close_unpushed_lane_pushes_and_bundles_first() {
   new_world close-unpushed; make_lane a; add_teardown
   git -C "$W/wt-a" commit -q --allow-empty -m extra
   head=$(git -C "$W/wt-a" rev-parse HEAD)
+  rm "$W/config/lane-close-live"
   out=$(run_reaper)
   assert_contains "$out" "dry-run close a: would-close (push)" "dry-run names the push"
-  out=$(run_close --close-live)
+  : > "$W/config/lane-close-live"
+  out=$(run_close)
   assert_contains "$out" "live close a: closed" "closed line"
   assert_equals "$head" "$(git -C "$W/remote-a.git" rev-parse fm/a)" "unpushed commit reached the upstream"
-  git -C "$W/wt-a" bundle list-heads "$W/data/bundles/a-close.bundle" | grep -q "^$head HEAD" \
-    || fail "bundle does not hold HEAD"
+  assert_saved_head "$head"
   assert_equals "a" "$(cat "$TEARDOWNS")" "plain teardown, no --force"
   pass "an unpushed done lane is bundled and pushed before a plain teardown"
 }
@@ -209,45 +234,49 @@ test_close_no_upstream_lane_bundles_and_teardown_decides() {
   git -C "$W/wt-a" commit -q --allow-empty -m local
   head=$(git -C "$W/wt-a" rev-parse HEAD)
   echo 1 > "$W/teardown.rc"
-  out=$(run_close --close-live)
+  out=$(run_close)
   assert_contains "$out" "live close a: refused: teardown refused (rc=1)" "teardown refusal reported"
-  git -C "$W/wt-a" bundle list-heads "$W/data/bundles/a-close.bundle" | grep -q "^$head HEAD" \
-    || fail "bundle does not hold HEAD"
+  assert_saved_head "$head"
   assert_present "$W/state/a.meta" "refused lane kept"
-  out=$(run_close --close-live)
-  assert_not_contains "$out" "close a:" "a refusal is not retried on the same status line"
-  assert_equals "a" "$(cat "$TEARDOWNS")" "one plain teardown attempt"
-  pass "a lane with no upstream is bundled, and a teardown refusal is reported once and kept"
+  echo 0 > "$W/teardown.rc"
+  out=$(run_close)
+  assert_contains "$out" "live close a: closed" "same-status refusal retried"
+  assert_equals $'a\na' "$(cat "$TEARDOWNS")" "second plain teardown attempt"
+  pass "a lane with no upstream is bundled and a refused teardown retries"
 }
 
 test_close_push_failure_refuses_and_keeps_bundle() {
   new_world close-pushfail; make_lane a; add_teardown
   git -C "$W/wt-a" commit -q --allow-empty -m extra
   git -C "$W/wt-a" remote set-url origin "$W/gone.git"
-  out=$(run_close --close-live)
+  out=$(run_close)
   assert_contains "$out" "live close a: refused: push to upstream failed; bundle kept" "push failure"
-  assert_present "$W/data/bundles/a-close.bundle" "bundle kept"
+  assert_saved_head "$(git -C "$W/wt-a" rev-parse HEAD)"
   [ ! -s "$TEARDOWNS" ] || fail "teardown ran after a failed push"
-  pass "a failed push refuses the close and keeps the bundle"
+  git -C "$W/wt-a" remote set-url origin "$W/remote-a.git"
+  out=$(run_close)
+  assert_contains "$out" "live close a: closed" "push retried after recovery"
+  assert_equals "a" "$(cat "$TEARDOWNS")" "teardown after push recovery"
+  pass "a failed push keeps the bundle and retries after recovery"
 }
 
 test_close_refuses_dirty_missing_and_paused() {
   new_world close-dirty; make_lane a; add_teardown
   echo x > "$W/wt-a/new"; set_mtime "$W/wt-a/new" "$((NOW - 7200))"
-  out=$(run_close --close-live)
+  out=$(run_close)
   assert_contains "$out" "spared a: clean unmet" "dirty lane reported"
   [ ! -s "$TEARDOWNS" ] || fail "dirty lane torn down"
 
   new_world close-missing; make_lane a; add_teardown
   mv "$W/wt-a" "$W/wt-a.moved"
-  out=$(run_close --close-live)
+  out=$(run_close)
   assert_contains "$out" "spared a: worktree unmet (missing)" "missing worktree reported"
   [ ! -s "$TEARDOWNS" ] || fail "missing-worktree lane torn down"
 
   new_world close-paused; make_lane a; add_teardown
   printf 'paused [at=%s]: waiting\n' "$((NOW - 7300))" > "$W/state/a.status"
   echo "state: paused · source: status-log" > "$W/state-a"
-  out=$(run_close --close-live)
+  out=$(run_close)
   assert_not_contains "$out" "close a:" "paused lane is not a close candidate"
   [ ! -s "$TEARDOWNS" ] || fail "paused lane torn down"
   pass "dirty, missing-worktree, and paused lanes are never closed"
@@ -257,6 +286,7 @@ test_all_conditions_met_dry_run_ends_nothing
 test_live_ends_via_control_and_keeps_branch
 test_close_is_off_by_default_and_dry_run_reports
 test_close_pushed_clean_lane_tears_down_without_force
+test_close_mirror_only_commits_are_bundled
 test_close_unpushed_lane_pushes_and_bundles_first
 test_close_no_upstream_lane_bundles_and_teardown_decides
 test_close_push_failure_refuses_and_keeps_bundle

@@ -31,13 +31,37 @@ fm_lane_close_teardown() {
   fi
 }
 
+fm_lane_close_keep_commits() {
+  local home=$1 id=$2 wt=$3 head n dir tmp file
+  head=$(git -C "$wt" rev-parse HEAD 2>/dev/null) || return 1
+  n=$(git -C "$wt" rev-list --count HEAD --not --exclude='no-mistakes/*' --remotes 2>/dev/null) || return 1
+  [ "$n" -gt 0 ] || return 0
+  dir="$home/data/bundles"
+  mkdir -p "$dir" 2>/dev/null || return 1
+  tmp=$(mktemp "$dir/$id-close.XXXXXX") || return 1
+  file="$tmp.bundle"
+  if git -C "$wt" bundle create -q "$tmp" HEAD >/dev/null 2>&1 \
+    && git -C "$wt" bundle verify -q "$tmp" >/dev/null 2>&1 \
+    && git -C "$wt" bundle list-heads "$tmp" 2>/dev/null | grep -qx "$head HEAD" \
+    && mv -f "$tmp" "$file"; then
+    return 0
+  fi
+  rm -f "$tmp"
+  return 1
+}
+
 # fm_lane_close_after_merge <home> <state> <task-id>: after a proven merge, run a
 # plain teardown when the home opted in. Always returns 0: the merge already
 # landed, so a refused teardown is reported and the lane is left for review.
 fm_lane_close_after_merge() {
-  local home=$1 state=$2 id=$3 rc=0
+  local home=$1 state=$2 id=$3 rc=0 wt
   if ! fm_lane_close_live "$home"; then
     printf 'lane close: dry-run, would tear down %s (live needs config/lane-close-live)\n' "$id"
+    return 0
+  fi
+  wt=$(awk -F= '$1 == "worktree" { value=substr($0,10) } END { print value }' "$state/$id.meta")
+  if ! fm_lane_close_keep_commits "$home" "$id" "$wt"; then
+    printf 'actionable: merged, but preservation of %s failed; the lane is kept for review\n' "$id" >&2
     return 0
   fi
   FM_HOME="$home" FM_STATE_OVERRIDE="$state" "$(fm_lane_close_teardown)" "$id" >&2 || rc=$?
