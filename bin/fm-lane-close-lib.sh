@@ -31,6 +31,19 @@ fm_lane_close_teardown() {
   fi
 }
 
+fm_lane_close_bundle_restorable() {
+  local file=$1 head=$2 scratch rc=1
+  git bundle list-heads "$file" 2>/dev/null | grep -qx "$head HEAD" || return 1
+  scratch=$(mktemp -d "${file%/*}/.lane-close-verify.XXXXXX") || return 1
+  if git clone --bare -q "$file" "$scratch/repo" >/dev/null 2>&1 \
+    && [ "$(git -C "$scratch/repo" rev-parse HEAD 2>/dev/null)" = "$head" ] \
+    && git -C "$scratch/repo" fsck --full --strict >/dev/null 2>&1; then
+    rc=0
+  fi
+  rm -rf "$scratch"
+  return "$rc"
+}
+
 fm_lane_close_keep_commits() {
   local home=$1 id=$2 wt=$3 head n dir tmp file
   head=$(git -C "$wt" rev-parse HEAD 2>/dev/null) || return 1
@@ -40,16 +53,14 @@ fm_lane_close_keep_commits() {
   mkdir -p "$dir" 2>/dev/null || return 1
   for file in "$dir/$id-close."*.bundle; do
     [ -f "$file" ] && [ ! -L "$file" ] || continue
-    if git -C "$wt" bundle verify -q "$file" >/dev/null 2>&1 \
-      && git -C "$wt" bundle list-heads "$file" 2>/dev/null | grep -qx "$head HEAD"; then
+    if fm_lane_close_bundle_restorable "$file" "$head"; then
       return 0
     fi
   done
   tmp=$(mktemp "$dir/$id-close.XXXXXX") || return 1
   file="$tmp.bundle"
   if git -C "$wt" bundle create -q "$tmp" HEAD >/dev/null 2>&1 \
-    && git -C "$wt" bundle verify -q "$tmp" >/dev/null 2>&1 \
-    && git -C "$wt" bundle list-heads "$tmp" 2>/dev/null | grep -qx "$head HEAD" \
+    && fm_lane_close_bundle_restorable "$tmp" "$head" \
     && mv -f "$tmp" "$file"; then
     return 0
   fi

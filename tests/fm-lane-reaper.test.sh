@@ -257,7 +257,15 @@ test_close_reuses_only_verified_same_head_backups() {
   echo 1 > "$W/teardown.rc"
   run_close >/dev/null
   for first in "$W/data/bundles/"*.bundle; do break; done
-  printf 'broken bundle\n' > "$first"
+  awk '{ print } /^$/ { exit }' "$first" > "$W/truncated.bundle"
+  printf 'PACK' >> "$W/truncated.bundle"
+  mv "$W/truncated.bundle" "$first"
+  git -C "$W/wt-a" bundle verify -q "$first" >/dev/null 2>&1 || fail "truncated pack must retain a valid bundle header"
+  git bundle list-heads "$first" | grep -qx "$(git -C "$W/wt-a" rev-parse HEAD) HEAD" \
+    || fail "truncated pack must still advertise the current head"
+  if git clone -q "$first" "$W/broken-restore" >/dev/null 2>&1; then
+    fail "truncated pack unexpectedly restored"
+  fi
   run_close >/dev/null
   assert_bundle_count 2
   for bundle in "$W/data/bundles/"*.bundle; do
