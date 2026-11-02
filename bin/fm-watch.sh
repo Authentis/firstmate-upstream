@@ -3152,7 +3152,7 @@ while :; do
     triage_log "inactive-outcome reconciliation unavailable"
   fi
 
-  # Lane reaper: self-throttled; dry-run unless config/lane-reaper-live exists.
+  # Lane reaper: self-throttled; agent ending needs config/lane-reaper-live.
   # Ends only idle done/paused agents, through fm-control; closes done lanes only
   # under config/lane-close-live (bin/fm-lane-reaper.sh, bin/fm-lane-close-lib.sh).
   reaper_flag=

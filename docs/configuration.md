@@ -1804,12 +1804,13 @@ A fail-closed poll that already queued a wake, and a timeout, always print so th
 ## Lane reaper (config/lane-reaper-live)
 
 The watcher poll runs [`bin/fm-lane-reaper.sh`](../bin/fm-lane-reaper.sh) on its own cadence; the script header owns the five joint conditions and the log at `state/lane-reaper.log`.
-It is dry-run by default and ends nothing.
-Creating the file `config/lane-reaper-live` is the explicit flip to live, after a day of dry-run logs; removing it returns to dry-run.
+Agent ending is dry-run by default.
+Creating the file `config/lane-reaper-live` enables agent ending after a day of dry-run logs; removing it disables agent ending.
 
 Closing finished lanes is a separate opt-in, `config/lane-close-live`, which `config/lane-reaper-live` never turns on.
 Without it the reaper only logs the done lanes it would close, and the merge scripts only print the teardown they would run.
-[`bin/fm-lane-close-lib.sh`](../bin/fm-lane-close-lib.sh) owns the opt-in and the after-merge teardown, and the reaper header owns how a lane's commits are kept before its plain teardown.
+It enables closing independently of agent ending, including immediately after a proven merge in `fm-pr-merge.sh` or `fm-merge-local.sh`, but not a queued merge.
+[`bin/fm-lane-close-lib.sh`](../bin/fm-lane-close-lib.sh) owns the opt-in, commit preservation, and after-merge teardown; the reaper header owns close eligibility, upstream pushes, and later-scan retries.
 
 ## Relay (.env)
 

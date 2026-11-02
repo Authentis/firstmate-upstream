@@ -23,10 +23,11 @@
 #                 pushed only when HEAD is already an ancestor of the default
 #                 branch.
 #
-# Default is DRY-RUN: every lane gets one log line, `candidate <id>` or
-# `spared <id>: <condition> unmet`, and nothing is ended. `--live` (or
-# FM_REAPER_LIVE=1) is the explicit flip. A live candidate is re-evaluated
-# immediately before it is ended ONLY through `fm-control.sh <id> exit`, which
+# Agent ending defaults to DRY-RUN: each eligible lane logs `candidate <id>` or
+# `spared <id>: <condition> unmet`, and no agent is ended. `--live` (or
+# FM_REAPER_LIVE=1) enables ending only, independently of closing below.
+# A live candidate is re-evaluated immediately before it is ended ONLY through
+# `fm-control.sh <id> exit`, which
 # preserves the endpoint, worktree, branch, and every change, and is not ended
 # again until its status line changes. Ending never removes a branch or
 # worktree; only the close below tears a lane down, and only through teardown.
@@ -37,11 +38,11 @@
 # idle, quiet, and clean as above, is a close candidate even with unpushed
 # commits, and every dry-run scan logs `close <id>: would-close (<how kept>)`.
 # Live closing is off unless bin/fm-lane-close-lib.sh's opt-in holds for this
-# home (config/lane-close-live). A live close re-evaluates the lane, then keeps every
-# commit no real remote has: it writes a unique data/bundles/<id>-close.*.bundle and verifies it
-# holds HEAD (no verified bundle, no close), and plainly pushes HEAD to the
-# branch's configured upstream unless that upstream is the no-mistakes mirror
-# (never forced; a failed push refuses the close, bundle kept). It then runs
+# home (config/lane-close-live). A live close re-evaluates the lane, then calls
+# fm_lane_close_keep_commits; bin/fm-lane-close-lib.sh owns preservation and
+# verified bundle reuse. If HEAD is ahead of its upstream, it plainly pushes
+# HEAD there unless that upstream is the no-mistakes mirror (never forced;
+# a failed push refuses the close, bundle kept). It then runs
 # fm-teardown.sh <id> without --force, whose landed-work test decides; a lane
 # with no upstream closes only if that test accepts it. A refusal is never
 # forced and is retried on later scans; an unreadable history refuses the close.

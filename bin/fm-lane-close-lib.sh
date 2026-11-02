@@ -7,12 +7,20 @@
 # removing the file turns it off. config/lane-reaper-live does not turn it on.
 # Two callers act on it:
 #   bin/fm-lane-reaper.sh   closes an idle done lane (its header owns which
-#                           lanes and how unpushed commits are kept first).
+#                           lanes qualify and when upstream pushes run).
 #   bin/fm-pr-merge.sh and bin/fm-merge-local.sh
 #                           call fm_lane_close_after_merge once their merge
 #                           proof has succeeded.
+# Both callers preserve commits through fm_lane_close_keep_commits before
+# teardown. Commits absent from real remote-tracking refs require a standalone
+# data/bundles/<id>-close.*.bundle; no-mistakes/* refs are not preservation proof.
+# An existing same-HEAD bundle is reused only after a bare clone and full strict
+# fsck prove its payload restorable. Otherwise a new full-history bundle is
+# created and checked the same way before publication; failure prevents teardown.
 # Teardown is always plain: never --force, so fm-teardown.sh's landed-work test
-# decides. A refusal is printed on stderr and never bypassed or retried here.
+# decides, including refusal of dirty lanes. After-merge preservation failures
+# and teardown refusals are reported on stderr without failing the proven merge
+# or retrying here; the reaper owns later scan retries.
 # Test seam: with FM_TEST_SEAM=1, FM_LANE_CLOSE_TEARDOWN replaces fm-teardown.sh.
 
 FM_LANE_CLOSE_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
