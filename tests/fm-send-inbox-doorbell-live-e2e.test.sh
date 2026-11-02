@@ -4,7 +4,8 @@
 #
 # The steering inbox's one behavioral assumption is that a real worker agent
 # follows the constant self-describing doorbell line: list the inbox, read and
-# act on its records in numeric order, then mv each into handled/. The
+# act on its records in numeric order, then acknowledge them with the
+# bin/fm-inbox-ack.sh command the line names, which files each in handled/. The
 # doorbell names the inbox as "$FM_TASK_INBOX", so each worker is launched the
 # way bin/fm-spawn.sh launches it, with FM_TASK_INBOX exported to its home's
 # state/<task>.inbox, and receives no brief at all: it must resolve the inbox
@@ -13,8 +14,8 @@
 # .agents/skills/firstmate-coding-guidelines this is proven against every
 # INSTALLED verified harness: each is launched idle in an isolated tmux server,
 # steered through the REAL fm-send (durable record + doorbell), and must both
-# ACT on the instruction (create a named file) and ACKNOWLEDGE it (the mv into
-# handled/), failing loudly with the harness name and version.
+# ACT on the instruction (create a named file) and ACKNOWLEDGE it (its record
+# lands in handled/), failing loudly with the harness name and version.
 #
 # Run explicitly with FM_SEND_INBOX_LIVE_E2E=1. This test spends a small
 # number of real model tokens per installed harness (one short turn each) -

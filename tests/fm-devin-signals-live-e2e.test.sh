@@ -109,7 +109,7 @@ pass "$VERSION: no Claude Code hook ran and the worker commit carries no attribu
 verdict=$(fm_composer_classify_screen $'styled=1\ncursor=1\nidentity=1\nrows=0' "$(capture)" \
   "$(tmux display-message -p -t "$TARGET" '#{cursor_y}')" devin)
 case "$verdict" in empty*) ;; *) fail "idle composer was $verdict" ;; esac
-"$ROOT/bin/fm-send.sh" "$ID" 'Runtime steering verification: compute 31 times 37 and write only the result to steer.txt. Acknowledge this instruction by moving its .msg file into handled/ as instructed by the doorbell. Do no other work.' > "$LAB/send.log" 2>&1 || fail "steer failed: $(cat "$LAB/send.log")"
+"$ROOT/bin/fm-send.sh" "$ID" 'Runtime steering verification: compute 31 times 37 and write only the result to steer.txt. Acknowledge this instruction with the command the doorbell names. Do no other work.' > "$LAB/send.log" 2>&1 || fail "steer failed: $(cat "$LAB/send.log")"
 wait_file "$WT/steer.txt"
 wait_file "$H/state/$ID.inbox/handled/001.msg"
 [ "$(tr -d '[:space:]' < "$WT/steer.txt")" = 1147 ] || fail 'wrong steering result'

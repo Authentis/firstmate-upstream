@@ -362,13 +362,17 @@ fm_task_inbox_body() {  # <record-path>
 # role contract, bin/fm-brief.sh inbox section). No absolute path is printed,
 # so the line's length never grows with the home's depth: a long line wraps
 # past what a harness composer read can prove, and a Herdr submit then reports
-# it did not reach the pane on every re-ring. The leading `: ` is the POSIX
+# it did not reach the pane on every re-ring. For the same reason the
+# acknowledgement is named as the sanctioned bin/fm-inbox-ack.sh command by its
+# script name and task id only, never a raw move, which command guards refuse;
+# the brief carries the full command path. The command is one single-quoted
+# word, so its `<seq>` placeholder is never a redirection. The leading `: ` is the POSIX
 # shell no-op, so the same line typed into a pane whose agent has exited (a
 # bare shell) runs nothing; see the dead-pane note in the header. A
 # non-printable inbox name fails without output so terminal controls never
 # reach the pane's line discipline.
 fm_task_inbox_doorbell_line() {  # <record-path>
-  local dir=${1%/*} abs name quoted LC_ALL=C
+  local dir=${1%/*} abs name quoted task LC_ALL=C
   abs=$(cd "$dir" 2>/dev/null && pwd) || abs=$dir
   abs=${abs%/handled}
   name=${abs##*/}
@@ -376,8 +380,9 @@ fm_task_inbox_doorbell_line() {  # <record-path>
     ''|*[![:print:]]*) return 1 ;;
   esac
   quoted=$(printf '%s' "$name" | sed "s/'/'\\\\''/g")
-  printf ": Firstmate instruction waiting: list \"\$FM_TASK_INBOX\"/*.msg in your '%s' steering inbox, read and act on each in numeric order, then mv each into its handled/." \
-    "$quoted"
+  task=${quoted%.inbox}
+  printf ": Firstmate instruction waiting: list \"\$FM_TASK_INBOX\"/*.msg in your '%s' steering inbox, read and act on each in numeric order, then ack with 'fm-inbox-ack.sh %s --all-handled-through <seq>'." \
+    "$quoted" "$task"
 }
 
 # Ring the doorbell, best-effort: one endpoint-liveness pre-check, one advisory

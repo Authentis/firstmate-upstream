@@ -3,7 +3,7 @@
 
 [38;2;103;108;116m  [38;2;138;144;152mSkills: 41 loaded · 1 warning · 3 details hidden (ctrl+o to expand)[39m
 
-[38;2;90;160;255m[48;2;38;56;84m❯ [38;2;204;211;219m: Firstmate instruction waiting: list "$FM_TASK_INBOX"/*.msg in your 'ringt.inbox' steering inbox, read and act on each in numeric order, then mv each into its handled/.[39m
+[38;2;90;160;255m[48;2;38;56;84m❯ [38;2;204;211;219m: Firstmate instruction waiting: list "$FM_TASK_INBOX"/*.msg in your 'ringt.inbox' steering inbox, read and act on each in numeric order, then ack with 'fm-inbox-ack.sh ringt --all-handled-through <seq>'.[39m
 [49m
 [1m[38;2;204;211;219m◆ [0m[38;2;204;211;219mActing on the waiting Firstmate instructions in numeric order.[39m
 

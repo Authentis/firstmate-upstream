@@ -9,7 +9,9 @@
 # These tests pin the semantics with real processes:
 #   1. A message is written durably and appears in the inbox, byte-exact
 #      including newlines, with a doorbell naming the inbox glob, numeric order,
-#      and handled/.
+#      and the bin/fm-inbox-ack.sh command (never a raw move), which really
+#      acknowledges the records when run from the home's bin/, for the
+#      ordinary inbox and a secondmate's own state/parent-route/ inbox.
 #   2. Sequencing dedups per worker lifetime: the handled mv retires a record,
 #      re-acking it is a no-op, and an acknowledged sequence is never reissued.
 #      The idempotent enqueue (the remote steer leg's primitive) additionally
@@ -176,7 +178,9 @@ test_write_is_durable_and_exact() {
   assert_contains "$doorbell" "list \"\$FM_TASK_INBOX\"/*.msg" "doorbell should list all unhandled records through FM_TASK_INBOX"
   assert_contains "$doorbell" "'t1.inbox' steering inbox" "doorbell should quote and name the inbox"
   assert_contains "$doorbell" "numeric order" "doorbell should require ordered processing"
-  assert_contains "$doorbell" "handled/" "doorbell should name the handled dir"
+  assert_contains "$doorbell" "ack with 'fm-inbox-ack.sh t1 --all-handled-through <seq>'" \
+    "doorbell should name the sanctioned acknowledgement command"
+  assert_not_contains "$doorbell" "mv " "doorbell must not tell the worker to move records by hand"
   assert_contains "$doorbell" "Firstmate instruction waiting" "doorbell should be self-describing"
   case "$doorbell" in
     *$'\n'*) fail "the doorbell must be a single line" ;;
@@ -226,6 +230,37 @@ test_doorbell_is_a_shell_noop() {
   [ "$before" = "$after" ] || fail "executing the doorbell changed the inbox:"$'\n'"$after"
   [ -f "$rec" ] || fail "executing the doorbell removed the unhandled record"
   pass "inbox: a hostile-name doorbell executes as a no-op in bare shells"
+}
+
+# The doorbell's acknowledgement command is the one a command guard allows, so
+# it must work as printed once resolved in the firstmate's bin/: extract it
+# from the real line, substitute a sequence, run it from an unrelated directory
+# with only FM_HOME naming the home, and assert it filed the records into
+# handled/.
+test_doorbell_ack_command_acknowledges() {
+  local base home state task rec r2 doorbell cmd
+  base="$TMP_ROOT/doorbell-ack"
+  for layout in ordinary parent-route; do
+    home="$base/$layout/home"
+    state="$home/state"
+    task=t1
+    [ "$layout" = ordinary ] || { state="$home/state/parent-route"; task=sm1; }
+    mkdir -p "$state"
+    rec=$(inbox_lib "$state" fm_task_inbox_write "$state" "$task" "first") || fail "$layout: write failed"
+    r2=$(inbox_lib "$state" fm_task_inbox_write "$state" "$task" "second") || fail "$layout: second write failed"
+    doorbell=$(inbox_lib "$state" fm_task_inbox_doorbell_line "$rec") || fail "$layout: doorbell failed"
+    assert_contains "$doorbell" "'fm-inbox-ack.sh $task --all-handled-through <seq>'" \
+      "$layout: doorbell should name the task's acknowledgement command"
+    cmd=${doorbell##*" with '"}
+    cmd=${cmd%"'."}
+    cmd=${cmd/<seq>/2}
+    (cd / && env -u FM_STATE_OVERRIDE -u FM_ROOT_OVERRIDE FM_HOME="$home" PATH="$ROOT/bin:$PATH" bash -c "$cmd") \
+      || fail "$layout: the doorbell's acknowledgement command failed: $cmd"
+    [ ! -e "$rec" ] && [ ! -e "$r2" ] || fail "$layout: records still pending after the doorbell's command"
+    [ -f "$state/$task.inbox/handled/001.msg" ] && [ -f "$state/$task.inbox/handled/002.msg" ] \
+      || fail "$layout: the doorbell's command did not file the records in handled/"
+  done
+  pass "inbox: the doorbell's acknowledgement command acknowledges as printed, ordinary and parent-route"
 }
 
 test_doorbell_rejects_terminal_controls() {
@@ -1428,6 +1463,7 @@ test_secondmate_watcher_coalesces_but_escalates
 
 test_write_is_durable_and_exact
 test_doorbell_is_a_shell_noop
+test_doorbell_ack_command_acknowledges
 test_doorbell_rejects_terminal_controls
 test_ring_skips_dead_agent
 test_ring_submits_its_own_stuck_doorbell
