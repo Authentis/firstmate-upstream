@@ -228,9 +228,14 @@ window_present() {  # <window-name>
 test_close_closes_a_dead_lane_window_and_keeps_a_live_one() {
   local i
   [ -n "$REAL_TMUX" ] || { pass "skip: tmux not found"; return; }
-  new_world close-window; make_lane a; make_lane b; add_teardown
+  new_world close-window; make_lane a; make_lane b; make_lane c; make_lane d; add_teardown
+  printf 'window=firstmate:fm-a\n' >> "$W/state/a.meta"
+  printf 'window=firstmate:fm-b\n' >> "$W/state/b.meta"
+  printf 'window=firstmate:other\n' >> "$W/state/d.meta"
   tmux new-session -d -s firstmate -n supervisor "sleep 300" || fail "private tmux session"
   tmux new-window -d -t firstmate: -n fm-a sh || fail "dead window"
+  tmux new-window -d -t firstmate: -n fm-c sh || fail "unowned window"
+  tmux new-window -d -t firstmate: -n fm-d sh || fail "mismatched endpoint window"
   tmux new-window -d -t firstmate: -n fm-b "sh -c 'sleep 300; exit 0'" || fail "busy window"
   for i in $(seq 1 50); do
     [ "$(tmux display-message -p -t =firstmate:=fm-a '#{pane_current_command}')" = sh ] && break
@@ -242,6 +247,11 @@ test_close_closes_a_dead_lane_window_and_keeps_a_live_one() {
   window_present fm-a && fail "the idle-shell lane window was left open"
   window_present fm-b || fail "a window with a child process was closed"
   window_present supervisor || fail "an unrelated window was closed"
+  assert_contains "$out" "live close c: closed" "windowless lane closed"
+  assert_contains "$out" "live close d: closed" "mismatched-endpoint lane closed"
+  assert_absent "$W/state/c.meta" "windowless lane record removed"
+  window_present fm-c || fail "windowless record closed an unowned same-name window"
+  window_present fm-d || fail "mismatched record closed an unowned same-name window"
   [ -d "$W/wt-a" ] || fail "closing the window touched the worktree"
   git -C "$W/wt-a" rev-parse --verify -q fm/a >/dev/null || fail "closing the window touched the branch"
   tmux kill-server >/dev/null 2>&1 || true

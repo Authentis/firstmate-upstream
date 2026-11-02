@@ -245,7 +245,7 @@ close_lane() {
   local id=$1 meta=$2 how wt ses rc=0
   how=$(close_kind "$id" "$(evaluate "$id" "$meta")") || { echo spared-on-recheck; return; }
   wt=$(meta_get "$meta" worktree)
-  ses=$(fm_lane_close_window_session "$meta")
+  ses=$(fm_lane_close_window_session "$meta" "$id")
   fm_lane_close_keep_commits "$FM_HOME" "$id" "$wt" || { echo "refused: no verified bundle of its commits"; return; }
   if [ "$how" = push ] && ! push_upstream "$wt"; then
     echo "refused: push to upstream failed; bundle kept"; return

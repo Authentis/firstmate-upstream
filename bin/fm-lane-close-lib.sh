@@ -22,7 +22,7 @@
 # and teardown refusals are reported on stderr without failing the proven merge
 # or retrying here; the reaper owns later scan retries.
 # After a successful close, both callers also close the lane's leftover tmux
-# window through fm_lane_close_window, which never closes one with a live process.
+# recorded window through fm_lane_close_window, which never closes one with a live process.
 # Test seam: with FM_TEST_SEAM=1, FM_LANE_CLOSE_TEARDOWN replaces fm-teardown.sh.
 
 FM_LANE_CLOSE_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -78,14 +78,17 @@ fm_lane_close_keep_commits() {
   return 1
 }
 
-# fm_lane_close_window_session <meta>: the tmux session that holds the lane's
-# window, or nothing when the lane runs on another backend.
+# fm_lane_close_window_session <meta> <task-id>: the recorded tmux session,
+# or nothing without an exact lane endpoint on the tmux backend.
 fm_lane_close_window_session() {
   local backend window
   backend=$(awk -F= '$1 == "backend" { value=substr($0,9) } END { print value }' "$1" 2>/dev/null)
   case "$backend" in '' | tmux) ;; *) return 0 ;; esac
   window=$(awk -F= '$1 == "window" { value=substr($0,8) } END { print value }' "$1" 2>/dev/null)
-  case "$window" in *:*) printf '%s\n' "${window%%:*}" ;; *) printf 'firstmate\n' ;; esac
+  case "$window" in
+    :* | *:*:*) return 0 ;;
+    *:*) [ "${window#*:}" != "fm-$2" ] || printf '%s\n' "${window%%:*}" ;;
+  esac
 }
 
 # fm_lane_close_window <session> <task-id>: after a successful close, closes the
@@ -117,7 +120,7 @@ fm_lane_close_after_merge() {
     return 0
   fi
   wt=$(awk -F= '$1 == "worktree" { value=substr($0,10) } END { print value }' "$state/$id.meta")
-  ses=$(fm_lane_close_window_session "$state/$id.meta")
+  ses=$(fm_lane_close_window_session "$state/$id.meta" "$id")
   if ! fm_lane_close_keep_commits "$home" "$id" "$wt"; then
     printf 'actionable: merged, but preservation of %s failed; the lane is kept for review\n' "$id" >&2
     return 0
