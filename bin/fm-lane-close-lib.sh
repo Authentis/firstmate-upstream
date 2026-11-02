@@ -96,18 +96,18 @@ fm_lane_close_window_session() {
 # holding nothing but an idle shell is closed (bin/backends/tmux.sh's
 # fm_backend_tmux_window_dead); the worktree and branch are not touched.
 # Returns 0 when no such window remains and 1 when a window with a live process
-# was left open. Runs in a subshell so sourcing the backend leaves callers as
+# was left open. Runs in a separate bash process so sourcing the backend leaves callers as
 # they were.
 fm_lane_close_window() {
   [ -n "$1" ] || return 0
-  (
-    command -v tmux >/dev/null 2>&1 || exit 0
-    # shellcheck source=bin/fm-backend.sh
-    . "$FM_LANE_CLOSE_LIB_DIR/fm-backend.sh" && fm_backend_source tmux || exit 0
-    windows=$(fm_backend_tmux_window_inventory "=$1") || exit 0
-    printf '%s\n' "$windows" | grep -qxF -- "fm-$2" || exit 0
-    fm_backend_tmux_window_dead "$1" "fm-$2" && fm_backend_tmux_kill "$1:fm-$2" 2>/dev/null
-  )
+  command -v tmux >/dev/null 2>&1 || return 0
+  # shellcheck disable=SC2016 # expanded by the child bash from its own arguments
+  bash -c '
+    . "$1/fm-backend.sh" && fm_backend_source tmux || exit 0
+    windows=$(fm_backend_tmux_window_inventory "=$2") || exit 0
+    printf "%s\n" "$windows" | grep -qxF -- "fm-$3" || exit 0
+    fm_backend_tmux_window_dead "$2" "fm-$3" && fm_backend_tmux_kill "$2:fm-$3" 2>/dev/null
+  ' fm-lane-close-window "$FM_LANE_CLOSE_LIB_DIR" "$1" "$2"
 }
 
 # fm_lane_close_after_merge <home> <state> <task-id>: after a proven merge, run a

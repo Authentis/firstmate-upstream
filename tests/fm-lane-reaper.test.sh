@@ -226,7 +226,6 @@ window_present() {  # <window-name>
 }
 
 test_close_closes_a_dead_lane_window_and_keeps_a_live_one() {
-  local i
   [ -n "$REAL_TMUX" ] || { pass "skip: tmux not found"; return; }
   new_world close-window; make_lane a; make_lane b; make_lane c; make_lane d; add_teardown
   printf 'window=firstmate:fm-a\n' >> "$W/state/a.meta"
@@ -237,7 +236,7 @@ test_close_closes_a_dead_lane_window_and_keeps_a_live_one() {
   tmux new-window -d -t firstmate: -n fm-c sh || fail "unowned window"
   tmux new-window -d -t firstmate: -n fm-d sh || fail "mismatched endpoint window"
   tmux new-window -d -t firstmate: -n fm-b "sh -c 'sleep 300; exit 0'" || fail "busy window"
-  for i in $(seq 1 50); do
+  for _ in $(seq 1 50); do
     [ "$(tmux display-message -p -t =firstmate:=fm-a '#{pane_current_command}')" = sh ] && break
     sleep 0.1
   done
