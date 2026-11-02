@@ -175,3 +175,53 @@ assert_contains "$out" "abort lane-h" "moved head must abort"
 assert_absent "$H/teardown.log" "moved head was torn down"
 assert_present "$H/state/lane-h.meta" "moved head record removed"
 pass "moved head aborts retirement"
+
+# Landing calls teardown: after the proven fast-forward, bin/fm-merge-local.sh runs a
+# plain teardown only under config/lane-close-live, and a refusal never fails the merge.
+merge_local_lane() {  # <home> <id>: a local-only lane whose branch fast-forwards main
+  local home=$1 id=$2 repo="$1/proj-$2" wt="$1/wt-$2"
+  fm_git_worktree "$repo" "$wt" "fm/$id"
+  echo landed > "$wt/landed"
+  git -C "$wt" add landed
+  git -C "$wt" commit -qm landed
+  fm_write_meta "$home/state/$id.meta" kind=ship "worktree=$wt" "project=$repo" "branch=fm/$id" mode=local-only
+}
+
+run_merge_local() {  # <home> <id> [teardown]
+  FM_HOME=$1 FM_STATE_OVERRIDE="$1/state" FM_CONFIG_OVERRIDE="$1/config" FM_TEST_SEAM=1 \
+    FM_LANE_CLOSE_TEARDOWN="${3:-$TMP_ROOT/teardown}" FM_TEST_TEARDOWN_LOG="$1/teardown.log" \
+    PATH="$FAKEBIN:$PATH" "$ROOT/bin/fm-merge-local.sh" "$2"
+}
+
+H=$(new_home merge-local-off)
+merge_local_lane "$H" lane-a
+out=$(run_merge_local "$H" lane-a 2>&1) || fail "local merge failed with closing off: $out"
+assert_contains "$out" "merged fm/lane-a into local main" "merge reported"
+assert_contains "$out" "lane close: dry-run, would tear down lane-a" "dry-run names the teardown"
+assert_absent "$H/teardown.log" "teardown ran without config/lane-close-live"
+pass "local merge with closing off reports the teardown it would run"
+
+H=$(new_home merge-local-on)
+: > "$H/config/lane-close-live"
+merge_local_lane "$H" lane-b
+out=$(run_merge_local "$H" lane-b 2>&1) || fail "local merge failed with closing on: $out"
+assert_contains "$out" "lane close: tore down lane-b after the merge" "teardown reported"
+assert_equals "lane-b" "$(cat "$H/teardown.log")" "merge runs a plain teardown, no --force"
+pass "local merge runs a plain teardown right after the proven fast-forward"
+
+cat > "$TMP_ROOT/teardown-refuses" <<'SH'
+#!/usr/bin/env bash
+echo "$*" >> "$FM_TEST_TEARDOWN_LOG"
+echo "REFUSED: work not landed" >&2
+exit 1
+SH
+chmod +x "$TMP_ROOT/teardown-refuses"
+H=$(new_home merge-local-refused)
+: > "$H/config/lane-close-live"
+merge_local_lane "$H" lane-r
+out=$(run_merge_local "$H" lane-r "$TMP_ROOT/teardown-refuses" 2>&1)
+expect_code 0 "$?" "a refused teardown failed the proven merge"
+assert_contains "$out" "teardown of lane-r refused (rc=1)" "refusal reported"
+assert_equals "lane-r" "$(cat "$H/teardown.log")" "refusal not retried or forced"
+assert_present "$H/state/lane-r.meta" "refused lane kept"
+pass "a teardown refusal after a local merge is reported and never fails the merge"

@@ -1807,6 +1807,10 @@ The watcher poll runs [`bin/fm-lane-reaper.sh`](../bin/fm-lane-reaper.sh) on its
 It is dry-run by default and ends nothing.
 Creating the file `config/lane-reaper-live` is the explicit flip to live, after a day of dry-run logs; removing it returns to dry-run.
 
+Closing finished lanes is a separate opt-in, `config/lane-close-live`, which `config/lane-reaper-live` never turns on.
+Without it the reaper only logs the done lanes it would close, and the merge scripts only print the teardown they would run.
+[`bin/fm-lane-close-lib.sh`](../bin/fm-lane-close-lib.sh) owns the opt-in and the after-merge teardown, and the reaper header owns how a lane's commits are kept before its plain teardown.
+
 ## Relay (.env)
 
 Relay lets a firstmate instance answer public mentions and act on normal reversible mention requests through firstmate's normal lifecycle.
