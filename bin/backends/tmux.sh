@@ -93,11 +93,19 @@ fm_backend_tmux_container_ensure() {
 #     treehouse cd's into the worktree, which would break name-based targeting.
 # The returned window id lets callers target the window even if its name is ever
 # lost, so worktree discovery cannot fall back to the active client's window.
+#
+# An existing window that fm_backend_tmux_window_dead proves dead (a leftover
+# from an earlier lane) is closed and creation continues; any other existing
+# window is refused exactly as before.
 fm_backend_tmux_create_task() {  # <session> <window-name> <proj-abs> -> prints window id
   local ses=$1 wname=$2 proj_abs=$3 wid
   if tmux list-windows -t "$ses" -F '#{window_name}' | grep -qx "$wname"; then
-    echo "error: window $ses:$wname already exists" >&2
-    return 1
+    if ! fm_backend_tmux_window_dead "$ses" "$wname" \
+      || ! fm_backend_tmux_kill "$ses:$wname" 2>/dev/null; then
+      echo "error: window $ses:$wname already exists" >&2
+      return 1
+    fi
+    echo "note: closed the dead window $ses:$wname (only an idle shell) before creating it again" >&2
   fi
   wid=$(tmux new-window -dP -F '#{window_id}' -t "$ses:" -n "$wname" -c "$proj_abs") || return 1
   tmux set-window-option -t "$wid" automatic-rename off 2>/dev/null || true
@@ -278,6 +286,29 @@ fm_backend_tmux_kill() {  # <target>
   printf '%s\n' "$windows" | grep -qxF -- "$window" || return 0
   echo "error: tmux window $session:$window is still present after its close" >&2
   return 1
+}
+
+# fm_backend_tmux_window_dead: 0 only when exactly one window named <window>
+# exists in exactly <session> and each of its panes runs nothing but a shell
+# with no child process. Any tmux or ps read failure, an ambiguous name, an
+# agent, or any other process answers not-dead, so callers that close on this
+# verdict never close a window with live work in it.
+fm_backend_tmux_window_dead() {  # <session> <window>
+  local panes ppids pid comm seen=0
+  panes=$(LC_ALL=C tmux list-panes -t "=$1:=$2" -F '#{pane_pid} #{pane_current_command}' 2>/dev/null) \
+    || return 1
+  ppids=$(LC_ALL=C ps -A -o ppid= 2>/dev/null) || return 1
+  while read -r pid comm; do
+    [ -n "$pid" ] || continue
+    seen=1
+    [ "$(fm_agent_process_classify_name "$comm")" = shell ] || return 1
+    if printf '%s\n' "$ppids" | awk -v p="$pid" '$1 == p { found = 1 } END { exit !found }'; then
+      return 1
+    fi
+  done <<EOF
+$panes
+EOF
+  [ "$seen" = 1 ]
 }
 
 # fm_backend_tmux_current_command: <target>'s live foreground process name -

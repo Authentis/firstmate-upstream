@@ -242,16 +242,23 @@ push_upstream() {
 
 # close_lane <id> <meta>: re-evaluates, keeps the commits, tears down; prints the result.
 close_lane() {
-  local id=$1 meta=$2 how wt rc=0
+  local id=$1 meta=$2 how wt ses rc=0
   how=$(close_kind "$id" "$(evaluate "$id" "$meta")") || { echo spared-on-recheck; return; }
   wt=$(meta_get "$meta" worktree)
+  ses=$(fm_lane_close_window_session "$meta")
   fm_lane_close_keep_commits "$FM_HOME" "$id" "$wt" || { echo "refused: no verified bundle of its commits"; return; }
   if [ "$how" = push ] && ! push_upstream "$wt"; then
     echo "refused: push to upstream failed; bundle kept"; return
   fi
   "$(fm_lane_close_teardown)" "$id" >/dev/null 2>&1 || rc=$?
   case "$rc" in
-    0 | 4) echo closed ;;
+    0 | 4)
+      if fm_lane_close_window "$ses" "$id"; then
+        echo closed
+      else
+        echo "closed; window $ses:fm-$id still runs a process, so it was left open"
+      fi
+      ;;
     *) echo "refused: teardown refused (rc=$rc)" ;;
   esac
 }
@@ -270,7 +277,7 @@ for meta in "$STATE"/*.meta; do
     else
       res=$(close_lane "$id" "$meta")
       printf '[at=%s] %s\n' "$NOW" "$close_mode close $id: $res" | tee -a "$LOG"
-      [ "$res" != closed ] || continue
+      case "$res" in closed*) continue ;; esac
     fi
   fi
   case "$verdict" in

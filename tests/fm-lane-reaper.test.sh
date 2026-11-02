@@ -10,6 +10,17 @@ REAPER="$ROOT/bin/fm-lane-reaper.sh"
 TMP_ROOT=$(fm_test_tmproot fm-lane-reaper)
 NOW=2000000000
 
+# Every tmux call, including the close path's window check, goes to a private
+# server so no case can read or close a window on the host's own server.
+REAL_TMUX=$(command -v tmux 2>/dev/null || true)
+TMUX_SOCKET="fm-lane-reaper-$$"
+mkdir -p "$TMP_ROOT/tmuxbin"
+printf '#!/usr/bin/env bash\nexec %q -f /dev/null -L %q "$@"\n' "${REAL_TMUX:-false}" "$TMUX_SOCKET" \
+  > "$TMP_ROOT/tmuxbin/tmux"
+chmod +x "$TMP_ROOT/tmuxbin/tmux"
+PATH="$TMP_ROOT/tmuxbin:$PATH"
+unset TMUX
+
 # Fresh home with a fake control (records calls), fake crew-state, fake cpu.
 # shellcheck disable=SC2016
 new_world() {
@@ -210,6 +221,33 @@ test_close_pushed_clean_lane_tears_down_without_force() {
   pass "config/lane-close-live closes a pushed clean done lane through plain teardown"
 }
 
+window_present() {  # <window-name>
+  tmux list-windows -t =firstmate -F '#{window_name}' 2>/dev/null | grep -qxF -- "$1"
+}
+
+test_close_closes_a_dead_lane_window_and_keeps_a_live_one() {
+  local i
+  [ -n "$REAL_TMUX" ] || { pass "skip: tmux not found"; return; }
+  new_world close-window; make_lane a; make_lane b; add_teardown
+  tmux new-session -d -s firstmate -n supervisor "sleep 300" || fail "private tmux session"
+  tmux new-window -d -t firstmate: -n fm-a sh || fail "dead window"
+  tmux new-window -d -t firstmate: -n fm-b "sh -c 'sleep 300; exit 0'" || fail "busy window"
+  for i in $(seq 1 50); do
+    [ "$(tmux display-message -p -t =firstmate:=fm-a '#{pane_current_command}')" = sh ] && break
+    sleep 0.1
+  done
+  out=$(run_close)
+  assert_contains "$out" "live close a: closed" "dead-window lane closed"
+  assert_contains "$out" "live close b: closed; window firstmate:fm-b still runs a process, so it was left open" "busy window reported"
+  window_present fm-a && fail "the idle-shell lane window was left open"
+  window_present fm-b || fail "a window with a child process was closed"
+  window_present supervisor || fail "an unrelated window was closed"
+  [ -d "$W/wt-a" ] || fail "closing the window touched the worktree"
+  git -C "$W/wt-a" rev-parse --verify -q fm/a >/dev/null || fail "closing the window touched the branch"
+  tmux kill-server >/dev/null 2>&1 || true
+  pass "a closed lane's idle-shell window is closed, a window with a child process is kept and reported"
+}
+
 test_close_unpushed_lane_pushes_and_bundles_first() {
   local head
   new_world close-unpushed; make_lane a; add_teardown
@@ -341,6 +379,7 @@ test_live_ends_via_control_and_keeps_branch
 test_close_is_off_by_default_and_dry_run_reports
 test_close_pushed_clean_lane_tears_down_without_force
 test_close_mirror_only_commits_are_bundled
+test_close_closes_a_dead_lane_window_and_keeps_a_live_one
 test_close_unpushed_lane_pushes_and_bundles_first
 test_close_no_upstream_lane_bundles_and_teardown_decides
 test_close_reuses_only_verified_same_head_backups
