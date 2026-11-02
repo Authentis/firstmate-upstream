@@ -38,6 +38,13 @@ fm_lane_close_keep_commits() {
   [ "$n" -gt 0 ] || return 0
   dir="$home/data/bundles"
   mkdir -p "$dir" 2>/dev/null || return 1
+  for file in "$dir/$id-close."*.bundle; do
+    [ -f "$file" ] && [ ! -L "$file" ] || continue
+    if git -C "$wt" bundle verify -q "$file" >/dev/null 2>&1 \
+      && git -C "$wt" bundle list-heads "$file" 2>/dev/null | grep -qx "$head HEAD"; then
+      return 0
+    fi
+  done
   tmp=$(mktemp "$dir/$id-close.XXXXXX") || return 1
   file="$tmp.bundle"
   if git -C "$wt" bundle create -q "$tmp" HEAD >/dev/null 2>&1 \

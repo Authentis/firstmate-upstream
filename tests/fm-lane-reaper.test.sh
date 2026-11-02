@@ -227,6 +227,49 @@ test_close_unpushed_lane_pushes_and_bundles_first() {
   pass "an unpushed done lane is bundled and pushed before a plain teardown"
 }
 
+assert_bundle_count() {
+  local expected=$1
+  set -- "$W/data/bundles/"*.bundle
+  assert_equals "$expected" "$#" "preservation archive count"
+}
+
+test_close_reuses_only_verified_same_head_backups() {
+  local first bundle
+  new_world close-reuse; make_lane a; add_teardown
+  git -C "$W/wt-a" branch -q --unset-upstream
+  git -C "$W/wt-a" commit -q --allow-empty -m local
+  echo 1 > "$W/teardown.rc"
+  run_close >/dev/null
+  assert_bundle_count 1
+  run_close >/dev/null
+  run_close >/dev/null
+  assert_bundle_count 1
+  assert_equals $'a\na\na' "$(cat "$TEARDOWNS")" "refused closes still retry"
+  assert_saved_head "$(git -C "$W/wt-a" rev-parse HEAD)"
+  git -C "$W/wt-a" commit -q --allow-empty -m newer
+  run_close >/dev/null
+  assert_bundle_count 2
+  assert_saved_head "$(git -C "$W/wt-a" rev-parse HEAD)"
+
+  new_world close-corrupt; make_lane a; add_teardown
+  git -C "$W/wt-a" branch -q --unset-upstream
+  git -C "$W/wt-a" commit -q --allow-empty -m local
+  echo 1 > "$W/teardown.rc"
+  run_close >/dev/null
+  for first in "$W/data/bundles/"*.bundle; do break; done
+  printf 'broken bundle\n' > "$first"
+  run_close >/dev/null
+  assert_bundle_count 2
+  for bundle in "$W/data/bundles/"*.bundle; do
+    [ "$bundle" != "$first" ] || continue
+    git clone -q "$bundle" "$W/restored" 2>/dev/null || fail "replacement bundle not restorable"
+  done
+  assert_equals "$(git -C "$W/wt-a" rev-parse HEAD)" "$(git -C "$W/restored" rev-parse HEAD)" "corrupt backup replaced with current head"
+  run_close >/dev/null
+  assert_bundle_count 2
+  pass "retries reuse verified same-head bundles, not stale or corrupt backups"
+}
+
 test_close_no_upstream_lane_bundles_and_teardown_decides() {
   local head
   new_world close-bundle; make_lane a; add_teardown
@@ -253,6 +296,9 @@ test_close_push_failure_refuses_and_keeps_bundle() {
   assert_contains "$out" "live close a: refused: push to upstream failed; bundle kept" "push failure"
   assert_saved_head "$(git -C "$W/wt-a" rev-parse HEAD)"
   [ ! -s "$TEARDOWNS" ] || fail "teardown ran after a failed push"
+  out=$(run_close)
+  assert_contains "$out" "refused: push to upstream failed" "persistent push failure still retries"
+  assert_bundle_count 1
   git -C "$W/wt-a" remote set-url origin "$W/remote-a.git"
   out=$(run_close)
   assert_contains "$out" "live close a: closed" "push retried after recovery"
@@ -289,6 +335,7 @@ test_close_pushed_clean_lane_tears_down_without_force
 test_close_mirror_only_commits_are_bundled
 test_close_unpushed_lane_pushes_and_bundles_first
 test_close_no_upstream_lane_bundles_and_teardown_decides
+test_close_reuses_only_verified_same_head_backups
 test_close_push_failure_refuses_and_keeps_bundle
 test_close_refuses_dirty_missing_and_paused
 test_each_condition_gates_alone
