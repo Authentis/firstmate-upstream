@@ -1,0 +1,24 @@
+ok - dry-run logs the candidate and ends nothing
+ok - live ends only through control exit; branch and worktree kept
+ok - closing is off without config/lane-close-live and dry-run names the lane
+ok - config/lane-close-live closes a pushed clean done lane through plain teardown
+ok - validation mirror alone requires an independently restorable bundle
+ok - a closed lane's idle-shell window is closed, a window with a child process is kept and reported
+ok - an unpushed done lane is bundled and pushed before a plain teardown
+ok - a lane with no upstream is bundled and a refused teardown retries
+ok - retries reuse verified same-head bundles, not stale or corrupt backups
+ok - a failed push keeps the bundle and retries after recovery
+ok - dirty, missing-worktree, and paused lanes are never closed
+ok - done for under 2h alone spares the lane
+ok - open fix round (current state working) alone spares the lane
+ok - recent file write alone spares the lane
+ok - process CPU alone spares the lane
+ok - dirty git status alone spares the lane
+ok - unpushed commit alone spares the lane
+ok - a paused lane is a candidate
+ok - first CPU observation (no history) alone spares the lane
+ok - failed CPU probe alone spares the lane
+ok - a note-embedded stale tag cannot age the status alone spares the lane
+ok - worktree off the lane branch alone spares the lane
+ok - a live lane is not ended again until its status changes
+ok - secondmates are skipped

@@ -1,0 +1,212 @@
+=== 1 default-off reaper and merge ===
+{run-worktree}/.validation/live/off
+🌳 Setting up worktree...
+🌳 Leased worktree at ~/.no-mistakes/worktrees/c9e23aecc4aa/01M6F40MVYZWJ9MMXV2MDX9421/.validation/live/off/pool/.treehouse/repo-aea973/1/repo. Run 'treehouse return ~/.no-mistakes/worktrees/c9e23aecc4aa/01M6F40MVYZWJ9MMXV2MDX9421/.validation/live/off/pool/.treehouse/repo-aea973/1/repo' to release it.
+{"path":"{run-worktree}/.validation/live/off/pool/.treehouse/repo-aea973/1/repo","lease_id":"4e0b520daffd424faf6b1a69c81b7913","lease_holder":"fm-test","leased_at":"2026-11-02T23:07:17.222175158+01:00","base_branch":"main"}
+g1793657237.1077318.674
+state: done · source: status-log · ready in branch fm/test
+[at=1793657237] dry-run close test: would-close (pushed)
+[at=1793657237] dry-run candidate test: would-end
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+merged fm/test into local main (5c79a98 -> 5ce59c5) in {run-worktree}/.validation/live/off/projects/repo
+lane close: dry-run, would tear down test (live needs config/lane-close-live)
+OBSERVED: dry-run only; worktree and record survive both entrypoints.
+=== 2 pushed and unpushed done lanes close ===
+{run-worktree}/.validation/live/pushed
+🌳 Setting up worktree...
+🌳 Leased worktree at ~/.no-mistakes/worktrees/c9e23aecc4aa/01M6F40MVYZWJ9MMXV2MDX9421/.validation/live/pushed/pool/.treehouse/repo-6c4db1/1/repo. Run 'treehouse return ~/.no-mistakes/worktrees/c9e23aecc4aa/01M6F40MVYZWJ9MMXV2MDX9421/.validation/live/pushed/pool/.treehouse/repo-6c4db1/1/repo' to release it.
+{"path":"{run-worktree}/.validation/live/pushed/pool/.treehouse/repo-6c4db1/1/repo","lease_id":"1eab33f48570ede7f67ad621b98d5bba","lease_holder":"fm-test","leased_at":"2026-11-02T23:07:19.896350441+01:00","base_branch":"main"}
+g1793657239.1088493.13603
+state: done · source: status-log · ready in branch fm/test
+[at=1793657240] live close test: closed
+Returned slot current branch: HEAD
+[{"name":"1","path":"{run-worktree}/.validation/live/pushed/pool/.treehouse/repo-6c4db1/1/repo","status":"available","branch":"","detached":true,"flavor":"git","lease_id":"","lease_holder":"","leased_at":null,"processes":[]}]
+OBSERVED: pushed clean lane record removed and pool slot returned through ordinary teardown.
+{run-worktree}/.validation/live/unpushed
+🌳 Setting up worktree...
+🌳 Leased worktree at ~/.no-mistakes/worktrees/c9e23aecc4aa/01M6F40MVYZWJ9MMXV2MDX9421/.validation/live/unpushed/pool/.treehouse/repo-0725d4/1/repo. Run 'treehouse return ~/.no-mistakes/worktrees/c9e23aecc4aa/01M6F40MVYZWJ9MMXV2MDX9421/.validation/live/unpushed/pool/.treehouse/repo-0725d4/1/repo' to release it.
+{"path":"{run-worktree}/.validation/live/unpushed/pool/.treehouse/repo-0725d4/1/repo","lease_id":"7d0802fb7bb5867f9d85c6fb00a0d7f9","lease_holder":"fm-test","leased_at":"2026-11-02T23:07:25.947338001+01:00","base_branch":"main"}
+g1793657246.1112158.6333
+state: done · source: status-log · ready in branch fm/test
+[at=1793657246] live close test: closed
+Returned slot current branch: HEAD
+[{"name":"1","path":"{run-worktree}/.validation/live/unpushed/pool/.treehouse/repo-0725d4/1/repo","status":"available","branch":"","detached":true,"flavor":"git","lease_id":"","lease_holder":"","leased_at":null,"processes":[]}]
+Standalone restore HEAD=48ef6d3fd26d9aedf175e310918a7ecfb6177c89 payload=lane payload unpushed
+extra
+OBSERVED: upstream contains exact final HEAD; bundle restores after lane record/branch removal and pool return.
+=== 3 dirty and non-done lanes remain ===
+{run-worktree}/.validation/live/dirty
+🌳 Setting up worktree...
+🌳 Leased worktree at ~/.no-mistakes/worktrees/c9e23aecc4aa/01M6F40MVYZWJ9MMXV2MDX9421/.validation/live/dirty/pool/.treehouse/repo-17eba4/1/repo. Run 'treehouse return ~/.no-mistakes/worktrees/c9e23aecc4aa/01M6F40MVYZWJ9MMXV2MDX9421/.validation/live/dirty/pool/.treehouse/repo-17eba4/1/repo' to release it.
+{"path":"{run-worktree}/.validation/live/dirty/pool/.treehouse/repo-17eba4/1/repo","lease_id":"d0473ae1fd298abebb3ac38d768f467b","lease_holder":"fm-test","leased_at":"2026-11-02T23:07:32.152621896+01:00","base_branch":"main"}
+g1793657252.1137267.28106
+state: done · source: status-log · ready in branch fm/test
+[at=1793657252] dry-run spared test: clean unmet (uncommitted-or-unreadable)
+Direct ordinary teardown rc=1
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.validation/live/dirty
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REFUSED: worktree {run-worktree}/.validation/live/dirty/pool/.treehouse/repo-17eba4/1/repo has uncommitted changes.
+uncommitted changes present (untracked-only leftovers)
+untracked paths (up to 10):
+  untracked
+Commit them (or get the captain's explicit OK to discard, then --force).
+{run-worktree}/.validation/live/paused
+🌳 Setting up worktree...
+🌳 Leased worktree at ~/.no-mistakes/worktrees/c9e23aecc4aa/01M6F40MVYZWJ9MMXV2MDX9421/.validation/live/paused/pool/.treehouse/repo-8dedf1/1/repo. Run 'treehouse return ~/.no-mistakes/worktrees/c9e23aecc4aa/01M6F40MVYZWJ9MMXV2MDX9421/.validation/live/paused/pool/.treehouse/repo-8dedf1/1/repo' to release it.
+{"path":"{run-worktree}/.validation/live/paused/pool/.treehouse/repo-8dedf1/1/repo","lease_id":"67afb53b94a7653ba8ccba8093f9d7ad","lease_holder":"fm-test","leased_at":"2026-11-02T23:07:34.963735546+01:00","base_branch":"main"}
+g1793657255.1148295.12548
+state: paused · source: status-log · waiting
+[at=1793657255] dry-run candidate test: would-end
+state: working · source: status-log · active work
+[at=1793657256] dry-run spared test: idle-status unmet (current-state-not-done-or-paused)
+OBSERVED: no dirty, paused, or working lane closed.
+=== 4 unlanded retries, same-HEAD reuse, corruption, new HEAD ===
+{run-worktree}/.validation/live/retry
+🌳 Setting up worktree...
+🌳 Leased worktree at ~/.no-mistakes/worktrees/c9e23aecc4aa/01M6F40MVYZWJ9MMXV2MDX9421/.validation/live/retry/pool/.treehouse/repo-e3cd9d/1/repo. Run 'treehouse return ~/.no-mistakes/worktrees/c9e23aecc4aa/01M6F40MVYZWJ9MMXV2MDX9421/.validation/live/retry/pool/.treehouse/repo-e3cd9d/1/repo' to release it.
+{"path":"{run-worktree}/.validation/live/retry/pool/.treehouse/repo-e3cd9d/1/repo","lease_id":"9456c7e8edb8482316d9bd30163fa278","lease_holder":"fm-test","leased_at":"2026-11-02T23:07:36.799892131+01:00","base_branch":"main"}
+g1793657256.1155621.21675
+state: done · source: status-log · ready in branch fm/test
+[at=1793657257] live close test: refused: teardown refused (rc=1)
+[at=1793657257] dry-run spared test: pushed unmet (no-upstream-and-not-in-origin/main)
+Standalone restore HEAD=3dd368d5aedd3739434d79b4ac737d7eddd4647d payload=lane payload retry
+state: done · source: status-log · ready in branch fm/test
+[at=1793657261] live close test: refused: teardown refused (rc=1)
+[at=1793657261] dry-run spared test: pushed unmet (no-upstream-and-not-in-origin/main)
+{run-worktree}/.validation/live/retry/data/bundles/test-close.4NyCey.bundle is okay
+The bundle contains this ref:
+3dd368d5aedd3739434d79b4ac737d7eddd4647d HEAD
+The bundle records a complete history.
+The bundle uses this hash algorithm: sha1
+fatal: early EOF
+error: index-pack died
+fatal: remote transport reported error
+state: done · source: status-log · ready in branch fm/test
+[at=1793657265] live close test: refused: teardown refused (rc=1)
+[at=1793657265] dry-run spared test: pushed unmet (no-upstream-and-not-in-origin/main)
+Standalone restore HEAD=3dd368d5aedd3739434d79b4ac737d7eddd4647d payload=lane payload retry
+state: done · source: status-log · ready in branch fm/test
+[at=1793657269] live close test: refused: teardown refused (rc=1)
+[at=1793657269] dry-run spared test: pushed unmet (no-upstream-and-not-in-origin/main)
+state: done · source: status-log · ready in branch fm/test
+[at=1793657273] live close test: refused: teardown refused (rc=1)
+[at=1793657273] dry-run spared test: pushed unmet (no-upstream-and-not-in-origin/main)
+Standalone restore HEAD=d85a7f517075d7223e41c23e4baed976d270e4c0 payload=lane payload retry
+newer
+state: done · source: status-log · ready in branch fm/test
+[at=1793657277] live close test: closed
+Returned slot current branch: HEAD
+[{"name":"1","path":"{run-worktree}/.validation/live/retry/pool/.treehouse/repo-e3cd9d/1/repo","status":"available","branch":"","detached":true,"flavor":"git","lease_id":"","lease_holder":"","leased_at":null,"processes":[]}]
+Standalone restore HEAD=d85a7f517075d7223e41c23e4baed976d270e4c0 payload=lane payload retry
+newer
+OBSERVED: repeated refusal retries without duplicate bundles; damaged pack replaced; changed HEAD saved; later landing closes.
+=== 5 upstream outage then recovery ===
+{run-worktree}/.validation/live/outage
+🌳 Setting up worktree...
+🌳 Leased worktree at ~/.no-mistakes/worktrees/c9e23aecc4aa/01M6F40MVYZWJ9MMXV2MDX9421/.validation/live/outage/pool/.treehouse/repo-7a2e2a/1/repo. Run 'treehouse return ~/.no-mistakes/worktrees/c9e23aecc4aa/01M6F40MVYZWJ9MMXV2MDX9421/.validation/live/outage/pool/.treehouse/repo-7a2e2a/1/repo' to release it.
+{"path":"{run-worktree}/.validation/live/outage/pool/.treehouse/repo-7a2e2a/1/repo","lease_id":"44d51887cfb50129b6b4b95058cfa2e2","lease_holder":"fm-test","leased_at":"2026-11-02T23:08:02.384195512+01:00","base_branch":"main"}
+g1793657282.1273482.28189
+state: done · source: status-log · ready in branch fm/test
+[at=1793657282] live close test: refused: push to upstream failed; bundle kept
+[at=1793657282] dry-run spared test: pushed unmet (unpushed-commits)
+Standalone restore HEAD=5b8a1f71b5eaafb540e602e7853cf5d3c9adcbc1 payload=lane payload outage
+late
+state: done · source: status-log · ready in branch fm/test
+[at=1793657284] live close test: refused: push to upstream failed; bundle kept
+[at=1793657284] dry-run spared test: pushed unmet (unpushed-commits)
+state: done · source: status-log · ready in branch fm/test
+[at=1793657286] live close test: closed
+Returned slot current branch: HEAD
+[{"name":"1","path":"{run-worktree}/.validation/live/outage/pool/.treehouse/repo-7a2e2a/1/repo","status":"available","branch":"","detached":true,"flavor":"git","lease_id":"","lease_holder":"","leased_at":null,"processes":[]}]
+Standalone restore HEAD=5b8a1f71b5eaafb540e602e7853cf5d3c9adcbc1 payload=lane payload outage
+late
+OBSERVED: failed push keeps lane and backup; unchanged done status retries after recovery and closes.
+=== 6 mirror-only refs do not replace independent backup ===
+{run-worktree}/.validation/live/mirror
+🌳 Setting up worktree...
+🌳 Leased worktree at ~/.no-mistakes/worktrees/c9e23aecc4aa/01M6F40MVYZWJ9MMXV2MDX9421/.validation/live/mirror/pool/.treehouse/repo-d6b6c1/1/repo. Run 'treehouse return ~/.no-mistakes/worktrees/c9e23aecc4aa/01M6F40MVYZWJ9MMXV2MDX9421/.validation/live/mirror/pool/.treehouse/repo-d6b6c1/1/repo' to release it.
+{"path":"{run-worktree}/.validation/live/mirror/pool/.treehouse/repo-d6b6c1/1/repo","lease_id":"16bf4c02471e9e1cf6af0b46c360b9d9","lease_holder":"fm-test","leased_at":"2026-11-02T23:08:12.045866588+01:00","base_branch":"main"}
+g1793657292.1296980.3129
+state: done · source: status-log · ready in branch fm/test
+[at=1793657292] live close test: refused: teardown refused (rc=1)
+[at=1793657292] dry-run candidate test: would-end
+Standalone restore HEAD=379cab2c9c1592ad34c38cafa630141b426710f3 payload=lane payload mirror
+state: done · source: status-log · ready in branch fm/test
+[at=1793657295] live close test: closed
+Returned slot current branch: HEAD
+[{"name":"1","path":"{run-worktree}/.validation/live/mirror/pool/.treehouse/repo-d6b6c1/1/repo","status":"available","branch":"","detached":true,"flavor":"git","lease_id":"","lease_holder":"","leased_at":null,"processes":[]}]
+Standalone restore HEAD=379cab2c9c1592ad34c38cafa630141b426710f3 payload=lane payload mirror
+OBSERVED: mirror-only commit gets standalone backup; unlanded work refused; landed local work closes safely.
+=== 7 immediate local merge close and preservation failure ===
+{run-worktree}/.validation/live/merge
+🌳 Setting up worktree...
+🌳 Leased worktree at ~/.no-mistakes/worktrees/c9e23aecc4aa/01M6F40MVYZWJ9MMXV2MDX9421/.validation/live/merge/pool/.treehouse/repo-15bba8/1/repo. Run 'treehouse return ~/.no-mistakes/worktrees/c9e23aecc4aa/01M6F40MVYZWJ9MMXV2MDX9421/.validation/live/merge/pool/.treehouse/repo-15bba8/1/repo' to release it.
+{"path":"{run-worktree}/.validation/live/merge/pool/.treehouse/repo-15bba8/1/repo","lease_id":"5f7bdd823601f16cbec582c2afd63376","lease_holder":"fm-test","leased_at":"2026-11-02T23:08:20.868411574+01:00","base_branch":"main"}
+g1793657300.1318242.10809
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+merged fm/test into local main (ab10cc0 -> 6ccb627) in {run-worktree}/.validation/live/merge/projects/repo
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.validation/live/merge
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+🌳 Worktree returned to pool.
+teardown test complete (window fm-lab-merge:fm-test, worktree {run-worktree}/.validation/live/merge/pool/.treehouse/repo-15bba8/1/repo)
+Backlog: test just finished (this home keeps no markdown backlog at {run-worktree}/.validation/live/merge/data/backlog.md). Update {run-worktree}/.validation/live/merge/data/backlog.md - move test to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+lane close: tore down test after the merge
+Returned slot current branch: HEAD
+[{"name":"1","path":"{run-worktree}/.validation/live/merge/pool/.treehouse/repo-15bba8/1/repo","status":"available","branch":"","detached":true,"flavor":"git","lease_id":"","lease_holder":"","leased_at":null,"processes":[]}]
+Standalone restore HEAD=6ccb6273b9459f9e5012304ec1cf16fb1f0dcb39 payload=lane payload merge
+{run-worktree}/.validation/live/preserve-fails
+🌳 Setting up worktree...
+🌳 Leased worktree at ~/.no-mistakes/worktrees/c9e23aecc4aa/01M6F40MVYZWJ9MMXV2MDX9421/.validation/live/preserve-fails/pool/.treehouse/repo-2f56c7/1/repo. Run 'treehouse return ~/.no-mistakes/worktrees/c9e23aecc4aa/01M6F40MVYZWJ9MMXV2MDX9421/.validation/live/preserve-fails/pool/.treehouse/repo-2f56c7/1/repo' to release it.
+{"path":"{run-worktree}/.validation/live/preserve-fails/pool/.treehouse/repo-2f56c7/1/repo","lease_id":"2d680d08ab7f52475b64b769751e9284","lease_holder":"fm-test","leased_at":"2026-11-02T23:08:25.268583731+01:00","base_branch":"main"}
+g1793657305.1328131.1970
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+merged fm/test into local main (839bad1 -> fc21727) in {run-worktree}/.validation/live/preserve-fails/projects/repo
+actionable: merged, but preservation of test failed; the lane is kept for review
+OBSERVED: merge success survives failed preservation, but teardown is withheld.
+=== 8 windowless teardown does not claim another same-name window ===
+{run-worktree}/.validation/live/windowless
+🌳 Setting up worktree...
+🌳 Leased worktree at ~/.no-mistakes/worktrees/c9e23aecc4aa/01M6F40MVYZWJ9MMXV2MDX9421/.validation/live/windowless/pool/.treehouse/repo-f426c3/1/repo. Run 'treehouse return ~/.no-mistakes/worktrees/c9e23aecc4aa/01M6F40MVYZWJ9MMXV2MDX9421/.validation/live/windowless/pool/.treehouse/repo-f426c3/1/repo' to release it.
+{"path":"{run-worktree}/.validation/live/windowless/pool/.treehouse/repo-f426c3/1/repo","lease_id":"e70519e87d6c0fc907bb8c40aecdf17f","lease_holder":"fm-test","leased_at":"2026-11-02T23:08:26.62767582+01:00","base_branch":"main"}
+g1793657306.1330832.32249
+@22 supervisor sh
+@23 fm-test sh
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+merged fm/test into local main (a4e11e0 -> 6d3f463) in {run-worktree}/.validation/live/windowless/projects/repo
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.validation/live/windowless
+REFUSED: task test has a missing, empty, or ambiguous window endpoint; preserving task state.
+actionable: merged, but teardown of test refused (rc=1); the lane is kept for review
+DIAGNOSTIC: direct ordinary teardown for unexpectedly retained lane:
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.validation/live/windowless
+REFUSED: task test has a missing, empty, or ambiguous window endpoint; preserving task state.
+ASSERTION FAILED: expected automatic close

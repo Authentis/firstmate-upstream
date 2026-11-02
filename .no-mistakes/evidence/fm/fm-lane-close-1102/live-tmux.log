@@ -1,0 +1,15 @@
+Before duplicate spawn:
+@0 supervisor sh
+@1 fm-idle sh
+@2 fm-busy sh
+note: closed the dead window fm-lab-backend:fm-idle (only an idle shell) before creating it again
+Idle-shell replacement old=@1 new=@3
+error: window fm-lab-backend:fm-busy already exists
+After duplicate spawn:
+@0 supervisor sh
+@3 fm-idle bash
+@2 fm-busy sh
+After recorded-endpoint cleanup (idle removed, child/supervisor retained):
+@0 supervisor sh
+@2 fm-busy sh
+OBSERVED: replacement changes only idle-shell window ID; busy child refuses replacement and cleanup; absent/mismatched records claim no session.

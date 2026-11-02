@@ -1,33 +1,37 @@
-# Finished-lane local runtime validation
+# Lane-close live validation
 
-## Scope and oracle
+Validated head: `b2d28422462a249c257ad645e06d909a9fdab9c7` on Linux.
 
-The independent oracle is the supplied author intent and recorded R1–R5 decisions: live closing requires the home file opt-in; dirty or unlanded work must not be discarded; every unpushed HEAD must survive in a real remote or independently restorable bundle before ordinary teardown; unsuccessful closes retry; repeated same-HEAD retries must not multiply valid backups; header-valid corrupt payloads must not be accepted.
+## Product evidence
 
-`live-close.log` is an actual execution transcript from `live-close-driver.sh` (exit 0), launched from this gate worktree. The driver built disposable marked lab homes, local bare remotes, real Treehouse leased worktrees, and private tmux terminal endpoints. It invoked the real crew-state reader, semantic busy-event writer, reaper, local merge command, and teardown. No Git, teardown, crew-state, CPU-probe, or forge command was replaced in these live checks. The missing `lsof` dependency was downloaded as an Ubuntu package and unpacked only inside the disposable worktree test directory; no system package was installed.
+- [`live-close.log`](live-close.log): completed execution of [`live-close-driver.sh`](live-close-driver.sh), exit **0**. Sections 1–8 cover default-off behavior; pushed/unpushed cleanup; dirty, paused and working exclusions; refusal retries and bundle reuse; header-valid truncated-pack replacement; changed-HEAD backups; upstream outage/recovery; mirror-only preservation; immediate local-merge teardown; preservation-failure handling; and legacy windowless ownership.
+- [`live-tmux.log`](live-tmux.log): completed execution of [`live-tmux-driver.sh`](live-tmux-driver.sh), exit **0**. Actual window inventories show shell-only replacement (`@1` → `@3`), refusal of the running-child window, and selective recorded-window cleanup.
 
-Lane metadata, status declarations, and idle semantic events were synthetic inputs. The terminal endpoint command was `sleep`, not a substitute pretending to be an AI CLI. These checks validate local lane lifecycle behavior with synthetic completed-lane state; they do **not** claim an LLM completed a task, validate an AI harness/login, run Herdr, or prove a hosted forge merge. Real `lsof`, Git, tmux, and Treehouse executed against those isolated local inputs.
+These are **local product** proofs, not hosted GitHub or live-LLM proofs. The drivers execute the real reaper, crew-state reconciliation, preservation library, teardown, merge-local command, Git, Treehouse, tasks-axi and tmux. No fake teardown, crew-state executable, merge proof, or CLI substitutes are used in the live-close driver. Synthetic lane records, aged status/file timestamps and quiet-history inputs are seeded in marked disposable lab homes. Idle lifecycle state is supplied through the real `fm-busy-event.sh arm --state idle --source fm-recovery` interface. Tmux shells use nonzero 120×32 grids on private sockets; no default server is addressed.
 
-## Observable checks
+The independent preservation oracle is a separate bare clone of the generated bundle, exact saved-HEAD comparison, full strict fsck and reading the committed synthetic payload. Successful lane cleanup is checked by task-record/branch removal, a clean returned slot, and Treehouse JSON reporting one available slot without a lease. Refusal cases check that the lane and its data remain. The corrupted-backup case deliberately retains a header that `git bundle verify` accepts, confirms clone failure, and requires a replacement that restores successfully.
 
-- Without the close opt-in: dry-run names the lane, metadata remains, no preservation bundle is written. `live-boundaries.log` also shows that the removed environment activation does not close anything and the removed CLI flag returns usage/exit 2. That separate driver exited 0.
-- With opt-in: ordinary reaper teardown retires the task. A standalone clone restores the exact original HEAD and committed `payload.txt`.
-- A dirty lane keeps its task record and uncommitted file contents. The boundary driver also checks that an opted-in paused task is not closed and a missing worktree leaves its record and relocated data intact.
-- Repeated unlanded-work teardown refusals keep the task and only one backup.
-- An archive deliberately truncated after its valid header still passes Git's header-level bundle verification but fails a real clone. A subsequent scan creates a restorable replacement, and another retry reuses it.
-- A local bare remote's rejecting pre-receive hook causes actual pushes to fail. The record and bundle remain; removing that hook allows an ordinary scan with the same done status to push and close.
-- A `no-mistakes` mirror containing HEAD does not suppress an independent backup.
-- Local fast-forward merge runs actual preservation and teardown immediately when opted in; with closing off, it advances main but leaves the task open.
-- Already-pushed work closes without a redundant bundle.
-- Blocked backup storage after a successful local merge keeps task, HEAD, and endpoint.
-- Dirty-lane teardown refusal does not turn a successful local merge into failure or discard uncommitted edits.
+## Focused existing checks
 
-## Supplemental targeted tests
+Each completed with exit **0**:
 
-Separately executed, one file at a time: `tests/fm-lane-reaper.test.sh`, `tests/fm-lane-retire.test.sh`, and `tests/fm-pr-merge.test.sh`. All three exited 0 and their logs are retained separately. These use test seams/stubbed boundaries and are supplemental regression checks, **not** live forge or lifecycle proof.
+```sh
+TMPDIR="$PWD/.validation/tmp" bash tests/fm-lane-reaper.test.sh
+TMPDIR="$PWD/.validation/tmp" bash tests/fm-lane-retire.test.sh
+TMPDIR="$PWD/.validation/tmp" bash tests/fm-pr-merge.test.sh
+TMPDIR="$PWD/.validation/tmp" bash tests/fm-backend-tmux-smoke.test.sh
+```
 
-## Remaining boundary
+Their retained outputs are `reaper-behavior.log`, `merge-local-behavior.log`, `pr-merge-behavior.log`, and `tmux-smoke.log`. The mocked forge/teardown cases are supplemental behavioral coverage, **not** live hosted-merge evidence. No full suite, linter, formatter or static-analysis command ran.
 
-No authorized disposable hosted GitHub repository/PR was supplied. A real `gh pr view` invocation with isolated empty configuration and tokens removed exited 4 asking for authentication (`hosted-pr-blocker.log`). This is not a claim that the operator's normal login is unavailable: the validation deliberately did not inspect or use real operator configuration, credentials, or data. Local Git remotes cannot supply GitHub's hosted PR/queue proof; the existing forge-stub tests do not count as that proof. To validate that path live, provide an authorized disposable GitHub repository/PR plus permission and scoped credentials to push and merge it.
+## Scope and setup qualifications
 
-All live fixture homes, worktrees, sockets, servers, local packages, and transient drivers were removed from the worktree after execution. Evidence remains here only.
+- A hosted GitHub PR merge was not performed: the supplied ruling reserves that authority to the captain and explicitly accepts behavioral coverage against stubbed merge proof. The focused PR test passed its opt-in, proof-before-teardown and refusal-does-not-fail-merge case. This remains an explicitly untested hosted scenario, not a claim of hosted validation.
+- `lsof` was absent on PATH. It was obtained with `apt-get download lsof` inside `.validation/tools` and extracted there using `dpkg-deb -x`; no system package installation occurred.
+- Earlier retained `live-close-*-attempt.log` files document resolved fixture setup problems: absent endpoint, untrusted synthetic event source, using an unmanaged Git worktree instead of a real Treehouse slot, an over-specific detached-HEAD expectation, changing origin identity and thereby hiding the original Treehouse pool, and omitting the backlog required for supported legacy windowless cleanup. The final driver corrects those inputs; no product code was changed.
+- Watcher-down warnings in the transcript are expected: these disposable homes intentionally have no supervision watcher. They do not prevent the guarded commands from running.
+- CLI-only behavior was changed, so CLI transcripts and actual pool/window inventories are the reviewer-visible evidence; no rendered-UI screenshot was needed.
+
+## Cleanup
+
+All private tmux servers and disposable homes were stopped/removed by the drivers. The locally extracted tool, test temp roots and `.validation` directory were removed after all checks exited. Final `git status --short` was empty at the validated head, and the execution session inventory was empty. No source/test changes, production credentials, real fleet state, push, PR, CI, or pipeline-control operations were performed.

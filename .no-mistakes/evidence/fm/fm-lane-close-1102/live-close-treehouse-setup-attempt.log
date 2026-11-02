@@ -1,0 +1,28 @@
+=== 1 default-off reaper and merge ===
+{run-worktree}/.validation/live/off
+g1793656910.9465.15622
+state: done · source: status-log · ready in branch fm/test
+[at=1793656910] dry-run close test: would-close (pushed)
+[at=1793656910] dry-run candidate test: would-end
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+merged fm/test into local main (9dfd284 -> 0966a8e) in {run-worktree}/.validation/live/off/projects/repo
+lane close: dry-run, would tear down test (live needs config/lane-close-live)
+OBSERVED: dry-run only; worktree and record survive both entrypoints.
+=== 2 pushed and unpushed done lanes close ===
+{run-worktree}/.validation/live/pushed
+g1793656912.14724.1237
+state: done · source: status-log · ready in branch fm/test
+[at=1793656912] live close test: refused: teardown refused (rc=1)
+[at=1793656912] dry-run candidate test: would-end
+DIAGNOSTIC: direct ordinary teardown for unexpectedly retained lane:
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.validation/live/pushed
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+worktree {run-worktree}/.validation/live/pushed/lane is not managed by treehouse
+error: treehouse return failed for worktree {run-worktree}/.validation/live/pushed/lane; teardown aborted
+ASSERTION FAILED: expected automatic close
