@@ -1,0 +1,156 @@
+{run-worktree}/.test-tmp/live/optin
+🌳 Setting up worktree...
+🌳 Leased worktree at ~/.no-mistakes/worktrees/c9e23aecc4aa/01M6E99PVS61R3TG4F93XK6D06/.test-tmp/live/optin/pool/.treehouse/project-e5b276/1/project. Run 'treehouse return ~/.no-mistakes/worktrees/c9e23aecc4aa/01M6E99PVS61R3TG4F93XK6D06/.test-tmp/live/optin/pool/.treehouse/project-e5b276/1/project' to release it.
+g1793630742.720549.7417
+
+== Actual crew state ==
+state: done · source: status-log · head 3a2179f3479303ef737432a9b482d7916372cffb complete
+
+== Closing default OFF ==
+[at=1793630742] dry-run close finished: would-close (pushed)
+[at=1793630742] dry-run candidate finished: would-end
+
+== Actual teardown after opt-in ==
+[at=1793630743] live close finished: closed
+Observable: task metadata retired; backup restore follows
+RESTORED: exact pre-close HEAD and payload.txt from standalone bundle
+{run-worktree}/.test-tmp/live/dirty
+🌳 Setting up worktree...
+🌳 Leased worktree at ~/.no-mistakes/worktrees/c9e23aecc4aa/01M6E99PVS61R3TG4F93XK6D06/.test-tmp/live/dirty/pool/.treehouse/project-56d986/1/project. Run 'treehouse return ~/.no-mistakes/worktrees/c9e23aecc4aa/01M6E99PVS61R3TG4F93XK6D06/.test-tmp/live/dirty/pool/.treehouse/project-56d986/1/project' to release it.
+g1793630748.748883.30905
+
+== Adversarial dirty lane ==
+[at=1793630748] dry-run spared finished: clean unmet (uncommitted-or-unreadable)
+KEPT: task record and uncommitted payload
+{run-worktree}/.test-tmp/live/retry
+🌳 Setting up worktree...
+🌳 Leased worktree at ~/.no-mistakes/worktrees/c9e23aecc4aa/01M6E99PVS61R3TG4F93XK6D06/.test-tmp/live/retry/pool/.treehouse/project-447690/1/project. Run 'treehouse return ~/.no-mistakes/worktrees/c9e23aecc4aa/01M6E99PVS61R3TG4F93XK6D06/.test-tmp/live/retry/pool/.treehouse/project-447690/1/project' to release it.
+g1793630749.750793.23912
+
+== Refused close retries reuse one restorable archive ==
+state: done · source: status-log · head 825842cd8923a407dd6208a7ab659fd70b0f7bb0 complete
+[at=1793630749] live close finished: refused: teardown refused (rc=1)
+[at=1793630749] dry-run spared finished: pushed unmet (no-upstream-and-not-in-main)
+[at=1793630753] live close finished: refused: teardown refused (rc=1)
+[at=1793630753] dry-run spared finished: pushed unmet (no-upstream-and-not-in-main)
+RETRY: record retained and one archive after two refused closes
+
+== Header-valid payload corruption ==
+{run-worktree}/.test-tmp/live/retry/data/bundles/finished-close.Ju9Cmm.bundle is okay
+The bundle contains this ref:
+825842cd8923a407dd6208a7ab659fd70b0f7bb0 HEAD
+The bundle records a complete history.
+The bundle uses this hash algorithm: sha1
+825842cd8923a407dd6208a7ab659fd70b0f7bb0 HEAD
+fatal: early EOF
+error: index-pack died
+fatal: remote transport reported error
+Confirmed: original payload cannot restore despite a valid header
+[at=1793630756] live close finished: refused: teardown refused (rc=1)
+[at=1793630756] dry-run spared finished: pushed unmet (no-upstream-and-not-in-main)
+[at=1793630760] live close finished: refused: teardown refused (rc=1)
+[at=1793630760] dry-run spared finished: pushed unmet (no-upstream-and-not-in-main)
+REPLACED: damaged payload rejected; replacement restored exact HEAD and data; next retry reused replacement
+{run-worktree}/.test-tmp/live/pushfail
+🌳 Setting up worktree...
+🌳 Leased worktree at ~/.no-mistakes/worktrees/c9e23aecc4aa/01M6E99PVS61R3TG4F93XK6D06/.test-tmp/live/pushfail/pool/.treehouse/project-6aae02/1/project. Run 'treehouse return ~/.no-mistakes/worktrees/c9e23aecc4aa/01M6E99PVS61R3TG4F93XK6D06/.test-tmp/live/pushfail/pool/.treehouse/project-6aae02/1/project' to release it.
+g1793630763.794190.24891
+branch 'fm/finished' set up to track 'origin/main'.
+
+== Real upstream rejects push, then recovers ==
+[at=1793630763] live close finished: refused: push to upstream failed; bundle kept
+[at=1793630763] dry-run spared finished: pushed unmet (unpushed-commits)
+[at=1793630765] live close finished: refused: push to upstream failed; bundle kept
+[at=1793630765] dry-run spared finished: pushed unmet (unpushed-commits)
+[at=1793630767] live close finished: closed
+RECOVERED: unchanged done status retried, remote main now equals saved HEAD, task retired
+{run-worktree}/.test-tmp/live/mirror
+🌳 Setting up worktree...
+🌳 Leased worktree at ~/.no-mistakes/worktrees/c9e23aecc4aa/01M6E99PVS61R3TG4F93XK6D06/.test-tmp/live/mirror/pool/.treehouse/project-863711/1/project. Run 'treehouse return ~/.no-mistakes/worktrees/c9e23aecc4aa/01M6E99PVS61R3TG4F93XK6D06/.test-tmp/live/mirror/pool/.treehouse/project-863711/1/project' to release it.
+g1793630772.825290.28532
+
+== Validation mirror is not durable remote evidence ==
+[at=1793630772] live close finished: closed
+PRESERVED: mirror-only HEAD independently restored after real teardown
+{run-worktree}/.test-tmp/live/merge-on
+🌳 Setting up worktree...
+🌳 Leased worktree at ~/.no-mistakes/worktrees/c9e23aecc4aa/01M6E99PVS61R3TG4F93XK6D06/.test-tmp/live/merge-on/pool/.treehouse/project-540eaa/1/project. Run 'treehouse return ~/.no-mistakes/worktrees/c9e23aecc4aa/01M6E99PVS61R3TG4F93XK6D06/.test-tmp/live/merge-on/pool/.treehouse/project-540eaa/1/project' to release it.
+g1793630778.856533.22144
+
+== Local merge immediately performs preserved teardown ==
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+merged fm/finished into local main (397ef0c -> 850ac30) in {run-worktree}/.test-tmp/live/merge-on/project
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.test-tmp/live/merge-on
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+🌳 Worktree returned to pool.
+teardown finished complete (window lab:fm-finished, worktree {run-worktree}/.test-tmp/live/merge-on/pool/.treehouse/project-540eaa/1/project)
+Backlog: finished just finished (this home keeps no markdown backlog at {run-worktree}/.test-tmp/live/merge-on/data/backlog.md). Update {run-worktree}/.test-tmp/live/merge-on/data/backlog.md - move finished to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+lane close: tore down finished after the merge
+LANDED AND CLOSED: local main fast-forwarded, metadata retired, original HEAD independently restored
+{run-worktree}/.test-tmp/live/merge-off
+🌳 Setting up worktree...
+🌳 Leased worktree at ~/.no-mistakes/worktrees/c9e23aecc4aa/01M6E99PVS61R3TG4F93XK6D06/.test-tmp/live/merge-off/pool/.treehouse/project-197247/1/project. Run 'treehouse return ~/.no-mistakes/worktrees/c9e23aecc4aa/01M6E99PVS61R3TG4F93XK6D06/.test-tmp/live/merge-off/pool/.treehouse/project-197247/1/project' to release it.
+g1793630783.872345.20706
+
+== Local merge with live closing disabled ==
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+merged fm/finished into local main (4584f88 -> 2a16883) in {run-worktree}/.test-tmp/live/merge-off/project
+lane close: dry-run, would tear down finished (live needs config/lane-close-live)
+LANDED ONLY: local main advanced; task, endpoint, and copy remain without close approval
+{run-worktree}/.test-tmp/live/pushed
+🌳 Setting up worktree...
+🌳 Leased worktree at ~/.no-mistakes/worktrees/c9e23aecc4aa/01M6E99PVS61R3TG4F93XK6D06/.test-tmp/live/pushed/pool/.treehouse/project-e43244/1/project. Run 'treehouse return ~/.no-mistakes/worktrees/c9e23aecc4aa/01M6E99PVS61R3TG4F93XK6D06/.test-tmp/live/pushed/pool/.treehouse/project-e43244/1/project' to release it.
+g1793630784.878109.19126
+
+== Real remote already holds HEAD ==
+[at=1793630784] live close finished: closed
+CLOSED: real remote retains original HEAD; no redundant bundle needed
+{run-worktree}/.test-tmp/live/mergeblocked
+🌳 Setting up worktree...
+🌳 Leased worktree at ~/.no-mistakes/worktrees/c9e23aecc4aa/01M6E99PVS61R3TG4F93XK6D06/.test-tmp/live/mergeblocked/pool/.treehouse/project-68b8a9/1/project. Run 'treehouse return ~/.no-mistakes/worktrees/c9e23aecc4aa/01M6E99PVS61R3TG4F93XK6D06/.test-tmp/live/mergeblocked/pool/.treehouse/project-68b8a9/1/project' to release it.
+g1793630789.893528.21266
+
+== After-merge preservation storage unavailable ==
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+merged fm/finished into local main (ecea362 -> 21e15cd) in {run-worktree}/.test-tmp/live/mergeblocked/project
+actionable: merged, but preservation of finished failed; the lane is kept for review
+REFUSED SAFELY: merge landed but task, worktree HEAD, and endpoint retained without a backup
+{run-worktree}/.test-tmp/live/mergedirty
+🌳 Setting up worktree...
+🌳 Leased worktree at ~/.no-mistakes/worktrees/c9e23aecc4aa/01M6E99PVS61R3TG4F93XK6D06/.test-tmp/live/mergedirty/pool/.treehouse/project-d1c543/1/project. Run 'treehouse return ~/.no-mistakes/worktrees/c9e23aecc4aa/01M6E99PVS61R3TG4F93XK6D06/.test-tmp/live/mergedirty/pool/.treehouse/project-d1c543/1/project' to release it.
+g1793630790.898183.5065
+
+== After-merge teardown still refuses dirty lane ==
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+merged fm/finished into local main (6d7afac -> 7e419fa) in {run-worktree}/.test-tmp/live/mergedirty/project
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.test-tmp/live/mergedirty
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+REFUSED: local-only worktree {run-worktree}/.test-tmp/live/mergedirty/pool/.treehouse/project-d1c543/1/project has work not yet merged into main and not on any remote.
+uncommitted changes present (includes tracked edits)
+Merge the branch into local main first (bin/fm-merge-local.sh after the captain approves), or push to a fork/remote, or get the captain's explicit OK to discard, then --force.
+actionable: merged, but teardown of finished refused (rc=1); the lane is kept for review
+REFUSED SAFELY: merge remains successful, uncommitted edits and live endpoint retained

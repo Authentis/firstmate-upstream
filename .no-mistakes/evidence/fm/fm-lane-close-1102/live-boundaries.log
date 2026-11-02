@@ -1,0 +1,21 @@
+{run-worktree}/.test-tmp/live/activation
+🌳 Setting up worktree...
+🌳 Leased worktree at ~/.no-mistakes/worktrees/c9e23aecc4aa/01M6E99PVS61R3TG4F93XK6D06/.test-tmp/live/activation/pool/.treehouse/project-e90a60/1/project. Run 'treehouse return ~/.no-mistakes/worktrees/c9e23aecc4aa/01M6E99PVS61R3TG4F93XK6D06/.test-tmp/live/activation/pool/.treehouse/project-e90a60/1/project' to release it.
+g1793631028.1562456.13304
+
+== Environment cannot grant close approval ==
+[at=1793631028] dry-run close finished: would-close (pushed)
+[at=1793631028] dry-run candidate finished: would-end
+
+== Removed close CLI flag cannot grant approval ==
+usage: fm-lane-reaper.sh scan [--live]
+KEPT: neither environment variable nor removed CLI flag enabled close
+
+== Opted-in paused lane is not finished ==
+state: paused · source: status-log · captain decision outstanding
+[at=1793631029] dry-run candidate finished: would-end
+KEPT: paused task was not closed even with home opt-in
+
+== Missing worktree is not assumed safe ==
+[at=1793631030] dry-run spared finished: worktree unmet (missing)
+KEPT: missing-worktree task record and relocated data untouched
