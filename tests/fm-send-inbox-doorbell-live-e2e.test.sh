@@ -40,6 +40,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 fm_live_gate opt-in FM_SEND_INBOX_LIVE_E2E tmux
 
 unset NO_MISTAKES_GATE
+unset FM_ROOT_OVERRIDE FM_STATE_OVERRIDE FM_DATA_OVERRIDE FM_CONFIG_OVERRIDE FM_PROJECTS_OVERRIDE
 
 SOCKET="fm-inbox-live-$$"
 SESSION="inboxlive"
@@ -146,7 +147,7 @@ check_harness_doorbell() {  # <name>
   task="live-$name"
   acted="$LAB/acted-$name"
   tmux -L "$SOCKET" new-window -d -t "$SESSION:" -n "$win" -c "$ROOT" \
-    -- bash -lc "export FM_TASK_INBOX=$(printf '%q' "$home/state/$task.inbox"); $cmd" \
+    -- bash -lc "export FM_HOME=$(printf '%q' "$home") FM_TASK_INBOX=$(printf '%q' "$home/state/$task.inbox"); $cmd" \
     || { FAILED=1; printf 'not ok - %s (%s): could not launch in the isolated tmux server\n' "$name" "$version" >&2; return 0; }
   wait_ready "$win"; ready_rc=$?
   if [ "$ready_rc" -eq 1 ]; then
@@ -159,7 +160,7 @@ check_harness_doorbell() {  # <name>
   [ "$ready_rc" -eq 0 ] || note "$name ($version): idle composer never classified empty; proceeding as production does (advisory check skips only on pending)"
   printf 'window=%s:%s\nkind=ship\nharness=%s\n' "$SESSION" "$win" "$name" > "$home/state/$task.meta"
   if ! FM_HOME="$home" FM_ROOT_OVERRIDE="$home" "$ROOT/bin/fm-send.sh" "$task" \
-    "Firstmate live check: run exactly this shell command now: touch $acted - then follow the mv instruction you were given for this message. Reply with one short line." \
+    "Firstmate live check: run exactly this shell command now: touch $acted - then acknowledge this message with the command the doorbell names. Reply with one short line." \
     >/dev/null 2>&1; then
     FAILED=1
     printf 'not ok - %s (%s): fm-send refused the live steer\n' "$name" "$version" >&2
@@ -189,7 +190,7 @@ check_harness_doorbell() {  # <name>
   done
   if [ -f "$handled" ] && [ -e "$acted" ]; then
     CHECKED=$((CHECKED + 1))
-    pass "$name ($version): the doorbell reached a real worker, which acted and acked with the mv"
+    pass "$name ($version): the doorbell reached a real worker, which acted and acknowledged with the sanctioned command"
   else
     FAILED=1
     printf 'not ok - %s (%s): doorbell not honored within %ss (acted=%s acked=%s)\n' \
