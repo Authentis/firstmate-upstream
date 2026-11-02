@@ -1810,8 +1810,7 @@ Creating the file `config/lane-reaper-live` enables agent ending after a day of 
 Closing finished lanes is a separate opt-in, `config/lane-close-live`, which `config/lane-reaper-live` never turns on.
 Without it the reaper only logs the done lanes it would close, and the merge scripts only print the teardown they would run.
 It enables closing independently of agent ending, including immediately after a proven merge in `fm-pr-merge.sh` or `fm-merge-local.sh`, but not a queued merge.
-A closed lane's explicitly recorded tmux window is closed too when it holds only an idle shell; a window still running a process is left open and reported. Windowless records never trigger window cleanup.
-[`bin/fm-lane-close-lib.sh`](../bin/fm-lane-close-lib.sh) owns the opt-in, commit preservation, and after-merge teardown; the reaper header owns close eligibility, upstream pushes, and later-scan retries.
+[`bin/fm-lane-close-lib.sh`](../bin/fm-lane-close-lib.sh) owns the opt-in, commit preservation, after-merge teardown, and leftover-window cleanup; the reaper header owns close eligibility, upstream pushes, and later-scan retries.
 
 ## Relay (.env)
 
