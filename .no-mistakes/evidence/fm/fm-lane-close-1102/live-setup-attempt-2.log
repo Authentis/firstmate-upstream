@@ -1,0 +1,10 @@
+=== 1: default-off close; reaper-live and legacy environment cannot activate it ===
+{run-worktree}/.live-validation/home-off
+state: unknown · source: pane · harness state unavailable (unknown missing)
+[at=1793649417] dry-run spared off: idle-status unmet (current-state-not-done-or-paused)
+PASS default-off retained lane and produced no backup/teardown
+=== 2: pushed clean done lane ordinary teardown ===
+{run-worktree}/.live-validation/home-pushed
+state: unknown · source: pane · harness state unavailable (unknown missing)
+[at=1793649418] dry-run spared pushed: idle-status unmet (current-state-not-done-or-paused)
+FAIL: test ! -f {run-worktree}/.live-validation/home-pushed/state/pushed.meta

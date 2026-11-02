@@ -1,0 +1,14 @@
+=== 1: default-off close; reaper-live and legacy environment cannot activate it ===
+{run-worktree}/.live-validation/home-off
+g1793649526.2391602.24017
+state: done · source: status-log · synthetic lab deliverable complete
+[at=1793649587] dry-run close off: would-close (bundle)
+[at=1793649587] dry-run spared off: pushed unmet (no-upstream-and-not-in-origin/main)
+PASS default-off retained lane and produced no backup/teardown
+=== 2: pushed clean done lane ordinary teardown ===
+{run-worktree}/.live-validation/home-pushed
+g1793649528.2396468.31094
+state: done · source: status-log · synthetic lab deliverable complete
+[at=1793649588] live close pushed: refused: teardown refused (rc=1)
+[at=1793649588] dry-run candidate pushed: would-end
+FAIL: test ! -f {run-worktree}/.live-validation/home-pushed/state/pushed.meta

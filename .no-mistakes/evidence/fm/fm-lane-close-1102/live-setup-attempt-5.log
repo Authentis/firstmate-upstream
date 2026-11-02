@@ -1,0 +1,19 @@
+=== 1: default-off close; reaper-live and legacy environment cannot activate it ===
+{run-worktree}/.live-validation/home-off
+g1793649570.2526841.15813
+state: done · source: status-log · synthetic lab deliverable complete
+[at=1793649630] dry-run close off: would-close (bundle)
+[at=1793649630] dry-run spared off: pushed unmet (no-upstream-and-not-in-origin/main)
+PASS default-off retained lane and produced no backup/teardown
+=== 2: pushed clean done lane ordinary teardown ===
+{run-worktree}/.live-validation/home-pushed
+g1793649572.2532842.2608
+state: done · source: status-log · synthetic lab deliverable complete
+[at=1793649633] live close pushed: refused: teardown refused (rc=1)
+[at=1793649633] dry-run candidate pushed: would-end
+Diagnostic: ordinary teardown refusal details:
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live-validation/home-pushed
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+worktree {run-worktree}/.live-validation/home-pushed/lane is not managed by treehouse
+error: treehouse return failed for worktree {run-worktree}/.live-validation/home-pushed/lane; teardown aborted
+FAIL: test ! -f {run-worktree}/.live-validation/home-pushed/state/pushed.meta

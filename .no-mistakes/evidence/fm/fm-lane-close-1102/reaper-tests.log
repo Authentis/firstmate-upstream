@@ -3,6 +3,7 @@ ok - live ends only through control exit; branch and worktree kept
 ok - closing is off without config/lane-close-live and dry-run names the lane
 ok - config/lane-close-live closes a pushed clean done lane through plain teardown
 ok - validation mirror alone requires an independently restorable bundle
+ok - a closed lane's idle-shell window is closed, a window with a child process is kept and reported
 ok - an unpushed done lane is bundled and pushed before a plain teardown
 ok - a lane with no upstream is bundled and a refused teardown retries
 ok - retries reuse verified same-head bundles, not stale or corrupt backups

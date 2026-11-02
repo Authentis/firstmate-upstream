@@ -1,0 +1,6 @@
+=== 1: default-off close; reaper-live and legacy environment cannot activate it ===
+{run-worktree}/.live-validation/home-off
+g1793649486.2301503.16979
+state: done · source: status-log · synthetic lab deliverable complete
+[at=1793649486] dry-run spared off: quiet unmet (recent-file-write)
+FAIL: not an eligible dry-run candidate
