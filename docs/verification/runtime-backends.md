@@ -2742,10 +2742,11 @@ Portable regressions: `bin/fm-test-run.sh tests/fm-composer-lib.test.sh` and `te
 
 Verified on 2026-10-31 on Linux (netcup) against opencode 1.19.5 read through `fm_tmux_composer_state`.
 Opencode 1.19.x draws a status row directly under the composer's floor row, carrying the working directory, the context usage, `ctrl+p commands`, and the `• OpenCode <version>` banner.
+The same row family can also carry a `· $<amount>` cost segment between the context usage and `ctrl+p commands` (live row: `/path 229.9K (23%) · $0.12 ctrl+p commands • OpenCode 1.19.5`), which `_fm_composer_leftbar_status_row` now allows as an optional segment and nothing else.
 `_fm_composer_select_cursorless` treated any non-blank row below the floor that has no box edge as proof the envelope was stale, so an idle composer read `unknown` and every doorbell steer and restart on such a pane was refused.
 `_fm_composer_leftbar_status_row` now recognizes exactly that row, and only directly below a left-bar floor, and the selection ignores it.
 Any other text under the floor still makes the envelope stale.
-The portable regression is `test_matrix_opencode_leftbar_status_row_under_floor` in `tests/fm-composer-lib.test.sh`, using the sanitized capture in `tests/fixtures/opencode-1.19.5-status-row/`.
+The portable regressions are `test_matrix_opencode_leftbar_status_row_under_floor` and `test_matrix_opencode_leftbar_status_row_cost_segment` in `tests/fm-composer-lib.test.sh`, using the sanitized captures in `tests/fixtures/opencode-1.19.5-status-row/`.
 The live guard is `tests/fm-composer-matrix-live-e2e.test.sh`:
 
 ```sh

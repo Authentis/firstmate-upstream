@@ -1419,6 +1419,26 @@ test_matrix_opencode_leftbar_status_row_under_floor() {
   pass "matrix: opencode 1.19.5's status row under the floor is furniture; text and other rows are not"
 }
 
+test_matrix_opencode_leftbar_status_row_cost_segment() {
+  # The same 1.19.5 under-floor status row, now carrying the `· $<amount>`
+  # cost segment 1.19.5 draws between the context percentage and the hint.
+  # The recognizer allows that optional segment, so the idle composer still
+  # reads empty; any other row under the floor still vetoes the envelope.
+  local fixture idle plain typed busy
+  fixture="$ROOT/tests/fixtures/opencode-1.19.5-status-row/opencode-1.19.5-idle-status-row-cost.ansi"
+  idle=$(<"$fixture")
+  plain=$(printf '%s\n' "$idle" | sed $'s/\x1b\\[[0-9;]*m//g')
+  assert_screen "opencode 1.19.5 cost-segment status row on herdr" empty "$CAPS_STYLED" "$idle"
+  assert_screen "opencode 1.19.5 cost-segment status row on plain caps" empty "$CAPS_PLAIN" "$plain"
+  # text typed at the rail stays pending
+  typed=$(printf '%s\n' "$idle" | sed '3s/┃\(\x1b\[[0-9;]*m\)*  /&Reply with OK./')
+  assert_screen "opencode 1.19.5 typed text above the cost row stays pending" pending "$CAPS_STYLED" "$typed"
+  # a busy line under the floor is not the status row and still vetoes the envelope
+  busy=$(printf '%s\n' "$plain" | sed '8s/.*/   Working on request.../')
+  assert_screen "opencode 1.19.5 unrelated row under the cost row is not furniture" unknown "$CAPS_PLAIN" "$busy"
+  pass "matrix: opencode 1.19.5's cost-segment status row is furniture; text and other rows are not"
+}
+
 test_matrix_grok_titled_bottom_border() {
   # Grok 1.0.5 widened its titled BOTTOM border three columns past the top and
   # content rows. This is the idle capture from issue #3436; Herdr has no
@@ -1810,6 +1830,7 @@ test_opencode_keybind_hint_below_floor
 test_matrix_opencode_leftbar_cwd_furniture
 test_matrix_opencode_leftbar_abs_cwd_furniture
 test_matrix_opencode_leftbar_status_row_under_floor
+test_matrix_opencode_leftbar_status_row_cost_segment
 test_matrix_grok_titled_bottom_border
 test_matrix_claude_titled_top_rule
 test_matrix_live_idle_prompts_read_cursorless
