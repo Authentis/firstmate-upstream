@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "dcg_version": "0.16.0",
+  "robot_mode": true,
+  "command": "bin/fm-inbox-ack.sh secondmate1 --all-handled-through 1138",
+  "decision": "allow",
+  "agent": {
+    "detected": "pi",
+    "trust_level": "medium",
+    "detection_method": "environment_variable"
+  }
+}

@@ -1,0 +1,7 @@
+Real worker route: private tmux, noninteractive installed Claude CLI, normal login, no session persistence, synthetic FM_HOME.
+Emitted instruction: : Firstmate instruction waiting: list "$FM_TASK_INBOX"/*.msg in your 'live-ack.inbox' steering inbox, read and act on each in numeric order, then ack with 'fm-inbox-ack.sh live-ack --all-handled-through <seq>'.
+Claude exit status: 0
+Action file: acknowledged
+
+Acknowledged record: handled/001.msg
+Post-worker retry decision: quiet

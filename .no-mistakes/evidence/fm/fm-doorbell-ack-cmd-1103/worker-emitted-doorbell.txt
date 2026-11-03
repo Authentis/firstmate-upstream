@@ -1,0 +1,1 @@
+: Firstmate instruction waiting: list "$FM_TASK_INBOX"/*.msg in your 'live-ack.inbox' steering inbox, read and act on each in numeric order, then ack with 'fm-inbox-ack.sh live-ack --all-handled-through <seq>'.

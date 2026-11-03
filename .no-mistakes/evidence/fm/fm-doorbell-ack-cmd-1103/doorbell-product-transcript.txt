@@ -1,0 +1,36 @@
+Public contract oracle: requested sanctioned ack command, numeric batch acknowledgement, retry cessation, home-depth-independent doorbell, shell no-op. Synthetic state only.
+
+ordinary emitted doorbell:
+: Firstmate instruction waiting: list "$FM_TASK_INBOX"/*.msg in your 'worker1.inbox' steering inbox, read and act on each in numeric order, then ack with 'fm-inbox-ack.sh worker1 --all-handled-through <seq>'.
+Executing emitted acknowledgement with limit 2: fm-inbox-ack.sh worker1 --all-handled-through 2
+handled 001.msg
+handled 002.msg
+Observed handled/{001,002}.msg; 003.msg remains pending; retry/escalation marks cleared.
+handled 003.msg
+After final acknowledgement, retry decision: quiet
+already 003.msg
+Repeat acknowledgement is idempotent.
+
+parent-route emitted doorbell:
+: Firstmate instruction waiting: list "$FM_TASK_INBOX"/*.msg in your 'secondmate1.inbox' steering inbox, read and act on each in numeric order, then ack with 'fm-inbox-ack.sh secondmate1 --all-handled-through <seq>'.
+Executing emitted acknowledgement with limit 2: fm-inbox-ack.sh secondmate1 --all-handled-through 2
+handled 001.msg
+handled 002.msg
+Observed handled/{001,002}.msg; 003.msg remains pending; retry/escalation marks cleared.
+handled 003.msg
+After final acknowledgement, retry decision: quiet
+already 003.msg
+Repeat acknowledgement is idempotent.
+
+Short/deep homes produce byte-identical 212-character doorbells (deep state path: 464 characters).
+Hostile-name emitted doorbell evaluated by bash and /bin/sh: exit 0, no injected side effect.
+
+Generated worker brief:
+scaffolded: {run-worktree}/.doorbell-check.5JItYv/brief-home/data/brief-task/brief.md (ship, mode=local-only; replace {TASK} and {FIRSTMATE_SPEC})
+
+Firstmate steers you through durable message files in '{run-worktree}/.doorbell-check.5JItYv/brief-home/state/brief-task.inbox'.
+When a terminal message says an instruction is waiting there - and at any natural checkpoint when you are unsure - list '{run-worktree}/.doorbell-check.5JItYv/brief-home/state/brief-task.inbox'/*.msg, read and act on each message in numeric order, then acknowledge each handled message with `'{run-worktree}/bin/fm-inbox-ack.sh' 'brief-task' <seq>` (usage is in that script's header; `'{run-worktree}/bin/fm-inbox-ack.sh' 'brief-task' --all-handled-through <seq>` acknowledges a whole run); never move the files by hand.
+That command is the acknowledgement: without it firstmate rings again and eventually treats you as stuck. An empty or absent inbox needs no action.
+
+
+All local public-interface checks completed.

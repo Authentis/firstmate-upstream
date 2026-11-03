@@ -1,0 +1,1 @@
+worker-cli.jsonl retains actual model tool requests, tool results, and the final response. Unrelated startup-hook output and provider/session metadata were removed to avoid publishing operator information. No tool execution or failure result was removed.
