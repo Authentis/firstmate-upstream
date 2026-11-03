@@ -168,7 +168,8 @@ existing: prior
 working: test line
 ```
 
-The same grant, at directory granularity, also covers listing a directory, reading a file inside it, and moving (not copying) it into a `handled/` subdirectory - the exact shape the steering-inbox acknowledgement contract (`bin/fm-task-inbox-lib.sh`) needs - confirmed live in one pass against a pre-existing `inbox/handled/` directory:
+The same grant, at directory granularity, also covers listing a directory, reading a file inside it, and moving (not copying) it into a `handled/` subdirectory, confirmed live in one pass against a pre-existing `inbox/handled/` directory.
+This proves native file-tool access, not execution of the sanctioned worker acknowledgement command owned by [`bin/fm-inbox-ack.sh`](../../bin/fm-inbox-ack.sh); the raw-move prompt below is historical verification, not current worker guidance:
 
 ```
 $ rovo run --yolo --config-override '{"toolPermissions":{"allowedExternalPaths":["'"$LAB"'/outside"]}}' \
