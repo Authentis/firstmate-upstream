@@ -4,7 +4,8 @@
 #
 # The steering inbox's one behavioral assumption is that a real worker agent
 # follows the constant self-describing doorbell line: list the inbox, read and
-# act on its records in numeric order, then mv each into handled/. The
+# act on its records in numeric order, then acknowledge them with the
+# bin/fm-inbox-ack.sh command the line names, which files each in handled/. The
 # doorbell names the inbox as "$FM_TASK_INBOX", so each worker is launched the
 # way bin/fm-spawn.sh launches it, with FM_TASK_INBOX exported to its home's
 # state/<task>.inbox, and receives no brief at all: it must resolve the inbox
@@ -13,8 +14,8 @@
 # .agents/skills/firstmate-coding-guidelines this is proven against every
 # INSTALLED verified harness: each is launched idle in an isolated tmux server,
 # steered through the REAL fm-send (durable record + doorbell), and must both
-# ACT on the instruction (create a named file) and ACKNOWLEDGE it (the mv into
-# handled/), failing loudly with the harness name and version.
+# ACT on the instruction (create a named file) and ACKNOWLEDGE it (its record
+# lands in handled/), failing loudly with the harness name and version.
 #
 # Run explicitly with FM_SEND_INBOX_LIVE_E2E=1. This test spends a small
 # number of real model tokens per installed harness (one short turn each) -
@@ -39,6 +40,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 fm_live_gate opt-in FM_SEND_INBOX_LIVE_E2E tmux
 
 unset NO_MISTAKES_GATE
+unset FM_ROOT_OVERRIDE FM_STATE_OVERRIDE FM_DATA_OVERRIDE FM_CONFIG_OVERRIDE FM_PROJECTS_OVERRIDE
 
 SOCKET="fm-inbox-live-$$"
 SESSION="inboxlive"
@@ -145,7 +147,7 @@ check_harness_doorbell() {  # <name>
   task="live-$name"
   acted="$LAB/acted-$name"
   tmux -L "$SOCKET" new-window -d -t "$SESSION:" -n "$win" -c "$ROOT" \
-    -- bash -lc "export FM_TASK_INBOX=$(printf '%q' "$home/state/$task.inbox"); $cmd" \
+    -- bash -lc "export FM_HOME=$(printf '%q' "$home") FM_TASK_INBOX=$(printf '%q' "$home/state/$task.inbox"); $cmd" \
     || { FAILED=1; printf 'not ok - %s (%s): could not launch in the isolated tmux server\n' "$name" "$version" >&2; return 0; }
   wait_ready "$win"; ready_rc=$?
   if [ "$ready_rc" -eq 1 ]; then
@@ -158,7 +160,7 @@ check_harness_doorbell() {  # <name>
   [ "$ready_rc" -eq 0 ] || note "$name ($version): idle composer never classified empty; proceeding as production does (advisory check skips only on pending)"
   printf 'window=%s:%s\nkind=ship\nharness=%s\n' "$SESSION" "$win" "$name" > "$home/state/$task.meta"
   if ! FM_HOME="$home" FM_ROOT_OVERRIDE="$home" "$ROOT/bin/fm-send.sh" "$task" \
-    "Firstmate live check: run exactly this shell command now: touch $acted - then follow the mv instruction you were given for this message. Reply with one short line." \
+    "Firstmate live check: run exactly this shell command now: touch $acted - then acknowledge this message with the command the doorbell names. Reply with one short line." \
     >/dev/null 2>&1; then
     FAILED=1
     printf 'not ok - %s (%s): fm-send refused the live steer\n' "$name" "$version" >&2
@@ -188,7 +190,7 @@ check_harness_doorbell() {  # <name>
   done
   if [ -f "$handled" ] && [ -e "$acted" ]; then
     CHECKED=$((CHECKED + 1))
-    pass "$name ($version): the doorbell reached a real worker, which acted and acked with the mv"
+    pass "$name ($version): the doorbell reached a real worker, which acted and acknowledged with the sanctioned command"
   else
     FAILED=1
     printf 'not ok - %s (%s): doorbell not honored within %ss (acted=%s acked=%s)\n' \

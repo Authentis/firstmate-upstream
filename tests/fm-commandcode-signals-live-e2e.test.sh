@@ -108,7 +108,7 @@ pass "$VERSION: no attribution, no workspace files in git, session-only effort, 
 
 verdict=$(fm_tmux_composer_state "$TARGET")
 [ "$verdict" = empty ] || fail "idle composer was $verdict"
-"$ROOT/bin/fm-send.sh" "$ID" 'Runtime steering verification: compute 31 times 37 and write only the result to steer.txt. Acknowledge this instruction by moving its .msg file into handled/ as instructed by the doorbell. Do no other work.' > "$LAB/send.log" 2>&1 || fail "steer failed: $(cat "$LAB/send.log")"
+"$ROOT/bin/fm-send.sh" "$ID" 'Runtime steering verification: compute 31 times 37 and write only the result to steer.txt. Acknowledge this instruction with the command the doorbell names. Do no other work.' > "$LAB/send.log" 2>&1 || fail "steer failed: $(cat "$LAB/send.log")"
 wait_file "$WT/steer.txt"
 wait_file "$H/state/$ID.inbox/handled/001.msg"
 [ "$(tr -d '[:space:]' < "$WT/steer.txt")" = 1147 ] || fail 'wrong steering result'
@@ -157,7 +157,7 @@ pass "$VERSION: interrupt empties a stuck multi-line draft and a pasted block, k
 
 draft_multi
 wait_composer pending || fail 'the drafted composer did not read pending before the doorbell'
-"$ROOT/bin/fm-send.sh" "$ID" 'Runtime stale-draft verification: compute 41 times 43 and write only the result to draft-steer.txt. Acknowledge this instruction by moving its .msg file into handled/ as instructed by the doorbell. Do no other work.' > "$LAB/send.log" 2>&1 || fail "steer onto a stuck draft failed: $(cat "$LAB/send.log")"
+"$ROOT/bin/fm-send.sh" "$ID" 'Runtime stale-draft verification: compute 41 times 43 and write only the result to draft-steer.txt. Acknowledge this instruction with the command the doorbell names. Do no other work.' > "$LAB/send.log" 2>&1 || fail "steer onto a stuck draft failed: $(cat "$LAB/send.log")"
 grep -q 'doorbell skipped' "$LAB/send.log" || fail "the doorbell rang over a draft it does not own: $(cat "$LAB/send.log")"
 [ "$(fm_tmux_composer_state "$TARGET")" = pending ] || fail "the refused doorbell touched the draft: $(fm_tmux_composer_state "$TARGET")"
 "$ROOT/bin/fm-control.sh" "$ID" interrupt > "$LAB/draft-interrupt.log" 2>&1 || fail "interrupt with a stuck draft failed: $(cat "$LAB/draft-interrupt.log")"
