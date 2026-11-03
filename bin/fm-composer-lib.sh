@@ -1910,11 +1910,13 @@ _fm_composer_leftbar_floor_row() {  # <trimmed-row>
 }
 
 # _fm_composer_leftbar_status_row: 0 when <trimmed-row> is opencode 1.19's own
-# status row under the composer floor: the working directory first, the
-# `ctrl+p commands` hint, then the `• OpenCode <version>` tag last.
+# status row under the composer floor: the working directory first, an optional
+# context cell, an optional `· $<amount>` cost segment after the context
+# percentage, the `ctrl+p commands` hint, then the `• OpenCode <version>` tag
+# last.
 _fm_composer_leftbar_status_row() {  # <trimmed-row>
   local row=$1
-  local re='^[/~][^[:space:]]*[[:space:]]+([0-9.]+[KMkm]?[[:space:]]+\([0-9]+%\)[[:space:]]+)?ctrl\+p commands[[:space:]]+• OpenCode [0-9][0-9.]*$'
+  local re='^[/~][^[:space:]]*[[:space:]]+([0-9.]+[KMkm]?[[:space:]]+\([0-9]+%\)[[:space:]]+(·[[:space:]]+\$[0-9.]+[[:space:]]+)?)?ctrl\+p commands[[:space:]]+• OpenCode [0-9][0-9.]*$'
   [[ $row =~ $re ]]
 }
 
