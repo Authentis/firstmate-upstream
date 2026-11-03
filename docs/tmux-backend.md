@@ -42,6 +42,9 @@ Routine supervision does not require attachment: `bin/fm-peek.sh <id>` captures 
 
 Verify setup by spawning a small task and confirming its `fm-<id>` window appears in the selected session.
 
+A spawn whose `fm-<id>` window already exists closes it and continues only when every pane in it runs nothing but a shell with no child process; a window with a live agent or any other process is refused as `window ... already exists`, and the worktree and branch are untouched either way.
+`bin/backends/tmux.sh`'s `fm_backend_tmux_window_dead` owns that check, which lane closing (`bin/fm-lane-close-lib.sh`) also uses to close a finished lane's leftover window.
+
 ## Current behavior and safety
 
 ### Agent liveness probe

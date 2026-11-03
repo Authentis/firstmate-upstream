@@ -144,3 +144,7 @@ after=$(git -C "$PROJ" rev-parse --short "$DEFAULT")
 # Opt-in fleet activity ledger (docs/fleet-ledger.md); off costs one file test.
 [ ! -e "${FM_CONFIG_OVERRIDE:-$FM_HOME/config}/fleet-ledger" ] || FM_HOME=$FM_HOME FM_STATE_OVERRIDE=$STATE "$SCRIPT_DIR/fm-fleet-ledger.sh" merged "$ID" local || true
 echo "merged $BRANCH into local $DEFAULT ($before -> $after) in $PROJ"
+# The fast-forward is proven; bin/fm-lane-close-lib.sh owns the opt-in plain teardown.
+# shellcheck source=bin/fm-lane-close-lib.sh
+. "$SCRIPT_DIR/fm-lane-close-lib.sh"
+fm_lane_close_after_merge "$FM_HOME" "$STATE" "$ID"

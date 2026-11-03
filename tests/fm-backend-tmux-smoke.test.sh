@@ -74,12 +74,53 @@ fm_backend_tmux_create_task "$SESSION" "$WINDOW" "$HOME" \
 tmux list-windows -t "$SESSION" -F '#{window_name}' | grep -qx "$WINDOW" \
   || fail "created window is not visible in the real session"
 
-# A second create for the SAME window name must refuse (mirrors fm-spawn.sh's
-# duplicate-window guard).
-if fm_backend_tmux_create_task "$SESSION" "$WINDOW" "$HOME" 2>/dev/null; then
-  fail "fm_backend_tmux_create_task should refuse an existing window name"
-fi
-pass "real tmux: fm_backend_tmux_create_task creates a window and refuses a duplicate"
+pass "real tmux: fm_backend_tmux_create_task creates a window"
+
+window_count() {  # <window-name>
+  tmux list-windows -t "=$SESSION" -F '#{window_name}' | grep -cxF -- "$1"
+}
+
+wait_for_current_command() {  # <window-name> <command>
+  local i
+  for i in $(seq 1 100); do
+    [ "$(tmux display-message -p -t "=$SESSION:=$1" '#{pane_current_command}' 2>/dev/null)" = "$2" ] && return 0
+    sleep 0.1
+  done
+  return 1
+}
+
+# fm-spawn.sh's duplicate-window guard: a leftover window that holds only an
+# idle shell with no child process is closed and the create continues.
+tmux new-window -d -t "$SESSION:" -n fm-dead1 sh || fail "real tmux: dead window setup failed"
+wait_for_current_command fm-dead1 sh || fail "real tmux: the dead window's shell never became current"
+dead_old=$(fm_backend_tmux_window_id "$SESSION" fm-dead1)
+dead_new=$(fm_backend_tmux_create_task "$SESSION" fm-dead1 "$HOME" 2>/dev/null) \
+  || fail "fm_backend_tmux_create_task refused a shell-only window instead of closing it"
+[ "$(window_count fm-dead1)" = 1 ] || fail "real tmux: the dead window was not replaced by exactly one window"
+[ -n "$dead_new" ] && [ "$dead_new" != "$dead_old" ] \
+  || fail "real tmux: the create did not return a new window in place of the dead one"
+pass "real tmux: a shell-only window with no child process is closed and the spawn continues"
+
+# A window running a live agent, or a shell with any child process, is still
+# refused exactly as before and is left running.
+mkdir -p "$SHIM_DIR/agent"
+cp "$(command -v sleep)" "$SHIM_DIR/agent/claude"
+tmux new-window -d -t "$SESSION:" -n fm-live1 "$SHIM_DIR/agent/claude 300" \
+  || fail "real tmux: live-agent window setup failed"
+wait_for_current_command fm-live1 claude || fail "real tmux: the live agent never became current"
+tmux new-window -d -t "$SESSION:" -n fm-busy1 "sh -c 'sleep 300; exit 0'" \
+  || fail "real tmux: busy-shell window setup failed"
+wait_for_current_command fm-busy1 sh || fail "real tmux: the busy shell never became current"
+for busy in fm-live1 fm-busy1; do
+  busy_old=$(fm_backend_tmux_window_id "$SESSION" "$busy")
+  err=$(fm_backend_tmux_create_task "$SESSION" "$busy" "$HOME" 2>&1 >/dev/null) \
+    && fail "fm_backend_tmux_create_task should refuse $busy, which has a live process"
+  [ "$err" = "error: window $SESSION:$busy already exists" ] \
+    || fail "real tmux: $busy was not refused with the existing error: $err"
+  [ "$(fm_backend_tmux_window_id "$SESSION" "$busy")" = "$busy_old" ] \
+    || fail "real tmux: the refused window $busy did not survive unchanged"
+done
+pass "real tmux: a window with a live agent or a child process is refused as before"
 
 # --- send text + Enter -------------------------------------------------------
 

@@ -2061,3 +2061,7 @@ case "$outcome_rc" in
     printf 'actionable: merged %s but could not record the outcome for supervision\n' "$URL" >&2
     ;;
 esac
+# The merge is proven; bin/fm-lane-close-lib.sh owns the opt-in plain teardown.
+# shellcheck source=bin/fm-lane-close-lib.sh
+. "$SCRIPT_DIR/fm-lane-close-lib.sh"
+[ ! -f "$STATE/$ID.meta" ] || fm_lane_close_after_merge "$FM_HOME" "$STATE" "$ID"

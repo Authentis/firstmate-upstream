@@ -10,6 +10,17 @@ REAPER="$ROOT/bin/fm-lane-reaper.sh"
 TMP_ROOT=$(fm_test_tmproot fm-lane-reaper)
 NOW=2000000000
 
+# Every tmux call, including the close path's window check, goes to a private
+# server so no case can read or close a window on the host's own server.
+REAL_TMUX=$(command -v tmux 2>/dev/null || true)
+TMUX_SOCKET="fm-lane-reaper-$$"
+mkdir -p "$TMP_ROOT/tmuxbin"
+printf '#!/usr/bin/env bash\nexec %q -f /dev/null -L %q "$@"\n' "${REAL_TMUX:-false}" "$TMUX_SOCKET" \
+  > "$TMP_ROOT/tmuxbin/tmux"
+chmod +x "$TMP_ROOT/tmuxbin/tmux"
+PATH="$TMP_ROOT/tmuxbin:$PATH"
+unset TMUX
+
 # Fresh home with a fake control (records calls), fake crew-state, fake cpu.
 # shellcheck disable=SC2016
 new_world() {
@@ -151,8 +162,238 @@ test_secondmate_and_remote_skipped() {
   pass "secondmates are skipped"
 }
 
+# Close: a fake teardown records its arguments, exits with the code in
+# $W/teardown.rc (default 0), and removes the record on success as the real one does.
+# shellcheck disable=SC2016
+add_teardown() {
+  TEARDOWNS="$W/teardown.calls"
+  : > "$TEARDOWNS"
+  printf '#!/usr/bin/env bash\necho "$*" >> %q\nrc=$(cat %q 2>/dev/null || echo 0)\n[ "$rc" != 0 ] || rm -f "$FM_STATE_OVERRIDE/$1.meta"\nexit "$rc"\n' \
+    "$TEARDOWNS" "$W/teardown.rc" > "$W/bin/teardown"
+  chmod +x "$W/bin/teardown"
+  mkdir -p "$W/config"
+  : > "$W/config/lane-close-live"
+}
+
+run_close() {
+  FM_TEST_SEAM=1 FM_LANE_CLOSE_TEARDOWN="$W/bin/teardown" run_reaper "$@"
+}
+
+assert_saved_head() {
+  local bundle
+  for bundle in "$W/data/bundles/"*.bundle; do
+    [ -f "$bundle" ] || continue
+    git clone -q "$bundle" "$W/restored-$RANDOM" 2>/dev/null || fail "bundle not independently restorable"
+    git bundle list-heads "$bundle" | grep -qx "$1 HEAD" && return 0
+  done
+  fail "no independently restorable bundle of HEAD"
+}
+
+test_close_mirror_only_commits_are_bundled() {
+  new_world close-mirror; make_lane a; add_teardown
+  git -C "$W/wt-a" commit -q --allow-empty -m mirror-only
+  git -C "$W/wt-a" remote rename origin no-mistakes
+  git -C "$W/wt-a" push -q no-mistakes fm/a
+  out=$(run_close)
+  assert_contains "$out" "live close a: closed" "mirror lane closes"
+  assert_saved_head "$(git -C "$W/wt-a" rev-parse HEAD)"
+  pass "validation mirror alone requires an independently restorable bundle"
+}
+
+test_close_is_off_by_default_and_dry_run_reports() {
+  new_world close-off; make_lane a; add_teardown
+  rm "$W/config/lane-close-live"
+  : > "$W/config/lane-reaper-live"
+  out=$(FM_REAPER_CLOSE_LIVE=1 run_close --live)
+  assert_contains "$out" "dry-run close a: would-close (pushed)" "dry-run close line"
+  [ ! -s "$TEARDOWNS" ] || fail "teardown ran without the close opt-in"
+  assert_present "$W/state/a.meta" "record kept"
+  pass "closing is off without config/lane-close-live and dry-run names the lane"
+}
+
+test_close_pushed_clean_lane_tears_down_without_force() {
+  new_world close-pushed; make_lane a; add_teardown
+  mkdir -p "$W/config"; : > "$W/config/lane-close-live"
+  out=$(run_close)
+  assert_contains "$out" "live close a: closed" "closed line"
+  assert_equals "a" "$(cat "$TEARDOWNS")" "plain teardown, no --force"
+  [ ! -d "$W/data/bundles" ] || fail "a pushed lane needs no bundle"
+  pass "config/lane-close-live closes a pushed clean done lane through plain teardown"
+}
+
+window_present() {  # <window-name>
+  tmux list-windows -t =firstmate -F '#{window_name}' 2>/dev/null | grep -qxF -- "$1"
+}
+
+test_close_closes_a_dead_lane_window_and_keeps_a_live_one() {
+  [ -n "$REAL_TMUX" ] || { pass "skip: tmux not found"; return; }
+  new_world close-window; make_lane a; make_lane b; make_lane c; make_lane d; add_teardown
+  printf 'window=firstmate:fm-a\n' >> "$W/state/a.meta"
+  printf 'window=firstmate:fm-b\n' >> "$W/state/b.meta"
+  printf 'window=firstmate:other\n' >> "$W/state/d.meta"
+  tmux new-session -d -s firstmate -n supervisor "sleep 300" || fail "private tmux session"
+  tmux new-window -d -t firstmate: -n fm-a sh || fail "dead window"
+  tmux new-window -d -t firstmate: -n fm-c sh || fail "unowned window"
+  tmux new-window -d -t firstmate: -n fm-d sh || fail "mismatched endpoint window"
+  tmux new-window -d -t firstmate: -n fm-b "sh -c 'sleep 300; exit 0'" || fail "busy window"
+  for _ in $(seq 1 50); do
+    [ "$(tmux display-message -p -t =firstmate:=fm-a '#{pane_current_command}')" = sh ] && break
+    sleep 0.1
+  done
+  out=$(run_close)
+  assert_contains "$out" "live close a: closed" "dead-window lane closed"
+  assert_contains "$out" "live close b: closed; window firstmate:fm-b still runs a process, so it was left open" "busy window reported"
+  window_present fm-a && fail "the idle-shell lane window was left open"
+  window_present fm-b || fail "a window with a child process was closed"
+  window_present supervisor || fail "an unrelated window was closed"
+  assert_contains "$out" "live close c: closed" "windowless lane closed"
+  assert_contains "$out" "live close d: closed" "mismatched-endpoint lane closed"
+  assert_absent "$W/state/c.meta" "windowless lane record removed"
+  window_present fm-c || fail "windowless record closed an unowned same-name window"
+  window_present fm-d || fail "mismatched record closed an unowned same-name window"
+  [ -d "$W/wt-a" ] || fail "closing the window touched the worktree"
+  git -C "$W/wt-a" rev-parse --verify -q fm/a >/dev/null || fail "closing the window touched the branch"
+  tmux kill-server >/dev/null 2>&1 || true
+  pass "a closed lane's idle-shell window is closed, a window with a child process is kept and reported"
+}
+
+test_close_unpushed_lane_pushes_and_bundles_first() {
+  local head
+  new_world close-unpushed; make_lane a; add_teardown
+  git -C "$W/wt-a" commit -q --allow-empty -m extra
+  head=$(git -C "$W/wt-a" rev-parse HEAD)
+  rm "$W/config/lane-close-live"
+  out=$(run_reaper)
+  assert_contains "$out" "dry-run close a: would-close (push)" "dry-run names the push"
+  : > "$W/config/lane-close-live"
+  out=$(run_close)
+  assert_contains "$out" "live close a: closed" "closed line"
+  assert_equals "$head" "$(git -C "$W/remote-a.git" rev-parse fm/a)" "unpushed commit reached the upstream"
+  assert_saved_head "$head"
+  assert_equals "a" "$(cat "$TEARDOWNS")" "plain teardown, no --force"
+  pass "an unpushed done lane is bundled and pushed before a plain teardown"
+}
+
+assert_bundle_count() {
+  local expected=$1
+  set -- "$W/data/bundles/"*.bundle
+  assert_equals "$expected" "$#" "preservation archive count"
+}
+
+test_close_reuses_only_verified_same_head_backups() {
+  local first bundle
+  new_world close-reuse; make_lane a; add_teardown
+  git -C "$W/wt-a" branch -q --unset-upstream
+  git -C "$W/wt-a" commit -q --allow-empty -m local
+  echo 1 > "$W/teardown.rc"
+  run_close >/dev/null
+  assert_bundle_count 1
+  run_close >/dev/null
+  run_close >/dev/null
+  assert_bundle_count 1
+  assert_equals $'a\na\na' "$(cat "$TEARDOWNS")" "refused closes still retry"
+  assert_saved_head "$(git -C "$W/wt-a" rev-parse HEAD)"
+  git -C "$W/wt-a" commit -q --allow-empty -m newer
+  run_close >/dev/null
+  assert_bundle_count 2
+  assert_saved_head "$(git -C "$W/wt-a" rev-parse HEAD)"
+
+  new_world close-corrupt; make_lane a; add_teardown
+  git -C "$W/wt-a" branch -q --unset-upstream
+  git -C "$W/wt-a" commit -q --allow-empty -m local
+  echo 1 > "$W/teardown.rc"
+  run_close >/dev/null
+  for first in "$W/data/bundles/"*.bundle; do break; done
+  awk '{ print } /^$/ { exit }' "$first" > "$W/truncated.bundle"
+  printf 'PACK' >> "$W/truncated.bundle"
+  mv "$W/truncated.bundle" "$first"
+  git -C "$W/wt-a" bundle verify -q "$first" >/dev/null 2>&1 || fail "truncated pack must retain a valid bundle header"
+  git bundle list-heads "$first" | grep -qx "$(git -C "$W/wt-a" rev-parse HEAD) HEAD" \
+    || fail "truncated pack must still advertise the current head"
+  if git clone -q "$first" "$W/broken-restore" >/dev/null 2>&1; then
+    fail "truncated pack unexpectedly restored"
+  fi
+  run_close >/dev/null
+  assert_bundle_count 2
+  for bundle in "$W/data/bundles/"*.bundle; do
+    [ "$bundle" != "$first" ] || continue
+    git clone -q "$bundle" "$W/restored" 2>/dev/null || fail "replacement bundle not restorable"
+  done
+  assert_equals "$(git -C "$W/wt-a" rev-parse HEAD)" "$(git -C "$W/restored" rev-parse HEAD)" "corrupt backup replaced with current head"
+  run_close >/dev/null
+  assert_bundle_count 2
+  pass "retries reuse verified same-head bundles, not stale or corrupt backups"
+}
+
+test_close_no_upstream_lane_bundles_and_teardown_decides() {
+  local head
+  new_world close-bundle; make_lane a; add_teardown
+  git -C "$W/wt-a" branch -q --unset-upstream
+  git -C "$W/wt-a" commit -q --allow-empty -m local
+  head=$(git -C "$W/wt-a" rev-parse HEAD)
+  echo 1 > "$W/teardown.rc"
+  out=$(run_close)
+  assert_contains "$out" "live close a: refused: teardown refused (rc=1)" "teardown refusal reported"
+  assert_saved_head "$head"
+  assert_present "$W/state/a.meta" "refused lane kept"
+  echo 0 > "$W/teardown.rc"
+  out=$(run_close)
+  assert_contains "$out" "live close a: closed" "same-status refusal retried"
+  assert_equals $'a\na' "$(cat "$TEARDOWNS")" "second plain teardown attempt"
+  pass "a lane with no upstream is bundled and a refused teardown retries"
+}
+
+test_close_push_failure_refuses_and_keeps_bundle() {
+  new_world close-pushfail; make_lane a; add_teardown
+  git -C "$W/wt-a" commit -q --allow-empty -m extra
+  git -C "$W/wt-a" remote set-url origin "$W/gone.git"
+  out=$(run_close)
+  assert_contains "$out" "live close a: refused: push to upstream failed; bundle kept" "push failure"
+  assert_saved_head "$(git -C "$W/wt-a" rev-parse HEAD)"
+  [ ! -s "$TEARDOWNS" ] || fail "teardown ran after a failed push"
+  out=$(run_close)
+  assert_contains "$out" "refused: push to upstream failed" "persistent push failure still retries"
+  assert_bundle_count 1
+  git -C "$W/wt-a" remote set-url origin "$W/remote-a.git"
+  out=$(run_close)
+  assert_contains "$out" "live close a: closed" "push retried after recovery"
+  assert_equals "a" "$(cat "$TEARDOWNS")" "teardown after push recovery"
+  pass "a failed push keeps the bundle and retries after recovery"
+}
+
+test_close_refuses_dirty_missing_and_paused() {
+  new_world close-dirty; make_lane a; add_teardown
+  echo x > "$W/wt-a/new"; set_mtime "$W/wt-a/new" "$((NOW - 7200))"
+  out=$(run_close)
+  assert_contains "$out" "spared a: clean unmet" "dirty lane reported"
+  [ ! -s "$TEARDOWNS" ] || fail "dirty lane torn down"
+
+  new_world close-missing; make_lane a; add_teardown
+  mv "$W/wt-a" "$W/wt-a.moved"
+  out=$(run_close)
+  assert_contains "$out" "spared a: worktree unmet (missing)" "missing worktree reported"
+  [ ! -s "$TEARDOWNS" ] || fail "missing-worktree lane torn down"
+
+  new_world close-paused; make_lane a; add_teardown
+  printf 'paused [at=%s]: waiting\n' "$((NOW - 7300))" > "$W/state/a.status"
+  echo "state: paused · source: status-log" > "$W/state-a"
+  out=$(run_close)
+  assert_not_contains "$out" "close a:" "paused lane is not a close candidate"
+  [ ! -s "$TEARDOWNS" ] || fail "paused lane torn down"
+  pass "dirty, missing-worktree, and paused lanes are never closed"
+}
+
 test_all_conditions_met_dry_run_ends_nothing
 test_live_ends_via_control_and_keeps_branch
+test_close_is_off_by_default_and_dry_run_reports
+test_close_pushed_clean_lane_tears_down_without_force
+test_close_mirror_only_commits_are_bundled
+test_close_closes_a_dead_lane_window_and_keeps_a_live_one
+test_close_unpushed_lane_pushes_and_bundles_first
+test_close_no_upstream_lane_bundles_and_teardown_decides
+test_close_reuses_only_verified_same_head_backups
+test_close_push_failure_refuses_and_keeps_bundle
+test_close_refuses_dirty_missing_and_paused
 test_each_condition_gates_alone
 test_paused_lane_is_candidate
 test_cpu_needs_history_and_probe_failure_spares

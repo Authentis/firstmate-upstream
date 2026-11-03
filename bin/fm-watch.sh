@@ -3152,11 +3152,12 @@ while :; do
     triage_log "inactive-outcome reconciliation unavailable"
   fi
 
-  # Lane reaper: self-throttled; dry-run unless config/lane-reaper-live exists.
-  # Ends only idle done/paused agents, through fm-control (bin/fm-lane-reaper.sh).
+  # Lane reaper: self-throttled; agent ending needs config/lane-reaper-live.
+  # Ends only idle done/paused agents, through fm-control; closes done lanes only
+  # under config/lane-close-live (bin/fm-lane-reaper.sh, bin/fm-lane-close-lib.sh).
   reaper_flag=
   [ ! -f "$FM_HOME/config/lane-reaper-live" ] || reaper_flag=--live
-  env -u FM_REAPER_LIVE -u FM_REAPER_NOW -u FM_REAPER_FORCE -u FM_REAPER_IDLE_SECS \
+  env -u FM_REAPER_LIVE -u FM_LANE_CLOSE_TEARDOWN -u FM_REAPER_NOW -u FM_REAPER_FORCE -u FM_REAPER_IDLE_SECS \
     -u FM_REAPER_QUIET_SECS -u FM_REAPER_CONTROL -u FM_REAPER_CREW_STATE -u FM_REAPER_CPU_CMD \
     FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
     "$SCRIPT_DIR/fm-lane-reaper.sh" scan $reaper_flag >/dev/null 2>&1 || true

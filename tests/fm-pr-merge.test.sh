@@ -1617,6 +1617,52 @@ test_github_queued_outcome_is_verified() {
   pass "fm-pr-merge accepts and accurately reports a GitHub merge-queue entry"
 }
 
+# After the proven merge, a plain teardown runs only under config/lane-close-live,
+# a queued merge is not torn down, and a refused teardown never fails the merge.
+# Args: case_name teardown_rc opt_in(on|off) outcome(merged|queued)
+run_merge_then_teardown() {
+  local case_dir rc
+  case_dir=$(make_case "$1")
+  mkdir -p "$case_dir/wt"
+  add_gh_mocks "$case_dir" 4040404040404040404040404040404040404040
+  [ "$4" = merged ] || write_github_outcome "$case_dir" OPEN false true main
+  [ "$3" = off ] || : > "$case_dir/home/config/lane-close-live"
+  printf '#!/usr/bin/env bash\necho "$*" >> %q\nexit %s\n' "$case_dir/teardown.log" "$2" > "$case_dir/teardown"
+  chmod +x "$case_dir/teardown"
+  : > "$case_dir/gh-axi.log"
+  set +e
+  if [ "$4" = merged ]; then
+    FM_TEST_SEAM=1 FM_LANE_CLOSE_TEARDOWN="$case_dir/teardown" run_pr_merge "$case_dir" task-x1 \
+      https://github.com/example/repo/pull/71 > "$case_dir/stdout" 2> "$case_dir/stderr"
+  else
+    FM_TEST_SEAM=1 FM_LANE_CLOSE_TEARDOWN="$case_dir/teardown" run_pr_merge "$case_dir" task-x1 \
+      https://github.com/example/repo/pull/71 --attended-override -- --auto --merge \
+      > "$case_dir/stdout" 2> "$case_dir/stderr"
+  fi
+  rc=$?
+  set -e
+  expect_code 0 "$rc" "$1: the proven merge must succeed"
+  MERGE_CASE=$case_dir
+}
+
+test_github_merge_then_teardown() {
+  run_merge_then_teardown merge-then-teardown 0 on merged
+  assert_equals "task-x1" "$(cat "$MERGE_CASE/teardown.log")" "merge-then-teardown: plain teardown, no --force"
+  assert_grep 'lane close: tore down task-x1 after the merge' "$MERGE_CASE/stdout" "merge-then-teardown: not reported"
+
+  run_merge_then_teardown merge-teardown-refused 1 on merged
+  assert_grep 'teardown of task-x1 refused (rc=1)' "$MERGE_CASE/stderr" "merge-teardown-refused: refusal not reported"
+  assert_equals "task-x1" "$(cat "$MERGE_CASE/teardown.log")" "merge-teardown-refused: retried or forced"
+
+  run_merge_then_teardown merge-teardown-off 0 off merged
+  assert_absent "$MERGE_CASE/teardown.log" "merge-teardown-off: teardown ran without the opt-in"
+  assert_grep 'lane close: dry-run, would tear down task-x1' "$MERGE_CASE/stdout" "merge-teardown-off: dry-run not reported"
+
+  run_merge_then_teardown merge-teardown-queued 0 on queued
+  assert_absent "$MERGE_CASE/teardown.log" "merge-teardown-queued: a queued merge was torn down"
+  pass "fm-pr-merge runs an opt-in plain teardown only after a proven merge and never fails on its refusal"
+}
+
 test_github_queue_required_refusal_names_retry_flags() {
   local case_dir rc
   case_dir=$(make_case github-queue-required)
@@ -2945,6 +2991,7 @@ test_github_without_gh_failed_read_keeps_bookkeeping
 test_github_merged_outcome_is_verified
 test_github_verified_merge_requires_poll_recording
 test_github_queued_outcome_is_verified
+test_github_merge_then_teardown
 test_github_queue_required_refusal_names_retry_flags
 test_extra_merge_args_forwarded
 test_malformed_url_refuses_before_merge
