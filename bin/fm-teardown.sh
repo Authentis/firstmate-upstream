@@ -9,6 +9,10 @@
 # bin/fm-spawn.sh) is checked before destructive cleanup with a read-only
 # `treehouse status --json`. A matching lease permits a lease-bound return;
 # a different nonempty lease or unreadable/invalid pool status refuses.
+# A slot a git url rewrite moved out of the project's current pool is confirmed
+# against its own pool's state (teardown_recorded_pool_rows owns that read); such
+# a slot must also pass the gone-pool proof below, even under --force, before
+# its lease-bound return.
 # A slot absent from a valid inventory, or listed with a null, empty, or omitted
 # lease_id, takes the gone-pool path instead: the copy must remain inspectable,
 # clean, and pushed-or-landed even under --force. Teardown writes a verified
@@ -17,7 +21,10 @@
 # and process cleanup still applies. A missing copy is not refused: absence
 # alone supplies neither the gone-state proof nor a backup.
 # The return itself is `treehouse return --if-lease-id <id>`, with --force added
-# only for an explicit --force teardown or a scout; otherwise a slot left with
+# only for an explicit --force teardown or a scout. --force may discard files but
+# never commits: a non-scout slot holding commits on no remote and not landed
+# refuses its forced return (teardown_refuse_forced_unlanded_return), with the
+# copy, branch, hooks, and record kept. Otherwise a slot left with
 # files after the safety checks is refused by treehouse instead of reset. A
 # refusal is reported with the slot, lease, and blocking files, aborts teardown
 # with the record kept, and is never retried or forced; a record with no
@@ -510,6 +517,7 @@ fm_lease_guard "$ID" "teardown (fm-teardown)"
 
 META="$STATE/$ID.meta"
 TREEHOUSE_PROJECT_LOCK=
+TEARDOWN_PROJECT_LOCK_WAIT_SECS=120
 TREEHOUSE_PROJECT_LOCK_HELD=0
 TREEHOUSE_SLOT_LOCK_REQUIRED=0
 if [ -f "$META" ] && [ ! -L "$META" ]; then
@@ -527,10 +535,15 @@ if [ -f "$META" ] && [ ! -L "$META" ]; then
       echo "REFUSED: cannot resolve the shared Treehouse project lock for ${TEARDOWN_LOCK_PROJECT:-<missing>}; nothing was changed" >&2
       exit 1
     }
-    fm_lock_try_acquire "$TREEHOUSE_PROJECT_LOCK" || {
-      echo "REFUSED: another Treehouse slot allocation or return is in progress for $TEARDOWN_LOCK_PROJECT; nothing was changed" >&2
-      exit 1
-    }
+    # A slot allocation or another return holds this lock only briefly, so a
+    # live holder is waited out for a bounded time before the refusal below.
+    if ! fm_lock_try_acquire "$TREEHOUSE_PROJECT_LOCK"; then
+      echo "teardown: another Treehouse slot allocation or return is in progress for $TEARDOWN_LOCK_PROJECT; waiting up to ${TEARDOWN_PROJECT_LOCK_WAIT_SECS}s for it" >&2
+      fm_lock_acquire_wait_max "$TREEHOUSE_PROJECT_LOCK" "$TEARDOWN_PROJECT_LOCK_WAIT_SECS" || {
+        echo "REFUSED: another Treehouse slot allocation or return is in progress for $TEARDOWN_LOCK_PROJECT; nothing was changed" >&2
+        exit 1
+      }
+    fi
     TREEHOUSE_PROJECT_LOCK_HELD=1
   fi
 fi
@@ -1924,6 +1937,30 @@ teardown_backup_gone_pool_slot() {
   echo "Preserved gone-pool-slot lane $ID: bundle $bundle"
 }
 
+# Forced lease-bound return proof: see the script header for the safety contract.
+# Returns TEARDOWN_WORKTREE_SAFETY_LOCK_BLOCKED when a git index.lock blocks
+# inspection and is not provably stale, so the caller can clear it and retry.
+teardown_refuse_forced_unlanded_return() {
+  local unpushed branch
+  inspectable_git_worktree "$WT" || {
+    echo "REFUSED: worktree $WT is not an inspectable git worktree, so --force cannot prove its leased slot holds no unlanded commits; nothing was returned and nothing was discarded" >&2
+    return 1
+  }
+  if ! unpushed=$(git -C "$WT" log --oneline HEAD --not "${REAL_REMOTES[@]}" -- 2>/dev/null); then
+    if worktree_safety_blocked_by_lock "commits not on a remote"; then
+      return "$TEARDOWN_WORKTREE_SAFETY_LOCK_BLOCKED"
+    fi
+    echo "REFUSED: cannot inspect worktree $WT for commits not on a remote; nothing was changed" >&2
+    return 1
+  fi
+  [ -n "$unpushed" ] || return 0
+  branch=$(git -C "$WT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo HEAD)
+  work_is_landed "$branch" && return 0
+  echo "REFUSED: worktree $WT has work not on any remote and not landed; --force never returns a leased slot holding unlanded commits, so nothing was returned and nothing was discarded - push the branch or land its PR, then retry teardown." >&2
+  printf 'unpushed commits:\n%s\n' "$unpushed" >&2
+  return 1
+}
+
 # Record-only proof and backup: see the script header for the safety contract.
 teardown_backup_record_only_lane() {
   local pr_head n head view state remainder forge_head bundle
@@ -2170,10 +2207,63 @@ cleanup_stale_lock_for_safety_check() {
 }
 
 TEARDOWN_RETURN_LEASE_ID=
+TEARDOWN_LEASE_FROM_OWN_POOL=0
+# Print the project's current pool inventory as <path>\t<lease_id> rows.
+# Returns 1 when the status cannot be read and 2 when it is not a valid inventory.
+teardown_pool_rows() {
+  local json
+  command -v jq >/dev/null 2>&1 || return 1
+  json=$( cd "$PROJ" && treehouse status --json 2>/dev/null </dev/null ) || return 1
+  printf '%s' "$json" | jq -er -s '
+    if length == 1 and (.[0] | type == "array") then .[0] else error("invalid inventory") end
+    | if all(.[];
+        type == "object"
+        and (.path | type == "string" and startswith("/") and (test("[\\x00-\\x1f\\x7f]") | not))
+        and (.lease_id == null or (.lease_id | type == "string" and (test("[^A-Za-z0-9_-]") | not))))
+      then map(.path + "\t" + (.lease_id // "")) | join("\n")
+      else error("invalid slot") end
+  ' 2>/dev/null || return 2
+}
+
+# Treehouse names a project's pool after `git remote get-url origin`, so a git
+# url rewrite added after a slot was taken moves the project's current pool and
+# a plain status stops listing the recorded slot. The slot's own pool is the
+# directory its path sits in (<pool>/<slot>/<repo>), so these rows come from that
+# pool's own state, keyed on the recorded path: <path>\t<lease_id>, the lease
+# empty unless the slot is leased. Prints nothing when the recorded path is not
+# a Treehouse slot of this project or the state cannot be read as one, which
+# leaves the slot on the gone-pool path. `treehouse return <path>` already finds
+# the pool from the path, so the return needs no matching step.
+teardown_recorded_pool_rows() {
+  local slot state
+  command -v jq >/dev/null 2>&1 || return 0
+  fm_treehouse_pool_slot "$PROJ" "$WT" || return 0
+  slot=$(canonical_existing_dir "$WT") || return 0
+  state="$(dirname "$(dirname "$slot")")/treehouse-state.json"
+  jq -er '
+    if type == "object" and (.worktrees | type == "array") then .worktrees else error("invalid state") end
+    | map(select(type == "object"
+        and (.path | type == "string" and startswith("/") and (test("[\\x00-\\x1f\\x7f]") | not))))
+    | map(.path + "\t" + (if .leased == true and (.lease_id | type == "string")
+        and (.lease_id | test("^[A-Za-z0-9_-]+$")) then .lease_id else "" end))
+    | join("\n")
+  ' "$state" 2>/dev/null || true
+}
+
+# True when inventory rows list the canonical slot path at all, leased or not.
+teardown_pool_rows_list_slot() {  # <rows> <canonical-slot>
+  local path_in_pool _lease
+  while IFS=$'\t' read -r path_in_pool _lease; do
+    [ -n "$path_in_pool" ] || continue
+    [ "$(canonical_existing_dir "$path_in_pool" 2>/dev/null || printf '%s' "$path_in_pool")" = "$2" ] && return 0
+  done <<< "$1"
+  return 1
+}
+
 # Classify the recorded lease before cleanup; the script header owns the
 # lease-bound return, reassignment refusal, and gone-pool safety contract.
 teardown_verify_slot_lease() {
-  local lease path_in_pool lease_in_pool real json rows found=0
+  local lease path_in_pool lease_in_pool real rows pool_rows rc=0 found=0
   lease=$(meta_value "$META" lease_id)
   [ -n "$lease" ] || return 0
   case "$lease" in
@@ -2184,21 +2274,21 @@ teardown_verify_slot_lease() {
   esac
   [ -d "$WT" ] || return 0
   real=$(canonical_existing_dir "$WT") || real=$WT
-  if ! command -v jq >/dev/null 2>&1 || ! json=$( cd "$PROJ" && treehouse status --json 2>/dev/null </dev/null ); then
+  rows=$(teardown_pool_rows) || rc=$?
+  if [ "$rc" = 1 ]; then
     echo "REFUSED: cannot read the Treehouse pool status to confirm lease $lease still holds $WT; nothing was changed" >&2
     return 1
-  fi
-  if ! rows=$(printf '%s' "$json" | jq -er -s '
-    if length == 1 and (.[0] | type == "array") then .[0] else error("invalid inventory") end
-    | if all(.[];
-        type == "object"
-        and (.path | type == "string" and startswith("/") and (test("[\\x00-\\x1f\\x7f]") | not))
-        and (.lease_id == null or (.lease_id | type == "string" and (test("[^A-Za-z0-9_-]") | not))))
-      then map(.path + "\t" + (.lease_id // "")) | join("\n")
-      else error("invalid slot") end
-  ' 2>/dev/null); then
+  elif [ "$rc" != 0 ]; then
     echo "REFUSED: invalid Treehouse pool status; lease $lease on $WT cannot be confirmed; nothing was changed" >&2
     return 1
+  fi
+  if ! teardown_pool_rows_list_slot "$rows" "$real"; then
+    pool_rows=$(teardown_recorded_pool_rows)
+    if teardown_pool_rows_list_slot "$pool_rows" "$real"; then
+      echo "teardown: the project's current Treehouse pool does not list $WT (a git url rewrite can move a project's pool); confirming lease $lease against the slot's own pool $(dirname "$(dirname "$real")")" >&2
+      rows=$pool_rows
+      TEARDOWN_LEASE_FROM_OWN_POOL=1
+    fi
   fi
   while IFS=$'\t' read -r path_in_pool lease_in_pool; do
     [ -n "$path_in_pool" ] || continue
@@ -3981,6 +4071,25 @@ if teardown_owns_worktree && [ -d "$WT" ] && [ "$FORCE" != "--force" ] && [ "$TE
   fi
 fi
 
+# --force skips the landed-work check above, so a slot the current pool
+# confirms under its lease proves here that it holds no unlanded commits
+# before its forced return.
+if [ "$FORCE" = --force ] && [ -n "$TEARDOWN_RETURN_LEASE_ID" ] && [ "$KIND" != scout ] \
+    && [ "$TEARDOWN_RECORD_ONLY" != 1 ] && [ "$TEARDOWN_POOL_LISTING_GONE" != 1 ] \
+    && [ "$TEARDOWN_LEASE_FROM_OWN_POOL" != 1 ] && teardown_owns_worktree && [ -d "$WT" ]; then
+  if teardown_refuse_forced_unlanded_return; then
+    :
+  else
+    safety_rc=$?
+    if [ "$safety_rc" -eq "$TEARDOWN_WORKTREE_SAFETY_LOCK_BLOCKED" ]; then
+      cleanup_stale_lock_for_safety_check "$WT" || exit 1
+      teardown_refuse_forced_unlanded_return || exit 1
+    else
+      exit 1
+    fi
+  fi
+fi
+
 # Run the header's gone-pool or record-only proof and backup after every
 # ordinary refusal above has passed and before anything destructive below,
 # including the parked-run abort and the process reap. Neither proof is
@@ -3989,7 +4098,7 @@ if [ "$TEARDOWN_RECORD_ONLY" = 1 ] && [ "$BACKEND" = orca ]; then
   echo "REFUSED: record_only lane $ID uses the Orca backend, whose recorded worktree cannot be verified from the project clone; reconcile the record and retry teardown" >&2
   exit 1
 fi
-if [ "$TEARDOWN_POOL_LISTING_GONE" = 1 ]; then
+if [ "$TEARDOWN_POOL_LISTING_GONE" = 1 ] || [ "$TEARDOWN_LEASE_FROM_OWN_POOL" = 1 ]; then
   if teardown_backup_gone_pool_slot; then
     :
   else

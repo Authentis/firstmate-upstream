@@ -846,7 +846,7 @@ test_remote_layout_homes_serialize_on_one_project_lock() {
   lock=$(resolve_project_lock "$child_home" "$child_project") \
     || fail "the local child could not resolve the shared project lock"
   FM_HOME="$child_home" bash -c \
-    '. "$1"; fm_lock_try_acquire "$2" || exit 1; : > "$3"; exec sleep 30' _ \
+    '. "$1"; fm_lock_try_acquire "$2" || exit 1; : > "$3"; exec sleep 300' _ \
     "$ROOT/bin/fm-wake-lib.sh" "$lock" "$dir/lock-held" &
   holder=$!
   while [ ! -e "$dir/lock-held" ] && [ "$waited" -lt 100 ]; do
