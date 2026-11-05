@@ -53,19 +53,26 @@
 #              endpoint this verb normally preserves did not survive; a pane
 #              that turns out to be there and idle is the ordinary
 #              `already-stopped`; one whose agent is back takes the ordinary
-#              interrupt-then-exit path. A tmux `missing` that the shared
-#              proof cannot establish as gone REFUSES rather than claim a
-#              stop it cannot see; fm_control_endpoint_absence_verdict owns
-#              its process-evidence rules and exceptions.
+#              interrupt-then-exit path. HERDR proves it by re-reading the
+#              session the record names. TMUX proves it from the host: a task
+#              record carries no socket identity for its window, so it is gone
+#              only when no process of this user still has its working
+#              directory in the recorded worktree, and while one does the verb
+#              REFUSES, naming it, rather than claim a stop it cannot see.
 #   relaunch   Transactionally replace the running agent with a new one, in the
 #              SAME worktree - and the same endpoint whenever that endpoint
 #              still exists - on the same or a newly chosen
 #              harness/model/effort - so switching harness is one ordinary use
-#              of this verb. When the recorded endpoint is instead proven gone,
-#              the launch owner re-creates one in that worktree and the task's
-#              record rebinds to it. fm_control_endpoint_absence_verdict owns
-#              the proof shared with `exit`; docs/agent-control.md's reclaim
-#              section owns backend-specific placement and recovery limits.
+#              of this verb. When the recorded endpoint is instead proven gone -
+#              a Herdr pane or workspace destroyed in churn, or a tmux window
+#              or server that vanished with nothing left in the worktree - the
+#              launch owner re-creates one in that worktree (in the herdr
+#              session the record names, or where an ordinary tmux spawn from
+#              this seat would open it), and the task's record rebinds to it;
+#              that is how a task whose terminal was destroyed is reclaimed by
+#              the home that owns it, rather than being stranded with a parked
+#              approval nobody can answer. The proof is the one `exit` uses
+#              above, so an occupied tmux worktree refuses.
 #              Outside a matching keyed secondmate pin, an explicit `default`
 #              model or effort clears that axis for the replacement.
 #              With no explicit axis, a secondmate
@@ -780,7 +787,7 @@ do_exit() {
       # "destroyed" with "unreachable from this seat". Route it through the
       # control plane's one absence proof - the same one the relaunch gate uses
       # - and report what that proof actually established, never more.
-      absence=$(fm_control_endpoint_absence_verdict "$BACKEND" "$T" "$ID" "$WT")
+      absence=$(fm_control_endpoint_absence_verdict "$BACKEND" "$T" "$WT")
       case "${absence%%$'\t'*}" in
         gone)
           # Proven gone, so the agent that lived in it went with it: exit's

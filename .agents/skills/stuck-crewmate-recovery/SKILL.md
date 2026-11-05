@@ -42,7 +42,7 @@ Before relaunch, prove that no live agent still owns the recorded task and that 
 Preserve its uncommitted changes and commits, keep the same task identity, and resume or relaunch the recorded harness in that existing worktree with the same brief plus a concise progress note.
 A HERDR pane or workspace, or a tmux window, that is not merely idle but destroyed is recovered by that same relaunch, which creates one fresh endpoint in the existing worktree and rebinds the task's record to it; nothing special is needed, and the worktree is untouched ([`docs/agent-control.md`](../../../docs/agent-control.md) "Reclaiming a task whose endpoint is gone").
 That relaunch proves the endpoint is destroyed before it rebinds, so a Herdr server that was merely stopped is adopted back rather than duplicated.
-On tmux, whose task record carries no socket identity, the proof comes from the agent: a process still naming the task or working in its worktree, or any unreadable read, makes both `exit` and `relaunch` refuse.
+A tmux window or server that vanished is recovered by the same relaunch once no process of this user still has its working directory in the worktree; while one does, both `exit` and `relaunch` refuse and name it, because it may be the window on a tmux server this seat cannot address.
 Do not work around either refusal by respawning - it means a live agent may still hold that worktree.
 A task with no record left, only a preserved head, is attached with `bin/fm-spawn.sh`'s `--attach-branch`/`--attach-head`/`--attach-bundle` rather than a fresh branch.
 That reclaim is the owning home's operation only, and a secondmate is the one exception: recover it through `bin/fm-spawn.sh <id> --secondmate` as above.
