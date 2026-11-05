@@ -21,7 +21,10 @@
 # and process cleanup still applies. A missing copy is not refused: absence
 # alone supplies neither the gone-state proof nor a backup.
 # The return itself is `treehouse return --if-lease-id <id>`, with --force added
-# only for an explicit --force teardown or a scout; otherwise a slot left with
+# only for an explicit --force teardown or a scout. --force may discard files but
+# never commits: a non-scout slot holding commits on no remote and not landed
+# refuses its forced return (teardown_refuse_forced_unlanded_return), with the
+# copy, branch, hooks, and record kept. Otherwise a slot left with
 # files after the safety checks is refused by treehouse instead of reset. A
 # refusal is reported with the slot, lease, and blocking files, aborts teardown
 # with the record kept, and is never retried or forced; a record with no
@@ -1932,6 +1935,30 @@ teardown_backup_gone_pool_slot() {
     return 1
   }
   echo "Preserved gone-pool-slot lane $ID: bundle $bundle"
+}
+
+# Forced lease-bound return proof: see the script header for the safety contract.
+# Returns TEARDOWN_WORKTREE_SAFETY_LOCK_BLOCKED when a git index.lock blocks
+# inspection and is not provably stale, so the caller can clear it and retry.
+teardown_refuse_forced_unlanded_return() {
+  local unpushed branch
+  inspectable_git_worktree "$WT" || {
+    echo "REFUSED: worktree $WT is not an inspectable git worktree, so --force cannot prove its leased slot holds no unlanded commits; nothing was returned and nothing was discarded" >&2
+    return 1
+  }
+  if ! unpushed=$(git -C "$WT" log --oneline HEAD --not "${REAL_REMOTES[@]}" -- 2>/dev/null); then
+    if worktree_safety_blocked_by_lock "commits not on a remote"; then
+      return "$TEARDOWN_WORKTREE_SAFETY_LOCK_BLOCKED"
+    fi
+    echo "REFUSED: cannot inspect worktree $WT for commits not on a remote; nothing was changed" >&2
+    return 1
+  fi
+  [ -n "$unpushed" ] || return 0
+  branch=$(git -C "$WT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo HEAD)
+  work_is_landed "$branch" && return 0
+  echo "REFUSED: worktree $WT has work not on any remote and not landed; --force never returns a leased slot holding unlanded commits, so nothing was returned and nothing was discarded - push the branch or land its PR, then retry teardown." >&2
+  printf 'unpushed commits:\n%s\n' "$unpushed" >&2
+  return 1
 }
 
 # Record-only proof and backup: see the script header for the safety contract.
@@ -4038,6 +4065,25 @@ if teardown_owns_worktree && [ -d "$WT" ] && [ "$FORCE" != "--force" ] && [ "$TE
     if [ "$safety_rc" -eq "$TEARDOWN_WORKTREE_SAFETY_LOCK_BLOCKED" ]; then
       cleanup_stale_lock_for_safety_check "$WT" || exit 1
       validate_worktree_teardown_safety || exit 1
+    else
+      exit 1
+    fi
+  fi
+fi
+
+# --force skips the landed-work check above, so a slot the current pool
+# confirms under its lease proves here that it holds no unlanded commits
+# before its forced return.
+if [ "$FORCE" = --force ] && [ -n "$TEARDOWN_RETURN_LEASE_ID" ] && [ "$KIND" != scout ] \
+    && [ "$TEARDOWN_RECORD_ONLY" != 1 ] && [ "$TEARDOWN_POOL_LISTING_GONE" != 1 ] \
+    && [ "$TEARDOWN_LEASE_FROM_OWN_POOL" != 1 ] && teardown_owns_worktree && [ -d "$WT" ]; then
+  if teardown_refuse_forced_unlanded_return; then
+    :
+  else
+    safety_rc=$?
+    if [ "$safety_rc" -eq "$TEARDOWN_WORKTREE_SAFETY_LOCK_BLOCKED" ]; then
+      cleanup_stale_lock_for_safety_check "$WT" || exit 1
+      teardown_refuse_forced_unlanded_return || exit 1
     else
       exit 1
     fi
