@@ -54,25 +54,27 @@
 #              that turns out to be there and idle is the ordinary
 #              `already-stopped`; one whose agent is back takes the ordinary
 #              interrupt-then-exit path. HERDR proves it by re-reading the
-#              session the record names. TMUX proves it from the host: a task
-#              record carries no socket identity for its window, so it is gone
-#              only when no process of this user still has its working
-#              directory in the recorded worktree, and while one does the verb
-#              REFUSES, naming it, rather than claim a stop it cannot see.
+#              session the record names. TMUX proves it across every server:
+#              a task record carries no socket identity for its window, so it
+#              is gone only when every tmux server of this user, found from
+#              the kernel, answers within a deadline with no window of the
+#              recorded name and no pane in the recorded worktree; any server
+#              that still has one, or any gap in that proof, makes the verb
+#              REFUSE, naming why, rather than claim a stop it cannot see.
 #   relaunch   Transactionally replace the running agent with a new one, in the
 #              SAME worktree - and the same endpoint whenever that endpoint
 #              still exists - on the same or a newly chosen
 #              harness/model/effort - so switching harness is one ordinary use
 #              of this verb. When the recorded endpoint is instead proven gone -
 #              a Herdr pane or workspace destroyed in churn, or a tmux window
-#              or server that vanished with nothing left in the worktree - the
+#              or server that vanished with no server still holding it - the
 #              launch owner re-creates one in that worktree (in the herdr
 #              session the record names, or where an ordinary tmux spawn from
 #              this seat would open it), and the task's record rebinds to it;
 #              that is how a task whose terminal was destroyed is reclaimed by
 #              the home that owns it, rather than being stranded with a parked
 #              approval nobody can answer. The proof is the one `exit` uses
-#              above, so an occupied tmux worktree refuses.
+#              above, so a tmux window any server still holds refuses.
 #              Outside a matching keyed secondmate pin, an explicit `default`
 #              model or effort clears that axis for the replacement.
 #              With no explicit axis, a secondmate
