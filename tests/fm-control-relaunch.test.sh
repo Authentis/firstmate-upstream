@@ -39,12 +39,13 @@ TMP_ROOT=$(fm_test_tmproot fm-control-relaunch)
 mkdir -p "$TMP_ROOT"
 TMP_ROOT=$(cd "$TMP_ROOT" && pwd)
 TASK_TMPS=()
-OCCUPANT_PIDS=()
+REAL_TMUX_SOCKETS=()
 
 relaunch_cleanup() {
-  local d pid
-  for pid in "${OCCUPANT_PIDS[@]:-}"; do
-    [ -n "$pid" ] && kill "$pid" 2>/dev/null
+  local d sock
+  # Only the private servers this suite started, each by its own socket.
+  for sock in "${REAL_TMUX_SOCKETS[@]:-}"; do
+    [ -n "$sock" ] && tmux -S "$sock" kill-server 2>/dev/null
   done
   for d in "${TASK_TMPS[@]:-}"; do
     [ -n "$d" ] && rm -rf "$d"
@@ -64,6 +65,16 @@ make_tmux_stub() {  # <dir>
 set -u
 D=$FM_FAKE_DIR
 case "${1:-}" in
+  -S)
+    # A query addressed to one server's own socket, which is how the tmux
+    # absence proof reads every server it enumerated. Each fake server answers
+    # from $D/servers/<socket-name>.*: .hang never answers, .fail errors, and
+    # .panes is its `list-panes -a` output.
+    srv="$D/servers/${2##*/}"
+    [ ! -f "$srv.hang" ] || exec /bin/sleep 30
+    [ ! -f "$srv.fail" ] || { echo "error connecting to ${2:-}" >&2; exit 1; }
+    [ ! -f "$srv.panes" ] || cat "$srv.panes"
+    exit 0 ;;
   send-keys)
     shift
     literal=0
@@ -201,7 +212,25 @@ new_case() {
   printf '%s\n' "fm-$id" > "$dir/fake/windows"
   printf '%s' fmses > "$dir/fake/session-name"
   make_tmux_stub "$dir"
+  # The tmux absence proof enumerates servers from /proc. Every case reads this
+  # empty process table instead, so no real tmux server on the host is read.
+  mkdir -p "$dir/fakeproc/net" "$dir/fake/servers"
+  printf 'Num       RefCount Protocol Flags    Type St Inode Path\n' > "$dir/fakeproc/net/unix"
   printf '%s\n' "$dir"
+}
+
+# fake_tmux_server <case-dir> <pid> <name> [panes]: list one live tmux server
+# in the case's process table, listening on <case-dir>/sock-<name>, whose
+# `list-panes -a` answer is [panes] ("<window>\t<pane path>" lines).
+fake_tmux_server() {  # <case-dir> <pid> <name> [panes]
+  local dir=$1 pid=$2 name=$3 panes=${4-} inode=$((700000 + $2))
+  mkdir -p "$dir/fakeproc/$pid/fd"
+  printf 'tmux: server\n' > "$dir/fakeproc/$pid/comm"
+  ln -s /usr/bin/tmux "$dir/fakeproc/$pid/exe"
+  ln -s "socket:[$inode]" "$dir/fakeproc/$pid/fd/3"
+  printf '0000000000000000: 00000002 00000000 00010000 0001 01 %s %s\n' "$inode" "$dir/sock-$name" \
+    | tee -a "$dir/fakeproc/net/unix" >/dev/null
+  printf '%b' "$panes" > "$dir/fake/servers/sock-$name.panes"
 }
 
 # add_ship_task <case-dir> <id> [harness] [session]
@@ -249,6 +278,7 @@ run_control() {  # <case-dir> <args...>
     HOME="$dir/user-home" CLAUDE_CONFIG_DIR='' \
     FM_SPAWN_NO_GUARD=1 GROK_HOME="$dir/grokhome" \
     FM_CONTROL_POLL=0.01 FM_CONTROL_EXIT_WAIT=0.05 FM_CONTROL_LAUNCH_WAIT=0.05 \
+    FM_CONTROL_PROC_ROOT="$dir/fakeproc" FM_CONTROL_ABSENCE_DEADLINE="${FM_CONTROL_ABSENCE_DEADLINE:-}" \
     FM_REAL_GIT="${FM_REAL_GIT:-}" FM_FAKE_GIT_FAILURE="${FM_FAKE_GIT_FAILURE:-}" \
     FM_REAL_MV="${FM_REAL_MV:-}" FM_FAKE_COMPLETE_JOURNAL_MV_FAIL="${FM_FAKE_COMPLETE_JOURNAL_MV_FAIL:-}" \
     FM_FAKE_META_PUBLISH_MV_FAIL="${FM_FAKE_META_PUBLISH_MV_FAIL:-}" \
@@ -270,6 +300,7 @@ run_spawn() {  # <case-dir> <args...>
     PATH="$dir/fakebin:$PATH" FM_HOME="$dir/home" FM_FAKE_DIR="$dir/fake" \
     HOME="$dir/user-home" CLAUDE_CONFIG_DIR='' \
     FM_SPAWN_NO_GUARD=1 GROK_HOME="$dir/grokhome" \
+    FM_CONTROL_PROC_ROOT="$dir/fakeproc" FM_CONTROL_ABSENCE_DEADLINE="${FM_CONTROL_ABSENCE_DEADLINE:-}" \
     "$SPAWN" "$@" 2>&1
 }
 
@@ -1990,40 +2021,28 @@ strand_endpoint() {  # <case-dir> <id>
   : > "$1/fake/windows"
 }
 
-# occupy_worktree <case-dir>: start one real process whose working directory
-# is the task's worktree, the way the pane shell and agent of a window on a
-# tmux server this seat cannot address would be. Records its pid.
-occupy_worktree() {  # <case-dir>
-  local pid
-  ( cd "$1/wt" && exec /bin/sleep 600 ) &
-  pid=$!
-  OCCUPANT_PIDS+=("$pid")
-  printf '%s\n' "$pid" > "$1/occupant.pid"
-}
-
 # A tmux `missing` is not by itself proof that the window is gone: the record
 # carries no socket identity for the endpoint, and any inventory describes only
-# the server this process happens to address. What does prove it is the host:
-# a window on any tmux server on this machine keeps at least its pane shell
-# running with its working directory in the task's worktree. While any process
-# of this user still runs there, both verbs refuse and name it.
-assert_tmux_missing_refuses() {  # <case-dir> <id> <what-was-staged>
-  local dir=$1 id=$2 what=$3 out rc brief_before occupant
-  occupant=$(cat "$dir/occupant.pid")
+# the server this process happens to address. The proof asks every tmux server
+# of this user instead. A server that still holds a window under the recorded
+# name, or a pane in the worktree, refuses both verbs and is named; so does any
+# server the proof could not completely read.
+assert_tmux_missing_refuses() {  # <case-dir> <id> <what-was-staged> <expected-reason>
+  local dir=$1 id=$2 what=$3 reason=$4 out rc brief_before
 
   out=$(run_spawn "$dir" "$id" --relaunch --harness claude); rc=$?
-  expect_code 1 "$rc" "relaunch must refuse a tmux endpoint whose worktree is still occupied ($what)"$'\n'"$out"
-  assert_contains "$out" "$occupant" "the refusal should name the process still in the worktree ($what)"
+  expect_code 1 "$rc" "relaunch must refuse a tmux endpoint whose absence is not proven ($what)"$'\n'"$out"
+  assert_contains "$out" "$reason" "the relaunch refusal should name what blocked the proof ($what)"
   assert_absent "$dir/fake/created-windows" "a refused relaunch must not create a window ($what)"
   assert_absent "$dir/fake/created-sessions" "a refused relaunch must not create a session ($what)"
   [ ! -s "$dir/fake/literal" ] || fail "a refused relaunch must send nothing into any pane ($what)"
 
   brief_before=$(cat "$dir/home/data/$id/brief.md")
   out=$(run_control "$dir" "$id" exit); rc=$?
-  expect_code 1 "$rc" "exit must refuse a tmux endpoint whose worktree is still occupied ($what)"$'\n'"$out"
+  expect_code 1 "$rc" "exit must refuse a tmux endpoint whose absence is not proven ($what)"$'\n'"$out"
   assert_not_contains "$out" "endpoint-gone" \
     "exit must not report a stop it cannot see ($what)"
-  assert_contains "$out" "$occupant" "the exit refusal should name the process still in the worktree ($what)"
+  assert_contains "$out" "$reason" "the exit refusal should name what blocked the proof ($what)"
   [ ! -s "$dir/fake/literal" ] || fail "a refused exit must send nothing into any pane ($what)"
 
   out=$(run_control "$dir" "$id" relaunch --note "this note must never reach a live agent"); rc=$?
@@ -2035,14 +2054,17 @@ assert_tmux_missing_refuses() {  # <case-dir> <id> <what-was-staged>
   [ ! -s "$dir/fake/literal" ] || fail "a refused transaction must launch nothing ($what)"
 }
 
+# The window lives on a server this process does not address, and its agent
+# has moved out of the worktree: the pinned window name still identifies it.
 test_tmux_refuses_a_window_missing_from_its_session() {
   local dir
   dir=$(new_case tmux-gone rl60)
   add_ship_task "$dir" rl60 claude
   strand_endpoint "$dir" rl60
-  occupy_worktree "$dir"
-  assert_tmux_missing_refuses "$dir" rl60 "window absent from a readable session inventory"
-  pass "tmux: a window absent from its session refuses both verbs while a process still runs in the worktree"
+  fake_tmux_server "$dir" 4101 hidden 'fm-rl60\t/elsewhere\n'
+  assert_tmux_missing_refuses "$dir" rl60 "window absent from a readable session inventory" \
+    "tmux server at $dir/sock-hidden still has a window named fm-rl60"
+  pass "tmux: a window that lives on another server refuses both verbs even after its owner left the worktree"
 }
 
 test_tmux_refuses_a_session_that_cannot_be_found() {
@@ -2053,26 +2075,100 @@ test_tmux_refuses_a_session_that_cannot_be_found() {
   # TMUX_TMPDIR/socket: definitive about the SESSION, silent about whether the
   # window and its agent survived elsewhere.
   : > "$dir/fake/session-missing"
-  occupy_worktree "$dir"
-  assert_tmux_missing_refuses "$dir" rl61 "recorded session not found"
-  pass "tmux: an unfindable session refuses both verbs while a process still runs in the worktree"
+  fake_tmux_server "$dir" 4102 foreign 'fm-rl61\t/elsewhere\n'
+  assert_tmux_missing_refuses "$dir" rl61 "recorded session not found" \
+    "tmux server at $dir/sock-foreign still has a window named fm-rl61"
+  pass "tmux: an unfindable session refuses both verbs while another server still holds its window"
 }
 
 test_tmux_refuses_when_the_server_is_gone() {
   local dir
   dir=$(new_case tmux-noserver rl62)
   add_ship_task "$dir" rl62 claude
-  # No server on the socket this process addresses. Another server may still be
-  # running the task's window, and the record cannot say which socket is its.
+  # No server on the socket this process addresses, while another one is still
+  # running a pane in the worktree under a window name that changed.
   : > "$dir/fake/server-dead"
-  occupy_worktree "$dir"
-  assert_tmux_missing_refuses "$dir" rl62 "no tmux server on this socket"
-  pass "tmux: a dead server on this socket refuses both verbs while a process still runs in the worktree"
+  fake_tmux_server "$dir" 4103 other "renamed\t$dir/wt/sub\n"
+  assert_tmux_missing_refuses "$dir" rl62 "no tmux server on this socket" \
+    "tmux server at $dir/sock-other still has a pane (window renamed) working in the recorded worktree"
+  pass "tmux: a dead server on this socket refuses both verbs while another server has a pane in the worktree"
 }
 
-# assert_tmux_reclaims <case-dir> <id> <what-was-staged>: with no process left
-# in the worktree, `exit` reports the endpoint gone and `relaunch` opens one
-# fresh window in the same worktree, rebinding only the endpoint.
+test_tmux_refuses_a_server_whose_sockets_cannot_be_read() {
+  local dir
+  if [ "$(id -u)" = 0 ]; then
+    echo "skip - root reads a mode-000 directory, so the unreadable-record case cannot be staged"
+    return 0
+  fi
+  dir=$(new_case tmux-unreadable rl68)
+  add_ship_task "$dir" rl68 claude
+  strand_endpoint "$dir" rl68
+  fake_tmux_server "$dir" 4108 sealed ''
+  chmod 000 "$dir/fakeproc/4108/fd"
+  assert_tmux_missing_refuses "$dir" rl68 "unreadable server record" \
+    "tmux process 4108's open sockets could not be read"
+  chmod 755 "$dir/fakeproc/4108/fd"
+  pass "tmux: a tmux server whose open sockets cannot be read refuses both verbs"
+}
+
+test_tmux_refuses_a_server_with_no_resolvable_socket() {
+  local dir
+  dir=$(new_case tmux-nosocket rl69)
+  add_ship_task "$dir" rl69 claude
+  strand_endpoint "$dir" rl69
+  mkdir -p "$dir/fakeproc/4109/fd"
+  printf 'tmux: server\n' > "$dir/fakeproc/4109/comm"
+  assert_tmux_missing_refuses "$dir" rl69 "server without a listening socket" \
+    "tmux server process 4109 has no listening socket this process can resolve"
+  pass "tmux: a tmux server whose socket cannot be resolved refuses both verbs"
+}
+
+test_tmux_refuses_a_server_query_that_fails() {
+  local dir
+  dir=$(new_case tmux-queryfail rl6a)
+  add_ship_task "$dir" rl6a claude
+  strand_endpoint "$dir" rl6a
+  fake_tmux_server "$dir" 4110 broken ''
+  : > "$dir/fake/servers/sock-broken.fail"
+  assert_tmux_missing_refuses "$dir" rl6a "server that cannot be queried" \
+    "tmux server at $dir/sock-broken could not be read"
+  pass "tmux: a server that cannot be queried refuses both verbs"
+}
+
+test_tmux_refuses_a_server_that_never_answers() {
+  local dir out rc start
+  dir=$(new_case tmux-hang rl6b)
+  add_ship_task "$dir" rl6b claude
+  strand_endpoint "$dir" rl6b
+  fake_tmux_server "$dir" 4111 stuck ''
+  : > "$dir/fake/servers/sock-stuck.hang"
+  start=$SECONDS
+  out=$(FM_CONTROL_ABSENCE_DEADLINE=1 run_control "$dir" rl6b exit); rc=$?
+  expect_code 1 "$rc" "a server that never answers must refuse"$'\n'"$out"
+  assert_contains "$out" "did not answer within the 1s deadline" "the refusal should name the timeout"
+  [ $((SECONDS - start)) -lt 15 ] || fail "the absence proof must be bounded by its deadline"
+  out=$(FM_CONTROL_ABSENCE_DEADLINE=1 run_spawn "$dir" rl6b --relaunch --harness claude); rc=$?
+  expect_code 1 "$rc" "a relaunch must refuse while a server never answers"$'\n'"$out"
+  assert_absent "$dir/fake/created-windows" "a timed-out proof must not create a window"
+  pass "tmux: a server that never answers times out as unproven, within the deadline"
+}
+
+test_tmux_refuses_without_a_process_table() {
+  local dir
+  dir=$(new_case tmux-noproc rl6c)
+  add_ship_task "$dir" rl6c claude
+  strand_endpoint "$dir" rl6c
+  # A host without /proc, such as macOS, cannot enumerate its tmux servers.
+  rm -f "$dir/fakeproc/net/unix"
+  assert_tmux_missing_refuses "$dir" rl6c "no process table" \
+    "no readable $dir/fakeproc/net/unix"
+  pass "tmux: a host whose tmux servers cannot be enumerated refuses both verbs"
+}
+
+# assert_tmux_reclaims <case-dir> <id> <what-was-staged>: with no server
+# holding the task's window or a pane in its worktree, `exit` reports the
+# endpoint gone and `relaunch` opens one fresh window in the same worktree,
+# rebinding only the endpoint.
 assert_tmux_reclaims() {  # <case-dir> <id> <what-was-staged>
   local dir=$1 id=$2 what=$3 out rc head_before window
   printf 'landed on the branch\n' > "$dir/wt/committed.txt"
@@ -2083,7 +2179,7 @@ assert_tmux_reclaims() {  # <case-dir> <id> <what-was-staged>
   echo "pr=https://example.invalid/pr/9" | tee -a "$dir/home/state/$id.meta" >/dev/null
 
   out=$(run_control "$dir" "$id" exit); rc=$?
-  expect_code 0 "$rc" "exit should succeed once no process runs in the worktree ($what)"$'\n'"$out"
+  expect_code 0 "$rc" "exit should succeed once no server holds the task ($what)"$'\n'"$out"
   assert_contains "$out" "endpoint-gone" "exit should report the endpoint gone ($what)"
   [ ! -s "$dir/fake/literal" ] || fail "exit on a gone endpoint must send nothing ($what)"
 
@@ -2117,8 +2213,10 @@ test_tmux_reclaims_a_window_missing_from_its_session() {
   dir=$(new_case tmux-reclaim rl64)
   add_ship_task "$dir" rl64 claude
   strand_endpoint "$dir" rl64
+  # Another server is running, and answering, but holds nothing of this task.
+  fake_tmux_server "$dir" 4104 unrelated 'fm-other\t/elsewhere\n'
   assert_tmux_reclaims "$dir" rl64 "window absent from a readable session inventory"
-  pass "tmux: a vanished window with nothing left in its worktree is reclaimed into that same worktree"
+  pass "tmux: a vanished window that no server still holds is reclaimed into that same worktree"
 }
 
 test_tmux_reclaims_when_the_server_is_gone() {
@@ -2130,23 +2228,67 @@ test_tmux_reclaims_when_the_server_is_gone() {
   pass "tmux: a task whose tmux server died is reclaimed into its same worktree"
 }
 
-test_tmux_reclaim_follows_the_occupant_leaving() {
-  local dir out rc occupant
+test_tmux_reclaim_follows_the_window_disappearing() {
+  local dir out rc
   dir=$(new_case tmux-reclaim-after rl66)
   add_ship_task "$dir" rl66 claude
   strand_endpoint "$dir" rl66
-  occupy_worktree "$dir"
-  occupant=$(cat "$dir/occupant.pid")
-  out=$(run_control "$dir" rl66 relaunch --note "must not land while occupied"); rc=$?
-  expect_code 1 "$rc" "an occupied worktree must refuse"$'\n'"$out"
-  assert_absent "$dir/fake/created-windows" "an occupied worktree must not get a window"
-  kill "$occupant" 2>/dev/null
-  wait "$occupant" 2>/dev/null
-  out=$(run_control "$dir" rl66 relaunch --note "the occupant is gone; resume"); rc=$?
-  expect_code 0 "$rc" "the same task should reclaim once nothing runs in its worktree"$'\n'"$out"
+  fake_tmux_server "$dir" 4106 hidden 'fm-rl66\t/elsewhere\n'
+  out=$(run_control "$dir" rl66 relaunch --note "must not land while the window lives"); rc=$?
+  expect_code 1 "$rc" "a window still held by another server must refuse"$'\n'"$out"
+  assert_absent "$dir/fake/created-windows" "a held window must not get a replacement"
+  : > "$dir/fake/servers/sock-hidden.panes"
+  out=$(run_control "$dir" rl66 relaunch --note "the window is gone; resume"); rc=$?
+  expect_code 0 "$rc" "the same task should reclaim once no server holds it"$'\n'"$out"
   [ "$(cat "$dir/fake/created-windows")" = "fm-rl66" ] \
     || fail "the reclaim should open exactly one window for the task"
-  pass "tmux: the reclaim follows the host, refusing while the worktree is occupied and proceeding once it is empty"
+  pass "tmux: the reclaim follows the servers, refusing while one holds the window and proceeding once none does"
+}
+
+# The one case against the real tmux binary: a private server on its own socket
+# (which this process's environment never names), listed alone in a process
+# table so no other tmux server on the host is read.
+test_tmux_absence_reads_a_real_private_server() {
+  local dir sock wt reason i
+  if ! command -v tmux >/dev/null 2>&1 || ! command -v timeout >/dev/null 2>&1; then
+    echo "skip - the real-tmux absence case needs tmux and timeout"
+    return 0
+  fi
+  dir=$(new_case tmux-real rl67)
+  wt="$dir/realwt"
+  mkdir -p "$wt"
+  wt=$(cd "$wt" && pwd -P)
+  sock="$dir/s"
+  REAL_TMUX_SOCKETS+=("$sock")
+  env -u TMUX tmux -S "$sock" -f /dev/null new-session -d -s hid -n fm-rl67 -c "$wt" \
+    || fail "could not start a private tmux server"
+  # Readiness handshake: the server must answer for its window before the proof
+  # is asked about it.
+  for i in $(seq 1 50); do
+    tmux -S "$sock" list-panes -a -F '#{window_name}' 2>/dev/null | grep -qx fm-rl67 && break
+    /bin/sleep 0.1
+  done
+  tmux -S "$sock" list-panes -a -F '#{window_name}' 2>/dev/null | grep -qx fm-rl67 \
+    || fail "the private tmux server never reported its window"
+  fake_tmux_server "$dir" 4107 real ''
+  # Point the listed socket at the real server.
+  sed -i.bak "s#$dir/sock-real#$sock#" "$dir/fakeproc/net/unix"
+
+  reason=$(FM_CONTROL_PROC_ROOT="$dir/fakeproc" fm_control_tmux_absence "fmses:fm-rl67" "$wt")
+  assert_contains "$reason" "tmux server at $sock still has a window named fm-rl67" \
+    "a real server holding the window must keep absence unproven"
+  tmux -S "$sock" rename-window -t hid:fm-rl67 renamed || fail "could not rename the private window"
+  reason=$(FM_CONTROL_PROC_ROOT="$dir/fakeproc" fm_control_tmux_absence "fmses:fm-rl67" "$wt")
+  assert_contains "$reason" "still has a pane (window renamed) working in the recorded worktree" \
+    "a real pane in the worktree must keep absence unproven after a rename"
+  tmux -S "$sock" kill-server 2>/dev/null
+  reason=$(FM_CONTROL_PROC_ROOT="$dir/fakeproc" fm_control_tmux_absence "fmses:fm-rl67" "$wt")
+  assert_contains "$reason" "tmux server at $sock could not be read" \
+    "a listed server that no longer answers must keep absence unproven"
+  rm -rf "$dir/fakeproc/4107"
+  reason=$(FM_CONTROL_PROC_ROOT="$dir/fakeproc" fm_control_tmux_absence "fmses:fm-rl67" "$wt")
+  [ -z "$reason" ] || fail "with no tmux server left, absence should be proven, got: $reason"
+  pass "tmux: the absence proof reads a real private tmux server by window name and pane path"
 }
 
 test_reclaim_refuses_an_unreadable_endpoint() {
@@ -2799,9 +2941,15 @@ test_spawn_relaunch_refuses_a_pane_outside_the_worktree
 test_tmux_refuses_a_window_missing_from_its_session
 test_tmux_refuses_a_session_that_cannot_be_found
 test_tmux_refuses_when_the_server_is_gone
+test_tmux_refuses_a_server_whose_sockets_cannot_be_read
+test_tmux_refuses_a_server_with_no_resolvable_socket
+test_tmux_refuses_a_server_query_that_fails
+test_tmux_refuses_a_server_that_never_answers
+test_tmux_refuses_without_a_process_table
 test_tmux_reclaims_a_window_missing_from_its_session
 test_tmux_reclaims_when_the_server_is_gone
-test_tmux_reclaim_follows_the_occupant_leaving
+test_tmux_reclaim_follows_the_window_disappearing
+test_tmux_absence_reads_a_real_private_server
 test_reclaim_refuses_an_unreadable_endpoint
 test_herdr_relaunch_resumes_only_the_registered_pi_session
 test_herdr_reclaim_adopts_a_pane_that_outlived_its_server

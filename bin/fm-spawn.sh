@@ -2132,11 +2132,12 @@ if [ "$RELAUNCH" -eq 1 ]; then
   #           agent came back and refuses; only a second `missing` proves the
   #           pane itself did not survive.
   #   tmux  - a task record carries no socket identity for its endpoint, so no
-  #           tmux read can tell "gone" from "on a server I cannot see". The
-  #           host can: a window on any server keeps its pane shell running in
-  #           the recorded worktree, so absence is proven only when no process
-  #           of this user still has its working directory there, and an
-  #           occupied worktree refuses, naming the occupant.
+  #           tmux read of the current server can tell "gone" from "on a
+  #           server I cannot see". So every tmux server of this user is found
+  #           from the kernel and asked directly, and absence is proven only
+  #           when all of them answer within a deadline with no window of the
+  #           recorded name and no pane in the recorded worktree; any match or
+  #           any gap in that proof refuses, naming why.
   # Every transient or self-contradicting read stays `unreadable`/`ambiguous`
   # and refuses as it always did (bin/fm-backend.sh's fm_backend_agent_state
   # owns that vocabulary). The proof itself lives in one place for the whole
@@ -4224,8 +4225,8 @@ if [ "$RELAUNCH" -eq 1 ]; then
     # values, which is the whole rebind - the task id, brief, worktree, armed
     # poll and status log are untouched.
     #
-    # The gate above proved absence from the host, not from one tmux server: no
-    # process of this user is left in the worktree on ANY server
+    # The gate above proved absence across every tmux server of this user, not
+    # one: none holds a window of this name or a pane in the worktree
     # (fm_control_endpoint_absence_verdict owns that argument). So there is no
     # recorded server or session to stay on, and the window opens exactly where
     # an ordinary tmux spawn from this seat would open it. A stray dead fm-<id>
