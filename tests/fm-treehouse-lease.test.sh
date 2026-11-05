@@ -513,6 +513,59 @@ test_url_rewrite_keeps_old_and_new_pool_slots_tearing_down() {
   pass "after a url rewrite, old-pool and new-pool leased slots both tear down unforced, and the old pool's own lease still guards"
 }
 
+# A slot allocation or another return holds the shared project lock briefly, so
+# teardown waits a bounded 120s for a live holder before refusing as it always
+# has. The holder is a separate live process: a dead holder's lock is reclaimed
+# at once and would never exercise the wait.
+#   released  the holder lets go a few seconds in, so teardown proceeds
+#   held      the holder outlives the bound, so teardown refuses unchanged
+test_held_project_lock_is_waited_out_within_the_bound() {
+  local mode case_dir out status lock holder start elapsed n
+  local TD_WT_REL=pool/1/repo
+  for mode in released held; do
+    case_dir=$(make_teardown_case "td-project-lock-$mode")
+    : > "$case_dir/pool/treehouse-state.json"
+    write_teardown_meta "$case_dir" "lease_id=lease0123abcd"
+    lock=$(FM_HOME="$case_dir" bash -c '. "$1"; fm_treehouse_project_lock_path "$2"' _ \
+      "$ROOT/bin/fm-wake-lib.sh" "$case_dir/project") || fail "$mode: could not resolve the project lock"
+    FM_HOME="$case_dir" bash -c '
+      . "$1"
+      fm_lock_try_acquire "$2" || exit 1
+      sleep "$3"
+      fm_lock_release "$2"
+    ' _ "$ROOT/bin/fm-wake-lib.sh" "$lock" "$([ "$mode" = released ] && echo 4 || echo 300)" >/dev/null 2>&1 &
+    holder=$!
+    n=0
+    until [ -e "$lock" ]; do
+      n=$((n + 1))
+      [ "$n" -lt 100 ] || fail "$mode: the holder never took the project lock"
+      sleep 0.1
+    done
+    start=$SECONDS
+    out=$(FM_HOME="$case_dir" FM_FAKE_SLOT_LEASE=lease0123abcd run_teardown "$case_dir")
+    status=$?
+    elapsed=$((SECONDS - start))
+    kill "$holder" 2>/dev/null || true
+    wait "$holder" 2>/dev/null || true
+    assert_contains "$out" "waiting up to 120s" "$mode: teardown did not wait for the live holder"
+    if [ "$mode" = released ]; then
+      expect_code 0 "$status" "$mode: teardown should proceed once the holder lets go"$'\n'"$out"
+      [ "$elapsed" -ge 2 ] || fail "$mode: teardown finished in ${elapsed}s, before the holder let go"
+      assert_grep "return --if-lease-id lease0123abcd" "$case_dir/treehouse.log" "$mode: the slot was not returned"
+      assert_absent "$case_dir/state/task-x1.meta" "$mode: a returned task keeps no live record"
+    else
+      expect_code 1 "$status" "$mode: teardown must refuse once the bound expires"$'\n'"$out"
+      [ "$elapsed" -ge 118 ] || fail "$mode: teardown refused after ${elapsed}s, before the 120s bound"
+      assert_contains "$out" "REFUSED: another Treehouse slot allocation or return is in progress for $case_dir/project; nothing was changed" \
+        "$mode: the refusal text changed"
+      assert_present "$case_dir/state/task-x1.meta" "$mode: a refused teardown must keep the task record"
+      [ "$(wt_branch "$case_dir")" = fm/task-x1 ] || fail "$mode: the branch must stay checked out"
+      [ ! -s "$case_dir/treehouse.log" ] || fail "$mode: no treehouse call may run without the lock: $(cat "$case_dir/treehouse.log")"
+    fi
+  done
+  pass "teardown waits out a live project-lock holder for up to 120s, then refuses exactly as before"
+}
+
 test_dirty_slot_return_is_refused_not_forced() {
   local case_dir out status calls
   case_dir=$(make_teardown_case td-dirty)
@@ -825,6 +878,7 @@ test_changed_lease_stops_teardown_before_a_stale_lock_is_removed
 test_unconfirmable_lease_stops_teardown_before_anything_destructive
 test_absent_pool_listing_completes_records_only_after_backup
 test_url_rewrite_keeps_old_and_new_pool_slots_tearing_down
+test_held_project_lock_is_waited_out_within_the_bound
 test_dirty_slot_return_is_refused_not_forced
 test_forced_and_scout_teardowns_force_the_lease_bound_return
 test_forced_return_refused_by_a_lease_change_is_reported_as_such
