@@ -9,6 +9,8 @@
 # bin/fm-spawn.sh) is checked before destructive cleanup with a read-only
 # `treehouse status --json`. A matching lease permits a lease-bound return;
 # a different nonempty lease or unreadable/invalid pool status refuses.
+# A slot a git url rewrite moved out of the project's current pool is confirmed
+# against its own pool's state (teardown_recorded_pool_rows owns that read).
 # A slot absent from a valid inventory, or listed with a null, empty, or omitted
 # lease_id, takes the gone-pool path instead: the copy must remain inspectable,
 # clean, and pushed-or-landed even under --force. Teardown writes a verified
@@ -2176,10 +2178,62 @@ cleanup_stale_lock_for_safety_check() {
 }
 
 TEARDOWN_RETURN_LEASE_ID=
+# Print the project's current pool inventory as <path>\t<lease_id> rows.
+# Returns 1 when the status cannot be read and 2 when it is not a valid inventory.
+teardown_pool_rows() {
+  local json
+  command -v jq >/dev/null 2>&1 || return 1
+  json=$( cd "$PROJ" && treehouse status --json 2>/dev/null </dev/null ) || return 1
+  printf '%s' "$json" | jq -er -s '
+    if length == 1 and (.[0] | type == "array") then .[0] else error("invalid inventory") end
+    | if all(.[];
+        type == "object"
+        and (.path | type == "string" and startswith("/") and (test("[\\x00-\\x1f\\x7f]") | not))
+        and (.lease_id == null or (.lease_id | type == "string" and (test("[^A-Za-z0-9_-]") | not))))
+      then map(.path + "\t" + (.lease_id // "")) | join("\n")
+      else error("invalid slot") end
+  ' 2>/dev/null || return 2
+}
+
+# Treehouse names a project's pool after `git remote get-url origin`, so a git
+# url rewrite added after a slot was taken moves the project's current pool and
+# a plain status stops listing the recorded slot. The slot's own pool is the
+# directory its path sits in (<pool>/<slot>/<repo>), so these rows come from that
+# pool's own state, keyed on the recorded path: <path>\t<lease_id>, the lease
+# empty unless the slot is leased. Prints nothing when the recorded path is not
+# a Treehouse slot of this project or the state cannot be read as one, which
+# leaves the slot on the gone-pool path. `treehouse return <path>` already finds
+# the pool from the path, so the return needs no matching step.
+teardown_recorded_pool_rows() {
+  local slot state
+  command -v jq >/dev/null 2>&1 || return 0
+  fm_treehouse_pool_slot "$PROJ" "$WT" || return 0
+  slot=$(canonical_existing_dir "$WT") || return 0
+  state="$(dirname "$(dirname "$slot")")/treehouse-state.json"
+  jq -er '
+    if type == "object" and (.worktrees | type == "array") then .worktrees else error("invalid state") end
+    | map(select(type == "object"
+        and (.path | type == "string" and startswith("/") and (test("[\\x00-\\x1f\\x7f]") | not))))
+    | map(.path + "\t" + (if .leased == true and (.lease_id | type == "string")
+        and (.lease_id | test("^[A-Za-z0-9_-]+$")) then .lease_id else "" end))
+    | join("\n")
+  ' "$state" 2>/dev/null || true
+}
+
+# True when inventory rows list the canonical slot path at all, leased or not.
+teardown_pool_rows_list_slot() {  # <rows> <canonical-slot>
+  local path_in_pool _lease
+  while IFS=$'\t' read -r path_in_pool _lease; do
+    [ -n "$path_in_pool" ] || continue
+    [ "$(canonical_existing_dir "$path_in_pool" 2>/dev/null || printf '%s' "$path_in_pool")" = "$2" ] && return 0
+  done <<< "$1"
+  return 1
+}
+
 # Classify the recorded lease before cleanup; the script header owns the
 # lease-bound return, reassignment refusal, and gone-pool safety contract.
 teardown_verify_slot_lease() {
-  local lease path_in_pool lease_in_pool real json rows found=0
+  local lease path_in_pool lease_in_pool real rows pool_rows rc=0 found=0
   lease=$(meta_value "$META" lease_id)
   [ -n "$lease" ] || return 0
   case "$lease" in
@@ -2190,21 +2244,20 @@ teardown_verify_slot_lease() {
   esac
   [ -d "$WT" ] || return 0
   real=$(canonical_existing_dir "$WT") || real=$WT
-  if ! command -v jq >/dev/null 2>&1 || ! json=$( cd "$PROJ" && treehouse status --json 2>/dev/null </dev/null ); then
+  rows=$(teardown_pool_rows) || rc=$?
+  if [ "$rc" = 1 ]; then
     echo "REFUSED: cannot read the Treehouse pool status to confirm lease $lease still holds $WT; nothing was changed" >&2
     return 1
-  fi
-  if ! rows=$(printf '%s' "$json" | jq -er -s '
-    if length == 1 and (.[0] | type == "array") then .[0] else error("invalid inventory") end
-    | if all(.[];
-        type == "object"
-        and (.path | type == "string" and startswith("/") and (test("[\\x00-\\x1f\\x7f]") | not))
-        and (.lease_id == null or (.lease_id | type == "string" and (test("[^A-Za-z0-9_-]") | not))))
-      then map(.path + "\t" + (.lease_id // "")) | join("\n")
-      else error("invalid slot") end
-  ' 2>/dev/null); then
+  elif [ "$rc" != 0 ]; then
     echo "REFUSED: invalid Treehouse pool status; lease $lease on $WT cannot be confirmed; nothing was changed" >&2
     return 1
+  fi
+  if ! teardown_pool_rows_list_slot "$rows" "$real"; then
+    pool_rows=$(teardown_recorded_pool_rows)
+    if teardown_pool_rows_list_slot "$pool_rows" "$real"; then
+      echo "teardown: the project's current Treehouse pool does not list $WT (a git url rewrite can move a project's pool); confirming lease $lease against the slot's own pool $(dirname "$(dirname "$real")")" >&2
+      rows=$pool_rows
+    fi
   fi
   while IFS=$'\t' read -r path_in_pool lease_in_pool; do
     [ -n "$path_in_pool" ] || continue

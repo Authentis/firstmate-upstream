@@ -134,7 +134,11 @@ case "${1:-}" in
     exit 0 ;;
   status)
     [ "${FM_FAKE_TH_STATUS_FAIL:-0}" != 1 ] || exit 1
-    if [ -n "${FM_FAKE_POOL_PATH:-}" ]; then
+    # FM_FAKE_POOL_ORIGIN: the pool is named after `git remote get-url origin`,
+    # as the real one is, so the slot is listed only while origin reads as this.
+    if [ -n "${FM_FAKE_POOL_ORIGIN:-}" ] && [ "$(git remote get-url origin 2>/dev/null)" != "$FM_FAKE_POOL_ORIGIN" ]; then
+      echo '[]'
+    elif [ -n "${FM_FAKE_POOL_PATH:-}" ]; then
       printf '[{"name":"1","path":"%s","status":"leased","lease_id":"%s"}]\n' \
         "$FM_FAKE_POOL_PATH" "${FM_FAKE_SLOT_LEASE:-}"
     else
@@ -450,6 +454,63 @@ test_absent_pool_listing_completes_records_only_after_backup() {
   assert_present "$case_dir/wt/.claude/settings.local.json" "absent: the hooks must be kept"
   assert_no_grep "return" "$case_dir/treehouse.log" "absent: no return may be attempted"
   pass "an absent pool listing completes records-only after a verified backup, leaving the copy in place"
+}
+
+# A git url rewrite added after a slot was taken moves the project's current
+# pool (Treehouse names a pool after `git remote get-url origin`). The fake pool
+# is named after the origin it was created under (FM_FAKE_POOL_ORIGIN), and the
+# slot sits in the real <pool>/<slot>/<repo> layout with the pool's own state.
+#   old         the slot is in the pool from before the rewrite
+#   new         the slot is in the pool the rewritten origin names
+#   old-changed the old pool's own state shows another lease on the slot
+test_url_rewrite_keeps_old_and_new_pool_slots_tearing_down() {
+  local mode case_dir out status origin rewritten gitconfig slot pool_origin state_lease
+  local TD_WT_REL=pool/1/repo
+  for mode in old new old-changed; do
+    case_dir=$(make_teardown_case "td-rewrite-$mode")
+    slot="$case_dir/$TD_WT_REL"
+    write_teardown_meta "$case_dir" "lease_id=lease0123abcd"
+    add_hook "$case_dir"
+    origin=$(git -C "$case_dir/project" config --get remote.origin.url)
+    # Same repository, new URL string: the project's pool id moves.
+    gitconfig="$case_dir/gitconfig"
+    git config --file "$gitconfig" "url.file://$origin.insteadOf" "$origin"
+    rewritten=$(GIT_CONFIG_GLOBAL="$gitconfig" git -C "$case_dir/project" remote get-url origin)
+    [ "$rewritten" != "$origin" ] || fail "$mode control: the rewrite must change how origin reads"
+    pool_origin=$origin
+    [ "$mode" != new ] || pool_origin=$rewritten
+    state_lease=lease0123abcd
+    [ "$mode" != old-changed ] || state_lease=someone-elses-lease
+    printf '{"version":4,"worktrees":[{"name":"1","path":"%s","leased":true,"lease_id":"%s"}]}\n' \
+      "$(cd "$slot" && pwd -P)" "$state_lease" > "$case_dir/pool/treehouse-state.json"
+    out=$( cd "$case_dir/project" && GIT_CONFIG_GLOBAL="$gitconfig" FM_FAKE_POOL_PATH="$slot" \
+      FM_FAKE_POOL_ORIGIN="$pool_origin" "$case_dir/fakebin/treehouse" status --json )
+    if [ "$mode" = new ]; then
+      [ "$out" != '[]' ] || fail "$mode control: a plain status under the rewrite must list the slot"
+    else
+      [ "$out" = '[]' ] || fail "$mode control: a plain status under the rewrite must not list the slot"
+    fi
+    : > "$case_dir/treehouse.log"
+    out=$(GIT_CONFIG_GLOBAL="$gitconfig" FM_FAKE_POOL_ORIGIN="$pool_origin" \
+      FM_FAKE_SLOT_LEASE=lease0123abcd run_teardown "$case_dir")
+    status=$?
+    if [ "$mode" = old-changed ]; then
+      [ "$status" -ne 0 ] || fail "$mode: another lease in the slot's own pool must abort teardown"$'\n'"$out"
+      assert_contains "$out" "lease changed" "$mode: teardown did not report the changed lease"
+      assert_present "$case_dir/state/task-x1.meta" "$mode: a refused teardown must keep the task record"
+      [ "$(wt_branch "$case_dir")" = fm/task-x1 ] || fail "$mode: the branch must stay checked out"
+      assert_no_grep "return" "$case_dir/treehouse.log" "$mode: no return may be attempted"
+      continue
+    fi
+    expect_code 0 "$status" "$mode: a leased slot should tear down after a url rewrite"$'\n'"$out"
+    assert_not_contains "$out" "no longer listed" "$mode: the slot must not be treated as gone from its pool"
+    assert_grep "return --if-lease-id lease0123abcd $slot" "$case_dir/treehouse.log" \
+      "$mode: teardown did not return the slot bound to its recorded lease"
+    ! grep -F -- "return" "$case_dir/treehouse.log" | grep -F -- "--force" >/dev/null \
+      || fail "$mode: the lease-bound return must not force"
+    assert_absent "$case_dir/state/task-x1.meta" "$mode: a returned task keeps no live record"
+  done
+  pass "after a url rewrite, old-pool and new-pool leased slots both tear down unforced, and the old pool's own lease still guards"
 }
 
 # A slot allocation or another return holds the shared project lock briefly, so
@@ -816,6 +877,7 @@ test_changed_lease_stops_teardown_before_anything_destructive
 test_changed_lease_stops_teardown_before_a_stale_lock_is_removed
 test_unconfirmable_lease_stops_teardown_before_anything_destructive
 test_absent_pool_listing_completes_records_only_after_backup
+test_url_rewrite_keeps_old_and_new_pool_slots_tearing_down
 test_held_project_lock_is_waited_out_within_the_bound
 test_dirty_slot_return_is_refused_not_forced
 test_forced_and_scout_teardowns_force_the_lease_bound_return
