@@ -510,6 +510,7 @@ fm_lease_guard "$ID" "teardown (fm-teardown)"
 
 META="$STATE/$ID.meta"
 TREEHOUSE_PROJECT_LOCK=
+TEARDOWN_PROJECT_LOCK_WAIT_SECS=120
 TREEHOUSE_PROJECT_LOCK_HELD=0
 TREEHOUSE_SLOT_LOCK_REQUIRED=0
 if [ -f "$META" ] && [ ! -L "$META" ]; then
@@ -527,10 +528,15 @@ if [ -f "$META" ] && [ ! -L "$META" ]; then
       echo "REFUSED: cannot resolve the shared Treehouse project lock for ${TEARDOWN_LOCK_PROJECT:-<missing>}; nothing was changed" >&2
       exit 1
     }
-    fm_lock_try_acquire "$TREEHOUSE_PROJECT_LOCK" || {
-      echo "REFUSED: another Treehouse slot allocation or return is in progress for $TEARDOWN_LOCK_PROJECT; nothing was changed" >&2
-      exit 1
-    }
+    # A slot allocation or another return holds this lock only briefly, so a
+    # live holder is waited out for a bounded time before the refusal below.
+    if ! fm_lock_try_acquire "$TREEHOUSE_PROJECT_LOCK"; then
+      echo "teardown: another Treehouse slot allocation or return is in progress for $TEARDOWN_LOCK_PROJECT; waiting up to ${TEARDOWN_PROJECT_LOCK_WAIT_SECS}s for it" >&2
+      fm_lock_acquire_wait_max "$TREEHOUSE_PROJECT_LOCK" "$TEARDOWN_PROJECT_LOCK_WAIT_SECS" || {
+        echo "REFUSED: another Treehouse slot allocation or return is in progress for $TEARDOWN_LOCK_PROJECT; nothing was changed" >&2
+        exit 1
+      }
+    fi
     TREEHOUSE_PROJECT_LOCK_HELD=1
   fi
 fi

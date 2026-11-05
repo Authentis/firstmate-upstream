@@ -16,6 +16,9 @@ set -u
 . "$(dirname "${BASH_SOURCE[0]}")/fixtures.sh"
 fm_git_identity fmtest fmtest@example.invalid
 
+# shellcheck source=bin/fm-timeout-lib.sh
+. "$ROOT/bin/fm-timeout-lib.sh"
+
 TEARDOWN="$ROOT/bin/fm-teardown.sh"
 TMP_ROOT=$(fm_test_tmproot fm-treehouse-lease)
 FM_REAL_GIT=$(command -v git)
@@ -285,9 +288,9 @@ SH
   git -C "$case_dir/_seed" push -q origin main
   git clone -q "$case_dir/origin.git" "$case_dir/project"
   git -C "$case_dir/project" remote set-head origin main 2>/dev/null || true
-  git -C "$case_dir/project" worktree add -q -b fm/task-x1 "$case_dir/wt" main
-  git -C "$case_dir/wt" -c user.email=t@t -c user.name=t commit -q --allow-empty -m "shippable work"
-  git -C "$case_dir/wt" push -q origin fm/task-x1
+  git -C "$case_dir/project" worktree add -q -b fm/task-x1 "$case_dir/${TD_WT_REL:-wt}" main
+  git -C "$case_dir/${TD_WT_REL:-wt}" -c user.email=t@t -c user.name=t commit -q --allow-empty -m "shippable work"
+  git -C "$case_dir/${TD_WT_REL:-wt}" push -q origin fm/task-x1
   git -C "$case_dir/project" fetch -q origin
   touch "$case_dir/state/.last-watcher-beat"
   printf '%s\n' "$case_dir"
@@ -299,7 +302,7 @@ write_teardown_meta() { # <case> [extra key=val...]
   fm_write_meta "$case_dir/state/task-x1.meta" \
     "window=firstmate:fm-task-x1" \
     "endpoint_task_id=task-x1" \
-    "worktree=$case_dir/wt" \
+    "worktree=$case_dir/${TD_WT_REL:-wt}" \
     "project=$case_dir/project" \
     "kind=ship" \
     "mode=no-mistakes" \
@@ -307,22 +310,26 @@ write_teardown_meta() { # <case> [extra key=val...]
     "$@"
 }
 
+# TD_BOUND=<seconds> runs teardown under a hard bound (fm_run_timed exits 124
+# when it is hit), so a test of a wait cannot stall the suite.
 run_teardown() {
   local case_dir=$1
+  local -a bound=()
   shift
+  [ -z "${TD_BOUND:-}" ] || bound=(fm_run_timed "$TD_BOUND")
   FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$case_dir/state" \
     FM_DATA_OVERRIDE="$case_dir/data" FM_CONFIG_OVERRIDE="$case_dir/config" \
-    FM_FAKE_POOL_PATH="${FM_FAKE_POOL_PATH-$case_dir/wt}" FM_FAKE_TH_LOG="$case_dir/treehouse.log" \
+    FM_FAKE_POOL_PATH="${FM_FAKE_POOL_PATH-$case_dir/${TD_WT_REL:-wt}}" FM_FAKE_TH_LOG="$case_dir/treehouse.log" \
     PATH="$case_dir/fakebin:$PATH" \
-    "$TEARDOWN" task-x1 "$@" 2>&1
+    ${bound[@]+"${bound[@]}"} "$TEARDOWN" task-x1 "$@" 2>&1
 }
 
 add_hook() { # <case>: a hook file teardown removes only once it proceeds
-  mkdir -p "$1/wt/.claude"
-  printf '{}\n' > "$1/wt/.claude/settings.local.json"
+  mkdir -p "$1/${TD_WT_REL:-wt}/.claude"
+  printf '{}\n' > "$1/${TD_WT_REL:-wt}/.claude/settings.local.json"
 }
 
-wt_branch() { git -C "$1/wt" rev-parse --abbrev-ref HEAD; }
+wt_branch() { git -C "$1/${TD_WT_REL:-wt}" rev-parse --abbrev-ref HEAD; }
 
 test_teardown_returns_exactly_the_recorded_lease_without_force() {
   local case_dir out status
@@ -450,6 +457,62 @@ test_absent_pool_listing_completes_records_only_after_backup() {
   assert_present "$case_dir/wt/.claude/settings.local.json" "absent: the hooks must be kept"
   assert_no_grep "return" "$case_dir/treehouse.log" "absent: no return may be attempted"
   pass "an absent pool listing completes records-only after a verified backup, leaving the copy in place"
+}
+
+# A slot allocation or another return holds the shared project lock briefly, so
+# teardown waits a bounded 120s for a live holder before refusing as it always
+# has. The holder is a separate live process: a dead holder's lock is reclaimed
+# at once and would never exercise the wait.
+#   released  the holder lets go a few seconds in, so teardown proceeds
+#   held      the holder outlives the bound, so teardown refuses unchanged
+test_held_project_lock_is_waited_out_within_the_bound() {
+  local mode case_dir out status lock holder start elapsed n
+  local TD_WT_REL=pool/1/repo
+  for mode in released held; do
+    case_dir=$(make_teardown_case "td-project-lock-$mode")
+    : > "$case_dir/pool/treehouse-state.json"
+    write_teardown_meta "$case_dir" "lease_id=lease0123abcd"
+    lock=$(FM_HOME="$case_dir" bash -c '. "$1"; fm_treehouse_project_lock_path "$2"' _ \
+      "$ROOT/bin/fm-wake-lib.sh" "$case_dir/project") || fail "$mode: could not resolve the project lock"
+    FM_HOME="$case_dir" bash -c '
+      . "$1"
+      fm_lock_try_acquire "$2" || exit 1
+      sleep "$3"
+      fm_lock_release "$2"
+    ' _ "$ROOT/bin/fm-wake-lib.sh" "$lock" "$([ "$mode" = released ] && echo 4 || echo 300)" >/dev/null 2>&1 &
+    holder=$!
+    n=0
+    until [ -e "$lock" ]; do
+      n=$((n + 1))
+      [ "$n" -lt 100 ] || fail "$mode: the holder never took the project lock"
+      sleep 0.1
+    done
+    start=$SECONDS
+    out=$(TD_BOUND=200 FM_HOME="$case_dir" FM_FAKE_SLOT_LEASE=lease0123abcd run_teardown "$case_dir")
+    status=$?
+    elapsed=$((SECONDS - start))
+    [ "$status" -ne 124 ] || fail "$mode: teardown was still waiting at the 200s hard bound"$'\n'"$out"
+    kill "$holder" 2>/dev/null || true
+    wait "$holder" 2>/dev/null || true
+    assert_contains "$out" "waiting up to 120s" "$mode: teardown did not wait for the live holder"
+    if [ "$mode" = released ]; then
+      expect_code 0 "$status" "$mode: teardown should proceed once the holder lets go"$'\n'"$out"
+      [ "$elapsed" -ge 2 ] || fail "$mode: teardown finished in ${elapsed}s, before the holder let go"
+      [ "$elapsed" -le 30 ] || fail "$mode: teardown took ${elapsed}s after a holder that let go at 4s"
+      assert_grep "return --if-lease-id lease0123abcd" "$case_dir/treehouse.log" "$mode: the slot was not returned"
+      assert_absent "$case_dir/state/task-x1.meta" "$mode: a returned task keeps no live record"
+    else
+      expect_code 1 "$status" "$mode: teardown must refuse once the bound expires"$'\n'"$out"
+      [ "$elapsed" -ge 118 ] || fail "$mode: teardown refused after ${elapsed}s, before the 120s bound"
+      [ "$elapsed" -le 150 ] || fail "$mode: teardown refused after ${elapsed}s, well past the 120s bound"
+      assert_contains "$out" "REFUSED: another Treehouse slot allocation or return is in progress for $case_dir/project; nothing was changed" \
+        "$mode: the refusal text changed"
+      assert_present "$case_dir/state/task-x1.meta" "$mode: a refused teardown must keep the task record"
+      [ "$(wt_branch "$case_dir")" = fm/task-x1 ] || fail "$mode: the branch must stay checked out"
+      [ ! -s "$case_dir/treehouse.log" ] || fail "$mode: no treehouse call may run without the lock: $(cat "$case_dir/treehouse.log")"
+    fi
+  done
+  pass "teardown waits out a live project-lock holder for up to 120s, then refuses exactly as before"
 }
 
 test_dirty_slot_return_is_refused_not_forced() {
@@ -763,6 +826,7 @@ test_changed_lease_stops_teardown_before_anything_destructive
 test_changed_lease_stops_teardown_before_a_stale_lock_is_removed
 test_unconfirmable_lease_stops_teardown_before_anything_destructive
 test_absent_pool_listing_completes_records_only_after_backup
+test_held_project_lock_is_waited_out_within_the_bound
 test_dirty_slot_return_is_refused_not_forced
 test_forced_and_scout_teardowns_force_the_lease_bound_return
 test_forced_return_refused_by_a_lease_change_is_reported_as_such
