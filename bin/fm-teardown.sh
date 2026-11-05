@@ -10,7 +10,9 @@
 # `treehouse status --json`. A matching lease permits a lease-bound return;
 # a different nonempty lease or unreadable/invalid pool status refuses.
 # A slot a git url rewrite moved out of the project's current pool is confirmed
-# against its own pool's state (teardown_recorded_pool_rows owns that read).
+# against its own pool's state (teardown_recorded_pool_rows owns that read); such
+# a slot must also pass the gone-pool proof below, even under --force, before
+# its lease-bound return.
 # A slot absent from a valid inventory, or listed with a null, empty, or omitted
 # lease_id, takes the gone-pool path instead: the copy must remain inspectable,
 # clean, and pushed-or-landed even under --force. Teardown writes a verified
@@ -2178,6 +2180,7 @@ cleanup_stale_lock_for_safety_check() {
 }
 
 TEARDOWN_RETURN_LEASE_ID=
+TEARDOWN_LEASE_FROM_OWN_POOL=0
 # Print the project's current pool inventory as <path>\t<lease_id> rows.
 # Returns 1 when the status cannot be read and 2 when it is not a valid inventory.
 teardown_pool_rows() {
@@ -2257,6 +2260,7 @@ teardown_verify_slot_lease() {
     if teardown_pool_rows_list_slot "$pool_rows" "$real"; then
       echo "teardown: the project's current Treehouse pool does not list $WT (a git url rewrite can move a project's pool); confirming lease $lease against the slot's own pool $(dirname "$(dirname "$real")")" >&2
       rows=$pool_rows
+      TEARDOWN_LEASE_FROM_OWN_POOL=1
     fi
   fi
   while IFS=$'\t' read -r path_in_pool lease_in_pool; do
@@ -4048,7 +4052,7 @@ if [ "$TEARDOWN_RECORD_ONLY" = 1 ] && [ "$BACKEND" = orca ]; then
   echo "REFUSED: record_only lane $ID uses the Orca backend, whose recorded worktree cannot be verified from the project clone; reconcile the record and retry teardown" >&2
   exit 1
 fi
-if [ "$TEARDOWN_POOL_LISTING_GONE" = 1 ]; then
+if [ "$TEARDOWN_POOL_LISTING_GONE" = 1 ] || [ "$TEARDOWN_LEASE_FROM_OWN_POOL" = 1 ]; then
   if teardown_backup_gone_pool_slot; then
     :
   else
