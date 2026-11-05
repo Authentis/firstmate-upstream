@@ -16,6 +16,9 @@ set -u
 . "$(dirname "${BASH_SOURCE[0]}")/fixtures.sh"
 fm_git_identity fmtest fmtest@example.invalid
 
+# shellcheck source=bin/fm-timeout-lib.sh
+. "$ROOT/bin/fm-timeout-lib.sh"
+
 TEARDOWN="$ROOT/bin/fm-teardown.sh"
 TMP_ROOT=$(fm_test_tmproot fm-treehouse-lease)
 FM_REAL_GIT=$(command -v git)
@@ -307,14 +310,18 @@ write_teardown_meta() { # <case> [extra key=val...]
     "$@"
 }
 
+# TD_BOUND=<seconds> runs teardown under a hard bound (fm_run_timed exits 124
+# when it is hit), so a test of a wait cannot stall the suite.
 run_teardown() {
   local case_dir=$1
+  local -a bound=()
   shift
+  [ -z "${TD_BOUND:-}" ] || bound=(fm_run_timed "$TD_BOUND")
   FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$case_dir/state" \
     FM_DATA_OVERRIDE="$case_dir/data" FM_CONFIG_OVERRIDE="$case_dir/config" \
     FM_FAKE_POOL_PATH="${FM_FAKE_POOL_PATH-$case_dir/${TD_WT_REL:-wt}}" FM_FAKE_TH_LOG="$case_dir/treehouse.log" \
     PATH="$case_dir/fakebin:$PATH" \
-    "$TEARDOWN" task-x1 "$@" 2>&1
+    ${bound[@]+"${bound[@]}"} "$TEARDOWN" task-x1 "$@" 2>&1
 }
 
 add_hook() { # <case>: a hook file teardown removes only once it proceeds
@@ -481,20 +488,23 @@ test_held_project_lock_is_waited_out_within_the_bound() {
       sleep 0.1
     done
     start=$SECONDS
-    out=$(FM_HOME="$case_dir" FM_FAKE_SLOT_LEASE=lease0123abcd run_teardown "$case_dir")
+    out=$(TD_BOUND=200 FM_HOME="$case_dir" FM_FAKE_SLOT_LEASE=lease0123abcd run_teardown "$case_dir")
     status=$?
     elapsed=$((SECONDS - start))
+    [ "$status" -ne 124 ] || fail "$mode: teardown was still waiting at the 200s hard bound"$'\n'"$out"
     kill "$holder" 2>/dev/null || true
     wait "$holder" 2>/dev/null || true
     assert_contains "$out" "waiting up to 120s" "$mode: teardown did not wait for the live holder"
     if [ "$mode" = released ]; then
       expect_code 0 "$status" "$mode: teardown should proceed once the holder lets go"$'\n'"$out"
       [ "$elapsed" -ge 2 ] || fail "$mode: teardown finished in ${elapsed}s, before the holder let go"
+      [ "$elapsed" -le 30 ] || fail "$mode: teardown took ${elapsed}s after a holder that let go at 4s"
       assert_grep "return --if-lease-id lease0123abcd" "$case_dir/treehouse.log" "$mode: the slot was not returned"
       assert_absent "$case_dir/state/task-x1.meta" "$mode: a returned task keeps no live record"
     else
       expect_code 1 "$status" "$mode: teardown must refuse once the bound expires"$'\n'"$out"
       [ "$elapsed" -ge 118 ] || fail "$mode: teardown refused after ${elapsed}s, before the 120s bound"
+      [ "$elapsed" -le 150 ] || fail "$mode: teardown refused after ${elapsed}s, well past the 120s bound"
       assert_contains "$out" "REFUSED: another Treehouse slot allocation or return is in progress for $case_dir/project; nothing was changed" \
         "$mode: the refusal text changed"
       assert_present "$case_dir/state/task-x1.meta" "$mode: a refused teardown must keep the task record"
