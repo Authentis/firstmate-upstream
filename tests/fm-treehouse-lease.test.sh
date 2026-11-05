@@ -680,6 +680,34 @@ test_forced_and_scout_teardowns_force_the_lease_bound_return() {
   pass "an explicit --force teardown and a scout return a dirty slot forced, still lease-bound"
 }
 
+# The current pool lists the slot under its matching lease, so this is the
+# ordinary path, where --force skips the landed-work check.
+test_forced_return_refuses_unlanded_commits_in_a_current_pool_slot() {
+  local case_dir out status head
+  case_dir=$(make_teardown_case td-force-unlanded)
+  write_teardown_meta "$case_dir" "lease_id=lease0123abcd"
+  add_hook "$case_dir"
+  # Real content, so no landed-content fallback can count it as already on main.
+  printf 'lane work\n' > "$case_dir/wt/lane-work.txt"
+  git -C "$case_dir/wt" add lane-work.txt
+  git -C "$case_dir/wt" -c user.email=t@t -c user.name=t commit -q -m "unpushed lane work"
+  head=$(git -C "$case_dir/wt" rev-parse HEAD)
+  out=$(FM_FAKE_SLOT_LEASE=lease0123abcd run_teardown "$case_dir" --force)
+  status=$?
+  [ "$status" -ne 0 ] || fail "--force must not return a current-pool slot holding unlanded commits"$'\n'"$out"
+  assert_contains "$out" "has work not on any remote and not landed" "the refusal must name the unlanded work"
+  assert_contains "$out" "unpushed lane work" "the refusal must list the unpushed commit"
+  assert_present "$case_dir/state/task-x1.meta" "a refused teardown must keep the task record"
+  [ -d "$case_dir/wt" ] || fail "the copy must stay in place"
+  [ "$(wt_branch "$case_dir")" = fm/task-x1 ] || fail "the branch must stay checked out"
+  [ "$(git -C "$case_dir/wt" rev-parse HEAD)" = "$head" ] || fail "the copy head changed"
+  git -C "$case_dir/project" rev-parse --verify -q refs/heads/fm/task-x1 >/dev/null \
+    || fail "the task branch must survive a refused teardown"
+  assert_present "$case_dir/wt/.claude/settings.local.json" "the worker's hooks must survive a refused teardown"
+  assert_no_grep "return" "$case_dir/treehouse.log" "no return may be attempted"
+  pass "--force never returns a current-pool leased slot holding unlanded commits"
+}
+
 test_forced_return_refused_by_a_lease_change_is_reported_as_such() {
   local case_dir out status
   case_dir=$(make_teardown_case td-force-changed)
@@ -952,6 +980,7 @@ test_url_rewrite_never_overrides_unlanded_work_or_the_current_pool
 test_held_project_lock_is_waited_out_within_the_bound
 test_dirty_slot_return_is_refused_not_forced
 test_forced_and_scout_teardowns_force_the_lease_bound_return
+test_forced_return_refuses_unlanded_commits_in_a_current_pool_slot
 test_forced_return_refused_by_a_lease_change_is_reported_as_such
 test_teardown_refuses_a_malformed_lease_id
 
