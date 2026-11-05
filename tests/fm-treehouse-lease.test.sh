@@ -526,6 +526,8 @@ test_url_rewrite_keeps_old_and_new_pool_slots_tearing_down() {
 #   gone-forced  the same with --force, which the gone-pool proof never yields to
 #   found        the old pool's own state confirms the lease; the ordinary
 #                landed-work check refuses unpushed work unforced
+#   found-forced the same with --force: a lease confirmed only through the
+#                slot's own pool still faces the gone-pool proof, which refuses
 #   new-conflict a new-pool slot the current pool lists with the recorded lease
 #                while the slot's own pool state shows another: the current
 #                pool decides, so the pushed lane still tears down
@@ -533,7 +535,7 @@ test_url_rewrite_never_overrides_unlanded_work_or_the_current_pool() {
   local mode case_dir out status origin rewritten gitconfig slot pool_origin state_json head
   local TD_WT_REL=pool/1/repo
   local -a force
-  for mode in gone gone-forced found new-conflict; do
+  for mode in gone gone-forced found found-forced new-conflict; do
     case_dir=$(make_teardown_case "td-rewrite-unlanded-$mode")
     slot="$case_dir/$TD_WT_REL"
     write_teardown_meta "$case_dir" "lease_id=lease0123abcd"
@@ -552,13 +554,13 @@ test_url_rewrite_never_overrides_unlanded_work_or_the_current_pool() {
     pool_origin=$origin
     case "$mode" in
       gone|gone-forced) state_json='"leased":false,"lease_id":null' ;;
-      found) state_json='"leased":true,"lease_id":"lease0123abcd"' ;;
+      found|found-forced) state_json='"leased":true,"lease_id":"lease0123abcd"' ;;
       new-conflict) pool_origin=$rewritten; state_json='"leased":true,"lease_id":"someone-elses-lease"' ;;
     esac
     printf '{"version":4,"worktrees":[{"name":"1","path":"%s",%s}]}\n' \
       "$(cd "$slot" && pwd -P)" "$state_json" > "$case_dir/pool/treehouse-state.json"
     force=()
-    [ "$mode" != gone-forced ] || force=(--force)
+    case "$mode" in *-forced) force=(--force) ;; esac
     : > "$case_dir/treehouse.log"
     out=$(GIT_CONFIG_GLOBAL="$gitconfig" FM_HOME="$case_dir" FM_FAKE_POOL_ORIGIN="$pool_origin" \
       FM_FAKE_SLOT_LEASE=lease0123abcd run_teardown "$case_dir" ${force[@]+"${force[@]}"})
@@ -572,8 +574,8 @@ test_url_rewrite_never_overrides_unlanded_work_or_the_current_pool() {
     fi
     [ "$status" -ne 0 ] || fail "$mode: unpushed lane work must refuse teardown"$'\n'"$out"
     case "$mode" in
-      gone*) assert_contains "$out" "has work not on any remote and not landed" \
-        "$mode: the gone-pool fallback did not name the unlanded work" ;;
+      gone*|found-forced) assert_contains "$out" "has work not on any remote and not landed" \
+        "$mode: the gone-pool proof did not name the unlanded work" ;;
       found) assert_not_contains "$out" "gone-pool" "$mode: a confirmed lease must not take the gone-pool fallback" ;;
     esac
     assert_present "$case_dir/state/task-x1.meta" "$mode: a refused teardown must keep the task record"
@@ -585,7 +587,7 @@ test_url_rewrite_never_overrides_unlanded_work_or_the_current_pool() {
     assert_present "$slot/.claude/settings.local.json" "$mode: the worker's hooks must survive a refused teardown"
     assert_no_grep "return" "$case_dir/treehouse.log" "$mode: no return may be attempted"
   done
-  pass "after a url rewrite, unpushed old-pool work still refuses (gone-pool even under --force) and the current pool still decides"
+  pass "after a url rewrite, unpushed old-pool work still refuses, under --force too whether or not the old pool confirms the lease, and the current pool still decides"
 }
 
 # A slot allocation or another return holds the shared project lock briefly, so
