@@ -14,7 +14,8 @@
 #
 # This file owns three capability tables plus their pure artifact-path tables,
 # and TWO named exceptions to that purity - fm_control_endpoint_absence_verdict,
-# the single owner of the per-backend endpoint-absence proof, and
+# the single owner of the per-backend endpoint-absence proof (with its host
+# process scan fm_control_worktree_occupants), and
 # fm_control_clear_draft, the single owner of the verified composer-draft clear
 # (with its checkpoint-picker helpers fm_control_overlay_open and
 # fm_control_dismiss_overlay); both run backend commands. Everything else has no side effects, runs no
@@ -506,23 +507,38 @@ fm_control_backend_state_verified() {  # <backend>
 #     passes `--session <session>`, so the recheck starts and reads the session
 #     the RECORD names, through that session's own socket. The answer is about
 #     the task's endpoint and nothing else.
-#   tmux CANNOT. `list-windows -a` describes only the server the CURRENT
-#     process addresses (its TMUX_TMPDIR/socket), and a task's record does not
-#     carry the endpoint's socket identity - so a different but running server
-#     would answer "not anywhere" about a window it was never able to see.
-#     There is no read available here that closes that gap, so tmux always
-#     returns `unproven` and both verbs refuse. tmux is left exactly as
-#     deadlocked as it was before this change - no worse - but deliberately.
+#   tmux cannot prove it THROUGH TMUX. `list-windows -a` describes only the
+#     server the CURRENT process addresses (its TMUX_TMPDIR/socket), and a
+#     task's record does not carry the endpoint's socket identity - so a
+#     different but running server would answer "not anywhere" about a window
+#     it was never able to see. The proof therefore comes from the HOST instead,
+#     which every tmux server shares: a window on any server keeps at least its
+#     pane shell, and any agent in it, running with its working directory in
+#     the task's worktree (fm-spawn opens the window there and refuses to
+#     launch anywhere else). So `gone` is returned only when
+#     fm_control_worktree_occupants reads the whole host and finds no process
+#     of this user at or below <worktree>; an occupant, a host that cannot be
+#     scanned, or no recorded worktree is `unproven`, and the occupants are
+#     named so the operator can see what still holds the copy.
 #
 # Both control-plane callers share this one implementation so the proof cannot
 # drift into two answers for the same endpoint.
-fm_control_endpoint_absence_verdict() {  # <backend> <target>
-  local backend=${1-} target=${2-}
+fm_control_endpoint_absence_verdict() {  # <backend> <target> [worktree]
+  local backend=${1-} target=${2-} wt=${3-} occupants
   fm_backend_source "$backend" \
     || { printf 'unproven\tbackend %s could not be loaded to prove anything about that endpoint' "'$backend'"; return 0; }
   case "$backend" in
     tmux)
-      printf 'unproven\ttmux absence cannot be proven from a task record: the record does not carry the endpoint'"'"'s socket identity, and a server-wide window inventory only describes the tmux server this process addresses, so a window absent from it may still be alive on another'
+      if [ -z "$wt" ]; then
+        printf 'unproven\ttmux absence is proven from the task'"'"'s worktree, and none was supplied, so a window on a tmux server this process cannot address may still be alive'
+      elif ! occupants=$(fm_control_worktree_occupants "$wt"); then
+        printf 'unproven\tthis host'"'"'s processes could not all be checked for the recorded worktree %s (no readable /proc and no working lsof), so a window on a tmux server this process cannot address may still be alive' "$wt"
+      elif [ -n "$occupants" ]; then
+        printf 'unproven\t%s still running with its working directory in the recorded worktree %s, so the task'"'"'s window may still be alive on a tmux server this process cannot address; stop that process or move it out of the worktree, then retry' \
+          "$(printf '%s\n' "$occupants" | awk 'NF { printf "%s%s", sep, $0; sep = ", " }')" "$wt"
+      else
+        printf 'gone\t'
+      fi
       ;;
     herdr)
       # Start the RECORDED session's server (only the server - nothing is
@@ -539,6 +555,64 @@ fm_control_endpoint_absence_verdict() {  # <backend> <target>
       printf 'unproven\tbackend %s has no recovery-grade classifier, so absence cannot be proven on it at all' "'$backend'"
       ;;
   esac
+}
+
+# fm_control_worktree_occupants: every process of this user whose current
+# working directory is <dir> or below it, as one "pid <pid> (<command>)" line
+# each, from one host-wide read. Returns nonzero when the host cannot be read
+# (neither /proc nor a working lsof), so the caller has no proof either way.
+#
+# The scan runs from / so neither it nor anything it starts can match; the
+# caller's own process is still counted when it sits inside <dir>, because
+# nothing about a pid proves it is not the task's agent.
+# Only this user's processes are read: a tmux server, its panes, and the agents
+# it runs belong to the user that started them. A process whose working
+# directory the kernel will not show even to its owner (a non-dumpable one such
+# as gpg-agent or an sshd session) is skipped; a pane shell and a harness agent
+# are ordinary dumpable processes.
+fm_control_worktree_occupants() {  # <dir>
+  local dir=${1-}
+  [ -n "$dir" ] && [ -d "$dir" ] || return 1
+  dir=$(cd "$dir" 2>/dev/null && pwd -P) || return 1
+  (
+    cd / || exit 1
+    local p pid cwd out line uid
+    if [ -L /proc/self/cwd ]; then
+      for p in /proc/[0-9]*; do
+        [ -O "$p" ] || continue
+        cwd=$(readlink "$p/cwd" 2>/dev/null) || continue
+        case "$cwd" in
+          "$dir"|"$dir"/*) printf '%s\n' "${p#/proc/}" ;;
+        esac
+      done
+    elif command -v lsof >/dev/null 2>&1; then
+      uid=$(id -u) || exit 1
+      out=$(lsof -a -d cwd -u "$uid" -Fpn 2>/dev/null)
+      # This subshell is always one of this user's processes, so an empty
+      # listing is a failed read, never an empty host.
+      [ -n "$out" ] || exit 1
+      pid=
+      while IFS= read -r line; do
+        case "$line" in
+          p*) pid=${line#p} ;;
+          n*)
+            case "${line#n}" in
+              "$dir"|"$dir"/*) [ -z "$pid" ] || printf '%s\n' "$pid" ;;
+            esac
+            ;;
+        esac
+      done <<EOF
+$out
+EOF
+    else
+      exit 1
+    fi
+  ) | sort -un | while IFS= read -r pid; do
+    [ -n "$pid" ] || continue
+    printf 'pid %s (%s)\n' "$pid" "$(ps -o comm= -p "$pid" 2>/dev/null | sed 's/^ *//;s/ *$//')"
+  done
+  # The pipeline's status is the last loop's; the scan's own failure must win.
+  [ "${PIPESTATUS[0]}" -eq 0 ]
 }
 
 # The per-task wiring artifacts a harness leaves behind, so a relaunch that

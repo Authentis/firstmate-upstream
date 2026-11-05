@@ -39,9 +39,13 @@ TMP_ROOT=$(fm_test_tmproot fm-control-relaunch)
 mkdir -p "$TMP_ROOT"
 TMP_ROOT=$(cd "$TMP_ROOT" && pwd)
 TASK_TMPS=()
+OCCUPANT_PIDS=()
 
 relaunch_cleanup() {
-  local d
+  local d pid
+  for pid in "${OCCUPANT_PIDS[@]:-}"; do
+    [ -n "$pid" ] && kill "$pid" 2>/dev/null
+  done
   for d in "${TASK_TMPS[@]:-}"; do
     [ -n "$d" ] && rm -rf "$d"
   done
@@ -166,6 +170,10 @@ case "${1:-}" in
         *) shift ;;
       esac
     done
+    # A window can only be created on a server that is running and holds the
+    # session, so creation also ends the staged server-gone and
+    # session-missing shapes.
+    rm -f "$D/server-dead" "$D/session-missing"
     printf '%s\n' "$name" >> "$D/windows"
     printf '%s\n' "$name" >> "$D/created-windows"
     printf '@9\n'
@@ -1982,26 +1990,40 @@ strand_endpoint() {  # <case-dir> <id>
   : > "$1/fake/windows"
 }
 
-# Every tmux `missing` refuses on BOTH verbs, whatever produced it. tmux is the
-# one verified backend whose absence cannot be proven from a task record: the
-# record carries no socket identity for the endpoint, and any inventory
-# describes only the server this process happens to address. So a window that
-# is merely on a server this seat cannot reach is indistinguishable from one
-# that was destroyed, and neither verb will guess.
+# occupy_worktree <case-dir>: start one real process whose working directory
+# is the task's worktree, the way the pane shell and agent of a window on a
+# tmux server this seat cannot address would be. Records its pid.
+occupy_worktree() {  # <case-dir>
+  local pid
+  ( cd "$1/wt" && exec /bin/sleep 600 ) &
+  pid=$!
+  OCCUPANT_PIDS+=("$pid")
+  printf '%s\n' "$pid" > "$1/occupant.pid"
+}
+
+# A tmux `missing` is not by itself proof that the window is gone: the record
+# carries no socket identity for the endpoint, and any inventory describes only
+# the server this process happens to address. What does prove it is the host:
+# a window on any tmux server on this machine keeps at least its pane shell
+# running with its working directory in the task's worktree. While any process
+# of this user still runs there, both verbs refuse and name it.
 assert_tmux_missing_refuses() {  # <case-dir> <id> <what-was-staged>
-  local dir=$1 id=$2 what=$3 out rc brief_before
+  local dir=$1 id=$2 what=$3 out rc brief_before occupant
+  occupant=$(cat "$dir/occupant.pid")
 
   out=$(run_spawn "$dir" "$id" --relaunch --harness claude); rc=$?
-  expect_code 1 "$rc" "relaunch must refuse a tmux endpoint whose absence cannot be proven ($what)"$'\n'"$out"
+  expect_code 1 "$rc" "relaunch must refuse a tmux endpoint whose worktree is still occupied ($what)"$'\n'"$out"
+  assert_contains "$out" "$occupant" "the refusal should name the process still in the worktree ($what)"
   assert_absent "$dir/fake/created-windows" "a refused relaunch must not create a window ($what)"
   assert_absent "$dir/fake/created-sessions" "a refused relaunch must not create a session ($what)"
   [ ! -s "$dir/fake/literal" ] || fail "a refused relaunch must send nothing into any pane ($what)"
 
   brief_before=$(cat "$dir/home/data/$id/brief.md")
   out=$(run_control "$dir" "$id" exit); rc=$?
-  expect_code 1 "$rc" "exit must refuse a tmux endpoint whose absence cannot be proven ($what)"$'\n'"$out"
+  expect_code 1 "$rc" "exit must refuse a tmux endpoint whose worktree is still occupied ($what)"$'\n'"$out"
   assert_not_contains "$out" "endpoint-gone" \
     "exit must not report a stop it cannot see ($what)"
+  assert_contains "$out" "$occupant" "the exit refusal should name the process still in the worktree ($what)"
   [ ! -s "$dir/fake/literal" ] || fail "a refused exit must send nothing into any pane ($what)"
 
   out=$(run_control "$dir" "$id" relaunch --note "this note must never reach a live agent"); rc=$?
@@ -2018,8 +2040,9 @@ test_tmux_refuses_a_window_missing_from_its_session() {
   dir=$(new_case tmux-gone rl60)
   add_ship_task "$dir" rl60 claude
   strand_endpoint "$dir" rl60
+  occupy_worktree "$dir"
   assert_tmux_missing_refuses "$dir" rl60 "window absent from a readable session inventory"
-  pass "tmux: a window absent from its session refuses both verbs rather than being assumed gone"
+  pass "tmux: a window absent from its session refuses both verbs while a process still runs in the worktree"
 }
 
 test_tmux_refuses_a_session_that_cannot_be_found() {
@@ -2030,8 +2053,9 @@ test_tmux_refuses_a_session_that_cannot_be_found() {
   # TMUX_TMPDIR/socket: definitive about the SESSION, silent about whether the
   # window and its agent survived elsewhere.
   : > "$dir/fake/session-missing"
+  occupy_worktree "$dir"
   assert_tmux_missing_refuses "$dir" rl61 "recorded session not found"
-  pass "tmux: an unfindable session refuses both verbs, so a live agent is never duplicated"
+  pass "tmux: an unfindable session refuses both verbs while a process still runs in the worktree"
 }
 
 test_tmux_refuses_when_the_server_is_gone() {
@@ -2041,8 +2065,88 @@ test_tmux_refuses_when_the_server_is_gone() {
   # No server on the socket this process addresses. Another server may still be
   # running the task's window, and the record cannot say which socket is its.
   : > "$dir/fake/server-dead"
+  occupy_worktree "$dir"
   assert_tmux_missing_refuses "$dir" rl62 "no tmux server on this socket"
-  pass "tmux: a dead server on this socket refuses both verbs rather than proving absence"
+  pass "tmux: a dead server on this socket refuses both verbs while a process still runs in the worktree"
+}
+
+# assert_tmux_reclaims <case-dir> <id> <what-was-staged>: with no process left
+# in the worktree, `exit` reports the endpoint gone and `relaunch` opens one
+# fresh window in the same worktree, rebinding only the endpoint.
+assert_tmux_reclaims() {  # <case-dir> <id> <what-was-staged>
+  local dir=$1 id=$2 what=$3 out rc head_before window
+  printf 'landed on the branch\n' > "$dir/wt/committed.txt"
+  git -C "$dir/wt" add committed.txt
+  git -C "$dir/wt" -c user.email=t@example.com -c user.name=t commit -qm "work in progress"
+  head_before=$(git -C "$dir/wt" rev-parse HEAD)
+  printf 'never committed\n' > "$dir/wt/dirty.txt"
+  echo "pr=https://example.invalid/pr/9" | tee -a "$dir/home/state/$id.meta" >/dev/null
+
+  out=$(run_control "$dir" "$id" exit); rc=$?
+  expect_code 0 "$rc" "exit should succeed once no process runs in the worktree ($what)"$'\n'"$out"
+  assert_contains "$out" "endpoint-gone" "exit should report the endpoint gone ($what)"
+  [ ! -s "$dir/fake/literal" ] || fail "exit on a gone endpoint must send nothing ($what)"
+
+  out=$(run_control "$dir" "$id" relaunch --note "the window vanished; pick the work back up"); rc=$?
+  expect_code 0 "$rc" "the owning seat should reclaim a tmux task whose window is gone ($what)"$'\n'"$out"
+  [ "$(cat "$dir/fake/created-windows")" = "fm-$id" ] \
+    || fail "the reclaim should open exactly one fresh window for the task ($what)"
+  window=$(meta_field "$dir" "$id" window)
+  case "$window" in
+    *":fm-$id") ;;
+    *) fail "the record should rebind to the fresh window, got '$window' ($what)" ;;
+  esac
+  [ "$(meta_field "$dir" "$id" worktree)" = "$dir/wt" ] \
+    || fail "a reclaim must keep the recorded worktree ($what)"
+  [ "$(meta_field "$dir" "$id" pr)" = "https://example.invalid/pr/9" ] \
+    || fail "a reclaim dropped a record row it does not own ($what)"
+  [ "$(git -C "$dir/wt" rev-parse HEAD)" = "$head_before" ] \
+    || fail "a reclaim moved the worktree's HEAD ($what)"
+  [ "$(git -C "$dir/wt" rev-parse --abbrev-ref HEAD)" = "task-$id" ] \
+    || fail "a reclaim changed the worktree's branch ($what)"
+  assert_contains "$(cat "$dir/wt/dirty.txt")" "never committed" \
+    "a reclaim destroyed or rewrote an uncommitted change ($what)"
+  assert_contains "$(cat "$dir/home/data/$id/brief.md")" "the window vanished" \
+    "the replacement must inherit the progress note ($what)"
+  [ "$(journal_field "$dir" "$id" exit_result)" = endpoint-gone ] \
+    || fail "the transaction should record that the endpoint was already gone ($what)"
+}
+
+test_tmux_reclaims_a_window_missing_from_its_session() {
+  local dir
+  dir=$(new_case tmux-reclaim rl64)
+  add_ship_task "$dir" rl64 claude
+  strand_endpoint "$dir" rl64
+  assert_tmux_reclaims "$dir" rl64 "window absent from a readable session inventory"
+  pass "tmux: a vanished window with nothing left in its worktree is reclaimed into that same worktree"
+}
+
+test_tmux_reclaims_when_the_server_is_gone() {
+  local dir
+  dir=$(new_case tmux-reclaim-noserver rl65)
+  add_ship_task "$dir" rl65 claude
+  : > "$dir/fake/server-dead"
+  assert_tmux_reclaims "$dir" rl65 "no tmux server on this socket"
+  pass "tmux: a task whose tmux server died is reclaimed into its same worktree"
+}
+
+test_tmux_reclaim_follows_the_occupant_leaving() {
+  local dir out rc occupant
+  dir=$(new_case tmux-reclaim-after rl66)
+  add_ship_task "$dir" rl66 claude
+  strand_endpoint "$dir" rl66
+  occupy_worktree "$dir"
+  occupant=$(cat "$dir/occupant.pid")
+  out=$(run_control "$dir" rl66 relaunch --note "must not land while occupied"); rc=$?
+  expect_code 1 "$rc" "an occupied worktree must refuse"$'\n'"$out"
+  assert_absent "$dir/fake/created-windows" "an occupied worktree must not get a window"
+  kill "$occupant" 2>/dev/null
+  wait "$occupant" 2>/dev/null
+  out=$(run_control "$dir" rl66 relaunch --note "the occupant is gone; resume"); rc=$?
+  expect_code 0 "$rc" "the same task should reclaim once nothing runs in its worktree"$'\n'"$out"
+  [ "$(cat "$dir/fake/created-windows")" = "fm-rl66" ] \
+    || fail "the reclaim should open exactly one window for the task"
+  pass "tmux: the reclaim follows the host, refusing while the worktree is occupied and proceeding once it is empty"
 }
 
 test_reclaim_refuses_an_unreadable_endpoint() {
@@ -2695,6 +2799,9 @@ test_spawn_relaunch_refuses_a_pane_outside_the_worktree
 test_tmux_refuses_a_window_missing_from_its_session
 test_tmux_refuses_a_session_that_cannot_be_found
 test_tmux_refuses_when_the_server_is_gone
+test_tmux_reclaims_a_window_missing_from_its_session
+test_tmux_reclaims_when_the_server_is_gone
+test_tmux_reclaim_follows_the_occupant_leaving
 test_reclaim_refuses_an_unreadable_endpoint
 test_herdr_relaunch_resumes_only_the_registered_pi_session
 test_herdr_reclaim_adopts_a_pane_that_outlived_its_server
