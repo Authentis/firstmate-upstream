@@ -1042,6 +1042,32 @@ test_merged_pr_with_later_local_commit_is_preserved_then_torn_down() {
   pass "merged PR with unpublished local commits is preserved on origin and bundled, then torn down"
 }
 
+test_merged_pr_preserve_discovers_pr_by_branch_when_no_pr_recorded() {
+  local case_dir rc pr_head local_head
+  case_dir=$(make_case preserve-no-pr-url)
+  write_meta "$case_dir" no-mistakes ship
+  wt_commit_file "$case_dir" feature.txt hello "add feature"
+  pr_head=$(git -C "$case_dir/wt" rev-parse HEAD)
+  wt_commit_file "$case_dir" later.txt local-only "local follow-up"
+  local_head=$(git -C "$case_dir/wt" rev-parse HEAD)
+  add_gh_pr_merged_for_head "$case_dir" "$pr_head"
+  ! grep -qE '^(pr|pr_head)=' "$case_dir/state/task-x1.meta" \
+    || fail "preserve-no-pr-url: test setup bug, meta unexpectedly has a pr= line"
+
+  set +e
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  ! grep -q 'command not found' "$case_dir/stderr" \
+    || fail "preserve-no-pr-url: teardown hit an undefined helper: $(cat "$case_dir/stderr")"
+  expect_code 0 "$rc" "preserve-no-pr-url: teardown should preserve and tear down"$'\n'"$(cat "$case_dir/stderr")"
+  ! grep -q REFUSED "$case_dir/stderr" || fail "preserve-no-pr-url: teardown printed a REFUSED line"
+  [ "$(git -C "$case_dir/origin.git" rev-parse refs/heads/preserve/fm/task-x1)" = "$local_head" ] \
+    || fail "preserve-no-pr-url: origin preserve ref does not hold the local head"
+  pass "merged-lane preservation finds the PR by branch name when no pr= was recorded"
+}
+
 test_merged_pr_preserve_ref_with_different_content_refuses() {
   local case_dir rc pr_head
   case_dir=$(make_case preserve-ref-differs)
@@ -6044,6 +6070,7 @@ test_squash_merged_pr_allows_when_head_ancestor_of_pr_head
 test_no_pr_recorded_discovers_merged_pr_by_branch_allows
 test_squash_merged_pr_allows_replayed_unpushed_patch
 test_merged_pr_with_later_local_commit_is_preserved_then_torn_down
+test_merged_pr_preserve_discovers_pr_by_branch_when_no_pr_recorded
 test_merged_pr_preserve_ref_with_different_content_refuses
 test_merged_pr_preserve_ref_created_after_lookup_is_not_advanced
 test_merged_pr_preserve_bundle_destination_collisions_are_skipped
