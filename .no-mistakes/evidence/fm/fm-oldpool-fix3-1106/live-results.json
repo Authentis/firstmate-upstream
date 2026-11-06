@@ -1,0 +1,78 @@
+[
+  {
+    "case": "old clean",
+    "result": "pass"
+  },
+  {
+    "case": "current clean",
+    "result": "pass"
+  },
+  {
+    "case": "actual old-pool return/re-lease between read and lock",
+    "result": "pass"
+  },
+  {
+    "case": "old-dirty-tracked-False",
+    "result": "pass"
+  },
+  {
+    "case": "old-dirty-untracked-False",
+    "result": "pass"
+  },
+  {
+    "case": "old-dirty-claude-False",
+    "result": "pass"
+  },
+  {
+    "case": "old-unlanded-False",
+    "result": "pass"
+  },
+  {
+    "case": "old-dirty-tracked-True",
+    "result": "pass"
+  },
+  {
+    "case": "old-dirty-untracked-True",
+    "result": "pass"
+  },
+  {
+    "case": "old-dirty-claude-True",
+    "result": "pass"
+  },
+  {
+    "case": "old-unlanded-True",
+    "result": "pass"
+  },
+  {
+    "case": "old-no-lsof-writer",
+    "result": "pass"
+  },
+  {
+    "case": "current-dirty-tracked-False",
+    "result": "pass"
+  },
+  {
+    "case": "current-dirty-untracked-False",
+    "result": "pass"
+  },
+  {
+    "case": "current-unlanded-False",
+    "result": "pass"
+  },
+  {
+    "case": "current-dirty-tracked-True",
+    "result": "pass"
+  },
+  {
+    "case": "current-dirty-untracked-True",
+    "result": "pass"
+  },
+  {
+    "case": "current-unlanded-True",
+    "result": "pass"
+  },
+  {
+    "case": "current-no-lsof-writer",
+    "result": "pass"
+  }
+]

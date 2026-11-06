@@ -1,0 +1,1423 @@
+$ bin/fm-lab-home.sh create {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-clean/home
+{run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-clean/home
+[exit 0]
+$ git init -q -b main {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-clean/project
+[exit 0]
+$ git add .
+[exit 0]
+$ git commit -qm baseline
+[exit 0]
+$ git clone -q --bare {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-clean/project {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-clean/origin.git
+[exit 0]
+$ git remote add origin {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-clean/origin.git
+[exit 0]
+$ git fetch -q origin
+[exit 0]
+$ treehouse get --lease --json --no-fetch -b fm/task-x1
+{"path":"{run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-clean/pools/.treehouse/project-70e3c4/1/project","lease_id":"4ea72c798b305834b1d61dd5045dcc56","lease_holder":"","leased_at":"2026-11-06T12:00:53.067550185+01:00","base_branch":"main"}
+🌳 Setting up worktree...
+🌳 Leased worktree at {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-clean/pools/.treehouse/project-70e3c4/1/project. Run 'treehouse return {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-clean/pools/.treehouse/project-70e3c4/1/project' to release it.
+[exit 0]
+$ git push -q origin fm/task-x1
+[exit 0]
+$ git config --file {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-clean/gitconfig url.file://{run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-clean/origin.git.insteadOf {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-clean/origin.git
+[exit 0]
+$ treehouse status --json
+[]
+[exit 0]
+POOL STATE BEFORE: {
+  "version": 4,
+  "worktrees": [
+    {
+      "name": "1",
+      "path": "{run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-clean/pools/.treehouse/project-70e3c4/1/project",
+      "created_at": "2026-11-06T12:00:53.021111317+01:00",
+      "leased": true,
+      "lease_id": "4ea72c798b305834b1d61dd5045dcc56",
+      "leased_at": "2026-11-06T12:00:53.067550185+01:00",
+      "seed_inventory_known": true,
+      "seed_inventory_digest": "d08f1b94575a7abe04d36cc506a90092e20634c4311e639ffc2161b94ade5d79"
+    }
+  ]
+}
+$ {run-worktree}/bin/fm-teardown.sh task-x1
+Preserved gone-pool-slot lane task-x1: bundle {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-clean/home/data/bundles/task-x1.bundle
+Preserved gone-pool-slot lane task-x1: bundle {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-clean/home/data/bundles/task-x1-ae625f8ae1e2.bundle
+🌳 Worktree returned to pool.
+{run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-clean/project: already current
+teardown task-x1 complete (window fm-lab-test:fm-task-x1, worktree {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-clean/pools/.treehouse/project-70e3c4/1/project)
+Backlog: task-x1 just finished (this home keeps no markdown backlog at {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-clean/home/data/backlog.md). Update {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-clean/home/data/backlog.md - move task-x1 to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-clean/home
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision according to the session-start block for this harness; do not use shell &.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+teardown: the project's current Treehouse pool does not list {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-clean/pools/.treehouse/project-70e3c4/1/project (a git url rewrite can move a project's pool); confirming lease 4ea72c798b305834b1d61dd5045dcc56 against the slot's own pool {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-clean/pools/.treehouse/project-70e3c4
+teardown: reaping leaked worktree process group for task-x1: 1438100
+[exit 0]
+VERIFIED: ordinary teardown succeeds without --force or a recovery/bypass flag
+VERIFIED: successful teardown removes live task record
+POOL STATE AFTER: {"version": 4, "worktrees": [{"name": "1", "path": "{run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-clean/pools/.treehouse/project-70e3c4/1/project", "created_at": "2026-11-06T12:00:53.021111317+01:00", "seed_inventory_known": true, "seed_inventory_digest": "d08f1b94575a7abe04d36cc506a90092e20634c4311e639ffc2161b94ade5d79"}]}
+VERIFIED: real Treehouse released original lease
+$ git status --porcelain --untracked-files=all
+[exit 0]
+VERIFIED: returned worktree is clean
+VERIFIED: old-pool teardown creates backup bundles
+$ git bundle verify {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-clean/home/data/bundles/task-x1-ae625f8ae1e2.bundle
+The bundle contains this ref:
+ae625f8ae1e29b04eaab1e30cd5139b2e6a41aac HEAD
+The bundle records a complete history.
+The bundle uses this hash algorithm: sha1
+{run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-clean/home/data/bundles/task-x1-ae625f8ae1e2.bundle is okay
+[exit 0]
+$ git bundle verify {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-clean/home/data/bundles/task-x1.bundle
+The bundle contains this ref:
+ae625f8ae1e29b04eaab1e30cd5139b2e6a41aac HEAD
+The bundle records a complete history.
+The bundle uses this hash algorithm: sha1
+{run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-clean/home/data/bundles/task-x1.bundle is okay
+[exit 0]
+$ bin/fm-lab-home.sh create {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-clean/home
+{run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-clean/home
+[exit 0]
+$ git init -q -b main {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-clean/project
+[exit 0]
+$ git add .
+[exit 0]
+$ git commit -qm baseline
+[exit 0]
+$ git clone -q --bare {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-clean/project {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-clean/origin.git
+[exit 0]
+$ git remote add origin {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-clean/origin.git
+[exit 0]
+$ git fetch -q origin
+[exit 0]
+$ treehouse get --lease --json --no-fetch -b fm/task-x1
+{"path":"{run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-clean/pools/.treehouse/project-7618fa/1/project","lease_id":"dbdcbb124d0101f88810fb0b3d4dabba","lease_holder":"","leased_at":"2026-11-06T12:00:58.669730515+01:00","base_branch":"main"}
+🌳 Setting up worktree...
+🌳 Leased worktree at {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-clean/pools/.treehouse/project-7618fa/1/project. Run 'treehouse return {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-clean/pools/.treehouse/project-7618fa/1/project' to release it.
+[exit 0]
+$ git push -q origin fm/task-x1
+[exit 0]
+$ treehouse status --json
+[{"name":"1","path":"{run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-clean/pools/.treehouse/project-7618fa/1/project","status":"leased","branch":"fm/task-x1","flavor":"git","lease_id":"dbdcbb124d0101f88810fb0b3d4dabba","lease_holder":"","leased_at":"2026-11-06T12:00:58.669730515+01:00","processes":[]}]
+[exit 0]
+POOL STATE BEFORE: {
+  "version": 4,
+  "worktrees": [
+    {
+      "name": "1",
+      "path": "{run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-clean/pools/.treehouse/project-7618fa/1/project",
+      "created_at": "2026-11-06T12:00:58.616070945+01:00",
+      "leased": true,
+      "lease_id": "dbdcbb124d0101f88810fb0b3d4dabba",
+      "leased_at": "2026-11-06T12:00:58.669730515+01:00",
+      "seed_inventory_known": true,
+      "seed_inventory_digest": "80defb03d44b8fcab792e25be17394463a24914aa10b75452811feb70e096072"
+    }
+  ]
+}
+$ {run-worktree}/bin/fm-teardown.sh task-x1
+🌳 Worktree returned to pool.
+{run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-clean/project: already current
+teardown task-x1 complete (window fm-lab-test:fm-task-x1, worktree {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-clean/pools/.treehouse/project-7618fa/1/project)
+Backlog: task-x1 just finished (this home keeps no markdown backlog at {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-clean/home/data/backlog.md). Update {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-clean/home/data/backlog.md - move task-x1 to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-clean/home
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision according to the session-start block for this harness; do not use shell &.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+warning: lsof is unavailable; cannot resolve the tmux pane process group for task-x1
+[exit 0]
+VERIFIED: ordinary teardown succeeds without --force or a recovery/bypass flag
+VERIFIED: successful teardown removes live task record
+POOL STATE AFTER: {"version": 4, "worktrees": [{"name": "1", "path": "{run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-clean/pools/.treehouse/project-7618fa/1/project", "created_at": "2026-11-06T12:00:58.616070945+01:00", "seed_inventory_known": true, "seed_inventory_digest": "80defb03d44b8fcab792e25be17394463a24914aa10b75452811feb70e096072"}]}
+VERIFIED: real Treehouse released original lease
+$ git status --porcelain --untracked-files=all
+[exit 0]
+VERIFIED: returned worktree is clean
+$ bin/fm-lab-home.sh create {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-released-and-released/home
+{run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-released-and-released/home
+[exit 0]
+$ git init -q -b main {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-released-and-released/project
+[exit 0]
+$ git add .
+[exit 0]
+$ git commit -qm baseline
+[exit 0]
+$ git clone -q --bare {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-released-and-released/project {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-released-and-released/origin.git
+[exit 0]
+$ git remote add origin {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-released-and-released/origin.git
+[exit 0]
+$ git fetch -q origin
+[exit 0]
+$ treehouse get --lease --json --no-fetch -b fm/task-x1
+{"path":"{run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-released-and-released/pools/.treehouse/project-1cfebd/1/project","lease_id":"ae28499514fb6bb3aeaa2dfa872b023e","lease_holder":"","leased_at":"2026-11-06T12:01:02.655292888+01:00","base_branch":"main"}
+🌳 Setting up worktree...
+🌳 Leased worktree at {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-released-and-released/pools/.treehouse/project-1cfebd/1/project. Run 'treehouse return {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-released-and-released/pools/.treehouse/project-1cfebd/1/project' to release it.
+[exit 0]
+$ git push -q origin fm/task-x1
+[exit 0]
+$ git config --file {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-released-and-released/gitconfig url.file://{run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-released-and-released/origin.git.insteadOf {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-released-and-released/origin.git
+[exit 0]
+$ treehouse status --json
+[]
+[exit 0]
+POOL STATE BEFORE: {
+  "version": 4,
+  "worktrees": [
+    {
+      "name": "1",
+      "path": "{run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-released-and-released/pools/.treehouse/project-1cfebd/1/project",
+      "created_at": "2026-11-06T12:01:02.619993599+01:00",
+      "leased": true,
+      "lease_id": "ae28499514fb6bb3aeaa2dfa872b023e",
+      "leased_at": "2026-11-06T12:01:02.655292888+01:00",
+      "seed_inventory_known": true,
+      "seed_inventory_digest": "2bb9912d1241f16b0f5c3e3ecad50997e9caf3a68cfb8ac1d96bb5b3789ea6dc"
+    }
+  ]
+}
+VERIFIED: teardown completed initial unlocked old-pool lease read
+$ treehouse return --force --if-lease-id ae28499514fb6bb3aeaa2dfa872b023e {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-released-and-released/pools/.treehouse/project-1cfebd/1/project
+🌳 Worktree returned to pool.
+[exit 0]
+$ treehouse get --lease --json --no-fetch -b fm/new-holder
+{"path":"{run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-released-and-released/pools/.treehouse/project-1cfebd/1/project","lease_id":"4642486da3f7288ff979f776ab52156c","lease_holder":"","leased_at":"2026-11-06T12:01:04.909353508+01:00","base_branch":"main"}
+🌳 Setting up worktree...
+🌳 Leased worktree at {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-released-and-released/pools/.treehouse/project-1cfebd/1/project. Run 'treehouse return {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-released-and-released/pools/.treehouse/project-1cfebd/1/project' to release it.
+[exit 0]
+VERIFIED: real allocator reuses identical pool slot
+VERIFIED: real allocator creates different lease identity
+$ git rev-parse HEAD
+398d9927c60ec003949959ffa5c2c6293c197a75
+[exit 0]
+$ fm-teardown.sh task-x1 [paused after real jq state read]
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-released-and-released/home
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision according to the session-start block for this harness; do not use shell &.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+teardown: the project's current Treehouse pool does not list {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-released-and-released/pools/.treehouse/project-1cfebd/1/project (a git url rewrite can move a project's pool); confirming lease ae28499514fb6bb3aeaa2dfa872b023e against the slot's own pool {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-released-and-released/pools/.treehouse/project-1cfebd
+REFUSED: lease changed on {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-released-and-released/pools/.treehouse/project-1cfebd/1/project in its own pool {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-released-and-released/pools/.treehouse/project-1cfebd since teardown first confirmed it (recorded ae28499514fb6bb3aeaa2dfa872b023e); the slot may now belong to someone else, so nothing in it was changed and nothing was returned
+[exit 1]
+VERIFIED: locked reconfirmation refuses reassigned lease
+$ git branch --show-current
+fm/new-holder
+[exit 0]
+VERIFIED: new holder branch remains attached
+$ git rev-parse HEAD
+398d9927c60ec003949959ffa5c2c6293c197a75
+[exit 0]
+VERIFIED: new holder HEAD unchanged
+VERIFIED: new holder hooks byte-identical
+VERIFIED: old task record retained after reassignment refusal
+VERIFIED: new holder lease remains active
+$ bin/fm-lab-home.sh create {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-tracked-False/home
+{run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-tracked-False/home
+[exit 0]
+$ git init -q -b main {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-tracked-False/project
+[exit 0]
+$ git add .
+[exit 0]
+$ git commit -qm baseline
+[exit 0]
+$ git clone -q --bare {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-tracked-False/project {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-tracked-False/origin.git
+[exit 0]
+$ git remote add origin {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-tracked-False/origin.git
+[exit 0]
+$ git fetch -q origin
+[exit 0]
+$ treehouse get --lease --json --no-fetch -b fm/task-x1
+{"path":"{run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-tracked-False/pools/.treehouse/project-2cdec5/1/project","lease_id":"77fedfc9221f03aee8bd8809d0f74a63","lease_holder":"","leased_at":"2026-11-06T12:01:05.407534981+01:00","base_branch":"main"}
+🌳 Setting up worktree...
+🌳 Leased worktree at {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-tracked-False/pools/.treehouse/project-2cdec5/1/project. Run 'treehouse return {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-tracked-False/pools/.treehouse/project-2cdec5/1/project' to release it.
+[exit 0]
+$ git push -q origin fm/task-x1
+[exit 0]
+$ git config --file {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-tracked-False/gitconfig url.file://{run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-tracked-False/origin.git.insteadOf {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-tracked-False/origin.git
+[exit 0]
+$ treehouse status --json
+[]
+[exit 0]
+POOL STATE BEFORE: {
+  "version": 4,
+  "worktrees": [
+    {
+      "name": "1",
+      "path": "{run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-tracked-False/pools/.treehouse/project-2cdec5/1/project",
+      "created_at": "2026-11-06T12:01:05.358216483+01:00",
+      "leased": true,
+      "lease_id": "77fedfc9221f03aee8bd8809d0f74a63",
+      "leased_at": "2026-11-06T12:01:05.407534981+01:00",
+      "seed_inventory_known": true,
+      "seed_inventory_digest": "f94fe50b6fe6122132acd6763b2ded4ea1134261687138549f1d7f4fc7b8c47e"
+    }
+  ]
+}
+$ {run-worktree}/bin/fm-teardown.sh task-x1
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-tracked-False/home
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision according to the session-start block for this harness; do not use shell &.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+teardown: the project's current Treehouse pool does not list {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-tracked-False/pools/.treehouse/project-2cdec5/1/project (a git url rewrite can move a project's pool); confirming lease 77fedfc9221f03aee8bd8809d0f74a63 against the slot's own pool {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-tracked-False/pools/.treehouse/project-2cdec5
+REFUSED: worktree {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-tracked-False/pools/.treehouse/project-2cdec5/1/project has uncommitted changes.
+uncommitted changes present (includes tracked edits)
+Commit them (or get the captain's explicit OK to discard, then --force).
+[exit 1]
+VERIFIED: uncommitted work refuses old-dirty-tracked-False
+VERIFIED: refusal retains task record
+VERIFIED: refusal retains generated hooks
+$ git branch --show-current
+fm/task-x1
+[exit 0]
+VERIFIED: refusal retains checked-out task branch
+VERIFIED: refusal retains original lease
+VERIFIED: uncommitted content remains byte-identical
+REFUSAL OUTPUT: fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-tracked-False/home
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision according to the session-start block for this harness; do not use shell &.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+teardown: the project's current Treehouse pool does not list {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-tracked-False/pools/.treehouse/project-2cdec5/1/project (a git url rewrite can move a project's pool); confirming lease 77fedfc9221f03aee8bd8809d0f74a63 against the slot's own pool {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-tracked-False/pools/.treehouse/project-2cdec5
+REFUSED: worktree {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-tracked-False/pools/.treehouse/project-2cdec5/1/project has uncommitted changes.
+uncommitted changes present (includes tracked edits)
+Commit them (or get the captain's explicit OK to discard, then --force).
+
+$ bin/fm-lab-home.sh create {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-untracked-False/home
+{run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-untracked-False/home
+[exit 0]
+$ git init -q -b main {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-untracked-False/project
+[exit 0]
+$ git add .
+[exit 0]
+$ git commit -qm baseline
+[exit 0]
+$ git clone -q --bare {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-untracked-False/project {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-untracked-False/origin.git
+[exit 0]
+$ git remote add origin {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-untracked-False/origin.git
+[exit 0]
+$ git fetch -q origin
+[exit 0]
+$ treehouse get --lease --json --no-fetch -b fm/task-x1
+{"path":"{run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-untracked-False/pools/.treehouse/project-b06e8e/1/project","lease_id":"1e4663f407fda20c8fa7f5c9c8d4b6c6","lease_holder":"","leased_at":"2026-11-06T12:01:07.890098886+01:00","base_branch":"main"}
+🌳 Setting up worktree...
+🌳 Leased worktree at {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-untracked-False/pools/.treehouse/project-b06e8e/1/project. Run 'treehouse return {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-untracked-False/pools/.treehouse/project-b06e8e/1/project' to release it.
+[exit 0]
+$ git push -q origin fm/task-x1
+[exit 0]
+$ git config --file {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-untracked-False/gitconfig url.file://{run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-untracked-False/origin.git.insteadOf {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-untracked-False/origin.git
+[exit 0]
+$ treehouse status --json
+[]
+[exit 0]
+POOL STATE BEFORE: {
+  "version": 4,
+  "worktrees": [
+    {
+      "name": "1",
+      "path": "{run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-untracked-False/pools/.treehouse/project-b06e8e/1/project",
+      "created_at": "2026-11-06T12:01:07.854022362+01:00",
+      "leased": true,
+      "lease_id": "1e4663f407fda20c8fa7f5c9c8d4b6c6",
+      "leased_at": "2026-11-06T12:01:07.890098886+01:00",
+      "seed_inventory_known": true,
+      "seed_inventory_digest": "bd44bf5bb7ef7a5636c37fc0470cda7f93b39eb2fa18c390e4511bdf723c0098"
+    }
+  ]
+}
+$ {run-worktree}/bin/fm-teardown.sh task-x1
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-untracked-False/home
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision according to the session-start block for this harness; do not use shell &.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+teardown: the project's current Treehouse pool does not list {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-untracked-False/pools/.treehouse/project-b06e8e/1/project (a git url rewrite can move a project's pool); confirming lease 1e4663f407fda20c8fa7f5c9c8d4b6c6 against the slot's own pool {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-untracked-False/pools/.treehouse/project-b06e8e
+REFUSED: worktree {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-untracked-False/pools/.treehouse/project-b06e8e/1/project has uncommitted changes.
+uncommitted changes present (untracked-only leftovers)
+untracked paths (up to 10):
+  user-work.txt
+Commit them (or get the captain's explicit OK to discard, then --force).
+[exit 1]
+VERIFIED: uncommitted work refuses old-dirty-untracked-False
+VERIFIED: refusal retains task record
+VERIFIED: refusal retains generated hooks
+$ git branch --show-current
+fm/task-x1
+[exit 0]
+VERIFIED: refusal retains checked-out task branch
+VERIFIED: refusal retains original lease
+VERIFIED: uncommitted content remains byte-identical
+REFUSAL OUTPUT: fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-untracked-False/home
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision according to the session-start block for this harness; do not use shell &.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+teardown: the project's current Treehouse pool does not list {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-untracked-False/pools/.treehouse/project-b06e8e/1/project (a git url rewrite can move a project's pool); confirming lease 1e4663f407fda20c8fa7f5c9c8d4b6c6 against the slot's own pool {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-untracked-False/pools/.treehouse/project-b06e8e
+REFUSED: worktree {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-untracked-False/pools/.treehouse/project-b06e8e/1/project has uncommitted changes.
+uncommitted changes present (untracked-only leftovers)
+untracked paths (up to 10):
+  user-work.txt
+Commit them (or get the captain's explicit OK to discard, then --force).
+
+$ bin/fm-lab-home.sh create {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-claude-False/home
+{run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-claude-False/home
+[exit 0]
+$ git init -q -b main {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-claude-False/project
+[exit 0]
+$ git add .
+[exit 0]
+$ git commit -qm baseline
+[exit 0]
+$ git clone -q --bare {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-claude-False/project {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-claude-False/origin.git
+[exit 0]
+$ git remote add origin {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-claude-False/origin.git
+[exit 0]
+$ git fetch -q origin
+[exit 0]
+$ treehouse get --lease --json --no-fetch -b fm/task-x1
+{"path":"{run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-claude-False/pools/.treehouse/project-8c0bda/1/project","lease_id":"be8373535b302d616cb8722afef4a097","lease_holder":"","leased_at":"2026-11-06T12:01:10.259453598+01:00","base_branch":"main"}
+🌳 Setting up worktree...
+🌳 Leased worktree at {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-claude-False/pools/.treehouse/project-8c0bda/1/project. Run 'treehouse return {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-claude-False/pools/.treehouse/project-8c0bda/1/project' to release it.
+[exit 0]
+$ git push -q origin fm/task-x1
+[exit 0]
+$ git config --file {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-claude-False/gitconfig url.file://{run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-claude-False/origin.git.insteadOf {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-claude-False/origin.git
+[exit 0]
+$ treehouse status --json
+[]
+[exit 0]
+POOL STATE BEFORE: {
+  "version": 4,
+  "worktrees": [
+    {
+      "name": "1",
+      "path": "{run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-claude-False/pools/.treehouse/project-8c0bda/1/project",
+      "created_at": "2026-11-06T12:01:10.221301861+01:00",
+      "leased": true,
+      "lease_id": "be8373535b302d616cb8722afef4a097",
+      "leased_at": "2026-11-06T12:01:10.259453598+01:00",
+      "seed_inventory_known": true,
+      "seed_inventory_digest": "73463b9156e20e990016d1c3f965cebb6acb9ba4387a5e2412bcca4f63c70227"
+    }
+  ]
+}
+$ {run-worktree}/bin/fm-teardown.sh task-x1
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-claude-False/home
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision according to the session-start block for this harness; do not use shell &.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+teardown: the project's current Treehouse pool does not list {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-claude-False/pools/.treehouse/project-8c0bda/1/project (a git url rewrite can move a project's pool); confirming lease be8373535b302d616cb8722afef4a097 against the slot's own pool {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-claude-False/pools/.treehouse/project-8c0bda
+REFUSED: gone-pool-slot worktree {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-claude-False/pools/.treehouse/project-8c0bda/1/project has uncommitted changes; the pool no longer lists this slot, so nothing was returned and nothing was discarded - clean the copy or back it up by hand, then retry teardown.
+uncommitted changes present (untracked-only leftovers)
+untracked paths (up to 10):
+  .claude/user-work.md
+[exit 1]
+VERIFIED: uncommitted work refuses old-dirty-claude-False
+VERIFIED: refusal retains task record
+VERIFIED: refusal retains generated hooks
+$ git branch --show-current
+fm/task-x1
+[exit 0]
+VERIFIED: refusal retains checked-out task branch
+VERIFIED: refusal retains original lease
+VERIFIED: uncommitted content remains byte-identical
+REFUSAL OUTPUT: fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-claude-False/home
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision according to the session-start block for this harness; do not use shell &.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+teardown: the project's current Treehouse pool does not list {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-claude-False/pools/.treehouse/project-8c0bda/1/project (a git url rewrite can move a project's pool); confirming lease be8373535b302d616cb8722afef4a097 against the slot's own pool {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-claude-False/pools/.treehouse/project-8c0bda
+REFUSED: gone-pool-slot worktree {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-claude-False/pools/.treehouse/project-8c0bda/1/project has uncommitted changes; the pool no longer lists this slot, so nothing was returned and nothing was discarded - clean the copy or back it up by hand, then retry teardown.
+uncommitted changes present (untracked-only leftovers)
+untracked paths (up to 10):
+  .claude/user-work.md
+
+$ bin/fm-lab-home.sh create {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-unlanded-False/home
+{run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-unlanded-False/home
+[exit 0]
+$ git init -q -b main {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-unlanded-False/project
+[exit 0]
+$ git add .
+[exit 0]
+$ git commit -qm baseline
+[exit 0]
+$ git clone -q --bare {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-unlanded-False/project {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-unlanded-False/origin.git
+[exit 0]
+$ git remote add origin {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-unlanded-False/origin.git
+[exit 0]
+$ git fetch -q origin
+[exit 0]
+$ treehouse get --lease --json --no-fetch -b fm/task-x1
+{"path":"{run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-unlanded-False/pools/.treehouse/project-eb3fa0/1/project","lease_id":"51c608d09194ca2a2af93662c93b662b","lease_holder":"","leased_at":"2026-11-06T12:01:12.70731503+01:00","base_branch":"main"}
+🌳 Setting up worktree...
+🌳 Leased worktree at {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-unlanded-False/pools/.treehouse/project-eb3fa0/1/project. Run 'treehouse return {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-unlanded-False/pools/.treehouse/project-eb3fa0/1/project' to release it.
+[exit 0]
+$ git push -q origin fm/task-x1
+[exit 0]
+$ git config --file {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-unlanded-False/gitconfig url.file://{run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-unlanded-False/origin.git.insteadOf {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-unlanded-False/origin.git
+[exit 0]
+$ treehouse status --json
+[]
+[exit 0]
+POOL STATE BEFORE: {
+  "version": 4,
+  "worktrees": [
+    {
+      "name": "1",
+      "path": "{run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-unlanded-False/pools/.treehouse/project-eb3fa0/1/project",
+      "created_at": "2026-11-06T12:01:12.648705616+01:00",
+      "leased": true,
+      "lease_id": "51c608d09194ca2a2af93662c93b662b",
+      "leased_at": "2026-11-06T12:01:12.70731503+01:00",
+      "seed_inventory_known": true,
+      "seed_inventory_digest": "902d0ac6738cf04bbaa65030b369ba5a09eb0b2c97dd59e8348227c913043c3b"
+    }
+  ]
+}
+$ git add unlanded.txt
+[exit 0]
+$ git commit -qm unlanded work
+[exit 0]
+$ git rev-parse HEAD
+2ce829a6ba5564d67c4f2aeb01cdc688edcd0a5f
+[exit 0]
+$ {run-worktree}/bin/fm-teardown.sh task-x1
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-unlanded-False/home
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision according to the session-start block for this harness; do not use shell &.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+teardown: the project's current Treehouse pool does not list {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-unlanded-False/pools/.treehouse/project-eb3fa0/1/project (a git url rewrite can move a project's pool); confirming lease 51c608d09194ca2a2af93662c93b662b against the slot's own pool {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-unlanded-False/pools/.treehouse/project-eb3fa0
+REFUSED: worktree {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-unlanded-False/pools/.treehouse/project-eb3fa0/1/project has work not on any remote and not landed.
+unpushed commits:
+2ce829a unlanded work
+Push the branch, land its PR, or get the captain's explicit OK to discard, then --force.
+[exit 1]
+VERIFIED: unlanded commits refuse old-unlanded-False
+VERIFIED: refusal retains task record
+VERIFIED: refusal retains generated hooks
+$ git branch --show-current
+fm/task-x1
+[exit 0]
+VERIFIED: refusal retains checked-out task branch
+VERIFIED: refusal retains original lease
+$ git rev-parse HEAD
+2ce829a6ba5564d67c4f2aeb01cdc688edcd0a5f
+[exit 0]
+VERIFIED: unlanded head preserved
+$ bin/fm-lab-home.sh create {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-tracked-True/home
+{run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-tracked-True/home
+[exit 0]
+$ git init -q -b main {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-tracked-True/project
+[exit 0]
+$ git add .
+[exit 0]
+$ git commit -qm baseline
+[exit 0]
+$ git clone -q --bare {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-tracked-True/project {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-tracked-True/origin.git
+[exit 0]
+$ git remote add origin {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-tracked-True/origin.git
+[exit 0]
+$ git fetch -q origin
+[exit 0]
+$ treehouse get --lease --json --no-fetch -b fm/task-x1
+{"path":"{run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-tracked-True/pools/.treehouse/project-8a9a74/1/project","lease_id":"e146b56813c11ff0675914369887048e","lease_holder":"","leased_at":"2026-11-06T12:01:15.075958735+01:00","base_branch":"main"}
+🌳 Setting up worktree...
+🌳 Leased worktree at {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-tracked-True/pools/.treehouse/project-8a9a74/1/project. Run 'treehouse return {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-tracked-True/pools/.treehouse/project-8a9a74/1/project' to release it.
+[exit 0]
+$ git push -q origin fm/task-x1
+[exit 0]
+$ git config --file {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-tracked-True/gitconfig url.file://{run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-tracked-True/origin.git.insteadOf {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-tracked-True/origin.git
+[exit 0]
+$ treehouse status --json
+[]
+[exit 0]
+POOL STATE BEFORE: {
+  "version": 4,
+  "worktrees": [
+    {
+      "name": "1",
+      "path": "{run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-tracked-True/pools/.treehouse/project-8a9a74/1/project",
+      "created_at": "2026-11-06T12:01:15.040206226+01:00",
+      "leased": true,
+      "lease_id": "e146b56813c11ff0675914369887048e",
+      "leased_at": "2026-11-06T12:01:15.075958735+01:00",
+      "seed_inventory_known": true,
+      "seed_inventory_digest": "ed880ed4dc81ff3d566a67a0b7a59fc690a3cc97890c634ac62b8cae11727902"
+    }
+  ]
+}
+$ {run-worktree}/bin/fm-teardown.sh task-x1 --force
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-tracked-True/home
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 0s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision according to the session-start block for this harness; do not use shell &.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+teardown: the project's current Treehouse pool does not list {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-tracked-True/pools/.treehouse/project-8a9a74/1/project (a git url rewrite can move a project's pool); confirming lease e146b56813c11ff0675914369887048e against the slot's own pool {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-tracked-True/pools/.treehouse/project-8a9a74
+REFUSED: gone-pool-slot worktree {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-tracked-True/pools/.treehouse/project-8a9a74/1/project has uncommitted changes; the pool no longer lists this slot, so nothing was returned and nothing was discarded - clean the copy or back it up by hand, then retry teardown.
+uncommitted changes present (includes tracked edits)
+[exit 1]
+VERIFIED: uncommitted work refuses old-dirty-tracked-True
+VERIFIED: refusal retains task record
+VERIFIED: refusal retains generated hooks
+$ git branch --show-current
+fm/task-x1
+[exit 0]
+VERIFIED: refusal retains checked-out task branch
+VERIFIED: refusal retains original lease
+VERIFIED: uncommitted content remains byte-identical
+REFUSAL OUTPUT: fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-tracked-True/home
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 0s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision according to the session-start block for this harness; do not use shell &.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+teardown: the project's current Treehouse pool does not list {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-tracked-True/pools/.treehouse/project-8a9a74/1/project (a git url rewrite can move a project's pool); confirming lease e146b56813c11ff0675914369887048e against the slot's own pool {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-tracked-True/pools/.treehouse/project-8a9a74
+REFUSED: gone-pool-slot worktree {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-tracked-True/pools/.treehouse/project-8a9a74/1/project has uncommitted changes; the pool no longer lists this slot, so nothing was returned and nothing was discarded - clean the copy or back it up by hand, then retry teardown.
+uncommitted changes present (includes tracked edits)
+
+$ bin/fm-lab-home.sh create {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-untracked-True/home
+{run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-untracked-True/home
+[exit 0]
+$ git init -q -b main {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-untracked-True/project
+[exit 0]
+$ git add .
+[exit 0]
+$ git commit -qm baseline
+[exit 0]
+$ git clone -q --bare {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-untracked-True/project {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-untracked-True/origin.git
+[exit 0]
+$ git remote add origin {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-untracked-True/origin.git
+[exit 0]
+$ git fetch -q origin
+[exit 0]
+$ treehouse get --lease --json --no-fetch -b fm/task-x1
+{"path":"{run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-untracked-True/pools/.treehouse/project-e3ba93/1/project","lease_id":"6bb6c77330240c4a09b1fb0038af81d8","lease_holder":"","leased_at":"2026-11-06T12:01:17.297210713+01:00","base_branch":"main"}
+🌳 Setting up worktree...
+🌳 Leased worktree at {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-untracked-True/pools/.treehouse/project-e3ba93/1/project. Run 'treehouse return {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-untracked-True/pools/.treehouse/project-e3ba93/1/project' to release it.
+[exit 0]
+$ git push -q origin fm/task-x1
+[exit 0]
+$ git config --file {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-untracked-True/gitconfig url.file://{run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-untracked-True/origin.git.insteadOf {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-untracked-True/origin.git
+[exit 0]
+$ treehouse status --json
+[]
+[exit 0]
+POOL STATE BEFORE: {
+  "version": 4,
+  "worktrees": [
+    {
+      "name": "1",
+      "path": "{run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-untracked-True/pools/.treehouse/project-e3ba93/1/project",
+      "created_at": "2026-11-06T12:01:17.246552155+01:00",
+      "leased": true,
+      "lease_id": "6bb6c77330240c4a09b1fb0038af81d8",
+      "leased_at": "2026-11-06T12:01:17.297210713+01:00",
+      "seed_inventory_known": true,
+      "seed_inventory_digest": "d94199eef15107530e3b69e978176f56abba9997725260b452cfc47f1018bf98"
+    }
+  ]
+}
+$ {run-worktree}/bin/fm-teardown.sh task-x1 --force
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-untracked-True/home
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision according to the session-start block for this harness; do not use shell &.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+teardown: the project's current Treehouse pool does not list {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-untracked-True/pools/.treehouse/project-e3ba93/1/project (a git url rewrite can move a project's pool); confirming lease 6bb6c77330240c4a09b1fb0038af81d8 against the slot's own pool {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-untracked-True/pools/.treehouse/project-e3ba93
+REFUSED: gone-pool-slot worktree {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-untracked-True/pools/.treehouse/project-e3ba93/1/project has uncommitted changes; the pool no longer lists this slot, so nothing was returned and nothing was discarded - clean the copy or back it up by hand, then retry teardown.
+uncommitted changes present (untracked-only leftovers)
+untracked paths (up to 10):
+  user-work.txt
+[exit 1]
+VERIFIED: uncommitted work refuses old-dirty-untracked-True
+VERIFIED: refusal retains task record
+VERIFIED: refusal retains generated hooks
+$ git branch --show-current
+fm/task-x1
+[exit 0]
+VERIFIED: refusal retains checked-out task branch
+VERIFIED: refusal retains original lease
+VERIFIED: uncommitted content remains byte-identical
+REFUSAL OUTPUT: fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-untracked-True/home
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision according to the session-start block for this harness; do not use shell &.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+teardown: the project's current Treehouse pool does not list {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-untracked-True/pools/.treehouse/project-e3ba93/1/project (a git url rewrite can move a project's pool); confirming lease 6bb6c77330240c4a09b1fb0038af81d8 against the slot's own pool {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-untracked-True/pools/.treehouse/project-e3ba93
+REFUSED: gone-pool-slot worktree {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-untracked-True/pools/.treehouse/project-e3ba93/1/project has uncommitted changes; the pool no longer lists this slot, so nothing was returned and nothing was discarded - clean the copy or back it up by hand, then retry teardown.
+uncommitted changes present (untracked-only leftovers)
+untracked paths (up to 10):
+  user-work.txt
+
+$ bin/fm-lab-home.sh create {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-claude-True/home
+{run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-claude-True/home
+[exit 0]
+$ git init -q -b main {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-claude-True/project
+[exit 0]
+$ git add .
+[exit 0]
+$ git commit -qm baseline
+[exit 0]
+$ git clone -q --bare {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-claude-True/project {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-claude-True/origin.git
+[exit 0]
+$ git remote add origin {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-claude-True/origin.git
+[exit 0]
+$ git fetch -q origin
+[exit 0]
+$ treehouse get --lease --json --no-fetch -b fm/task-x1
+{"path":"{run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-claude-True/pools/.treehouse/project-02e855/1/project","lease_id":"d1b4ba2840b7908f43e081c7fd20b2b3","lease_holder":"","leased_at":"2026-11-06T12:01:19.545552124+01:00","base_branch":"main"}
+🌳 Setting up worktree...
+🌳 Leased worktree at {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-claude-True/pools/.treehouse/project-02e855/1/project. Run 'treehouse return {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-claude-True/pools/.treehouse/project-02e855/1/project' to release it.
+[exit 0]
+$ git push -q origin fm/task-x1
+[exit 0]
+$ git config --file {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-claude-True/gitconfig url.file://{run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-claude-True/origin.git.insteadOf {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-claude-True/origin.git
+[exit 0]
+$ treehouse status --json
+[]
+[exit 0]
+POOL STATE BEFORE: {
+  "version": 4,
+  "worktrees": [
+    {
+      "name": "1",
+      "path": "{run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-claude-True/pools/.treehouse/project-02e855/1/project",
+      "created_at": "2026-11-06T12:01:19.506680127+01:00",
+      "leased": true,
+      "lease_id": "d1b4ba2840b7908f43e081c7fd20b2b3",
+      "leased_at": "2026-11-06T12:01:19.545552124+01:00",
+      "seed_inventory_known": true,
+      "seed_inventory_digest": "143a5bbe37628dc1c4f7083141f1f171ca827e682ad875ff12e90dce2ccfc9f0"
+    }
+  ]
+}
+$ {run-worktree}/bin/fm-teardown.sh task-x1 --force
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-claude-True/home
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision according to the session-start block for this harness; do not use shell &.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+teardown: the project's current Treehouse pool does not list {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-claude-True/pools/.treehouse/project-02e855/1/project (a git url rewrite can move a project's pool); confirming lease d1b4ba2840b7908f43e081c7fd20b2b3 against the slot's own pool {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-claude-True/pools/.treehouse/project-02e855
+REFUSED: gone-pool-slot worktree {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-claude-True/pools/.treehouse/project-02e855/1/project has uncommitted changes; the pool no longer lists this slot, so nothing was returned and nothing was discarded - clean the copy or back it up by hand, then retry teardown.
+uncommitted changes present (untracked-only leftovers)
+untracked paths (up to 10):
+  .claude/user-work.md
+[exit 1]
+VERIFIED: uncommitted work refuses old-dirty-claude-True
+VERIFIED: refusal retains task record
+VERIFIED: refusal retains generated hooks
+$ git branch --show-current
+fm/task-x1
+[exit 0]
+VERIFIED: refusal retains checked-out task branch
+VERIFIED: refusal retains original lease
+VERIFIED: uncommitted content remains byte-identical
+REFUSAL OUTPUT: fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-claude-True/home
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision according to the session-start block for this harness; do not use shell &.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+teardown: the project's current Treehouse pool does not list {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-claude-True/pools/.treehouse/project-02e855/1/project (a git url rewrite can move a project's pool); confirming lease d1b4ba2840b7908f43e081c7fd20b2b3 against the slot's own pool {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-claude-True/pools/.treehouse/project-02e855
+REFUSED: gone-pool-slot worktree {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-dirty-claude-True/pools/.treehouse/project-02e855/1/project has uncommitted changes; the pool no longer lists this slot, so nothing was returned and nothing was discarded - clean the copy or back it up by hand, then retry teardown.
+uncommitted changes present (untracked-only leftovers)
+untracked paths (up to 10):
+  .claude/user-work.md
+
+$ bin/fm-lab-home.sh create {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-unlanded-True/home
+{run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-unlanded-True/home
+[exit 0]
+$ git init -q -b main {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-unlanded-True/project
+[exit 0]
+$ git add .
+[exit 0]
+$ git commit -qm baseline
+[exit 0]
+$ git clone -q --bare {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-unlanded-True/project {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-unlanded-True/origin.git
+[exit 0]
+$ git remote add origin {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-unlanded-True/origin.git
+[exit 0]
+$ git fetch -q origin
+[exit 0]
+$ treehouse get --lease --json --no-fetch -b fm/task-x1
+{"path":"{run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-unlanded-True/pools/.treehouse/project-05519e/1/project","lease_id":"2aa45a08f5183625b2157bcd4a4be531","lease_holder":"","leased_at":"2026-11-06T12:01:21.727115589+01:00","base_branch":"main"}
+🌳 Setting up worktree...
+🌳 Leased worktree at {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-unlanded-True/pools/.treehouse/project-05519e/1/project. Run 'treehouse return {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-unlanded-True/pools/.treehouse/project-05519e/1/project' to release it.
+[exit 0]
+$ git push -q origin fm/task-x1
+[exit 0]
+$ git config --file {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-unlanded-True/gitconfig url.file://{run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-unlanded-True/origin.git.insteadOf {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-unlanded-True/origin.git
+[exit 0]
+$ treehouse status --json
+[]
+[exit 0]
+POOL STATE BEFORE: {
+  "version": 4,
+  "worktrees": [
+    {
+      "name": "1",
+      "path": "{run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-unlanded-True/pools/.treehouse/project-05519e/1/project",
+      "created_at": "2026-11-06T12:01:21.69428246+01:00",
+      "leased": true,
+      "lease_id": "2aa45a08f5183625b2157bcd4a4be531",
+      "leased_at": "2026-11-06T12:01:21.727115589+01:00",
+      "seed_inventory_known": true,
+      "seed_inventory_digest": "0d6218673ff09d81aa56ebf174b129df22c3eacfbce996f1ea7bba969a9fa453"
+    }
+  ]
+}
+$ git add unlanded.txt
+[exit 0]
+$ git commit -qm unlanded work
+[exit 0]
+$ git rev-parse HEAD
+a8c47bdae548ccd3e713f09b1dd3ebfc52518131
+[exit 0]
+$ {run-worktree}/bin/fm-teardown.sh task-x1 --force
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-unlanded-True/home
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision according to the session-start block for this harness; do not use shell &.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+teardown: the project's current Treehouse pool does not list {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-unlanded-True/pools/.treehouse/project-05519e/1/project (a git url rewrite can move a project's pool); confirming lease 2aa45a08f5183625b2157bcd4a4be531 against the slot's own pool {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-unlanded-True/pools/.treehouse/project-05519e
+REFUSED: gone-pool-slot worktree {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-unlanded-True/pools/.treehouse/project-05519e/1/project has work not on any remote and not landed; the pool no longer lists this slot, so nothing was returned and nothing was discarded - push the branch or land its PR, then retry teardown.
+unpushed commits:
+a8c47bd unlanded work
+[exit 1]
+VERIFIED: unlanded commits refuse old-unlanded-True
+VERIFIED: refusal retains task record
+VERIFIED: refusal retains generated hooks
+$ git branch --show-current
+fm/task-x1
+[exit 0]
+VERIFIED: refusal retains checked-out task branch
+VERIFIED: refusal retains original lease
+$ git rev-parse HEAD
+a8c47bdae548ccd3e713f09b1dd3ebfc52518131
+[exit 0]
+VERIFIED: unlanded head preserved
+$ bin/fm-lab-home.sh create {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-no-lsof-writer/home
+{run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-no-lsof-writer/home
+[exit 0]
+$ git init -q -b main {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-no-lsof-writer/project
+[exit 0]
+$ git add .
+[exit 0]
+$ git commit -qm baseline
+[exit 0]
+$ git clone -q --bare {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-no-lsof-writer/project {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-no-lsof-writer/origin.git
+[exit 0]
+$ git remote add origin {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-no-lsof-writer/origin.git
+[exit 0]
+$ git fetch -q origin
+[exit 0]
+$ treehouse get --lease --json --no-fetch -b fm/task-x1
+{"path":"{run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-no-lsof-writer/pools/.treehouse/project-014a29/1/project","lease_id":"9456ba033f1e48cfe00c13cee9c8483b","lease_holder":"","leased_at":"2026-11-06T12:01:23.946902059+01:00","base_branch":"main"}
+🌳 Setting up worktree...
+🌳 Leased worktree at {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-no-lsof-writer/pools/.treehouse/project-014a29/1/project. Run 'treehouse return {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-no-lsof-writer/pools/.treehouse/project-014a29/1/project' to release it.
+[exit 0]
+$ git push -q origin fm/task-x1
+[exit 0]
+$ git config --file {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-no-lsof-writer/gitconfig url.file://{run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-no-lsof-writer/origin.git.insteadOf {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-no-lsof-writer/origin.git
+[exit 0]
+$ treehouse status --json
+[]
+[exit 0]
+POOL STATE BEFORE: {
+  "version": 4,
+  "worktrees": [
+    {
+      "name": "1",
+      "path": "{run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-no-lsof-writer/pools/.treehouse/project-014a29/1/project",
+      "created_at": "2026-11-06T12:01:23.916653876+01:00",
+      "leased": true,
+      "lease_id": "9456ba033f1e48cfe00c13cee9c8483b",
+      "leased_at": "2026-11-06T12:01:23.946902059+01:00",
+      "seed_inventory_known": true,
+      "seed_inventory_digest": "1058d1fe64e72acd541a14d1976f7a49966f35884291871111798b4ba58a9e29"
+    }
+  ]
+}
+VERIFIED: lsof genuinely absent, not mocked
+$ {run-worktree}/bin/fm-teardown.sh task-x1 --force
+Preserved gone-pool-slot lane task-x1: bundle {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-no-lsof-writer/home/data/bundles/task-x1.bundle
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-no-lsof-writer/home
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision according to the session-start block for this harness; do not use shell &.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+teardown: the project's current Treehouse pool does not list {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-no-lsof-writer/pools/.treehouse/project-014a29/1/project (a git url rewrite can move a project's pool); confirming lease 9456ba033f1e48cfe00c13cee9c8483b against the slot's own pool {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-no-lsof-writer/pools/.treehouse/project-014a29
+REFUSED: lsof is unavailable, so writer shutdown cannot be verified for forced ship-slot cleanup of {run-worktree}/.test-tmp/live-teardown-67ugsjnb/old-no-lsof-writer/pools/.treehouse/project-014a29/1/project; nothing was returned or discarded
+[exit 1]
+VERIFIED: forced ship refuses missing writer-shutdown proof
+VERIFIED: actual non-tmux worker remains live, confirming missing shutdown capability
+VERIFIED: refusal retains task record
+VERIFIED: refusal retains generated hooks
+$ git branch --show-current
+fm/task-x1
+[exit 0]
+VERIFIED: refusal retains checked-out task branch
+VERIFIED: refusal retains original lease
+$ bin/fm-lab-home.sh create {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-dirty-tracked-False/home
+{run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-dirty-tracked-False/home
+[exit 0]
+$ git init -q -b main {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-dirty-tracked-False/project
+[exit 0]
+$ git add .
+[exit 0]
+$ git commit -qm baseline
+[exit 0]
+$ git clone -q --bare {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-dirty-tracked-False/project {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-dirty-tracked-False/origin.git
+[exit 0]
+$ git remote add origin {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-dirty-tracked-False/origin.git
+[exit 0]
+$ git fetch -q origin
+[exit 0]
+$ treehouse get --lease --json --no-fetch -b fm/task-x1
+{"path":"{run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-dirty-tracked-False/pools/.treehouse/project-888616/1/project","lease_id":"e09841bf5236995aac22dc72876b7a26","lease_holder":"","leased_at":"2026-11-06T12:01:26.229651643+01:00","base_branch":"main"}
+🌳 Setting up worktree...
+🌳 Leased worktree at {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-dirty-tracked-False/pools/.treehouse/project-888616/1/project. Run 'treehouse return {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-dirty-tracked-False/pools/.treehouse/project-888616/1/project' to release it.
+[exit 0]
+$ git push -q origin fm/task-x1
+[exit 0]
+$ treehouse status --json
+[{"name":"1","path":"{run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-dirty-tracked-False/pools/.treehouse/project-888616/1/project","status":"leased","branch":"fm/task-x1","flavor":"git","lease_id":"e09841bf5236995aac22dc72876b7a26","lease_holder":"","leased_at":"2026-11-06T12:01:26.229651643+01:00","processes":[]}]
+[exit 0]
+POOL STATE BEFORE: {
+  "version": 4,
+  "worktrees": [
+    {
+      "name": "1",
+      "path": "{run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-dirty-tracked-False/pools/.treehouse/project-888616/1/project",
+      "created_at": "2026-11-06T12:01:26.184351823+01:00",
+      "leased": true,
+      "lease_id": "e09841bf5236995aac22dc72876b7a26",
+      "leased_at": "2026-11-06T12:01:26.229651643+01:00",
+      "seed_inventory_known": true,
+      "seed_inventory_digest": "00f7b5a8ffe51672e507c1ddb6573b130bc0998cc2dc824b9d83ccb54a4a5a4a"
+    }
+  ]
+}
+$ {run-worktree}/bin/fm-teardown.sh task-x1
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-dirty-tracked-False/home
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 0s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision according to the session-start block for this harness; do not use shell &.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REFUSED: worktree {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-dirty-tracked-False/pools/.treehouse/project-888616/1/project has uncommitted changes.
+uncommitted changes present (includes tracked edits)
+Commit them (or get the captain's explicit OK to discard, then --force).
+[exit 1]
+VERIFIED: uncommitted work refuses current-dirty-tracked-False
+VERIFIED: refusal retains task record
+VERIFIED: refusal retains generated hooks
+$ git branch --show-current
+fm/task-x1
+[exit 0]
+VERIFIED: refusal retains checked-out task branch
+VERIFIED: refusal retains original lease
+VERIFIED: uncommitted content remains byte-identical
+REFUSAL OUTPUT: fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-dirty-tracked-False/home
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 0s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision according to the session-start block for this harness; do not use shell &.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REFUSED: worktree {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-dirty-tracked-False/pools/.treehouse/project-888616/1/project has uncommitted changes.
+uncommitted changes present (includes tracked edits)
+Commit them (or get the captain's explicit OK to discard, then --force).
+
+$ bin/fm-lab-home.sh create {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-dirty-untracked-False/home
+{run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-dirty-untracked-False/home
+[exit 0]
+$ git init -q -b main {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-dirty-untracked-False/project
+[exit 0]
+$ git add .
+[exit 0]
+$ git commit -qm baseline
+[exit 0]
+$ git clone -q --bare {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-dirty-untracked-False/project {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-dirty-untracked-False/origin.git
+[exit 0]
+$ git remote add origin {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-dirty-untracked-False/origin.git
+[exit 0]
+$ git fetch -q origin
+[exit 0]
+$ treehouse get --lease --json --no-fetch -b fm/task-x1
+{"path":"{run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-dirty-untracked-False/pools/.treehouse/project-3c4c8d/1/project","lease_id":"532171f968402418cab7e5e6084e3b39","lease_holder":"","leased_at":"2026-11-06T12:01:28.477298683+01:00","base_branch":"main"}
+🌳 Setting up worktree...
+🌳 Leased worktree at {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-dirty-untracked-False/pools/.treehouse/project-3c4c8d/1/project. Run 'treehouse return {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-dirty-untracked-False/pools/.treehouse/project-3c4c8d/1/project' to release it.
+[exit 0]
+$ git push -q origin fm/task-x1
+[exit 0]
+$ treehouse status --json
+[{"name":"1","path":"{run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-dirty-untracked-False/pools/.treehouse/project-3c4c8d/1/project","status":"leased","branch":"fm/task-x1","flavor":"git","lease_id":"532171f968402418cab7e5e6084e3b39","lease_holder":"","leased_at":"2026-11-06T12:01:28.477298683+01:00","processes":[]}]
+[exit 0]
+POOL STATE BEFORE: {
+  "version": 4,
+  "worktrees": [
+    {
+      "name": "1",
+      "path": "{run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-dirty-untracked-False/pools/.treehouse/project-3c4c8d/1/project",
+      "created_at": "2026-11-06T12:01:28.438544903+01:00",
+      "leased": true,
+      "lease_id": "532171f968402418cab7e5e6084e3b39",
+      "leased_at": "2026-11-06T12:01:28.477298683+01:00",
+      "seed_inventory_known": true,
+      "seed_inventory_digest": "202093629f121ef78bcb73dc3a5cdf968bdcd7de084f301eb2092030f7e049db"
+    }
+  ]
+}
+$ {run-worktree}/bin/fm-teardown.sh task-x1
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-dirty-untracked-False/home
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision according to the session-start block for this harness; do not use shell &.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REFUSED: worktree {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-dirty-untracked-False/pools/.treehouse/project-3c4c8d/1/project has uncommitted changes.
+uncommitted changes present (untracked-only leftovers)
+untracked paths (up to 10):
+  user-work.txt
+Commit them (or get the captain's explicit OK to discard, then --force).
+[exit 1]
+VERIFIED: uncommitted work refuses current-dirty-untracked-False
+VERIFIED: refusal retains task record
+VERIFIED: refusal retains generated hooks
+$ git branch --show-current
+fm/task-x1
+[exit 0]
+VERIFIED: refusal retains checked-out task branch
+VERIFIED: refusal retains original lease
+VERIFIED: uncommitted content remains byte-identical
+REFUSAL OUTPUT: fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-dirty-untracked-False/home
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision according to the session-start block for this harness; do not use shell &.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REFUSED: worktree {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-dirty-untracked-False/pools/.treehouse/project-3c4c8d/1/project has uncommitted changes.
+uncommitted changes present (untracked-only leftovers)
+untracked paths (up to 10):
+  user-work.txt
+Commit them (or get the captain's explicit OK to discard, then --force).
+
+$ bin/fm-lab-home.sh create {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-unlanded-False/home
+{run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-unlanded-False/home
+[exit 0]
+$ git init -q -b main {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-unlanded-False/project
+[exit 0]
+$ git add .
+[exit 0]
+$ git commit -qm baseline
+[exit 0]
+$ git clone -q --bare {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-unlanded-False/project {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-unlanded-False/origin.git
+[exit 0]
+$ git remote add origin {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-unlanded-False/origin.git
+[exit 0]
+$ git fetch -q origin
+[exit 0]
+$ treehouse get --lease --json --no-fetch -b fm/task-x1
+{"path":"{run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-unlanded-False/pools/.treehouse/project-da9cc9/1/project","lease_id":"2d358ebaae1b602d42f13d95f82578cb","lease_holder":"","leased_at":"2026-11-06T12:01:30.691036159+01:00","base_branch":"main"}
+🌳 Setting up worktree...
+🌳 Leased worktree at {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-unlanded-False/pools/.treehouse/project-da9cc9/1/project. Run 'treehouse return {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-unlanded-False/pools/.treehouse/project-da9cc9/1/project' to release it.
+[exit 0]
+$ git push -q origin fm/task-x1
+[exit 0]
+$ treehouse status --json
+[{"name":"1","path":"{run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-unlanded-False/pools/.treehouse/project-da9cc9/1/project","status":"leased","branch":"fm/task-x1","flavor":"git","lease_id":"2d358ebaae1b602d42f13d95f82578cb","lease_holder":"","leased_at":"2026-11-06T12:01:30.691036159+01:00","processes":[]}]
+[exit 0]
+POOL STATE BEFORE: {
+  "version": 4,
+  "worktrees": [
+    {
+      "name": "1",
+      "path": "{run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-unlanded-False/pools/.treehouse/project-da9cc9/1/project",
+      "created_at": "2026-11-06T12:01:30.652121067+01:00",
+      "leased": true,
+      "lease_id": "2d358ebaae1b602d42f13d95f82578cb",
+      "leased_at": "2026-11-06T12:01:30.691036159+01:00",
+      "seed_inventory_known": true,
+      "seed_inventory_digest": "e16729686bb3b009a3a949188341353193cd870be9b24ab5d5bb2091fefc6d22"
+    }
+  ]
+}
+$ git add unlanded.txt
+[exit 0]
+$ git commit -qm unlanded work
+[exit 0]
+$ git rev-parse HEAD
+ef795c5432e851b18529848e6cae1c1edc7f639f
+[exit 0]
+$ {run-worktree}/bin/fm-teardown.sh task-x1
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-unlanded-False/home
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision according to the session-start block for this harness; do not use shell &.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REFUSED: worktree {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-unlanded-False/pools/.treehouse/project-da9cc9/1/project has work not on any remote and not landed.
+unpushed commits:
+ef795c5 unlanded work
+Push the branch, land its PR, or get the captain's explicit OK to discard, then --force.
+[exit 1]
+VERIFIED: unlanded commits refuse current-unlanded-False
+VERIFIED: refusal retains task record
+VERIFIED: refusal retains generated hooks
+$ git branch --show-current
+fm/task-x1
+[exit 0]
+VERIFIED: refusal retains checked-out task branch
+VERIFIED: refusal retains original lease
+$ git rev-parse HEAD
+ef795c5432e851b18529848e6cae1c1edc7f639f
+[exit 0]
+VERIFIED: unlanded head preserved
+$ bin/fm-lab-home.sh create {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-dirty-tracked-True/home
+{run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-dirty-tracked-True/home
+[exit 0]
+$ git init -q -b main {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-dirty-tracked-True/project
+[exit 0]
+$ git add .
+[exit 0]
+$ git commit -qm baseline
+[exit 0]
+$ git clone -q --bare {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-dirty-tracked-True/project {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-dirty-tracked-True/origin.git
+[exit 0]
+$ git remote add origin {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-dirty-tracked-True/origin.git
+[exit 0]
+$ git fetch -q origin
+[exit 0]
+$ treehouse get --lease --json --no-fetch -b fm/task-x1
+{"path":"{run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-dirty-tracked-True/pools/.treehouse/project-7770d2/1/project","lease_id":"9886313880f1d0150d65ac1cc9f860d6","lease_holder":"","leased_at":"2026-11-06T12:01:32.997979594+01:00","base_branch":"main"}
+🌳 Setting up worktree...
+🌳 Leased worktree at {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-dirty-tracked-True/pools/.treehouse/project-7770d2/1/project. Run 'treehouse return {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-dirty-tracked-True/pools/.treehouse/project-7770d2/1/project' to release it.
+[exit 0]
+$ git push -q origin fm/task-x1
+[exit 0]
+$ treehouse status --json
+[{"name":"1","path":"{run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-dirty-tracked-True/pools/.treehouse/project-7770d2/1/project","status":"leased","branch":"fm/task-x1","flavor":"git","lease_id":"9886313880f1d0150d65ac1cc9f860d6","lease_holder":"","leased_at":"2026-11-06T12:01:32.997979594+01:00","processes":[]}]
+[exit 0]
+POOL STATE BEFORE: {
+  "version": 4,
+  "worktrees": [
+    {
+      "name": "1",
+      "path": "{run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-dirty-tracked-True/pools/.treehouse/project-7770d2/1/project",
+      "created_at": "2026-11-06T12:01:32.967213194+01:00",
+      "leased": true,
+      "lease_id": "9886313880f1d0150d65ac1cc9f860d6",
+      "leased_at": "2026-11-06T12:01:32.997979594+01:00",
+      "seed_inventory_known": true,
+      "seed_inventory_digest": "8f3ebd4d0089e7dc02566001981eb511d8919994d0f59fb768be717b596bff6f"
+    }
+  ]
+}
+$ {run-worktree}/bin/fm-teardown.sh task-x1 --force
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-dirty-tracked-True/home
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 0s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision according to the session-start block for this harness; do not use shell &.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REFUSED: worktree {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-dirty-tracked-True/pools/.treehouse/project-7770d2/1/project has uncommitted changes or untracked files that no commit or backup holds; --force never discards them from a leased slot, so nothing was returned and nothing was discarded - commit and push them, or move them out of the copy, then retry teardown.
+uncommitted changes present (includes tracked edits)
+[exit 1]
+VERIFIED: uncommitted work refuses current-dirty-tracked-True
+VERIFIED: refusal retains task record
+VERIFIED: refusal retains generated hooks
+$ git branch --show-current
+fm/task-x1
+[exit 0]
+VERIFIED: refusal retains checked-out task branch
+VERIFIED: refusal retains original lease
+VERIFIED: uncommitted content remains byte-identical
+REFUSAL OUTPUT: fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-dirty-tracked-True/home
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 0s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision according to the session-start block for this harness; do not use shell &.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REFUSED: worktree {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-dirty-tracked-True/pools/.treehouse/project-7770d2/1/project has uncommitted changes or untracked files that no commit or backup holds; --force never discards them from a leased slot, so nothing was returned and nothing was discarded - commit and push them, or move them out of the copy, then retry teardown.
+uncommitted changes present (includes tracked edits)
+
+$ bin/fm-lab-home.sh create {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-dirty-untracked-True/home
+{run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-dirty-untracked-True/home
+[exit 0]
+$ git init -q -b main {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-dirty-untracked-True/project
+[exit 0]
+$ git add .
+[exit 0]
+$ git commit -qm baseline
+[exit 0]
+$ git clone -q --bare {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-dirty-untracked-True/project {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-dirty-untracked-True/origin.git
+[exit 0]
+$ git remote add origin {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-dirty-untracked-True/origin.git
+[exit 0]
+$ git fetch -q origin
+[exit 0]
+$ treehouse get --lease --json --no-fetch -b fm/task-x1
+{"path":"{run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-dirty-untracked-True/pools/.treehouse/project-4ffb52/1/project","lease_id":"b8514ba6d13d57789e92f01af084946d","lease_holder":"","leased_at":"2026-11-06T12:01:35.835729528+01:00","base_branch":"main"}
+🌳 Setting up worktree...
+🌳 Leased worktree at {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-dirty-untracked-True/pools/.treehouse/project-4ffb52/1/project. Run 'treehouse return {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-dirty-untracked-True/pools/.treehouse/project-4ffb52/1/project' to release it.
+[exit 0]
+$ git push -q origin fm/task-x1
+[exit 0]
+$ treehouse status --json
+[{"name":"1","path":"{run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-dirty-untracked-True/pools/.treehouse/project-4ffb52/1/project","status":"leased","branch":"fm/task-x1","flavor":"git","lease_id":"b8514ba6d13d57789e92f01af084946d","lease_holder":"","leased_at":"2026-11-06T12:01:35.835729528+01:00","processes":[]}]
+[exit 0]
+POOL STATE BEFORE: {
+  "version": 4,
+  "worktrees": [
+    {
+      "name": "1",
+      "path": "{run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-dirty-untracked-True/pools/.treehouse/project-4ffb52/1/project",
+      "created_at": "2026-11-06T12:01:35.770997991+01:00",
+      "leased": true,
+      "lease_id": "b8514ba6d13d57789e92f01af084946d",
+      "leased_at": "2026-11-06T12:01:35.835729528+01:00",
+      "seed_inventory_known": true,
+      "seed_inventory_digest": "508b27b1b347e7ee99472f890e0539bfb59189568e8ab332d23c89b0d35c29f2"
+    }
+  ]
+}
+$ {run-worktree}/bin/fm-teardown.sh task-x1 --force
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-dirty-untracked-True/home
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 2s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision according to the session-start block for this harness; do not use shell &.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REFUSED: worktree {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-dirty-untracked-True/pools/.treehouse/project-4ffb52/1/project has uncommitted changes or untracked files that no commit or backup holds; --force never discards them from a leased slot, so nothing was returned and nothing was discarded - commit and push them, or move them out of the copy, then retry teardown.
+uncommitted changes present (untracked-only leftovers)
+untracked paths (up to 10):
+  user-work.txt
+[exit 1]
+VERIFIED: uncommitted work refuses current-dirty-untracked-True
+VERIFIED: refusal retains task record
+VERIFIED: refusal retains generated hooks
+$ git branch --show-current
+fm/task-x1
+[exit 0]
+VERIFIED: refusal retains checked-out task branch
+VERIFIED: refusal retains original lease
+VERIFIED: uncommitted content remains byte-identical
+REFUSAL OUTPUT: fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-dirty-untracked-True/home
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 2s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision according to the session-start block for this harness; do not use shell &.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REFUSED: worktree {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-dirty-untracked-True/pools/.treehouse/project-4ffb52/1/project has uncommitted changes or untracked files that no commit or backup holds; --force never discards them from a leased slot, so nothing was returned and nothing was discarded - commit and push them, or move them out of the copy, then retry teardown.
+uncommitted changes present (untracked-only leftovers)
+untracked paths (up to 10):
+  user-work.txt
+
+$ bin/fm-lab-home.sh create {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-unlanded-True/home
+{run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-unlanded-True/home
+[exit 0]
+$ git init -q -b main {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-unlanded-True/project
+[exit 0]
+$ git add .
+[exit 0]
+$ git commit -qm baseline
+[exit 0]
+$ git clone -q --bare {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-unlanded-True/project {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-unlanded-True/origin.git
+[exit 0]
+$ git remote add origin {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-unlanded-True/origin.git
+[exit 0]
+$ git fetch -q origin
+[exit 0]
+$ treehouse get --lease --json --no-fetch -b fm/task-x1
+{"path":"{run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-unlanded-True/pools/.treehouse/project-53a165/1/project","lease_id":"5a33ee9a277e76af25de16c0ddf200aa","lease_holder":"","leased_at":"2026-11-06T12:01:38.731107285+01:00","base_branch":"main"}
+🌳 Setting up worktree...
+🌳 Leased worktree at {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-unlanded-True/pools/.treehouse/project-53a165/1/project. Run 'treehouse return {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-unlanded-True/pools/.treehouse/project-53a165/1/project' to release it.
+[exit 0]
+$ git push -q origin fm/task-x1
+[exit 0]
+$ treehouse status --json
+[{"name":"1","path":"{run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-unlanded-True/pools/.treehouse/project-53a165/1/project","status":"leased","branch":"fm/task-x1","flavor":"git","lease_id":"5a33ee9a277e76af25de16c0ddf200aa","lease_holder":"","leased_at":"2026-11-06T12:01:38.731107285+01:00","processes":[]}]
+[exit 0]
+POOL STATE BEFORE: {
+  "version": 4,
+  "worktrees": [
+    {
+      "name": "1",
+      "path": "{run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-unlanded-True/pools/.treehouse/project-53a165/1/project",
+      "created_at": "2026-11-06T12:01:38.687472232+01:00",
+      "leased": true,
+      "lease_id": "5a33ee9a277e76af25de16c0ddf200aa",
+      "leased_at": "2026-11-06T12:01:38.731107285+01:00",
+      "seed_inventory_known": true,
+      "seed_inventory_digest": "08afc808f23365c556161b2d9d5fc5bce8a1ba1509f5dbaa7b602487d4adea57"
+    }
+  ]
+}
+$ git add unlanded.txt
+[exit 0]
+$ git commit -qm unlanded work
+[exit 0]
+$ git rev-parse HEAD
+8719ae9eb9c65364ff16677b0313810d299ddaf2
+[exit 0]
+$ {run-worktree}/bin/fm-teardown.sh task-x1 --force
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-unlanded-True/home
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision according to the session-start block for this harness; do not use shell &.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REFUSED: worktree {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-unlanded-True/pools/.treehouse/project-53a165/1/project has work not on any remote and not landed; --force never returns a leased slot holding unlanded commits, so nothing was returned and nothing was discarded - push the branch or land its PR, then retry teardown.
+unpushed commits:
+8719ae9 unlanded work
+[exit 1]
+VERIFIED: unlanded commits refuse current-unlanded-True
+VERIFIED: refusal retains task record
+VERIFIED: refusal retains generated hooks
+$ git branch --show-current
+fm/task-x1
+[exit 0]
+VERIFIED: refusal retains checked-out task branch
+VERIFIED: refusal retains original lease
+$ git rev-parse HEAD
+8719ae9eb9c65364ff16677b0313810d299ddaf2
+[exit 0]
+VERIFIED: unlanded head preserved
+$ bin/fm-lab-home.sh create {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-no-lsof-writer/home
+{run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-no-lsof-writer/home
+[exit 0]
+$ git init -q -b main {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-no-lsof-writer/project
+[exit 0]
+$ git add .
+[exit 0]
+$ git commit -qm baseline
+[exit 0]
+$ git clone -q --bare {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-no-lsof-writer/project {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-no-lsof-writer/origin.git
+[exit 0]
+$ git remote add origin {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-no-lsof-writer/origin.git
+[exit 0]
+$ git fetch -q origin
+[exit 0]
+$ treehouse get --lease --json --no-fetch -b fm/task-x1
+{"path":"{run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-no-lsof-writer/pools/.treehouse/project-c96ec8/1/project","lease_id":"58d587ed3ce3acfdc54c3fa2453a8d4e","lease_holder":"","leased_at":"2026-11-06T12:01:41.477875547+01:00","base_branch":"main"}
+🌳 Setting up worktree...
+🌳 Leased worktree at {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-no-lsof-writer/pools/.treehouse/project-c96ec8/1/project. Run 'treehouse return {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-no-lsof-writer/pools/.treehouse/project-c96ec8/1/project' to release it.
+[exit 0]
+$ git push -q origin fm/task-x1
+[exit 0]
+$ treehouse status --json
+[{"name":"1","path":"{run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-no-lsof-writer/pools/.treehouse/project-c96ec8/1/project","status":"leased","branch":"fm/task-x1","flavor":"git","lease_id":"58d587ed3ce3acfdc54c3fa2453a8d4e","lease_holder":"","leased_at":"2026-11-06T12:01:41.477875547+01:00","processes":[]}]
+[exit 0]
+POOL STATE BEFORE: {
+  "version": 4,
+  "worktrees": [
+    {
+      "name": "1",
+      "path": "{run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-no-lsof-writer/pools/.treehouse/project-c96ec8/1/project",
+      "created_at": "2026-11-06T12:01:41.436517039+01:00",
+      "leased": true,
+      "lease_id": "58d587ed3ce3acfdc54c3fa2453a8d4e",
+      "leased_at": "2026-11-06T12:01:41.477875547+01:00",
+      "seed_inventory_known": true,
+      "seed_inventory_digest": "e8818a2e88e9d5feeb1883dd0f417845e1d73de265e293442a43a557c73a69a6"
+    }
+  ]
+}
+VERIFIED: lsof genuinely absent, not mocked
+$ {run-worktree}/bin/fm-teardown.sh task-x1 --force
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-no-lsof-writer/home
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision according to the session-start block for this harness; do not use shell &.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REFUSED: lsof is unavailable, so writer shutdown cannot be verified for forced ship-slot cleanup of {run-worktree}/.test-tmp/live-teardown-67ugsjnb/current-no-lsof-writer/pools/.treehouse/project-c96ec8/1/project; nothing was returned or discarded
+[exit 1]
+VERIFIED: forced ship refuses missing writer-shutdown proof
+VERIFIED: actual non-tmux worker remains live, confirming missing shutdown capability
+VERIFIED: refusal retains task record
+VERIFIED: refusal retains generated hooks
+$ git branch --show-current
+fm/task-x1
+[exit 0]
+VERIFIED: refusal retains checked-out task branch
+VERIFIED: refusal retains original lease
+ALL LIVE CASES COMPLETED: [{"case": "old clean", "result": "pass"}, {"case": "current clean", "result": "pass"}, {"case": "actual old-pool return/re-lease between read and lock", "result": "pass"}, {"case": "old-dirty-tracked-False", "result": "pass"}, {"case": "old-dirty-untracked-False", "result": "pass"}, {"case": "old-dirty-claude-False", "result": "pass"}, {"case": "old-unlanded-False", "result": "pass"}, {"case": "old-dirty-tracked-True", "result": "pass"}, {"case": "old-dirty-untracked-True", "result": "pass"}, {"case": "old-dirty-claude-True", "result": "pass"}, {"case": "old-unlanded-True", "result": "pass"}, {"case": "old-no-lsof-writer", "result": "pass"}, {"case": "current-dirty-tracked-False", "result": "pass"}, {"case": "current-dirty-untracked-False", "result": "pass"}, {"case": "current-unlanded-False", "result": "pass"}, {"case": "current-dirty-tracked-True", "result": "pass"}, {"case": "current-dirty-untracked-True", "result": "pass"}, {"case": "current-unlanded-True", "result": "pass"}, {"case": "current-no-lsof-writer", "result": "pass"}]
