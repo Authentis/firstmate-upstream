@@ -1,58 +1,61 @@
-fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live/home
-note: task gateattach11's recorded endpoint gone-session:fm-gateattach11 is proven absent; unreadable working directories accepted as known non-workers: 1267 (sd-pam), 1487 gpg-agent, 4002860 sshd
-fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live/home
+{run-worktree}/.live-validation/home
+
+=== missing endpoint exit proof ===
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live-validation/home
+note: task recover's recorded endpoint vanished:fm-recover is proven absent; unreadable working directories accepted as known non-workers: 1267 (sd-pam), 1487 gpg-agent
+endpoint-gone recover harness=claude backend=tmux endpoint=vanished:fm-recover worktree={run-worktree}/.live-validation/worker
+
+=== missing endpoint relaunch ===
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live-validation/home
+note: task recover's recorded endpoint vanished:fm-recover is proven absent; unreadable working directories accepted as known non-workers: 1267 (sd-pam), 1487 gpg-agent
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live-validation/home
 ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ●  WATCHER DOWN - SUPERVISION IS OFF
-●  3 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
 ●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
 ●  This is a supervision warning only; the guarded operation WILL still run.
 ●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
 ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-note: task gateattach11's recorded endpoint gone-session:fm-gateattach11 is proven absent; unreadable working directories accepted as known non-workers: 1267 (sd-pam), 1487 gpg-agent, 4002860 sshd
-warning: {run-worktree}/.live/home/data/gateattach11/launch-brief.md records no ship branch; defaulting to legacy branch fm/gateattach11
-warning: {run-worktree}/.live/home/data/gateattach11/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode local-only - confirm its definition of done matches
-notice: gateattach11 ships mode=local-only while the standing posture for project is no-mistakes - less rigor than the captain's standing posture; proceed only on a current explicit captain instruction or an intake judgment you can state
-relaunched gateattach11 harness=codex from=codex model=default effort=default backend=tmux endpoint=lab:fm-gateattach11 worktree={run-worktree}/.live/wtparent/gateattach11
-exit=0
+note: task recover's recorded endpoint vanished:fm-recover is proven absent; unreadable working directories accepted as known non-workers: 1267 (sd-pam), 1487 gpg-agent
+warning: {run-worktree}/.live-validation/home/data/recover/launch-brief.md records no ship branch; defaulting to legacy branch fm/recover
+warning: {run-worktree}/.live-validation/home/data/recover/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+relaunched recover harness=claude from=claude model=default effort=default backend=tmux endpoint=fm-lab-recover:fm-recover worktree={run-worktree}/.live-validation/worker
 
-## Persisted state and real tmux surface
-window=lab:fm-gateattach11
-endpoint_task_id=gateattach11
-worktree={run-worktree}/.live/wtparent/gateattach11
-project={run-worktree}/.live/project
-harness=codex
+=== durable record and preserved work ===
+window=fm-lab-recover:fm-recover
+endpoint_task_id=recover
+worktree={run-worktree}/.live-validation/worker
+project={run-worktree}/.live-validation/project
+harness=claude
 kind=ship
-mode=local-only
+mode=no-mistakes
 yolo=off
-branch=fm/gateattach11
-tasktmp=/tmp/fm-gateattach11
+branch=fm/recover
+tasktmp=/tmp/fm-recover
 model=default
 effort=default
-spawn_gen=s1793973073.2627754.2387
-control_relaunch_tx=2620609.20261106T135109Z.17002
+busy_gen=g1793985276.3440768.14368
+spawn_gen=s1793985277.3433254.12637
+control_relaunch_tx=3429980.20261106T171433Z.1125
  M saved.txt
-b5c03de13d6a9b7be42cb53e9b37547545067ae5 preserved
-saved committed work
-unfinished changes
-lab:bash @0 {run-worktree}
-lab:fm-gateattach11 @1 {run-worktree}/.live/wtparent/gateattach11
-  Welcome to Codex, OpenAI's command-line coding agent
+?? untracked.txt
+committed preserved
+dirty preserved
+untracked preserved
 
-  Choose how you want to use Codex.
-
-> 1. Sign in with ChatGPT
-     Usage included with Plus, Pro, Business, and Enterprise plans
-
-  2. Sign in with Device Code
-     Sign in from another device with a one-time code
-
-  3. Use an OpenAI API key
-     Pay for what you use
-
-  4. Use Amazon Bedrock
-     Connect using your AWS credentials
-
-  Press enter to continue
+=== actual terminal ===
+holu@387548:{run-worktree}/.live-validati
+on/worker$ cd -- '{run-worktree}/.live-va
+lidation/worker'
+holu@387548:{run-worktree}/.live-validati
+on/worker$ export GOTMPDIR=/tmp/fm-recover/gotmp
+holu@387548:{run-worktree}/.live-validati
+on/worker$ export COMPACT_ADVISER_DISABLE=1
+holu@387548:{run-worktree}/.live-validati
+on/worker$ export FM_TASK_ID=recover
+holu@387548:{run-worktree}/.live-validati
+on/worker$ . '/tmp/fm-recover+982b2f7f52af081a54e49b0e61889852c450089da82b64276949a7edb2694c04/launc
+h.s1793985277.3433254.12637.sh'
 
 
 
@@ -71,3 +74,16 @@ lab:fm-gateattach11 @1 {run-worktree}/.live/wtparent/gateattach11
 
 
 
+
+=== Persisted relaunch progress note and transaction ===
+uncommitted change are exactly as the previous worker left them.
+
+First, check your instruction inbox: list {run-worktree}/.live-validation/home/state/recover.inbox/*.msg, act on
+each message in numeric order, then acknowledge each handled one with
+{run-worktree}/bin/fm-inbox-ack.sh recover <seq> (never a raw move). A steer sent before
+the relaunch survives there.
+
+Resume saved commits and unfinished files.
+
+phase=complete
+from_harness=claude

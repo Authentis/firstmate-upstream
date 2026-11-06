@@ -1,11 +1,9 @@
-ok - a remote-seeded secondmate home allocates and launches from its Treehouse pool
-ok - a Treehouse slot claim names the launched task, refuses when unclaimable, and is dropped by a locked abort
-ok - protected pool slot (owned-branch-unique) refuses acquisition and stays byte-identical
-ok - protected pool slot (owned-detached-clean) refuses acquisition and stays byte-identical
-ok - protected pool slot (branch-unique) refuses acquisition and stays byte-identical
-ok - protected pool slot (detached-unique) refuses acquisition and stays byte-identical
-ok - protected pool slot (unlocatable-owner) refuses acquisition and stays byte-identical
-ok - free pool slot (stale-claim) still acquires and refreshes normally
-ok - free pool slot (preserved-elsewhere) still acquires and refreshes normally
-not ok - two refused spawns left a claim: task=pool-race-b-r1
-home=/tmp/fm-spawn-pool-base-freshen.J7DmMZ/race/home
+ok - attach: a preserved head is restored from its bundle onto its own branch
+ok - attach: a home-relative bundle restores its head and branch from the invocation directory
+ok - attach: an existing branch at the preserved head is checked out, never re-cut
+ok - attach: every refusal stops before the copy, the record, or any branch is touched
+ok - attach: a branch origin moved past the preserved head refuses without creating it
+ok - attach: origin is asked for the exact branch, so a narrow fetch refspec cannot hide another head
+ok - attach: a project with no origin attaches a head it already holds
+ok - attach: a failure after the checkout puts the copy back and drops only the branch it created, so a retry attaches
+ok - attach: a failure after the checkout keeps a branch that existed before the attach

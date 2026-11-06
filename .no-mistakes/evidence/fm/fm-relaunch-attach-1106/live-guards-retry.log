@@ -1,0 +1,98 @@
+
+=== Foreign socket process cwd prevents duplicate recovery ===
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live-validation/home
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+error: task recover's recorded endpoint vanished:fm-recover reads 'missing', but process 3671847 is working in the recorded worktree, so its agent may still be running in a tmux window this process cannot address. An endpoint that cannot be proven absent may still hold a live agent on this task's worktree; refusing rather than launching a second agent into it
+exit=1
+
+=== Process task-name token prevents duplicate recovery ===
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live-validation/home
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+error: task recover's recorded endpoint vanished:fm-recover reads 'missing', but process 3675509 names the task in its arguments, so its agent may still be running in a tmux window this process cannot address. An endpoint that cannot be proven absent may still hold a live agent on this task's worktree; refusing rather than launching a second agent into it
+exit=1
+
+=== Process worktree argument prevents duplicate recovery ===
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live-validation/home
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+error: task recover's recorded endpoint vanished:fm-recover reads 'missing', but process 3677066 names the recorded worktree in its arguments, so its agent may still be running in a tmux window this process cannot address. An endpoint that cannot be proven absent may still hold a live agent on this task's worktree; refusing rather than launching a second agent into it
+exit=1
+
+=== Same-named window prevents recovery ===
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live-validation/home
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+error: task recover's recorded endpoint vanished:fm-recover reads 'missing', but a window named 'fm-recover' is still in the window inventory of the tmux server this process addresses. An endpoint that cannot be proven absent may still hold a live agent on this task's worktree; refusing rather than launching a second agent into it
+exit=1
+
+=== Unreadable non-allowlisted live process cwd refuses absence proof ===
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live-validation/home
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+error: task recover's recorded endpoint vanished:fm-recover reads 'missing', but the working directory of process 3680960 could not be read. An endpoint that cannot be proven absent may still hold a live agent on this task's worktree; refusing rather than launching a second agent into it
+exit=1
+
+=== Pre-publication trust failure removes replacement, preserves record ===
+
+=== Invalid trust store triggers recovery abort cleanup ===
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live-validation/home
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+note: task recover's recorded endpoint vanished:fm-recover is proven absent; unreadable working directories accepted as known non-workers: 1267 (sd-pam), 1487 gpg-agent
+warning: {run-worktree}/.live-validation/home/data/recover/launch-brief.md records no ship branch; defaulting to legacy branch fm/recover
+warning: {run-worktree}/.live-validation/home/data/recover/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+error: Unexpected token 'i', "invalid json
+" is not valid JSON
+error: refusing to pre-register Claude trust: could not record trust for '{run-worktree}/.live-validation/worker' and project '{run-worktree}/.live-validation/project' in '{run-worktree}/.live-validation/user/claude/.claude.json'
+error: could not pre-register Claude workspace trust for {run-worktree}/.live-validation/worker; refusing to launch a claude worker that would wedge on the trust dialog; inspect window fm-lab-recover:fm-recover
+exit=1
+
+=== Retrying the same recovery after repairing lab trust ===
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live-validation/home
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+note: task recover's recorded endpoint vanished:fm-recover is proven absent; unreadable working directories accepted as known non-workers: 1267 (sd-pam), 1487 gpg-agent
+warning: {run-worktree}/.live-validation/home/data/recover/launch-brief.md records no ship branch; defaulting to legacy branch fm/recover
+warning: {run-worktree}/.live-validation/home/data/recover/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+spawned recover harness=claude kind=ship mode=no-mistakes yolo=off window=fm-lab-recover:fm-recover worktree={run-worktree}/.live-validation/worker
+window=fm-lab-recover:fm-recover
+endpoint_task_id=recover
+worktree={run-worktree}/.live-validation/worker
+project={run-worktree}/.live-validation/project
+harness=claude
+kind=ship
+mode=no-mistakes
+yolo=off
+branch=fm/recover
+tasktmp=/tmp/fm-recover
+model=default
+effort=default
+busy_gen=g1793985420.3695404.9575
+spawn_gen=s1793985420.3689871.1501
+                                             ░▓▓███▓▓░
+ *                                 ░░░░
+                                 ░░░░░░░░
+                               ░░░░░░░░░░░░░░░░
+       █████████                                        *
+      ██▄█████▄██                        *
+       █████████      *
+.......█ █   █ █..........................................
+
+ Let's get started.
+
+ Choose the text style that looks best with your terminal
+ To change this later, run /theme
+
+     Auto (match terminal)
+ ❯ ✔ Dark mode
+     Light mode
+     Dark mode (colorblind-friendly)
+     Light mode (colorblind-friendly)
+     Dark mode (ANSI colors only)
+     Light mode (ANSI colors only)
+
+ ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+  1  function greet() {
+  2 -  console.log("Hello, World!");
+  2 +  console.log("Hello, Claude!");
+  3  }
+ ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+  Syntax theme: Monokai Extended (ctrl+t to disable)
+
+
+=== All duplicate guards and abort/retry checks passed ===

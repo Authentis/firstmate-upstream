@@ -1,20 +1,44 @@
+{run-worktree}/.live-validation/attach/home
 
-$ {run-worktree}/bin/fm-spawn.sh lv-bundle-attach {run-worktree}/.a/proj --mode local-only --yolo off --harness claude --attach-branch fm/lv-bundle-attach --attach-head 8e820e2706522ec4662212c90be5282c7827a3db --attach-bundle data/bundles/preserved\ work.bundle 
-fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.a/h
-warning: {run-worktree}/.a/h/data/lv-bundle-attach/launch-brief.md records no ship branch; defaulting to legacy branch fm/lv-bundle-attach
-warning: {run-worktree}/.a/h/data/lv-bundle-attach/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode local-only - confirm its definition of done matches
-notice: lv-bundle-attach ships mode=local-only while the standing posture for proj is no-mistakes - less rigor than the captain's standing posture; proceed only on a current explicit captain instruction or an intake judgment you can state
+=== Wrong bundle head refuses without an endpoint ===
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live-validation/attach/home
+error: --attach-head 0123456789abcdef0123456789abcdef01234567 is not a head of bundle '{run-worktree}/.live-validation/attach/home/data/bundles/saved work.bundle'; refusing to attach to a commit it does not carry
+exit=1
+
+=== Existing branch at another commit refuses without moving it ===
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live-validation/attach/home
+error: branch fm/conflict already exists at d6528bf1bd0f1ea705b19c3f5e55648cfb7ecdeb (refs/heads/fm/conflict), not at --attach-head b02e540837dcc05fae755f7dbb42fb855dbccf5c; refusing to attach to a branch with a different head
+exit=1
+
+=== Origin branch conflict is visible even with narrow fetch refspec ===
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live-validation/attach/home
+error: branch fm/remote-conflict already exists on origin at d6528bf1bd0f1ea705b19c3f5e55648cfb7ecdeb, not at --attach-head b02e540837dcc05fae755f7dbb42fb855dbccf5c; refusing to attach to a branch with a different head
+exit=1
+
+=== Relative bundle with spaces restores exact branch and commit ===
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live-validation/attach/home
 🌳 Setting up worktree...
-🌳 Leased worktree at {run-worktree}/.a/pool/.treehouse/proj-fcd54c/1/proj. Run 'treehouse return {run-worktree}/.a/pool/.treehouse/proj-fcd54c/1/proj' to release it.
-spawned lv-bundle-attach harness=claude kind=ship mode=local-only yolo=off window=attach:fm-lv-bundle-attach worktree={run-worktree}/.a/pool/.treehouse/proj-fcd54c/1/proj
-exit=0
-Restored HEAD=8e820e2706522ec4662212c90be5282c7827a3db branch=fm/lv-bundle-attach worktree={run-worktree}/.a/pool/.treehouse/proj-fcd54c/1/proj
-history that must survive
-     *                                       █████▓▓░
-                                 *         ███▓░     ░░
-            ░░░░░░                        ███▓░
-    ░░░   ░░░░░░░░░░                      ███▓░
-   ░░░░░░░░░░░░░░░░░░░    *                ██▓░░      ▓
+🌳 Leased worktree at {run-worktree}/.live-validation/attach/pool/.treehouse/project-50b87a/1/project. Run 'treehouse return {run-worktree}/.live-validation/attach/pool/.treehouse/project-50b87a/1/project' to release it.
+spawned bundle-restore harness=claude kind=ship mode=no-mistakes yolo=off window=fm-lab-attach:fm-bundle-restore worktree={run-worktree}/.live-validation/attach/pool/.treehouse/project-50b87a/1/project
+window=fm-lab-attach:fm-bundle-restore
+endpoint_task_id=bundle-restore
+worktree={run-worktree}/.live-validation/attach/pool/.treehouse/project-50b87a/1/project
+lease_id=359c43b6351a5b8ffd0ede1c7c967e94
+project={run-worktree}/.live-validation/attach/project
+harness=claude
+kind=ship
+mode=no-mistakes
+yolo=off
+branch=fm/bundle-restore
+tasktmp=/tmp/fm-bundle-restore
+model=default
+effort=default
+busy_gen=g1793985675.4192197.12742
+spawn_gen=s1793985675.4185895.9074
+spawn_first=1793985675
+history recovered from bundle
+
+=== Real Claude started on restored branch (disposable HOME, no authentication claimed) ===
                                              ░▓▓███▓▓░
  *                                 ░░░░
                                  ░░░░░░░░
@@ -37,60 +61,94 @@ history that must survive
      Dark mode (ANSI colors only)
      Light mode (ANSI colors only)
 
- ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
   1  function greet() {
   2 -  console.log("Hello, World!");
   2 +  console.log("Hello, Claude!");
   3  }
- ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
   Syntax theme: Monokai Extended (ctrl+t to disable)
 
-PASS originless relative bundle attach restores exact head and branch
 
-$ {run-worktree}/bin/fm-spawn.sh lv-attach-retry {run-worktree}/.a/proj --mode local-only --yolo off --harness claude --attach-branch fm/lv-attach-retry --attach-head 8e820e2706522ec4662212c90be5282c7827a3db 
-fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.a/h
-warning: {run-worktree}/.a/h/data/lv-attach-retry/launch-brief.md records no ship branch; defaulting to legacy branch fm/lv-attach-retry
-warning: {run-worktree}/.a/h/data/lv-attach-retry/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode local-only - confirm its definition of done matches
-notice: lv-attach-retry ships mode=local-only while the standing posture for proj is no-mistakes - less rigor than the captain's standing posture; proceed only on a current explicit captain instruction or an intake judgment you can state
+=== Failed fresh attach restores detached checkout and removes only its new branch ===
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live-validation/attach/home
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 16s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🌳 Setting up worktree...
-🌳 Leased worktree at {run-worktree}/.a/pool/.treehouse/proj-fcd54c/2/proj. Run 'treehouse return {run-worktree}/.a/pool/.treehouse/proj-fcd54c/2/proj' to release it.
-error: Unexpected token 'o', "not json
+🌳 Leased worktree at {run-worktree}/.live-validation/attach/pool/.treehouse/project-50b87a/2/project. Run 'treehouse return {run-worktree}/.live-validation/attach/pool/.treehouse/project-50b87a/2/project' to release it.
+error: Unexpected token 'i', "invalid json
 " is not valid JSON
-error: refusing to pre-register Claude trust: could not record trust for '{run-worktree}/.a/pool/.treehouse/proj-fcd54c/2/proj' and project '{run-worktree}/.a/proj' in '{run-worktree}/.a/failconfig/.claude.json'
-error: could not pre-register Claude workspace trust for {run-worktree}/.a/pool/.treehouse/proj-fcd54c/2/proj; refusing to launch a claude worker that would wedge on the trust dialog; inspect window attach:fm-lv-attach-retry
+error: refusing to pre-register Claude trust: could not record trust for '{run-worktree}/.live-validation/attach/pool/.treehouse/project-50b87a/2/project' and project '{run-worktree}/.live-validation/attach/project' in '{run-worktree}/.live-validation/attach/user/claude/.claude.json'
+error: could not pre-register Claude workspace trust for {run-worktree}/.live-validation/attach/pool/.treehouse/project-50b87a/2/project; refusing to launch a claude worker that would wedge on the trust dialog; inspect window fm-lab-attach:fm-rollback
 exit=1
-worktree {run-worktree}/.a/proj
-HEAD e60ecbfafde1ece7f172b056b9b09f4cdf01b419
+worktree {run-worktree}/.live-validation/attach/project
+HEAD d6528bf1bd0f1ea705b19c3f5e55648cfb7ecdeb
 branch refs/heads/main
 
-worktree {run-worktree}/.a/pool/.treehouse/proj-fcd54c/1/proj
-HEAD 8e820e2706522ec4662212c90be5282c7827a3db
-branch refs/heads/fm/lv-bundle-attach
+worktree {run-worktree}/.live-validation/attach/pool/.treehouse/project-50b87a/1/project
+HEAD b02e540837dcc05fae755f7dbb42fb855dbccf5c
+branch refs/heads/fm/bundle-restore
 
-worktree {run-worktree}/.a/pool/.treehouse/proj-fcd54c/2/proj
-HEAD e60ecbfafde1ece7f172b056b9b09f4cdf01b419
+worktree {run-worktree}/.live-validation/attach/pool/.treehouse/project-50b87a/2/project
+HEAD d6528bf1bd0f1ea705b19c3f5e55648cfb7ecdeb
 detached
 
-After failed attach: pooled HEAD=e60ecbfafde1ece7f172b056b9b09f4cdf01b419 detached, task branch absent, record absent
 
-$ {run-worktree}/bin/fm-spawn.sh lv-attach-retry {run-worktree}/.a/proj --mode local-only --yolo off --harness claude --attach-branch fm/lv-attach-retry --attach-head 8e820e2706522ec4662212c90be5282c7827a3db 
-fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.a/h
-warning: {run-worktree}/.a/h/data/lv-attach-retry/launch-brief.md records no ship branch; defaulting to legacy branch fm/lv-attach-retry
-warning: {run-worktree}/.a/h/data/lv-attach-retry/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode local-only - confirm its definition of done matches
-notice: lv-attach-retry ships mode=local-only while the standing posture for proj is no-mistakes - less rigor than the captain's standing posture; proceed only on a current explicit captain instruction or an intake judgment you can state
+=== Retrying failed attach reuses its restored clean slot ===
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live-validation/attach/home
+WARNING: watcher still down (same stale episode; last beat: 21s ago, grace 300s) - full banner already printed this episode.
 🌳 Setting up worktree...
-🌳 Leased worktree at {run-worktree}/.a/pool/.treehouse/proj-fcd54c/2/proj. Run 'treehouse return {run-worktree}/.a/pool/.treehouse/proj-fcd54c/2/proj' to release it.
-spawned lv-attach-retry harness=claude kind=ship mode=local-only yolo=off window=attach:fm-lv-attach-retry worktree={run-worktree}/.a/pool/.treehouse/proj-fcd54c/2/proj
-exit=0
-Retry HEAD=8e820e2706522ec4662212c90be5282c7827a3db branch=fm/lv-attach-retry
-PASS failed fresh attach rolls back checkout and created branch; retry succeeds
+🌳 Leased worktree at {run-worktree}/.live-validation/attach/pool/.treehouse/project-50b87a/2/project. Run 'treehouse return {run-worktree}/.live-validation/attach/pool/.treehouse/project-50b87a/2/project' to release it.
+spawned rollback harness=claude kind=ship mode=no-mistakes yolo=off window=fm-lab-attach:fm-rollback worktree={run-worktree}/.live-validation/attach/pool/.treehouse/project-50b87a/2/project
+retry worktree={run-worktree}/.live-validation/attach/pool/.treehouse/project-50b87a/2/project
+HEAD=b02e540837dcc05fae755f7dbb42fb855dbccf5c
+branch=fm/rollback
 
-$ {run-worktree}/bin/fm-spawn.sh lv-origin-guard {run-worktree}/.a/proj --mode local-only --yolo off --harness claude --attach-branch fm/lv-origin-guard --attach-head 8e820e2706522ec4662212c90be5282c7827a3db 
-fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.a/h
-warning: {run-worktree}/.a/h/data/lv-origin-guard/launch-brief.md records no ship branch; defaulting to legacy branch fm/lv-origin-guard
-warning: {run-worktree}/.a/h/data/lv-origin-guard/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode local-only - confirm its definition of done matches
-notice: lv-origin-guard ships mode=local-only while the standing posture for proj is no-mistakes - less rigor than the captain's standing posture; proceed only on a current explicit captain instruction or an intake judgment you can state
-error: branch fm/lv-origin-guard already exists on origin at e60ecbfafde1ece7f172b056b9b09f4cdf01b419, not at --attach-head 8e820e2706522ec4662212c90be5282c7827a3db; refusing to attach to a branch with a different head
-exit=1
-PASS conflicting origin branch refuses before endpoint, record or branch mutation
-ATTACH_SCENARIOS_DONE
+=== Originless project checks out existing branch without re-cutting it ===
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live-validation/attach/home
+WARNING: watcher still down (same stale episode; last beat: 25s ago, grace 300s) - full banner already printed this episode.
+🌳 Setting up worktree...
+🌳 Leased worktree at {run-worktree}/.live-validation/attach/pool/.treehouse/project-d9ef30/1/project. Run 'treehouse return {run-worktree}/.live-validation/attach/pool/.treehouse/project-d9ef30/1/project' to release it.
+spawned existing harness=claude kind=ship mode=no-mistakes yolo=off window=fm-lab-attach:fm-existing worktree={run-worktree}/.live-validation/attach/pool/.treehouse/project-d9ef30/1/project
+worktree={run-worktree}/.live-validation/attach/pool/.treehouse/project-d9ef30/1/project
+HEAD=d6528bf1bd0f1ea705b19c3f5e55648cfb7ecdeb
+branch=fm/existing
+
+=== Real Claude terminal for existing branch attachment (unauthenticated disposable HOME) ===
+                                             ░▓▓███▓▓░
+ *                                 ░░░░
+                                 ░░░░░░░░
+                               ░░░░░░░░░░░░░░░░
+       █████████                                        *
+      ██▄█████▄██                        *
+       █████████      *
+.......█ █   █ █..........................................
+
+ Let's get started.
+
+ Choose the text style that looks best with your terminal
+ To change this later, run /theme
+
+     Auto (match terminal)
+ ❯ ✔ Dark mode
+     Light mode
+     Dark mode (colorblind-friendly)
+     Light mode (colorblind-friendly)
+     Dark mode (ANSI colors only)
+     Light mode (ANSI colors only)
+
+ ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+  1  function greet() {
+  2 -  console.log("Hello, World!");
+  2 +  console.log("Hello, Claude!");
+  3  }
+ ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+  Syntax theme: Monokai Extended (ctrl+t to disable)
+
+
+=== All attach, conflict, and rollback checks passed ===
