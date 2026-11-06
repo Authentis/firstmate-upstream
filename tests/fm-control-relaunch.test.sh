@@ -158,8 +158,12 @@ case "${1:-}" in
         echo 'lost server' >&2
         exit 1
       fi
-      if [ ! -f "$D/session-missing" ] && [ -f "$D/windows" ]; then
-        ses=$(cat "$D/session-name")
+      if { [ ! -f "$D/session-missing" ] || [ -f "$D/replacement-session" ]; } && [ -f "$D/windows" ]; then
+        if [ -f "$D/replacement-session" ]; then
+          ses=$(cat "$D/replacement-session")
+        else
+          ses=$(cat "$D/session-name")
+        fi
         while IFS= read -r w; do
           [ -z "$w" ] || printf '%s:%s\n' "$ses" "$w"
         done < "$D/windows"
@@ -174,7 +178,13 @@ case "${1:-}" in
       echo 'no server running on /tmp/tmux-1000/default' >&2
       exit 1
     fi
-    if [ -f "$D/session-missing" ]; then
+    target=
+    prev=
+    for a in "$@"; do
+      [ "$prev" != -t ] || target=${a#=}
+      prev=$a
+    done
+    if [ -f "$D/session-missing" ] && [ "$target" = "$(cat "$D/session-name")" ]; then
       echo "can't find session: $(cat "$D/session-name")" >&2
       exit 1
     fi
@@ -206,13 +216,21 @@ case "${1:-}" in
       case "$1" in
         -n) name=${2:-}; shift 2 ;;
         -c) printf '%s\n' "${2:-}" >> "$D/created-window-dirs"; shift 2 ;;
-        -t) shift 2 ;;
+        -t) printf '%s\n' "${2%:}" > "$D/replacement-session"; shift 2 ;;
         *) shift ;;
       esac
     done
+    printf '%s\n' "$name" > "$D/replacement-name"
     printf '%s\n' "$name" >> "$D/windows"
     printf '%s\n' "$name" >> "$D/created-windows"
     printf '@9\n'
+    exit 0 ;;
+  kill-window)
+    [ "$*" = 'kill-window -t @9' ] || exit 1
+    printf '%s\n' '@9' >> "$D/killed-windows"
+    name=$(cat "$D/replacement-name")
+    grep -Fxv -- "$name" "$D/windows" > "$D/windows.next" || true
+    mv "$D/windows.next" "$D/windows"
     exit 0 ;;
 esac
 exit 0
@@ -2196,6 +2214,57 @@ test_tmux_reclaim_attaches_to_the_recorded_branch_and_worktree() {
   pass "tmux reclaim: a proven-gone window is re-created in the recorded worktree on the recorded branch"
 }
 
+test_tmux_reclaim_abort_removes_only_the_unpublished_window() {
+  local dir out rc entry failure id old_meta real_mv
+  real_mv=$(command -v mv)
+  for entry in control spawn; do
+    for failure in trust publish; do
+      id="rl67-$entry-$failure"
+      dir=$(new_case "tmux-abort-$entry-$failure" "$id")
+      add_ship_task "$dir" "$id" claude
+      strand_endpoint "$dir" "$id"
+      : > "$dir/fake/session-missing"
+      printf 'unrelated\n' > "$dir/fake/windows"
+      old_meta=$(cat "$dir/home/state/$id.meta")
+      mkdir -p "$dir/user-home"
+      if [ "$failure" = trust ]; then
+        printf 'invalid json\n' > "$dir/user-home/.claude.json"
+      else
+        make_mv_failure_stub "$dir"
+      fi
+      rc=0
+      if [ "$entry" = control ]; then
+        out=$(FM_REAL_MV="$real_mv" FM_FAKE_META_PUBLISH_MV_FAIL="$dir/home/state/$id.meta" \
+          run_control "$dir" "$id" relaunch --note 'recover parked work') || rc=$?
+      else
+        out=$(FM_REAL_MV="$real_mv" FM_FAKE_META_PUBLISH_MV_FAIL="$dir/home/state/$id.meta" \
+          run_spawn "$dir" "$id" --relaunch --harness claude) || rc=$?
+      fi
+      expect_code 1 "$rc" "the injected $failure failure should refuse recovery"$'\n'"$out"
+      if [ "$failure" = trust ]; then
+        assert_contains "$out" 'could not pre-register Claude workspace trust' 'trust failure must occur after window creation'
+      else
+        assert_contains "$out" 'replacement task record' 'publication failure must occur after window creation'
+      fi
+      [ "$(cat "$dir/fake/killed-windows")" = '@9' ] || fail 'abort must close the stable replacement WID'
+      [ "$(cat "$dir/fake/windows")" = unrelated ] || fail 'abort must remove only the unused replacement'
+      [ "$(cat "$dir/home/state/$id.meta")" = "$old_meta" ] || fail 'abort must preserve the old task record'
+      rm -f "$dir/user-home/.claude.json" "$dir/fakebin/mv"
+      rc=0
+      if [ "$entry" = control ]; then
+        out=$(run_control "$dir" "$id" relaunch --note 'retry recovery') || rc=$?
+      else
+        out=$(run_spawn "$dir" "$id" --relaunch --harness claude) || rc=$?
+      fi
+      expect_code 0 "$rc" 'recovery must remain retryable after a pre-publication abort'$'\n'"$out"
+      [ "$(cat "$dir/fake/killed-windows")" = '@9' ] || fail 'published replacement must survive cleanup'
+      grep -Fxq "fm-$id" "$dir/fake/windows" || fail 'successful recovery must retain its window'
+      [ "$(meta_field "$dir" "$id" window)" != "fmses:fm-$id" ] || fail 'successful recovery must publish the new endpoint'
+    done
+  done
+  pass 'tmux recovery abort closes only its unpublished window and permits retry through both entrypoints'
+}
+
 test_reclaim_refuses_an_unreadable_endpoint() {
   local dir out rc
   dir=$(new_case gone-unreadable rl63)
@@ -2850,6 +2919,7 @@ test_tmux_refuses_a_same_named_window_elsewhere_on_the_server
 test_tmux_refuses_an_unreadable_server_inventory
 test_tmux_refuses_an_unreadable_process_table
 test_tmux_reclaim_attaches_to_the_recorded_branch_and_worktree
+test_tmux_reclaim_abort_removes_only_the_unpublished_window
 test_reclaim_refuses_an_unreadable_endpoint
 test_herdr_relaunch_resumes_only_the_registered_pi_session
 test_herdr_reclaim_adopts_a_pane_that_outlived_its_server

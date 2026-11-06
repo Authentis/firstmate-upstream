@@ -1504,6 +1504,7 @@ RELAUNCH_REPLACEMENT_BUSY_GEN=
 RELAUNCH_REPLACEMENT_HARNESS=
 RELAUNCH_REPLACEMENT_STATE=
 RELAUNCH_REPLACEMENT_WT=
+RELAUNCH_REPLACEMENT_WID=
 CONFIG_INHERIT_LOCK=
 CONFIG_INHERIT_LOCK_HELD=0
 GIT_HOOKS_DIR=
@@ -1553,12 +1554,17 @@ spawn_orca_reclaim_launch_file() {
 
 spawn_abort_cleanup() {
   local status=$?
-  if [ "$RELAUNCH_REPLACEMENT_PENDING" = 1 ] &&
-    [ "$SPAWN_META_PUBLISH_STARTED" = 1 ] &&
+  if [ "$SPAWN_META_PUBLISH_STARTED" = 1 ] &&
     [ -n "$SPAWN_META_TMP" ] &&
     [ ! -e "$SPAWN_META_TMP" ] &&
     [ ! -L "$SPAWN_META_TMP" ]; then
     RELAUNCH_REPLACEMENT_PENDING=0
+    RELAUNCH_REPLACEMENT_WID=
+  fi
+  if [ -n "$RELAUNCH_REPLACEMENT_WID" ]; then
+    tmux kill-window -t "$RELAUNCH_REPLACEMENT_WID" 2>/dev/null ||
+      echo "warning: could not remove unused replacement window $RELAUNCH_REPLACEMENT_WID after aborted relaunch of $ID" >&2
+    RELAUNCH_REPLACEMENT_WID=
   fi
   if [ "$RELAUNCH_REPLACEMENT_PENDING" = 1 ]; then
     RELAUNCH_REPLACEMENT_PENDING=0
@@ -4383,6 +4389,7 @@ if [ "$RELAUNCH" -eq 1 ]; then
     SES=$(fm_backend_tmux_container_ensure)
     T="$SES:$W"
     WID=$(fm_backend_tmux_create_task "$SES" "$W" "$WT") || exit 1
+    RELAUNCH_REPLACEMENT_WID=$WID
     WT_TARGET="$WID"
   else
     # The recorded endpoint is authoritatively gone, so there is nothing to
@@ -6140,6 +6147,7 @@ if [ "$RELAUNCH" -eq 1 ]; then
     exit 1
   fi
   RELAUNCH_REPLACEMENT_PENDING=0
+  RELAUNCH_REPLACEMENT_WID=
   SPAWN_META_PUBLISH_STARTED=0
   SPAWN_META_TMP=
 fi
