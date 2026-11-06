@@ -1,94 +1,31 @@
-
-$ bin/fm-control.sh lv-record-window relaunch --note Recover\ preserved\ work\ without\ starting\ another\ task. 
-fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.l/h
-note: task lv-record-window's recorded endpoint recover:fm-lv-record-window is proven absent; unreadable working directories accepted as known non-workers: 1267 (sd-pam), 1487 gpg-agent, 4002860 sshd
-fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.l/h
-note: task lv-record-window's recorded endpoint recover:fm-lv-record-window is proven absent; unreadable working directories accepted as known non-workers: 1267 (sd-pam), 1487 gpg-agent, 4002860 sshd
-warning: {run-worktree}/.l/h/data/lv-record-window/launch-brief.md records no ship branch; defaulting to legacy branch fm/lv-record-window
-warning: {run-worktree}/.l/h/data/lv-record-window/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode local-only - confirm its definition of done matches
-notice: lv-record-window ships mode=local-only while the standing posture for proj is no-mistakes - less rigor than the captain's standing posture; proceed only on a current explicit captain instruction or an intake judgment you can state
-relaunched lv-record-window harness=claude from=claude model=default effort=default backend=tmux endpoint=recover:fm-lv-record-window worktree={run-worktree}/.l/lv-record-window
-exit=0
-recorded HEAD=b5a08589ea9ca98d7d62f45c6dbbf80f742c03e9 branch=fm/lv-record-window worktree={run-worktree}/.l/lv-record-window endpoint=recover:fm-lv-record-window
-     *                                       █████▓▓░
-                                 *         ███▓░     ░░
-            ░░░░░░                        ███▓░
-    ░░░   ░░░░░░░░░░                      ███▓░
-   ░░░░░░░░░░░░░░░░░░░    *                ██▓░░      ▓
-                                             ░▓▓███▓▓░
- *                                 ░░░░
-                                 ░░░░░░░░
-                               ░░░░░░░░░░░░░░░░
-       █████████                                        *
-      ██▄█████▄██                        *
-       █████████      *
-.......█ █   █ █..........................................
-
- Let's get started.
-
- Choose the text style that looks best with your terminal
- To change this later, run /theme
-
-     Auto (match terminal)
- ❯ ✔ Dark mode
-     Light mode
-     Dark mode (colorblind-friendly)
-     Light mode (colorblind-friendly)
-     Dark mode (ANSI colors only)
-     Light mode (ANSI colors only)
-
- ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
-  1  function greet() {
-  2 -  console.log("Hello, World!");
-  2 +  console.log("Hello, Claude!");
-  3  }
- ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
-  Syntax theme: Monokai Extended (ctrl+t to disable)
-
-PASS missing-window relaunch preserves committed, dirty and untracked work
-
-$ bin/fm-spawn.sh lv-record-session --relaunch 
-fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.l/h
-note: task lv-record-session's recorded endpoint destroyed:fm-lv-record-session is proven absent; unreadable working directories accepted as known non-workers: 1267 (sd-pam), 1487 gpg-agent, 4002860 sshd
-warning: {run-worktree}/.l/h/data/lv-record-session/launch-brief.md records no ship branch; defaulting to legacy branch fm/lv-record-session
-warning: {run-worktree}/.l/h/data/lv-record-session/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode local-only - confirm its definition of done matches
-notice: lv-record-session ships mode=local-only while the standing posture for proj is no-mistakes - less rigor than the captain's standing posture; proceed only on a current explicit captain instruction or an intake judgment you can state
+{run-worktree}/.l
+=== A: exit on absent endpoint, real process table and tmux ===
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.l
+note: task lab-recorded's recorded endpoint gone-session:fm-lab-recorded is proven absent; unreadable working directories accepted as known non-workers: 1267 (sd-pam), 1487 gpg-agent
+endpoint-gone lab-recorded harness=claude backend=tmux endpoint=gone-session:fm-lab-recorded worktree={run-worktree}/.l/worker
+=== B: prelaunch trust failure removes only unused replacement; retry recovers ===
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.l
+note: task lab-recorded's recorded endpoint gone-session:fm-lab-recorded is proven absent; unreadable working directories accepted as known non-workers: 1267 (sd-pam), 1487 gpg-agent
+warning: {run-worktree}/.l/data/lab-recorded/launch-brief.md records no ship branch; defaulting to legacy branch fm/lab-recorded
+warning: {run-worktree}/.l/data/lab-recorded/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
 error: Unexpected token 'o', "not json
 " is not valid JSON
-error: refusing to pre-register Claude trust: could not record trust for '{run-worktree}/.l/lv-record-session' and project '{run-worktree}/.l/proj' in '{run-worktree}/.l/failconfig/.claude.json'
-error: could not pre-register Claude workspace trust for {run-worktree}/.l/lv-record-session; refusing to launch a claude worker that would wedge on the trust dialog; inspect window recover:fm-lv-record-session
+error: refusing to pre-register Claude trust: could not record trust for '{run-worktree}/.l/worker' and project '{run-worktree}/.l/project' in '{run-worktree}/.l/user/claude/.claude.json'
+error: could not pre-register Claude workspace trust for {run-worktree}/.l/worker; refusing to launch a claude worker that would wedge on the trust dialog; inspect window lab:fm-lab-recorded
 exit=1
-Failed trust registration left old record unchanged and removed its unused replacement window
-
-$ bin/fm-control.sh lv-record-session relaunch --note Retry\ after\ fixing\ disposable\ trust\ store. 
-fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.l/h
-note: task lv-record-session's recorded endpoint destroyed:fm-lv-record-session is proven absent; unreadable working directories accepted as known non-workers: 1267 (sd-pam), 1487 gpg-agent, 4002860 sshd
-fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.l/h
-note: task lv-record-session's recorded endpoint destroyed:fm-lv-record-session is proven absent; unreadable working directories accepted as known non-workers: 1267 (sd-pam), 1487 gpg-agent, 4002860 sshd
-warning: {run-worktree}/.l/h/data/lv-record-session/launch-brief.md records no ship branch; defaulting to legacy branch fm/lv-record-session
-warning: {run-worktree}/.l/h/data/lv-record-session/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode local-only - confirm its definition of done matches
-notice: lv-record-session ships mode=local-only while the standing posture for proj is no-mistakes - less rigor than the captain's standing posture; proceed only on a current explicit captain instruction or an intake judgment you can state
-relaunched lv-record-session harness=claude from=claude model=default effort=default backend=tmux endpoint=recover:fm-lv-record-session worktree={run-worktree}/.l/lv-record-session
-exit=0
-new endpoint=recover:fm-lv-record-session
-PASS missing-session cleanup and retry
-
-$ bin/fm-control.sh lv-window-guard relaunch --note Must\ refuse\ duplicate\ ownership. 
-fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.l/h
-error: task lv-window-guard's endpoint missing:fm-lv-window-guard reads 'missing', but a window named 'fm-lv-window-guard' is still in the window inventory of the tmux server this process addresses; exit will not claim an agent stopped at an address it cannot trust, nor send lifecycle input to one
-error: relaunch of lv-window-guard failed while stopping the old agent and its state is 'missing', so it was not proven stopped; its original instructions were restored and the durable record was retained for recovery
-exit=1
-PASS same-named foreign-session window refuses without changing record
-
-$ bin/fm-control.sh lv-process-guard relaunch --note Must\ refuse\ surviving\ owner\ on\ another\ socket. 
-fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.l/h
-error: task lv-process-guard's endpoint vanished:fm-lv-process-guard reads 'missing', but process 3921950 is working in the recorded worktree, so its agent may still be running in a tmux window this process cannot address; exit will not claim an agent stopped at an address it cannot trust, nor send lifecycle input to one
-error: relaunch of lv-process-guard failed while stopping the old agent and its state is 'missing', so it was not proven stopped; its original instructions were restored and the durable record was retained for recovery
-exit=1
-
-$ bin/fm-spawn.sh lv-process-guard --relaunch 
-fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.l/h
-error: task lv-process-guard's recorded endpoint vanished:fm-lv-process-guard reads 'missing', but process 3927384 names the task in its arguments, so its agent may still be running in a tmux window this process cannot address. An endpoint that cannot be proven absent may still hold a live agent on this task's worktree; refusing rather than launching a second agent into it
-exit=1
-PASS live processes on an unseen socket refuse by cwd and task token
-RECORDED_SCENARIOS_DONE
+replacement absent; metadata unchanged; preserved HEAD=5744ce0fb661fd60c61312dcc51d5174350c843e branch=fm/lab-recorded dirty=uncommitted recovery payload
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.l
+note: task lab-recorded's recorded endpoint gone-session:fm-lab-recorded is proven absent; unreadable working directories accepted as known non-workers: 1267 (sd-pam), 1487 gpg-agent
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.l
+note: task lab-recorded's recorded endpoint gone-session:fm-lab-recorded is proven absent; unreadable working directories accepted as known non-workers: 1267 (sd-pam), 1487 gpg-agent
+warning: {run-worktree}/.l/data/lab-recorded/launch-brief.md records no ship branch; defaulting to legacy branch fm/lab-recorded
+warning: {run-worktree}/.l/data/lab-recorded/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+relaunched lab-recorded harness=claude from=claude model=default effort=default backend=tmux endpoint=lab:fm-lab-recorded worktree={run-worktree}/.l/worker
+recovery verified: same branch, same HEAD, same dirty file, one rebound window
+=== C: cannot duplicate a process in task worktree on another socket ===
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.l
+error: task lab-recorded's recorded endpoint gone-session:fm-lab-recorded reads 'missing', but process 1445610 names the recorded worktree in its arguments, so its agent may still be running in a tmux window this process cannot address. An endpoint that cannot be proven absent may still hold a live agent on this task's worktree; refusing rather than launching a second agent into it
+=== D: same window name in another session refuses ===
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.l
+error: task lab-recorded's recorded endpoint gone-session:fm-lab-recorded reads 'missing', but a window named 'fm-lab-recorded' is still in the window inventory of the tmux server this process addresses. An endpoint that cannot be proven absent may still hold a live agent on this task's worktree; refusing rather than launching a second agent into it
+LIVE RECORDED SCENARIOS COMPLETE

@@ -1,0 +1,35 @@
+holu@387548:{run-worktree}/.l/worker$ cd -- '~/.no-m
+istakes/worktrees/c9e23aecc4aa/01M6RW4TZXA24GYGX9TP9E0VN6/.l/worker'
+holu@387548:{run-worktree}/.l/worker$ export GOTMPDIR=/tmp/fm
+-lab-recorded/gotmp
+holu@387548:{run-worktree}/.l/worker$ export COMPACT_ADVISER_
+DISABLE=1
+holu@387548:{run-worktree}/.l/worker$ export FM_TASK_ID=lab-r
+ecorded
+holu@387548:{run-worktree}/.l/worker$ . '/tmp/fm-lab-recorded
++0772beced8b77294e8b33189daa7e3c8ce62c7d01e9349afc3360007691ba6fe/launch.s1793984100.1431234.30628.sh'
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

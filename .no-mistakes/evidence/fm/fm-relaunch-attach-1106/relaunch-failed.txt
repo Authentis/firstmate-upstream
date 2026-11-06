@@ -1,0 +1,8 @@
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.l
+note: task lab-recorded's recorded endpoint gone-session:fm-lab-recorded is proven absent; unreadable working directories accepted as known non-workers: 1267 (sd-pam), 1487 gpg-agent
+warning: {run-worktree}/.l/data/lab-recorded/launch-brief.md records no ship branch; defaulting to legacy branch fm/lab-recorded
+warning: {run-worktree}/.l/data/lab-recorded/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+error: Unexpected token 'o', "not json
+" is not valid JSON
+error: refusing to pre-register Claude trust: could not record trust for '{run-worktree}/.l/worker' and project '{run-worktree}/.l/project' in '{run-worktree}/.l/user/claude/.claude.json'
+error: could not pre-register Claude workspace trust for {run-worktree}/.l/worker; refusing to launch a claude worker that would wedge on the trust dialog; inspect window lab:fm-lab-recorded

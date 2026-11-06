@@ -1,0 +1,1 @@
+spawned lab-bundle harness=claude kind=ship mode=no-mistakes yolo=off window=lab:fm-lab-bundle worktree={run-worktree}/.b/pool/.treehouse/project-c28b66/1/project

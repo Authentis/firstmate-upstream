@@ -1,0 +1,4 @@
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.b
+warning: {run-worktree}/.b/data/lab-bundle/launch-brief.md records no ship branch; defaulting to legacy branch fm/lab-bundle
+warning: {run-worktree}/.b/data/lab-bundle/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+error: branch fm/lab-bundle already exists at d23dee8d59199df2c2bff14c84940ed07fa08521 (refs/heads/fm/lab-bundle), not at --attach-head 61cb015658a591d4db489cfe19005ae66964aba3; refusing to attach to a branch with a different head

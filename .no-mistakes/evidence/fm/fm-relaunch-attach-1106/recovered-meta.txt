@@ -1,0 +1,15 @@
+window=lab:fm-lab-recorded
+endpoint_task_id=lab-recorded
+worktree={run-worktree}/.l/worker
+project={run-worktree}/.l/project
+harness=claude
+kind=ship
+mode=no-mistakes
+yolo=off
+branch=fm/lab-recorded
+tasktmp=/tmp/fm-lab-recorded
+model=default
+effort=default
+busy_gen=g1793984100.1437299.11535
+spawn_gen=s1793984100.1431234.30628
+control_relaunch_tx=1427354.20261106T165457Z.13255

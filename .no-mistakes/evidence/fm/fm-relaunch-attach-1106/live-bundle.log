@@ -1,0 +1,25 @@
+{run-worktree}/.b
+=== E: missing bundle head and divergent branch refuse untouched ===
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.b
+warning: {run-worktree}/.b/data/lab-bundle/launch-brief.md records no ship branch; defaulting to legacy branch fm/lab-bundle
+warning: {run-worktree}/.b/data/lab-bundle/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+error: --attach-head 0123456789abcdef0123456789abcdef01234567 is not a head of bundle '{run-worktree}/.b/data/bundles/preserved work.bundle'; refusing to attach to a commit it does not carry
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.b
+warning: {run-worktree}/.b/data/lab-bundle/launch-brief.md records no ship branch; defaulting to legacy branch fm/lab-bundle
+warning: {run-worktree}/.b/data/lab-bundle/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+error: branch fm/lab-bundle already exists at d23dee8d59199df2c2bff14c84940ed07fa08521 (refs/heads/fm/lab-bundle), not at --attach-head 61cb015658a591d4db489cfe19005ae66964aba3; refusing to attach to a branch with a different head
+Deleted branch fm/lab-bundle (was d23dee8).
+preflight refusals left metadata absent, no worker window, conflicting branch unchanged
+=== F: relative bundle with spaces restores exact head in real Treehouse worktree ===
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.b
+warning: {run-worktree}/.b/data/lab-bundle/launch-brief.md records no ship branch; defaulting to legacy branch fm/lab-bundle
+warning: {run-worktree}/.b/data/lab-bundle/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+🌳 Setting up worktree...
+🌳 Leased worktree at {run-worktree}/.b/pool/.treehouse/project-c28b66/1/project. Run 'treehouse return {run-worktree}/.b/pool/.treehouse/project-c28b66/1/project' to release it.
+spawned lab-bundle harness=claude kind=ship mode=no-mistakes yolo=off window=lab:fm-lab-bundle worktree={run-worktree}/.b/pool/.treehouse/project-c28b66/1/project
+expected preserved HEAD=61cb015658a591d4db489cfe19005ae66964aba3
+observed HEAD=61cb015658a591d4db489cfe19005ae66964aba3
+branch=fm/lab-bundle
+file=preserved bundle payload
+primary main unchanged=d23dee8d59199df2c2bff14c84940ed07fa08521
+LIVE BUNDLE SCENARIOS COMPLETE

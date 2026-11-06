@@ -1,0 +1,1 @@
+relaunched lab-recorded harness=claude from=claude model=default effort=default backend=tmux endpoint=lab:fm-lab-recorded worktree={run-worktree}/.l/worker

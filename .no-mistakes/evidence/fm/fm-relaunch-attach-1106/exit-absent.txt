@@ -1,0 +1,1 @@
+endpoint-gone lab-recorded harness=claude backend=tmux endpoint=gone-session:fm-lab-recorded worktree={run-worktree}/.l/worker

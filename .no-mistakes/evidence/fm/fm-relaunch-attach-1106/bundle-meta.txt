@@ -1,0 +1,16 @@
+window=lab:fm-lab-bundle
+endpoint_task_id=lab-bundle
+worktree={run-worktree}/.b/pool/.treehouse/project-c28b66/1/project
+lease_id=537377bb6d09b72335fdbdac435dc622
+project={run-worktree}/.b/project
+harness=claude
+kind=ship
+mode=no-mistakes
+yolo=off
+branch=fm/lab-bundle
+tasktmp=/tmp/fm-lab-bundle
+model=default
+effort=default
+busy_gen=g1793984169.1622360.26024
+spawn_gen=s1793984169.1618679.13304
+spawn_first=1793984169

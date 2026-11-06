@@ -1,0 +1,2 @@
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.l
+error: task lab-recorded's recorded endpoint gone-session:fm-lab-recorded reads 'missing', but process 1445610 names the recorded worktree in its arguments, so its agent may still be running in a tmux window this process cannot address. An endpoint that cannot be proven absent may still hold a live agent on this task's worktree; refusing rather than launching a second agent into it
