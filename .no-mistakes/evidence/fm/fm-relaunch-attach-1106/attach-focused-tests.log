@@ -1,0 +1,10 @@
+Selected existing attach tests: test_attach_restores_a_preserved_head_from_its_bundle, test_attach_restores_a_home_relative_bundle, test_attach_checks_out_a_branch_already_at_the_head, test_attach_refusals_leave_everything_untouched, test_attach_refuses_a_branch_origin_moved_elsewhere, test_attach_asks_origin_past_a_narrow_fetch_refspec, test_attach_on_an_originless_project, test_attach_prelaunch_failure_restores_the_copy_for_a_retry, test_attach_prelaunch_failure_keeps_a_branch_that_already_existed
+ok - attach: a preserved head is restored from its bundle onto its own branch
+ok - attach: a home-relative bundle restores its head and branch from the invocation directory
+ok - attach: an existing branch at the preserved head is checked out, never re-cut
+ok - attach: every refusal stops before the copy, the record, or any branch is touched
+ok - attach: a branch origin moved past the preserved head refuses without creating it
+ok - attach: origin is asked for the exact branch, so a narrow fetch refspec cannot hide another head
+ok - attach: a project with no origin attaches a head it already holds
+ok - attach: a failure after the checkout puts the copy back and drops only the branch it created, so a retry attaches
+ok - attach: a failure after the checkout keeps a branch that existed before the attach

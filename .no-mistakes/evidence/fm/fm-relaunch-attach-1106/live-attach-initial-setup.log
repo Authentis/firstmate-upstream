@@ -1,29 +1,76 @@
-$ git -C {run-worktree}/.live/project clone -q {run-worktree}/.live/project {run-worktree}/.live/publisher
 
+$ {run-worktree}/bin/fm-spawn.sh lv-bundle-attach {run-worktree}/.a/proj --mode local-only --yolo off --harness claude --attach-branch fm/lv-bundle-attach --attach-head dd0aca13b7700c6639de2540c0e7d3e4f13b6321 --attach-bundle data/bundles/preserved\ work.bundle 
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.a/h
+warning: {run-worktree}/.a/h/data/lv-bundle-attach/launch-brief.md records no ship branch; defaulting to legacy branch fm/lv-bundle-attach
+warning: {run-worktree}/.a/h/data/lv-bundle-attach/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode local-only - confirm its definition of done matches
+notice: lv-bundle-attach ships mode=local-only while the standing posture for proj is no-mistakes - less rigor than the captain's standing posture; proceed only on a current explicit captain instruction or an intake judgment you can state
+🌳 Setting up worktree...
+🌳 Leased worktree at {run-worktree}/.a/pool/.treehouse/proj-fcd54c/1/proj. Run 'treehouse return {run-worktree}/.a/pool/.treehouse/proj-fcd54c/1/proj' to release it.
+spawned lv-bundle-attach harness=claude kind=ship mode=local-only yolo=off window=attach:fm-lv-bundle-attach worktree={run-worktree}/.a/pool/.treehouse/proj-fcd54c/1/proj
 exit=0
-$ git -C {run-worktree}/.live/publisher checkout -q -b preserved-source
+Restored HEAD=dd0aca13b7700c6639de2540c0e7d3e4f13b6321 branch=fm/lv-bundle-attach worktree={run-worktree}/.a/pool/.treehouse/proj-fcd54c/1/proj
+history that must survive
+holu@387548:{run-worktree}/.a/proj$ cd -- '~/.no-mis
+takes/worktrees/c9e23aecc4aa/01M6RPFXHTW1NQSVW9CCG0410C/.a/pool/.treehouse/proj-fcd54c/1/proj'
+holu@387548:{run-worktree}/.a/pool/.treehouse/proj-fcd54c/1/p
+roj$ export GOTMPDIR=/tmp/fm-lv-bundle-attach/gotmp
+holu@387548:{run-worktree}/.a/pool/.treehouse/proj-fcd54c/1/p
+roj$ export COMPACT_ADVISER_DISABLE=1
+holu@387548:{run-worktree}/.a/pool/.treehouse/proj-fcd54c/1/p
+roj$ export FM_TASK_ID=lv-bundle-attach
+holu@387548:{run-worktree}/.a/pool/.treehouse/proj-fcd54c/1/p
+roj$ . '/tmp/fm-lv-bundle-attach+fa18fe5bb092fd143077e7b9898f573134fa2c72237f0bdcf72c8b03a82d4a65/launch.s1793978147.310
+9745.23727.sh'
 
-exit=0
-$ git -C {run-worktree}/.live/publisher add preserved.txt
 
-exit=0
-$ git -C {run-worktree}/.live/publisher -c user.name=Lab -c user.email=lab@example.invalid commit -qm saved bundle
 
-exit=0
-$ git -C {run-worktree}/.live/publisher rev-parse HEAD
-52ecb11d0a864e586e8cf35a36a35f9f74106ed8
 
-exit=0
-$ git -C {run-worktree}/.live/publisher bundle create {run-worktree}/.live/home/data/bundles/preserved work.bundle HEAD
 
-exit=0
-$ git -C {run-worktree}/.live/project cat-file -e 52ecb11d0a864e586e8cf35a36a35f9f74106ed8^{commit}
-fatal: Not a valid object name 52ecb11d0a864e586e8cf35a36a35f9f74106ed8^{commit}
 
-exit=128
-$ {run-worktree}/bin/fm-spawn.sh gatebundle21 {run-worktree}/.live/project --mode local-only --yolo off --harness codex --attach-branch fm/gatebundle21 --attach-head 52ecb11d0a864e586e8cf35a36a35f9f74106ed8 --attach-bundle data/bundles/preserved work.bundle
-fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live/home
-WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
-error: {run-worktree}/.live/home/data/gatebundle21/brief.md must contain nonempty ## Captain's intent and ## Firstmate spec subsections (or a nonempty legacy # Task body) before spawn
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+PASS originless relative bundle attach restores exact head and branch
+
+$ {run-worktree}/bin/fm-spawn.sh lv-attach-retry {run-worktree}/.a/proj --mode local-only --yolo off --harness claude --attach-branch fm/lv-attach-retry --attach-head dd0aca13b7700c6639de2540c0e7d3e4f13b6321 
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.a/h
+warning: {run-worktree}/.a/h/data/lv-attach-retry/launch-brief.md records no ship branch; defaulting to legacy branch fm/lv-attach-retry
+warning: {run-worktree}/.a/h/data/lv-attach-retry/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode local-only - confirm its definition of done matches
+notice: lv-attach-retry ships mode=local-only while the standing posture for proj is no-mistakes - less rigor than the captain's standing posture; proceed only on a current explicit captain instruction or an intake judgment you can state
+🌳 Setting up worktree...
+🌳 Leased worktree at {run-worktree}/.a/pool/.treehouse/proj-fcd54c/2/proj. Run 'treehouse return {run-worktree}/.a/pool/.treehouse/proj-fcd54c/2/proj' to release it.
+error: Unexpected token 'o', "not json
+" is not valid JSON
+error: refusing to pre-register Claude trust: could not record trust for '{run-worktree}/.a/pool/.treehouse/proj-fcd54c/2/proj' and project '{run-worktree}/.a/proj' in '{run-worktree}/.a/u/.claude.json'
+error: could not pre-register Claude workspace trust for {run-worktree}/.a/pool/.treehouse/proj-fcd54c/2/proj; refusing to launch a claude worker that would wedge on the trust dialog; inspect window attach:fm-lv-attach-retry
 exit=1
+rm: cannot remove '{run-worktree}/.a/h/state/lv-bundle-attach.git-hooks/pre-push': Permission denied
+rm: cannot remove '{run-worktree}/.a/h/state/lv-bundle-attach.git-hooks/post-commit': Permission denied
+rm: cannot remove '{run-worktree}/.a/h/state/lv-bundle-attach.git-hooks/sendemail-validate': Permission denied
+rm: cannot remove '{run-worktree}/.a/h/state/lv-bundle-attach.git-hooks/post-rewrite': Permission denied
+rm: cannot remove '{run-worktree}/.a/h/state/lv-bundle-attach.git-hooks/commit-msg': Permission denied
+rm: cannot remove '{run-worktree}/.a/h/state/lv-bundle-attach.git-hooks/post-merge': Permission denied
+rm: cannot remove '{run-worktree}/.a/h/state/lv-bundle-attach.git-hooks/pre-auto-gc': Permission denied
+rm: cannot remove '{run-worktree}/.a/h/state/lv-bundle-attach.git-hooks/pre-commit': Permission denied
+rm: cannot remove '{run-worktree}/.a/h/state/lv-bundle-attach.git-hooks/pre-merge-commit': Permission denied
+rm: cannot remove '{run-worktree}/.a/h/state/lv-bundle-attach.git-hooks/prepare-commit-msg': Permission denied
+rm: cannot remove '{run-worktree}/.a/h/state/lv-bundle-attach.git-hooks/post-checkout': Permission denied
+rm: cannot remove '{run-worktree}/.a/h/state/lv-bundle-attach.git-hooks/post-applypatch': Permission denied
+rm: cannot remove '{run-worktree}/.a/h/state/lv-bundle-attach.git-hooks/pre-rebase': Permission denied
+rm: cannot remove '{run-worktree}/.a/h/state/lv-bundle-attach.git-hooks/applypatch-msg': Permission denied
+rm: cannot remove '{run-worktree}/.a/h/state/lv-bundle-attach.git-hooks/pre-applypatch': Permission denied

@@ -1,0 +1,94 @@
+
+$ bin/fm-control.sh 
+$ lv-record-window 
+$ relaunch 
+$ --note 
+$ Recover\ preserved\ work\ without\ starting\ another\ task. 
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.l/h
+note: task lv-record-window's recorded endpoint recover:fm-lv-record-window is proven absent; unreadable working directories accepted as known non-workers: 1267 (sd-pam), 1487 gpg-agent, 4002860 sshd
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.l/h
+note: task lv-record-window's recorded endpoint recover:fm-lv-record-window is proven absent; unreadable working directories accepted as known non-workers: 1267 (sd-pam), 1487 gpg-agent, 4002860 sshd
+warning: {run-worktree}/.l/h/data/lv-record-window/launch-brief.md records no ship branch; defaulting to legacy branch fm/lv-record-window
+warning: {run-worktree}/.l/h/data/lv-record-window/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode local-only - confirm its definition of done matches
+notice: lv-record-window ships mode=local-only while the standing posture for proj is no-mistakes - less rigor than the captain's standing posture; proceed only on a current explicit captain instruction or an intake judgment you can state
+relaunched lv-record-window harness=claude from=claude model=default effort=default backend=tmux endpoint=recover:fm-lv-record-window worktree={run-worktree}/.l/lv-record-window
+exit=0
+recorded HEAD=05307b0d4ac4d18a8a9cb2f56353d8e7406e4496 branch=fm/lv-record-window worktree={run-worktree}/.l/lv-record-window endpoint=recover:fm-lv-record-window
+holu@387548:{run-worktree}/.l/lv-record-window$ cd -- '/home/
+holu/.no-mistakes/worktrees/c9e23aecc4aa/01M6RPFXHTW1NQSVW9CCG0410C/.l/lv-record-window'
+holu@387548:{run-worktree}/.l/lv-record-window$ export GOTMPD
+IR=/tmp/fm-lv-record-window/gotmp
+holu@387548:{run-worktree}/.l/lv-record-window$ export COMPAC
+T_ADVISER_DISABLE=1
+holu@387548:{run-worktree}/.l/lv-record-window$ export FM_TAS
+K_ID=lv-record-window
+holu@387548:{run-worktree}/.l/lv-record-window$ . '/tmp/fm-lv
+-record-window+3a2564e3d4c6a3a63f3a4d0d29157d9073ceec3147c2036e16b3a34cc1279298/launch.s1793978083.2875717.2555.sh'
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+PASS missing-window relaunch preserves committed, dirty and untracked work
+
+$ bin/fm-spawn.sh 
+$ lv-record-session 
+$ --relaunch 
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.l/h
+note: task lv-record-session's recorded endpoint destroyed:fm-lv-record-session is proven absent; unreadable working directories accepted as known non-workers: 1267 (sd-pam), 1487 gpg-agent, 4002860 sshd
+warning: {run-worktree}/.l/h/data/lv-record-session/launch-brief.md records no ship branch; defaulting to legacy branch fm/lv-record-session
+warning: {run-worktree}/.l/h/data/lv-record-session/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode local-only - confirm its definition of done matches
+notice: lv-record-session ships mode=local-only while the standing posture for proj is no-mistakes - less rigor than the captain's standing posture; proceed only on a current explicit captain instruction or an intake judgment you can state
+spawned lv-record-session harness=claude kind=ship mode=local-only yolo=off window=recover:fm-lv-record-session worktree={run-worktree}/.l/lv-record-session
+exit=0
+ASSERT expected exit 1
+rm: cannot remove '{run-worktree}/.l/h/state/lv-record-window.git-hooks/pre-push': Permission denied
+rm: cannot remove '{run-worktree}/.l/h/state/lv-record-window.git-hooks/post-commit': Permission denied
+rm: cannot remove '{run-worktree}/.l/h/state/lv-record-window.git-hooks/sendemail-validate': Permission denied
+rm: cannot remove '{run-worktree}/.l/h/state/lv-record-window.git-hooks/post-rewrite': Permission denied
+rm: cannot remove '{run-worktree}/.l/h/state/lv-record-window.git-hooks/commit-msg': Permission denied
+rm: cannot remove '{run-worktree}/.l/h/state/lv-record-window.git-hooks/post-merge': Permission denied
+rm: cannot remove '{run-worktree}/.l/h/state/lv-record-window.git-hooks/pre-auto-gc': Permission denied
+rm: cannot remove '{run-worktree}/.l/h/state/lv-record-window.git-hooks/pre-commit': Permission denied
+rm: cannot remove '{run-worktree}/.l/h/state/lv-record-window.git-hooks/pre-merge-commit': Permission denied
+rm: cannot remove '{run-worktree}/.l/h/state/lv-record-window.git-hooks/prepare-commit-msg': Permission denied
+rm: cannot remove '{run-worktree}/.l/h/state/lv-record-window.git-hooks/post-checkout': Permission denied
+rm: cannot remove '{run-worktree}/.l/h/state/lv-record-window.git-hooks/post-applypatch': Permission denied
+rm: cannot remove '{run-worktree}/.l/h/state/lv-record-window.git-hooks/pre-rebase': Permission denied
+rm: cannot remove '{run-worktree}/.l/h/state/lv-record-window.git-hooks/applypatch-msg': Permission denied
+rm: cannot remove '{run-worktree}/.l/h/state/lv-record-window.git-hooks/pre-applypatch': Permission denied
+rm: cannot remove '{run-worktree}/.l/h/state/lv-record-session.git-hooks/pre-push': Permission denied
+rm: cannot remove '{run-worktree}/.l/h/state/lv-record-session.git-hooks/post-commit': Permission denied
+rm: cannot remove '{run-worktree}/.l/h/state/lv-record-session.git-hooks/sendemail-validate': Permission denied
+rm: cannot remove '{run-worktree}/.l/h/state/lv-record-session.git-hooks/post-rewrite': Permission denied
+rm: cannot remove '{run-worktree}/.l/h/state/lv-record-session.git-hooks/commit-msg': Permission denied
+rm: cannot remove '{run-worktree}/.l/h/state/lv-record-session.git-hooks/post-merge': Permission denied
+rm: cannot remove '{run-worktree}/.l/h/state/lv-record-session.git-hooks/pre-auto-gc': Permission denied
+rm: cannot remove '{run-worktree}/.l/h/state/lv-record-session.git-hooks/pre-commit': Permission denied
+rm: cannot remove '{run-worktree}/.l/h/state/lv-record-session.git-hooks/pre-merge-commit': Permission denied
+rm: cannot remove '{run-worktree}/.l/h/state/lv-record-session.git-hooks/prepare-commit-msg': Permission denied
+rm: cannot remove '{run-worktree}/.l/h/state/lv-record-session.git-hooks/post-checkout': Permission denied
+rm: cannot remove '{run-worktree}/.l/h/state/lv-record-session.git-hooks/post-applypatch': Permission denied
+rm: cannot remove '{run-worktree}/.l/h/state/lv-record-session.git-hooks/pre-rebase': Permission denied
+rm: cannot remove '{run-worktree}/.l/h/state/lv-record-session.git-hooks/applypatch-msg': Permission denied
+rm: cannot remove '{run-worktree}/.l/h/state/lv-record-session.git-hooks/pre-applypatch': Permission denied
