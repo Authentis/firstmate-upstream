@@ -115,6 +115,16 @@
 # refs/heads/preserve/<branch> on origin (plain push, never forced; an existing
 # ref with different content refuses), re-runs the remote-reachability test, and
 # proceeds. See preserve_merged_lane_commits.
+# Before deleting a local task branch, teardown retains its tip locally at
+# refs/fm-keep/<branch>, independently of any bundle or origin preserve/ ref.
+# If that name points elsewhere, it tries refs/fm-keep/<branch>-<tip's first
+# eight hex digits> instead. Neither existing ref is overwritten: a candidate
+# already at the tip is reused, otherwise creation requires an absent ref.
+# If the chosen ref cannot be written and verified (including a suffix
+# collision), teardown leaves the branch and emits one warning naming it;
+# the rest of cleanup continues. This adds no keep ref for detached HEAD or
+# paths that do not delete a branch, such as gone-pool and record-only lanes.
+# tests/fm-teardown.test.sh --keepref pins retention and collision handling.
 # Uncommitted changes are never landed; dirty refusals distinguish untracked-only
 # leftovers from tracked edits and list at most ten non-exempt untracked paths.
 # local-only projects additionally accept work merged into the local default
@@ -4407,11 +4417,7 @@ fi
 # pruned code root. Best effort - a sweep failure never blocks this teardown.
 "$SCRIPT_DIR/fm-remote-job-reap-orphans.sh" >&2 || true
 
-# Drop a task's local branch after recording refs/fm-keep/<branch> at its tip, so
-# the branch name and tip survive even when nothing else (bundle, preserve/ ref)
-# records them. A keep ref that already points elsewhere is never overwritten:
-# the tip's short sha is suffixed instead. If no keep ref can be written and
-# verified, the branch is left in place and one warning names it.
+# The header owns branch retention; deletion requires a verified keep ref.
 teardown_drop_task_branch() {
   local wt=$1 branch=$2 tip keep
   tip=$(git -C "$wt" rev-parse --verify -q "refs/heads/$branch" 2>/dev/null) || return 0
@@ -4429,7 +4435,7 @@ teardown_drop_task_branch() {
   fi
 }
 
-# Best-effort: drop the local task branch so the shared repo does not accumulate refs.
+# Best-effort: retire the task branch name under the header's retention contract.
 if [ "$BACKEND" = orca ] && [ "$KIND" != secondmate ]; then
   if [ "$ORCA_PATH_MATCH_VERIFIED" != 1 ]; then
     require_orca_worktree_path_match_if_present "$ORCA_WORKTREE_ID" "$WT" || exit 1

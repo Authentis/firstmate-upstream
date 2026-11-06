@@ -432,7 +432,7 @@ For a given current origin identity, allocation and return serialize on one proj
 [`bin/fm-teardown.sh`'s header](../bin/fm-teardown.sh) owns the additional old-pool lease confirmation and locking required after a Git URL rewrite changes that identity.
 Before the worktree is returned, teardown concludes the task's own no-mistakes run when it is parked at a gate, including a run whose head the task copy cannot resolve - the shared runs-ledger continuation proof is the only recognition for that case, so cleanup never orphans a parked run the pipeline advanced past the submitted head.
 It then refuses, with the exact manual `axi sync --recover` command and nothing deleted, while the pipeline still holds the branch custody for this copy, because `axi sync` cannot be bound to a run and teardown never runs it.
-[`bin/fm-teardown.sh`](../bin/fm-teardown.sh)'s header owns the landed-work proofs, slot-ownership proof, endpoint-close refusal, PR-discovery fallback, pre-teardown run conclusion, and stale-lock recovery procedure; [`tests/fm-teardown-endpoint-safety.test.sh`](../tests/fm-teardown-endpoint-safety.test.sh) and [`tests/fm-secondmate-safety.test.sh`](../tests/fm-secondmate-safety.test.sh) pin the slot-collision boundary.
+[`bin/fm-teardown.sh`](../bin/fm-teardown.sh)'s header owns the landed-work proofs, local branch-retention contract, slot-ownership proof, endpoint-close refusal, PR-discovery fallback, pre-teardown run conclusion, and stale-lock recovery procedure; [`tests/fm-teardown-endpoint-safety.test.sh`](../tests/fm-teardown-endpoint-safety.test.sh) and [`tests/fm-secondmate-safety.test.sh`](../tests/fm-secondmate-safety.test.sh) pin the slot-collision boundary.
 
 ## Optional Relay
 
