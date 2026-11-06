@@ -214,6 +214,19 @@ fi
 exit 0
 SH
   chmod +x "$fb/sleep"
+  # The tmux absence proof's whole-table process read comes from the case's
+  # own `ps-table` ("<pid> <ppid> <uid> <args>" rows), never the test host's.
+  local real_ps
+  real_ps=$(command -v ps) || real_ps=/bin/ps
+  cat > "$fb/ps" <<SH
+#!/usr/bin/env bash
+if [ "\$*" = '-A -o pid= -o ppid= -o uid= -o args=' ]; then
+  [ ! -f "\$FM_FAKE_DIR/ps-table" ] || cat "\$FM_FAKE_DIR/ps-table"
+  exit 0
+fi
+exec '$real_ps' "\$@"
+SH
+  chmod +x "$fb/ps"
   printf '%s\n' "$fb"
 }
 
@@ -801,18 +814,33 @@ test_missing_tmux_endpoint_refuses_rather_than_claiming_a_stop() {
   dir=$(new_case gone)
   add_task "$dir" t1 claude
   : > "$dir/fake/windows"
+  # `missing` on tmux is not a finding about the endpoint on its own: a task
+  # record carries no socket identity, so the window may be alive on a tmux
+  # server this seat cannot address. Here a process still carries the task's
+  # fm-<id> lane, so its agent may be alive there; exit refuses rather than
+  # claim a stop it cannot see, and sends nothing to an address it cannot
+  # trust (docs/agent-control.md "Reclaiming a task whose endpoint is gone").
+  printf '4201 1 %s claude --name fm-t1\n' "$(id -u)" > "$dir/fake/ps-table"
   out=$(run_control "$dir" t1 exit); rc=$?
-  # `missing` on tmux is not a finding about the endpoint. A task record carries
-  # no socket identity for it, and any inventory describes only the tmux server
-  # this process addresses, so a window that is merely on a server this seat
-  # cannot reach is indistinguishable from one that was destroyed. exit refuses
-  # rather than claim a stop it cannot see, and sends nothing to an address it
-  # cannot trust. Reclaim of a destroyed endpoint is Herdr-only
-  # (docs/agent-control.md "Reclaiming a task whose endpoint is gone").
   expect_code 1 "$rc" "a tmux endpoint whose absence cannot be proven must refuse"
   assert_not_contains "$out" "endpoint-gone" "exit must not report a stop it could not prove"
   [ -z "$(literals "$dir")" ] || fail "nothing may be sent into an endpoint exit cannot trust"
   pass "fm-control exit: an unprovable tmux endpoint refuses instead of claiming the agent stopped"
+}
+
+test_proven_gone_tmux_endpoint_reports_endpoint_gone() {
+  local dir out rc
+  dir=$(new_case gone-proven)
+  add_task "$dir" t1 claude
+  : > "$dir/fake/windows"
+  # The same missing window with nothing in the process table naming the task
+  # or its worktree: absence is proven, so the agent went with its endpoint.
+  printf '4202 1 %s claude --name fm-t10\n' "$(id -u)" > "$dir/fake/ps-table"
+  out=$(run_control "$dir" t1 exit); rc=$?
+  expect_code 0 "$rc" "a proven-gone tmux endpoint should satisfy exit"$'\n'"$out"
+  assert_contains "$out" "endpoint-gone t1" "exit should report the endpoint as gone"
+  [ -z "$(literals "$dir")" ] || fail "nothing may be sent into an endpoint that is gone"
+  pass "fm-control exit: a proven-gone tmux endpoint reports endpoint-gone and sends nothing"
 }
 
 test_interrupt_refuses_when_no_agent_runs() {
@@ -1229,6 +1257,7 @@ test_resume_is_refused_with_its_reason
 test_relaunch_only_flags_are_rejected_on_other_verbs
 test_already_stopped_exit_is_idempotent
 test_missing_tmux_endpoint_refuses_rather_than_claiming_a_stop
+test_proven_gone_tmux_endpoint_reports_endpoint_gone
 test_interrupt_refuses_when_no_agent_runs
 test_ambiguous_endpoint_refuses
 test_busy_agent_is_interrupted_before_the_exit_command

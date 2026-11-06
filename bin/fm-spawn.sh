@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Spawn a direct report: a crewmate in a treehouse or Orca worktree, or a
 # secondmate in its isolated firstmate home.
-# Usage: fm-spawn.sh <task-id> <project-dir> --mode <no-mistakes|direct-PR|local-only> --yolo <on|off> [--branch-prefix <prefix>] [--base-branch <branch>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--herdr-resume-lock-wait]
+# Usage: fm-spawn.sh <task-id> <project-dir> --mode <no-mistakes|direct-PR|local-only> --yolo <on|off> [--branch-prefix <prefix>] [--base-branch <branch>] [--attach-branch <branch> --attach-head <commit> [--attach-bundle <file>]] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--herdr-resume-lock-wait]
 #        fm-spawn.sh <task-id> <project-dir> --scout [--base-branch <branch>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--herdr-resume-lock-wait]
 #        fm-spawn.sh <task-id> [<firstmate-home>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] --secondmate
 #   --mode and --yolo are this task's delivery contract, REQUIRED for every ship
@@ -53,6 +53,20 @@
 #   base_branch= in state/<id>.meta, which a relaunch reuses and later review and
 #   cleanup read; it is refused on secondmates and relaunches, and without it
 #   nothing changes.
+#   --attach-branch <branch> --attach-head <commit> [--attach-bundle <file>]
+#   attach a fresh ship spawn to preserved work when the task has no record to
+#   relaunch from (only a preserved head, typically a data/bundles/ bundle):
+#   the pooled copy is put on <branch> at exactly <commit> instead of the base,
+#   and the worker starts there rather than cutting a branch. The branch names
+#   the ship branch exactly (so --branch-prefix is refused alongside it and the
+#   brief's Ship branch line must match it). <commit> must be a full commit id
+#   that <file> lists as a head, or without a bundle one the project already
+#   has; the spawn refuses before any endpoint exists when it is not, and when
+#   <branch> already exists locally or on origin at a different commit. A
+#   bundle head is fetched into the copy without writing any ref, and the
+#   branch is created at <commit> or, when it already points there, checked
+#   out. Refused on scouts, secondmates, and relaunches (a relaunch already
+#   attaches to its recorded branch and worktree).
 #   Ship/scout launches always put fm-dod-lib.sh's current worker role scope
 #   first in the private launch-brief overlay, including the exact task-owned
 #   steering inbox. This never rewrites a project's instruction files or a
@@ -76,12 +90,14 @@
 #   ADOPTED as-is, while an endpoint PROVEN gone is RE-CREATED in the recorded
 #   worktree and the republished record rebinds the task to it. That proof is
 #   its own step, because a backend's `missing` also covers an endpoint that is
-#   merely unreachable from here - and it is only available on HERDR, which must
-#   still read the recorded pane as gone once that session's server is running
-#   again. A tmux `missing` always refuses: a task record carries no socket
-#   identity for its endpoint, so no read here can tell a destroyed window from
-#   one on a tmux server this process cannot address. An endpoint that turns out
-#   to have survived refuses too. The worktree is reused untouched either way; a
+#   merely unreachable from here. HERDR must still read the recorded pane as
+#   gone once that session's server is running again. A tmux record carries no
+#   socket identity, so tmux proves it from the agent instead: the window is in
+#   no session of the server this process addresses, the endpoint reads not
+#   alive, and no process names the task or its fm-<id> lane or works in or
+#   names the recorded worktree; any live match or unreadable read refuses
+#   (bin/fm-control-lib.sh's fm_control_endpoint_absence_verdict owns the
+#   proof). An endpoint that turns out to have survived refuses too. The worktree is reused untouched either way; a
 #   rebind is a recovery, never a teardown. Only a crewmate or scout rebinds: a
 #   secondmate whose endpoint is gone is respawned by its own owner
 #   (`--secondmate`, driven by the session-start liveness sweep).
@@ -830,6 +846,10 @@ BASE_BRANCH=
 BASE_BRANCH_SET=0
 UPSTREAM_CONSENT=
 UPSTREAM_CONSENT_SET=0
+ATTACH_BRANCH=
+ATTACH_HEAD=
+ATTACH_BUNDLE=
+ATTACH_SET=0
 TRACEPARENT_SET=0
 RELAUNCH=0
 # Opt-in only: exact-resume presentation-order lock waits instead of refusing.
@@ -881,6 +901,18 @@ for a in "$@"; do
     upstream-consent)
       UPSTREAM_CONSENT=$a
       UPSTREAM_CONSENT_SET=1
+      ;;
+    attach-branch)
+      ATTACH_BRANCH=$a
+      ATTACH_SET=1
+      ;;
+    attach-head)
+      ATTACH_HEAD=$a
+      ATTACH_SET=1
+      ;;
+    attach-bundle)
+      ATTACH_BUNDLE=$a
+      ATTACH_SET=1
       ;;
     traceparent)
       TRACEPARENT_ARG=$a
@@ -950,6 +982,9 @@ for a in "$@"; do
     UPSTREAM_CONSENT=${a#--upstream-consent=}
     UPSTREAM_CONSENT_SET=1
     ;;
+  --attach-branch) want_value="attach-branch" ;;
+  --attach-head) want_value="attach-head" ;;
+  --attach-bundle) want_value="attach-bundle" ;;
   --traceparent) want_value=traceparent ;;
   --traceparent=*)
     TRACEPARENT_ARG=${a#--traceparent=}
@@ -1040,6 +1075,10 @@ if [ "$RELAUNCH" -eq 1 ]; then
     echo "error: --relaunch reuses the task's recorded ship branch; --branch-prefix cannot override it" >&2
     exit 1
   }
+  [ "$ATTACH_SET" -eq 0 ] || {
+    echo "error: --relaunch already attaches to the task's recorded branch and worktree; --attach-branch/--attach-head/--attach-bundle are for a task with no record" >&2
+    exit 1
+  }
   [ "$BASE_BRANCH_SET" -eq 0 ] || {
     echo "error: --relaunch reuses the task's recorded base branch; --base-branch cannot override it" >&2
     exit 1
@@ -1110,6 +1149,34 @@ else
     }
     [ "$UPSTREAM_CONSENT_SET" -eq 0 ] || {
       echo "error: --upstream-consent applies only to ship spawns; a scout publishes nothing and a secondmate records no delivery contract" >&2
+      exit 1
+    }
+  fi
+  # Attach (see the usage header): a fresh ship spawn that starts its worker on
+  # a preserved branch and head instead of a branch the worker cuts itself.
+  if [ "$ATTACH_SET" -eq 1 ]; then
+    [ "$KIND" = ship ] || {
+      echo "error: --attach-branch/--attach-head/--attach-bundle apply only to ship spawns" >&2
+      exit 1
+    }
+    [ -n "$ATTACH_BRANCH" ] && [ -n "$ATTACH_HEAD" ] || {
+      echo "error: attaching to a preserved head needs both --attach-branch <branch> and --attach-head <commit>" >&2
+      exit 1
+    }
+    [ "$BRANCH_PREFIX_SET" -eq 0 ] || {
+      echo "error: --attach-branch names the ship branch exactly; drop --branch-prefix" >&2
+      exit 1
+    }
+    git check-ref-format --branch "$ATTACH_BRANCH" >/dev/null 2>&1 || {
+      echo "error: --attach-branch '$ATTACH_BRANCH' is not a valid git branch name" >&2
+      exit 1
+    }
+    case "$ATTACH_HEAD" in
+      *[!0-9a-f]*) ATTACH_HEAD_LEN=0 ;;
+      *) ATTACH_HEAD_LEN=${#ATTACH_HEAD} ;;
+    esac
+    [ "$ATTACH_HEAD_LEN" = 40 ] || [ "$ATTACH_HEAD_LEN" = 64 ] || {
+      echo "error: --attach-head must be a full lowercase commit id, not '$ATTACH_HEAD'" >&2
       exit 1
     }
   fi
@@ -1737,6 +1804,10 @@ if [ "$RELAUNCH" -eq 1 ] && [ "${#POS[@]}" -gt 0 ] && [ "${POS[0]}" != "$idpart"
   echo "error: --relaunch is single-task only; relaunch each task explicitly" >&2
   exit 1
 fi
+if [ "$ATTACH_SET" -eq 1 ] && [ "${#POS[@]}" -gt 0 ] && [ "${POS[0]}" != "$idpart" ]; then
+  echo "error: --attach-branch/--attach-head/--attach-bundle name one preserved head and are single-task only" >&2
+  exit 1
+fi
 if [ "${#POS[@]}" -gt 0 ] && [ "${POS[0]}" != "$idpart" ] && case "$idpart" in */*) false ;; *) true ;; esac then
   if [ "$KIND" != secondmate ] && [ -z "$HARNESS_ARG" ] && [ -f "$CONFIG/crew-dispatch.json" ]; then
     echo "error: config/crew-dispatch.json is active - pass an explicit harness resolved from the dispatch rules (the consultation backstop, so the rules are never silently skipped)." >&2
@@ -1801,7 +1872,9 @@ fm_task_id_creation_valid "$ID" || {
   echo "error: invalid task id" >&2
   exit 2
 }
-if [ "$RELAUNCH" -eq 0 ] && [ "$KIND" = ship ]; then
+if [ "$RELAUNCH" -eq 0 ] && [ "$KIND" = ship ] && [ "$ATTACH_SET" -eq 1 ]; then
+  BRANCH=$ATTACH_BRANCH
+elif [ "$RELAUNCH" -eq 0 ] && [ "$KIND" = ship ]; then
   BRANCH="$BRANCH_PREFIX$ID"
   if ! git check-ref-format --branch "$BRANCH" >/dev/null 2>&1; then
     echo "error: --branch-prefix and task id must form a valid git branch (got '$BRANCH')" >&2
@@ -2125,18 +2198,17 @@ if [ "$RELAUNCH" -eq 1 ]; then
   # endpoint was DESTROYED" with "the endpoint is UNREACHABLE from here right
   # now", and an unreachable endpoint can still hold the live agent this
   # relaunch would duplicate. So absence is PROVEN before it may rebind, never
-  # inferred from a failed read - and only HERDR can prove it:
+  # inferred from a failed read:
   #   herdr - the recorded session's server is started, and the recorded pane is
   #           RE-READ through that session's own socket. `dead` means the pane
   #           survived the restart and is adopted after all; `alive` means the
   #           agent came back and refuses; only a second `missing` proves the
   #           pane itself did not survive.
-  #   tmux  - REFUSES, always. A task record carries no socket identity for its
-  #           endpoint, and a server-wide inventory describes only the server
-  #           this process addresses, so no read available here can tell "gone"
-  #           from "on a server I cannot see". A tmux `missing` therefore stays
-  #           as deadlocked as it was before this change - deliberately, and
-  #           with the reason stated rather than guessed past.
+  #   tmux  - a task record carries no socket identity, so the proof comes
+  #           from the agent rather than the window: gone only when this
+  #           server's inventory lacks the window, the endpoint reads not
+  #           alive, and no process names the task or works in the recorded
+  #           worktree. Any live match or unreadable read refuses.
   # Every transient or self-contradicting read stays `unreadable`/`ambiguous`
   # and refuses as it always did (bin/fm-backend.sh's fm_backend_agent_state
   # owns that vocabulary). The proof itself lives in one place for the whole
@@ -2144,7 +2216,7 @@ if [ "$RELAUNCH" -eq 1 ]; then
   # `relaunch` cannot reach two different answers about one endpoint.
   RELAUNCH_STATE=$(fm_backend_agent_state "$BACKEND" "$RELAUNCH_TARGET")
   if [ "$RELAUNCH_STATE" = missing ]; then
-    RELAUNCH_ABSENCE=$(fm_control_endpoint_absence_verdict "$BACKEND" "$RELAUNCH_TARGET")
+    RELAUNCH_ABSENCE=$(fm_control_endpoint_absence_verdict "$BACKEND" "$RELAUNCH_TARGET" "$ID" "$(fm_meta_get "$RELAUNCH_META" worktree)")
     case "${RELAUNCH_ABSENCE%%$'\t'*}" in
       gone) RELAUNCH_STATE=missing ;;
       dead) RELAUNCH_STATE=dead ;;
@@ -4190,6 +4262,88 @@ spawn_refuse_merged_ship() {
 }
 spawn_refuse_merged_ship
 
+# Attach preflight (see the usage header), before any endpoint or worktree
+# exists: the preserved head must be a commit the bundle carries as a head, or
+# without a bundle one the project already has, and the branch must not exist
+# locally or on origin at any other commit. Read-only against the project.
+spawn_attach_preflight() {
+  local ref existing
+  [ "$ATTACH_SET" -eq 1 ] || return 0
+  if [ -n "$ATTACH_BUNDLE" ]; then
+    [ -f "$ATTACH_BUNDLE" ] && [ ! -L "$ATTACH_BUNDLE" ] || {
+      echo "error: --attach-bundle '$ATTACH_BUNDLE' is not a regular file" >&2
+      exit 1
+    }
+    git -C "$PROJ_ABS" bundle verify -q "$ATTACH_BUNDLE" >/dev/null 2>&1 || {
+      echo "error: --attach-bundle '$ATTACH_BUNDLE' does not verify against $PROJ_ABS; refusing to attach to a head it cannot restore" >&2
+      exit 1
+    }
+    git -C "$PROJ_ABS" bundle list-heads "$ATTACH_BUNDLE" 2>/dev/null |
+      awk -v h="$ATTACH_HEAD" '$1 == h { found = 1 } END { exit !found }' || {
+      echo "error: --attach-head $ATTACH_HEAD is not a head of bundle '$ATTACH_BUNDLE'; refusing to attach to a commit it does not carry" >&2
+      exit 1
+    }
+  elif ! git -C "$PROJ_ABS" cat-file -e "$ATTACH_HEAD^{commit}" 2>/dev/null; then
+    echo "error: --attach-head $ATTACH_HEAD is not present in $PROJ_ABS; pass the preserved bundle that carries it with --attach-bundle" >&2
+    exit 1
+  fi
+  for ref in "refs/heads/$ATTACH_BRANCH" "refs/remotes/origin/$ATTACH_BRANCH"; do
+    existing=$(git -C "$PROJ_ABS" rev-parse --verify -q "$ref^{commit}" 2>/dev/null) || continue
+    [ "$existing" = "$ATTACH_HEAD" ] || {
+      echo "error: branch $ATTACH_BRANCH already exists at $existing ($ref), not at --attach-head $ATTACH_HEAD; refusing to attach to a branch with a different head" >&2
+      exit 1
+    }
+  done
+}
+spawn_attach_preflight
+
+# spawn_attach_checkout <worktree>: put the freshly acquired copy on the
+# preserved branch at the preserved head, restoring the head from the bundle
+# first when one was given. Never moves an existing branch: the branch is
+# re-checked here and refuses at any other commit, and is otherwise created at
+# exactly that head. The fetch writes no ref.
+spawn_attach_checkout() {  # <worktree>
+  local wt=$1 existing head branch
+  [ "$ATTACH_SET" -eq 1 ] || return 0
+  if [ -n "$ATTACH_BUNDLE" ]; then
+    git -C "$wt" fetch -q "$ATTACH_BUNDLE" "$ATTACH_HEAD" >/dev/null 2>&1 || {
+      echo "error: could not restore $ATTACH_HEAD from bundle '$ATTACH_BUNDLE' into $wt" >&2
+      return 1
+    }
+  fi
+  git -C "$wt" cat-file -e "$ATTACH_HEAD^{commit}" 2>/dev/null || {
+    echo "error: --attach-head $ATTACH_HEAD is not present in $wt" >&2
+    return 1
+  }
+  # The base refresh just fetched origin, so its copy of the branch is re-read.
+  if existing=$(git -C "$wt" rev-parse --verify -q "refs/remotes/origin/$ATTACH_BRANCH^{commit}" 2>/dev/null) &&
+    [ "$existing" != "$ATTACH_HEAD" ]; then
+    echo "error: branch $ATTACH_BRANCH already exists on origin at $existing, not at --attach-head $ATTACH_HEAD; refusing to attach to a branch with a different head" >&2
+    return 1
+  fi
+  if existing=$(git -C "$wt" rev-parse --verify -q "refs/heads/$ATTACH_BRANCH^{commit}" 2>/dev/null); then
+    [ "$existing" = "$ATTACH_HEAD" ] || {
+      echo "error: branch $ATTACH_BRANCH already exists at $existing, not at --attach-head $ATTACH_HEAD; refusing to attach to a branch with a different head" >&2
+      return 1
+    }
+    git -C "$wt" checkout -q "$ATTACH_BRANCH" -- >/dev/null 2>&1 || {
+      echo "error: could not check out existing branch $ATTACH_BRANCH in $wt (is it checked out in another worktree?)" >&2
+      return 1
+    }
+  else
+    git -C "$wt" checkout -q -b "$ATTACH_BRANCH" "$ATTACH_HEAD" -- >/dev/null 2>&1 || {
+      echo "error: could not create branch $ATTACH_BRANCH at $ATTACH_HEAD in $wt" >&2
+      return 1
+    }
+  fi
+  head=$(git -C "$wt" rev-parse --verify -q HEAD 2>/dev/null) || head=
+  branch=$(git -C "$wt" symbolic-ref -q HEAD 2>/dev/null) || branch=
+  [ "$head" = "$ATTACH_HEAD" ] && [ "$branch" = "refs/heads/$ATTACH_BRANCH" ] || {
+    echo "error: $wt is not on $ATTACH_BRANCH at $ATTACH_HEAD after attaching (HEAD ${head:-unreadable} on ${branch:-no branch})" >&2
+    return 1
+  }
+}
+
 if [ "$SPAWN_META_LOCK_HELD" != 1 ]; then
   SPAWN_META_LOCK=$(fm_meta_lock_path "$STATE/$ID.meta") || exit 1
   fm_lock_acquire_wait "$SPAWN_META_LOCK"
@@ -4217,6 +4371,19 @@ if [ "$RELAUNCH" -eq 1 ]; then
     T=$RELAUNCH_TARGET
     WT_TARGET=$T
     SES=${T%%:*}
+  elif [ "$BACKEND" = tmux ]; then
+    # The recorded endpoint is authoritatively gone (the gate above rebinds
+    # only on a PROVEN-gone endpoint; fm_control_endpoint_absence_verdict owns
+    # that proof), so there is nothing to adopt: create ONE fresh fm-<id>
+    # window, opened directly in the recorded worktree, in the session a fresh
+    # spawn from this seat would use. The record published below writes
+    # window= from these values, which is the whole rebind - the task id,
+    # brief, branch, worktree, armed poll and status log are untouched, and no
+    # branch is cut or switched.
+    SES=$(fm_backend_tmux_container_ensure)
+    T="$SES:$W"
+    WID=$(fm_backend_tmux_create_task "$SES" "$W" "$WT") || exit 1
+    WT_TARGET="$WID"
   else
     # The recorded endpoint is authoritatively gone, so there is nothing to
     # adopt: create ONE fresh endpoint for the same task, opened directly in the
@@ -4224,11 +4391,9 @@ if [ "$RELAUNCH" -eq 1 ]; then
     # ids) from these values, which is the whole rebind - the task id, brief,
     # worktree, armed poll and status log are untouched.
     #
-    # Herdr is the ONLY backend that reaches here: the gate above rebinds only
-    # on a PROVEN-gone endpoint, and absence is provable only on herdr, whose
-    # every read is scoped to the session the record names
-    # (fm_control_endpoint_absence_verdict owns that argument). tmux and every
-    # secondmate were already refused, so there is no dispatch left to make.
+    # Herdr is the only backend left here: the gate above rebinds only on a
+    # PROVEN-gone endpoint on a backend with a recovery-grade classifier, tmux
+    # took the branch above, and every secondmate was already refused.
     #
     # This deliberately uses the FLAT container shape rather than Herdr's
     # presentation projection: projection is a presentation-only layout that is
@@ -5079,6 +5244,7 @@ elif [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
 fi
 if [ "$RELAUNCH" -eq 0 ] && [ "$KIND" != secondmate ]; then
   freshen_spawn_worktree_base "$WT" "$BASE_BRANCH" || exit 1
+  spawn_attach_checkout "$WT" || exit 1
 fi
 
 # Re-assert the durable task copy after either treehouse acquisition or endpoint
