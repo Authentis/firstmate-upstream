@@ -590,6 +590,148 @@ test_url_rewrite_never_overrides_unlanded_work_or_the_current_pool() {
   pass "after a url rewrite, unpushed old-pool work still refuses, under --force too whether or not the old pool confirms the lease, and the current pool still decides"
 }
 
+# url_rewrite_old_pool_case <name> <state-lease>: a teardown case whose slot
+# sits in its own pool from before a git url rewrite, so only that pool's own
+# state lists it, leased as <state-lease>. Prints the case directory; the
+# rewrite config is <case>/gitconfig and the pool origin <case>/pool-origin.
+# Callers set TD_WT_REL=pool/1/repo.
+url_rewrite_old_pool_case() {
+  local case_dir origin gitconfig slot
+  case_dir=$(make_teardown_case "$1")
+  slot="$case_dir/pool/1/repo"
+  write_teardown_meta "$case_dir" "lease_id=lease0123abcd"
+  add_hook "$case_dir"
+  origin=$(git -C "$case_dir/project" config --get remote.origin.url)
+  gitconfig="$case_dir/gitconfig"
+  git config --file "$gitconfig" "url.file://$origin.insteadOf" "$origin"
+  printf '%s\n' "$origin" > "$case_dir/pool-origin"
+  printf '{"version":4,"worktrees":[{"name":"1","path":"%s","leased":true,"lease_id":"%s"}]}\n' \
+    "$(cd "$slot" && pwd -P)" "$2" > "$case_dir/pool/treehouse-state.json"
+  printf '%s\n' "$case_dir"
+}
+
+run_url_rewrite_teardown() {  # <case> [teardown args...]
+  local case_dir=$1
+  shift
+  GIT_CONFIG_GLOBAL="$case_dir/gitconfig" FM_HOME="$case_dir" \
+    FM_FAKE_POOL_ORIGIN="$(cat "$case_dir/pool-origin")" \
+    run_teardown "$case_dir" "$@"
+}
+
+# The old pool's lease is confirmed, then an allocator of that pool - one that
+# still reads the old origin, so it takes a different Firstmate project lock -
+# returns and re-leases the slot to someone else before the slot cleanup. It
+# writes the pool state under Treehouse's own state lock, as a real allocator
+# does. The new holder's branch, head, and hooks must survive, and nothing may
+# be returned: the cleanup has to see the new lease, not the one read earlier.
+test_url_rewrite_old_pool_relet_after_confirmation_leaves_the_new_holder_alone() {
+  local case_dir out status slot head
+  local TD_WT_REL=pool/1/repo
+  case_dir=$(url_rewrite_old_pool_case td-rewrite-relet lease0123abcd)
+  slot="$case_dir/pool/1/repo"
+  head=$(git -C "$slot" rev-parse HEAD)
+  # The worker's no-mistakes query runs after the lease check and before the
+  # slot cleanup; the fake re-lets the slot there, exactly once.
+  cat > "$case_dir/fakebin/no-mistakes" <<SH
+#!/usr/bin/env bash
+[ ! -e "$case_dir/relet-done" ] || exit 0
+: > "$case_dir/relet-done"
+perl -e '
+  use Fcntl qw(:flock);
+  open(my \$fh, ">>", \$ARGV[0]) or exit 1;
+  flock(\$fh, LOCK_EX) or exit 1;
+  open(my \$out, ">", \$ARGV[1]) or exit 1;
+  print \$out \$ARGV[2];
+  close(\$out) or exit 1;
+' "$case_dir/pool/treehouse-state.lock" "$case_dir/pool/treehouse-state.json" \
+  '{"version":4,"worktrees":[{"name":"1","path":"$(cd "$slot" && pwd -P)","leased":true,"lease_id":"new-holders-lease"}]}'
+exit 0
+SH
+  chmod +x "$case_dir/fakebin/no-mistakes"
+  : > "$case_dir/treehouse.log"
+  out=$(FM_FAKE_SLOT_LEASE=new-holders-lease run_url_rewrite_teardown "$case_dir")
+  status=$?
+  assert_present "$case_dir/relet-done" "control: the slot was never re-let during teardown"
+  [ "$status" -ne 0 ] || fail "a slot re-let after its lease was confirmed must not be torn down"$'\n'"$out"
+  assert_contains "$out" "lease changed" "teardown did not report the changed lease"
+  [ "$(wt_branch "$case_dir")" = fm/task-x1 ] || fail "the new holder's branch must stay checked out"
+  [ "$(git -C "$slot" rev-parse HEAD)" = "$head" ] || fail "the new holder's head changed"
+  git -C "$case_dir/project" rev-parse --verify -q refs/heads/fm/task-x1 >/dev/null \
+    || fail "the new holder's branch must not be deleted"
+  assert_present "$slot/.claude/settings.local.json" "the new holder's hooks must not be removed"
+  assert_no_grep "return" "$case_dir/treehouse.log" "no return may be attempted"
+  assert_present "$case_dir/state/task-x1.meta" "a refused teardown must keep the task record"
+  pass "after a url rewrite, a slot re-let in its own pool after the lease check keeps the new holder's branch, head, and hooks"
+}
+
+# HEAD is pushed, so no commit is at risk, but the copy holds uncommitted work:
+#   tracked    a modified tracked file
+#   untracked  a new untracked file
+# --force on a leased slot must refuse rather than clean and reset it.
+test_forced_return_refuses_uncommitted_work_in_a_leased_slot() {
+  local mode case_dir out status
+  for mode in tracked untracked; do
+    case_dir=$(make_teardown_case "td-force-uncommitted-$mode")
+    write_teardown_meta "$case_dir" "lease_id=lease0123abcd"
+    add_hook "$case_dir"
+    printf 'committed\n' > "$case_dir/wt/notes.txt"
+    git -C "$case_dir/wt" add notes.txt
+    git -C "$case_dir/wt" -c user.email=t@t -c user.name=t commit -q -m "pushed notes"
+    git -C "$case_dir/wt" push -q origin fm/task-x1
+    if [ "$mode" = tracked ]; then
+      printf 'uncommitted edit\n' >> "$case_dir/wt/notes.txt"
+    else
+      printf 'new work\n' > "$case_dir/wt/new-work.txt"
+    fi
+    [ -z "$(git -C "$case_dir/wt" log --oneline HEAD --not --remotes --)" ] \
+      || fail "$mode control: HEAD must already be on the remote"
+    : > "$case_dir/treehouse.log"
+    out=$(FM_FAKE_SLOT_LEASE=lease0123abcd run_teardown "$case_dir" --force)
+    status=$?
+    [ "$status" -ne 0 ] || fail "$mode: --force must not discard uncommitted work in a leased slot"$'\n'"$out"
+    assert_contains "$out" "uncommitted changes or untracked files" "$mode: the refusal must name the uncommitted work"
+    if [ "$mode" = tracked ]; then
+      assert_grep "uncommitted edit" "$case_dir/wt/notes.txt" "$mode: the tracked edit was discarded"
+    else
+      assert_present "$case_dir/wt/new-work.txt" "$mode: the untracked file was discarded"
+      assert_contains "$out" "new-work.txt" "$mode: the refusal must list the untracked file"
+    fi
+    [ "$(wt_branch "$case_dir")" = fm/task-x1 ] || fail "$mode: the branch must stay checked out"
+    assert_present "$case_dir/wt/.claude/settings.local.json" "$mode: the worker's hooks must survive a refused teardown"
+    assert_present "$case_dir/state/task-x1.meta" "$mode: a refused teardown must keep the task record"
+    assert_no_grep "return" "$case_dir/treehouse.log" "$mode: no return may be attempted"
+  done
+  pass "--force never cleans or resets a leased slot's uncommitted tracked or untracked work, even with HEAD pushed"
+}
+
+# The old pool's own state confirms the lease, and the copy's only uncommitted
+# content is arbitrary work under .claude/ beside the generated hook file. No
+# bundle holds it, so the own-pool backup check must refuse, forced or not.
+test_url_rewrite_old_pool_refuses_untracked_claude_work() {
+  local mode case_dir out status slot
+  local TD_WT_REL=pool/1/repo
+  local -a force
+  for mode in unforced forced; do
+    case_dir=$(url_rewrite_old_pool_case "td-rewrite-claude-$mode" lease0123abcd)
+    slot="$case_dir/pool/1/repo"
+    printf 'agent notes\n' > "$slot/.claude/notes.md"
+    force=()
+    [ "$mode" = unforced ] || force=(--force)
+    : > "$case_dir/treehouse.log"
+    out=$(FM_FAKE_SLOT_LEASE=lease0123abcd run_url_rewrite_teardown "$case_dir" ${force[@]+"${force[@]}"})
+    status=$?
+    [ "$status" -ne 0 ] || fail "$mode: untracked .claude/ work must refuse teardown"$'\n'"$out"
+    assert_contains "$out" "has uncommitted changes" "$mode: the refusal must name the uncommitted work"
+    assert_contains "$out" ".claude/notes.md" "$mode: the refusal must list the .claude/ file"
+    assert_not_contains "$out" "settings.local.json" "$mode: the generated hook file must stay exempt"
+    assert_present "$slot/.claude/notes.md" "$mode: the .claude/ work was discarded"
+    [ "$(git -C "$slot" rev-parse --abbrev-ref HEAD)" = fm/task-x1 ] || fail "$mode: the branch must stay checked out"
+    assert_present "$case_dir/state/task-x1.meta" "$mode: a refused teardown must keep the task record"
+    assert_no_grep "return" "$case_dir/treehouse.log" "$mode: no return may be attempted"
+  done
+  pass "after a url rewrite, untracked .claude/ work in an old-pool slot refuses teardown, forced or not, while the hook file stays exempt"
+}
+
 # A slot allocation or another return holds the shared project lock briefly, so
 # teardown waits a bounded 120s for a live holder before refusing as it always
 # has. The holder is a separate live process: a dead holder's lock is reclaimed
@@ -670,7 +812,10 @@ test_forced_and_scout_teardowns_force_the_lease_bound_return() {
   local case_dir out status mode
   for mode in forced scout; do
     case_dir=$(make_teardown_case "td-force-$mode")
-    printf 'scratch\n' > "$case_dir/wt/scratch.txt"
+    # Only a scout's copy is declared scratch: a forced ship return refuses real
+    # untracked work (test_forced_return_refuses_uncommitted_work_in_a_leased_slot),
+    # so its dirt here is only what the fake treehouse reports.
+    [ "$mode" != scout ] || printf 'scratch\n' > "$case_dir/wt/scratch.txt"
     if [ "$mode" = forced ]; then
       write_teardown_meta "$case_dir" "lease_id=lease0123abcd"
       out=$(FM_FAKE_SLOT_DIRTY=1 FM_FAKE_SLOT_LEASE=lease0123abcd run_teardown "$case_dir" --force)
@@ -987,10 +1132,13 @@ test_unconfirmable_lease_stops_teardown_before_anything_destructive
 test_absent_pool_listing_completes_records_only_after_backup
 test_url_rewrite_keeps_old_and_new_pool_slots_tearing_down
 test_url_rewrite_never_overrides_unlanded_work_or_the_current_pool
+test_url_rewrite_old_pool_relet_after_confirmation_leaves_the_new_holder_alone
+test_url_rewrite_old_pool_refuses_untracked_claude_work
 test_held_project_lock_is_waited_out_within_the_bound
 test_dirty_slot_return_is_refused_not_forced
 test_forced_and_scout_teardowns_force_the_lease_bound_return
 test_forced_return_refuses_unlanded_commits_in_a_current_pool_slot
+test_forced_return_refuses_uncommitted_work_in_a_leased_slot
 test_forced_return_refused_by_a_lease_change_is_reported_as_such
 test_teardown_refuses_a_malformed_lease_id
 
