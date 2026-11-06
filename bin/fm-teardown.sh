@@ -12,8 +12,11 @@
 # A slot a git url rewrite moved out of the project's current pool is confirmed
 # against its own pool's state (teardown_recorded_pool_rows owns that read); such
 # a slot must also pass the gone-pool proof below, even under --force, and is
-# confirmed again under that pool's own Treehouse lock, held across the slot
-# cleanup (teardown_own_pool_lock_reconfirm), before its lease-bound return.
+# confirmed again under that pool's own Treehouse lock before stale-index-lock
+# removal or run/process cleanup. That lock stays held across branch, hook, and
+# scratch cleanup (teardown_own_pool_lock_reconfirm), then is released before
+# the lease-bound return. Teardown waits up to 120s for the shared Firstmate
+# project lock and up to 60s for the slot's own Treehouse lock before refusing.
 # A slot absent from a valid inventory, or listed with a null, empty, or omitted
 # lease_id, takes the gone-pool path instead: the copy must remain inspectable,
 # clean, and pushed-or-landed even under --force. Teardown writes a verified
@@ -28,9 +31,14 @@
 # (TEARDOWN_GENERATED_UNTRACKED_RE), refuses its forced return
 # (teardown_refuse_forced_unlanded_return), with the copy, branch, hooks, and
 # record kept. The gone-pool proof exempts only those same generated files.
-# Otherwise a slot left with
-# files after the safety checks is refused by treehouse instead of reset. A
-# refusal is reported with the slot, lease, and blocking files, aborts teardown
+# Both proofs run again after process cleanup, before branch or file cleanup;
+# forced non-scout lease-bound returns also recheck work before each attempt.
+# Forced ship cleanup of a leased slot requires lsof to verify writer shutdown;
+# without it teardown refuses before branch, hook, or scratch cleanup. Other
+# paths retain the backend process-group fallback when lsof is missing.
+# Otherwise a slot left with files after the safety checks is refused by
+# treehouse instead of reset. A refusal is reported with the slot, lease, and
+# blocking files, aborts teardown
 # with the record kept, and is never retried or forced; a record with no
 # lease_id= returns unbound (`--force`) as before.
 # An endpoint whose close could not do its job REFUSES before any record naming
@@ -131,8 +139,9 @@
 # secondmate teardown does the same in each child copy it returns.
 # The second -f removes nested repositories, and -x stays off so ignored files remain.
 # A ship teardown without --force does not run that clean: it refuses untracked
-# entries, except those under the .claude/ allowance, so a nested repository
-# there can still survive the return.
+# entries, except those under the ordinary .claude/ allowance, so a nested
+# repository there can still survive the return. Old-pool and gone-pool slots
+# instead require the stricter generated-file exemption above.
 # After a return that succeeds, teardown reads `git status --porcelain --untracked-files=all`.
 # Any remaining output, a status read that fails, or a copy that is missing or
 # no longer a readable worktree is reported at once with the lost pool slot and
@@ -247,15 +256,17 @@
 # leased home and state in place instead of hiding a still-held lease.
 # Usage: fm-teardown.sh <task-id> [--force] [--legacy-record]
 #   --force skips ordinary-task dirty and landed-work checks, skips scout report
-#   checks, and discards secondmate child work for kind=secondmate. Only use it
-#   when the captain has explicitly said to discard the work.
+#   checks, and discards secondmate child work for kind=secondmate, subject to
+#   the leased-slot and gone-pool protections at the top of this header. Only
+#   use it when the captain has explicitly said to discard the work.
 #   --legacy-record accepts a task record that predates the spawn_gen field:
 #   teardown then proceeds only when the recorded endpoint is confirmed dead or
 #   agent-less (bin/fm-backend.sh's recovery-grade classifier), and without
 #   --force the worktree still passes the ordinary landed-work checks. The
 #   accepted legacy incarnation is stamped into the record before its close is
 #   recorded and named in the teardown line; the flag never relaxes the
-#   unlanded-work refusal, which --force alone can authorize. A legacy- stamp
+#   unlanded-work refusal; --force remains subject to the protections above.
+#   A legacy- stamp
 #   an abandoned attempt left behind never counts as a published incarnation:
 #   the record still reads as a legacy record, so a recorded endpoint runs the
 #   endpoint gate again and the retry still needs --legacy-record. The safe
@@ -2933,8 +2944,8 @@ reap_task_backend_process_group() {  # <label>
 # - both unique per task and never shared - before either is removed. TERM
 # first, then KILL after a short grace period for anything still alive; a
 # process that exits on its own between the two passes is simply absent from
-# the recheck. A missing lsof uses the backend process-group fallback; an lsof
-# scan error refuses before destructive teardown.
+# the recheck. Missing-lsof refusal and fallback limits are owned by the header;
+# an lsof scan error refuses before destructive teardown.
 reap_task_worktree_processes() {  # <label> <dir>...
   local label=$1 pids pid identity current_pids i pass=1 max_passes=3
   local -a tracked_pids tracked_identities remaining_pids remaining_identities
