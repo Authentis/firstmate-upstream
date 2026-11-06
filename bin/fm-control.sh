@@ -793,6 +793,8 @@ do_exit() {
           # verb normally preserves did not survive. The worktree and every
           # uncommitted change are untouched, and `relaunch` re-creates the
           # endpoint from here.
+          [ -z "${absence#*$'\t'}" ] \
+            || echo "note: task $ID's recorded endpoint $T is proven absent; ${absence#*$'\t'}" >&2
           printf 'endpoint-gone'
           return 0
           ;;

@@ -2163,6 +2163,154 @@ test_tmux_refuses_an_unreadable_process_table() {
   pass "tmux: an unreadable process table refuses both verbs rather than proving absence"
 }
 
+# --- process evidence against a staged process tree -------------------------
+#
+# The working-directory half of the proof reads /proc, which a test cannot
+# shape on the real host. These cases call the evidence helper directly with
+# FM_CONTROL_PROC_ROOT naming a staged tree and the case's own process table,
+# so each verdict comes only from what the case staged.
+
+# evidence_case <name> -> echoes a dir holding fakebin (ps stub), fake/ (its
+# table) and proc/ (a staged proc tree whose self/cwd is readable).
+evidence_case() {  # <name>
+  local dir="$TMP_ROOT/evidence-$1-$RANDOM"
+  mkdir -p "$dir/fakebin" "$dir/fake" "$dir/proc/self" "$dir/wt"
+  make_ps_stub "$dir/fakebin"
+  ln -s / "$dir/proc/self/cwd"
+  printf '%s\n' "$dir"
+}
+
+# stage_proc <dir> <pid> <comm> <state> <cmdline...>: one live process of this
+# user in the staged tree, with no readable working directory, as the kernel
+# shows a process that hides its directory from its own user. Its row goes in
+# the case's process table too.
+stage_proc() {  # <dir> <pid> <comm> <state> <cmdline...>
+  local dir=$1 pid=$2 comm=$3 st=$4 p uid
+  shift 4
+  uid=$(id -u)
+  p="$dir/proc/$pid"
+  mkdir -p "$p"
+  printf '%s\n' "$comm" > "$p/comm"
+  printf '%s (%s) %s 1 1 1 0 -1\n' "$pid" "$comm" "$st" > "$p/stat"
+  printf 'Name:\t%s\nUid:\t%s\t%s\t%s\t%s\n' "$comm" "$uid" "$uid" "$uid" "$uid" > "$p/status"
+  printf '%s\0' "$@" > "$p/cmdline"
+  printf '%s 1 %s %s\n' "$pid" "$uid" "$comm" >> "$dir/fake/ps-table"
+}
+
+run_evidence() {  # <dir> <id> [proc-root]
+  ( PATH="$1/fakebin:$PATH" FM_FAKE_DIR="$1/fake" FM_CONTROL_PROC_ROOT="${3:-$1/proc}" \
+      fm_control_task_process_evidence "$2" "$1/wt" )
+}
+
+test_evidence_accepts_an_allowlisted_session_helper() {
+  local dir out
+  dir=$(evidence_case allow)
+  stage_proc "$dir" 5001 '(sd-pam)' S '(sd-pam)'
+  stage_proc "$dir" 5002 gpg-agent S /usr/bin/gpg-agent --supervised
+  stage_proc "$dir" 5003 sshd S 'sshd: tester@pts/3'
+  stage_proc "$dir" 5004 sd-pam S sd-pam
+  out=$(run_evidence "$dir" ev1)
+  [ "${out%%$'\t'*}" = none ] || fail "an allowlisted session helper with a hidden directory should not block the proof"$'\n'"$out"
+  assert_contains "$out" "5001 (sd-pam)" "the evidence should name each accepted helper's pid and comm"
+  assert_contains "$out" "5002 gpg-agent" "the evidence should name each accepted helper's pid and comm"
+  assert_contains "$out" "5003 sshd" "the evidence should name each accepted helper's pid and comm"
+  assert_contains "$out" "5004 sd-pam" "the evidence should name each accepted helper's pid and comm"
+  pass "evidence: sd-pam, (sd-pam), gpg-agent and sshd with hidden directories are accepted and named in the evidence"
+}
+
+test_evidence_refuses_any_other_hidden_directory() {
+  local dir out
+  dir=$(evidence_case other)
+  # A worker agent made non-dumpable: no readable directory, no readable
+  # environ, nothing naming the task - the case the old environ exemption let
+  # through.
+  stage_proc "$dir" 5011 claude S claude --dangerously-skip-permissions
+  out=$(run_evidence "$dir" ev2)
+  [ "${out%%$'\t'*}" = unreadable ] || fail "a hidden directory on a process outside the allowlist must refuse"$'\n'"$out"
+  assert_contains "$out" "process 5011" "the refusal should name the unreadable process"
+  # An allowlist entry is an exact comm, never a prefix.
+  dir=$(evidence_case prefix)
+  stage_proc "$dir" 5012 gpg-agent-x S gpg-agent-x
+  out=$(run_evidence "$dir" ev2)
+  [ "${out%%$'\t'*}" = unreadable ] || fail "a comm that only starts with an allowlisted name must refuse"$'\n'"$out"
+  pass "evidence: a hidden directory refuses for every process outside the exact allowlist"
+}
+
+test_evidence_refuses_an_allowlisted_helper_naming_the_task() {
+  local dir out
+  dir=$(evidence_case names-wt)
+  stage_proc "$dir" 5021 gpg-agent S /usr/bin/gpg-agent --homedir "$dir/wt"
+  out=$(run_evidence "$dir" ev3)
+  [ "${out%%$'\t'*}" = unreadable ] || fail "an allowlisted comm whose cmdline names the worktree must refuse"$'\n'"$out"
+  dir=$(evidence_case sshd-wt)
+  stage_proc "$dir" 5024 sshd S sshd: tester@notty bash -c "cd $dir/wt && claude"
+  out=$(run_evidence "$dir" ev3)
+  [ "${out%%$'\t'*}" = unreadable ] || fail "an sshd whose cmdline names the worktree must refuse"$'\n'"$out"
+  dir=$(evidence_case names-id)
+  stage_proc "$dir" 5022 '(sd-pam)' S '(sd-pam)' fm-ev3
+  out=$(run_evidence "$dir" ev3)
+  [ "${out%%$'\t'*}" = unreadable ] || fail "an allowlisted comm whose cmdline names the task lane must refuse"$'\n'"$out"
+  dir=$(evidence_case nocmd)
+  stage_proc "$dir" 5023 gpg-agent S gpg-agent
+  rm -f "$dir/proc/5023/cmdline"
+  out=$(run_evidence "$dir" ev3)
+  [ "${out%%$'\t'*}" = unreadable ] || fail "an allowlisted comm with an unreadable cmdline must refuse"$'\n'"$out"
+  pass "evidence: an allowlisted helper refuses when its cmdline names the task or cannot be read"
+}
+
+test_evidence_refuses_a_hidden_directory_whose_state_is_unknown() {
+  local dir out
+  dir=$(evidence_case nostat)
+  # The process is still there but its state cannot be read: neither exit nor
+  # zombie is established, so it may still be working.
+  stage_proc "$dir" 5031 claude S claude
+  rm -f "$dir/proc/5031/stat"
+  out=$(run_evidence "$dir" ev4)
+  [ "${out%%$'\t'*}" = unreadable ] || fail "an extant process with an unreadable state must refuse"$'\n'"$out"
+  # A zombie and a process gone since the snapshot are positively not working.
+  dir=$(evidence_case zombie)
+  stage_proc "$dir" 5032 claude Z claude
+  printf '5033 1 %s claude\n' "$(id -u)" >> "$dir/fake/ps-table"
+  out=$(run_evidence "$dir" ev4)
+  [ "${out%%$'\t'*}" = none ] || fail "a zombie and an exited process should not block the proof"$'\n'"$out"
+  pass "evidence: only a positively exited or zombie process is excused from the directory read"
+}
+
+# lsof_stub <dir> <pid...>: an lsof that reports the given pids working in /
+# and silently omits every other process, as lsof does for one it cannot read.
+lsof_stub() {  # <dir> <pid...>
+  local dir=$1 p
+  shift
+  : > "$dir/fake/lsof-out"
+  for p in "$@"; do printf 'p%s\nfcwd\nn/\n' "$p" >> "$dir/fake/lsof-out"; done
+  cat > "$dir/fakebin/lsof" <<'SH'
+#!/usr/bin/env bash
+cat "$FM_FAKE_DIR/lsof-out"
+SH
+  chmod +x "$dir/fakebin/lsof"
+}
+
+test_evidence_lsof_refuses_an_unreported_live_candidate() {
+  local dir out a b gone
+  dir=$(evidence_case lsof)
+  /bin/sleep 60 & a=$!
+  /bin/sleep 60 & b=$!
+  ( exit 0 ) & gone=$!
+  wait "$gone" 2>/dev/null || true
+  printf '%s 1 %s sleep 60\n%s 1 %s sleep 60\n%s 1 %s gone\n' \
+    "$a" "$(id -u)" "$b" "$(id -u)" "$gone" "$(id -u)" > "$dir/fake/ps-table"
+  lsof_stub "$dir" "$a"
+  out=$(run_evidence "$dir" ev5 "$dir/no-proc")
+  [ "${out%%$'\t'*}" = unreadable ] || fail "a live candidate lsof left out must refuse"$'\n'"$out"
+  assert_contains "$out" "process $b" "the refusal should name the unreported process"
+  lsof_stub "$dir" "$a" "$b"
+  out=$(run_evidence "$dir" ev5 "$dir/no-proc")
+  [ "${out%%$'\t'*}" = none ] || fail "full lsof coverage of the live candidates should prove absence (an exited one needs none)"$'\n'"$out"
+  kill "$a" "$b" 2>/dev/null || true
+  wait "$a" "$b" 2>/dev/null || true
+  pass "evidence: the lsof fallback refuses unless every live candidate's directory was reported"
+}
+
 test_tmux_reclaim_attaches_to_the_recorded_branch_and_worktree() {
   local dir out rc=0 head_before branches_before window
   dir=$(new_case tmux-reclaim rl67)
@@ -2918,6 +3066,11 @@ test_tmux_refuses_a_process_working_in_the_worktree
 test_tmux_refuses_a_same_named_window_elsewhere_on_the_server
 test_tmux_refuses_an_unreadable_server_inventory
 test_tmux_refuses_an_unreadable_process_table
+test_evidence_accepts_an_allowlisted_session_helper
+test_evidence_refuses_any_other_hidden_directory
+test_evidence_refuses_an_allowlisted_helper_naming_the_task
+test_evidence_refuses_a_hidden_directory_whose_state_is_unknown
+test_evidence_lsof_refuses_an_unreported_live_candidate
 test_tmux_reclaim_attaches_to_the_recorded_branch_and_worktree
 test_tmux_reclaim_abort_removes_only_the_unpublished_window
 test_reclaim_refuses_an_unreadable_endpoint

@@ -2226,7 +2226,11 @@ if [ "$RELAUNCH" -eq 1 ]; then
   if [ "$RELAUNCH_STATE" = missing ]; then
     RELAUNCH_ABSENCE=$(fm_control_endpoint_absence_verdict "$BACKEND" "$RELAUNCH_TARGET" "$ID" "$(fm_meta_get "$RELAUNCH_META" worktree)")
     case "${RELAUNCH_ABSENCE%%$'\t'*}" in
-      gone) RELAUNCH_STATE=missing ;;
+      gone)
+        RELAUNCH_STATE=missing
+        [ -z "${RELAUNCH_ABSENCE#*$'\t'}" ] \
+          || echo "note: task $ID's recorded endpoint $RELAUNCH_TARGET is proven absent; ${RELAUNCH_ABSENCE#*$'\t'}" >&2
+        ;;
       dead) RELAUNCH_STATE=dead ;;
       alive) RELAUNCH_STATE=alive ;;
       *)

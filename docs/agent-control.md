@@ -121,6 +121,7 @@ An unreachable endpoint can still hold the live agent a rebind would duplicate, 
 - **tmux proves it from the agent, not the window.** `list-windows -a` describes only the tmux server the *current process* addresses (its `TMUX_TMPDIR`/socket), and a task record carries no socket identity for its endpoint, so no window read can tell a destroyed window from one on a server this process cannot address.
   The proof instead checks for a surviving task owner on this machine; [`fm_control_endpoint_absence_verdict` and its process-evidence helper](../bin/fm-control-lib.sh) own the inventory checks, argument matching, working-directory checks, exclusions, and fail-closed verdicts.
   This assumes workers run under the launching user's credentials; it does not prove that every window on a foreign socket was destroyed.
+  A process of this user whose working directory cannot be read refuses the proof unless it has positively exited, is a zombie, or is one of a closed list of session helpers that hide their directory from their own user (the helper owns the list); each accepted helper is named in the relaunch or exit output.
   A proven-gone tmux endpoint is re-created as a fresh `fm-<id>` window opened in the recorded worktree, in the session a fresh spawn from this seat would use, and the record's `window=` rebinds to it.
 
 Every transient or self-contradicting read stays `unreadable` or `ambiguous` and still refuses, so a momentary backend failure can never be mistaken for absence.

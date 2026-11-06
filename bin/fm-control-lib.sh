@@ -559,7 +559,7 @@ fm_control_endpoint_absence_verdict() {  # <backend> <target> [<task-id> <worktr
       esac
       evidence=$(fm_control_task_process_evidence "$id" "$wt")
       case "${evidence%%$'\t'*}" in
-        none) printf 'gone\t' ;;
+        none) printf 'gone\t%s' "${evidence#*$'\t'}" ;;
         match) printf 'unproven\t%s, so its agent may still be running in a tmux window this process cannot address' "${evidence#*$'\t'}" ;;
         *) printf 'unproven\t%s' "${evidence#*$'\t'}" ;;
       esac
@@ -592,21 +592,53 @@ fm_control_endpoint_absence_verdict() {  # <backend> <target> [<task-id> <worktr
 #   match      - a process names the task id, its fm-<id> lane, or the
 #                worktree in its arguments, or its current directory is the
 #                worktree or under it; the reason names the pid and which.
-#   unreadable - the process table, or a live process's working directory,
-#                could not be read, so nothing is proven.
+#   unreadable - the process table, or the working directory of a process not
+#                positively known to have exited or to be a zombie, could not
+#                be read, so nothing is proven.
 #
 # Argument matching is by whole token: arguments are split on every character
 # outside [A-Za-z0-9_.-], and a token matches when it is the id, the fm-<id>
 # lane, or starts with "<id>." (a task-owned file such as <id>.meta). The
 # worktree matches as a path that is not the prefix of a longer name.
 # Working directories are compared for this user's own processes only; they
-# come from /proc where it exists, and otherwise from one `lsof -a -d cwd` scan.
+# come from /proc where it exists (FM_CONTROL_PROC_ROOT names another proc
+# tree, for tests), and otherwise from one `lsof -a -d cwd` scan, which must
+# report every candidate.
 # The calling process, its ancestors (the fm-spawn or fm-control invocation
 # naming the task) and its descendants (this scan's own subshells) are never
 # evidence.
+fm_control_known_non_worker() {  # <proc-root> <pid> <uid> <task-id> <worktree> <worktree-real>
+  # A process whose working directory cannot be read is accepted as not the
+  # task's worker only when its comm is exactly one of a fixed list of
+  # session helpers that hide their directory from their own user (systemd's
+  # sd-pam, gpg-agent and an SSH login's sshd), its real uid is the caller's,
+  # and its readable cmdline names neither the task nor the worktree. The list
+  # is closed: adding a name is a deliberate safety decision. Prints the comm
+  # on acceptance; anything else, including an unreadable comm, uid or
+  # cmdline, is refused.
+  local proc=$1 pid=$2 uid=$3 id=$4 wt=$5 wtr=$6 comm puid args t tok
+  comm=$(cat "$proc/$pid/comm" 2>/dev/null) || return 1
+  case "$comm" in
+    sd-pam|'(sd-pam)'|gpg-agent|sshd) ;;
+    *) return 1 ;;
+  esac
+  puid=$(awk '$1 == "Uid:" { print $2; exit }' "$proc/$pid/status" 2>/dev/null) || return 1
+  [ -n "$puid" ] && [ "$puid" = "$uid" ] || return 1
+  [ -r "$proc/$pid/cmdline" ] || return 1
+  args=$(tr '\0' ' ' < "$proc/$pid/cmdline" 2>/dev/null) || return 1
+  case "$args" in *"$wt"*|*"$wtr"*) return 1 ;; esac
+  t=$(printf '%s' "$args" | LC_ALL=C tr -c 'A-Za-z0-9_.-' ' ')
+  for tok in $t; do
+    case "$tok" in
+      "$id"|"fm-$id"|"$id".*) return 1 ;;
+    esac
+  done
+  printf '%s' "$comm"
+}
+
 fm_control_task_process_evidence() {  # <task-id> <worktree>
-  local id=${1-} wt=${2-} wt_real self uid table rows line kind pid cwd lsof_out
-  local cand=" "
+  local id=${1-} wt=${2-} wt_real self uid table rows line kind pid cwd lsof_out covered state comm
+  local cand=" " proc=${FM_CONTROL_PROC_ROOT:-/proc} accepted=
   [ -n "$id" ] && [ -n "$wt" ] || { printf 'unreadable\tno task id and worktree to match processes against'; return 0; }
   wt_real=$(cd "$wt" 2>/dev/null && pwd -P) || wt_real=$wt
   self=${BASHPID:-$$}
@@ -668,20 +700,22 @@ fm_control_task_process_evidence() {  # <task-id> <worktree>
 $rows
 EOF
   [ "$cand" != " " ] || { printf 'none\t'; return 0; }
-  if [ -n "$(readlink "/proc/$self/cwd" 2>/dev/null)" ]; then
+  if [ -n "$(readlink "$proc/self/cwd" 2>/dev/null)" ]; then
     for pid in $cand; do
-      if ! cwd=$(readlink "/proc/$pid/cwd" 2>/dev/null) || [ -z "$cwd" ]; then
-        # A process that exited since the snapshot, or a zombie, has no
-        # directory to be working in. A process the kernel protects from this
-        # user (one that changed credentials, such as sd-pam or a setgid
-        # agent) hides its environ the same way; a worker agent is launched
-        # from this user's own shell and never is one. Anything else
-        # unreadable proves nothing.
-        [ -e "/proc/$pid" ] || continue
-        case "$(awk '{ sub(/^.*\) /, ""); print $1 }' "/proc/$pid/stat" 2>/dev/null)" in
-          Z|X|'') continue ;;
+      if ! cwd=$(readlink "$proc/$pid/cwd" 2>/dev/null) || [ -z "$cwd" ]; then
+        # Only a process positively known to have exited since the snapshot,
+        # or to be a zombie, has no directory to be working in. Any other
+        # process whose directory cannot be read, whatever the reason, could
+        # still be the worker, so nothing is proven.
+        [ -e "$proc/$pid" ] || continue
+        case "$(awk '{ sub(/^.*\) /, ""); print $1 }' "$proc/$pid/stat" 2>/dev/null)" in
+          Z|X) continue ;;
         esac
-        [ -r "/proc/$pid/environ" ] || continue
+        [ -e "$proc/$pid" ] || continue
+        if comm=$(fm_control_known_non_worker "$proc" "$pid" "$uid" "$id" "$wt" "$wt_real"); then
+          accepted="$accepted${accepted:+, }$pid $comm"
+          continue
+        fi
         printf 'unreadable\tthe working directory of process %s could not be read' "$pid"
         return 0
       fi
@@ -692,7 +726,11 @@ EOF
           ;;
       esac
     done
-    printf 'none\t'
+    if [ -n "$accepted" ]; then
+      printf 'none\tunreadable working directories accepted as known non-workers: %s' "$accepted"
+    else
+      printf 'none\t'
+    fi
     return 0
   fi
   command -v lsof >/dev/null 2>&1 \
@@ -700,12 +738,14 @@ EOF
   lsof_out=$(lsof -a -d cwd -Fpn 2>/dev/null) \
     || { printf 'unreadable\tlsof could not read process working directories'; return 0; }
   pid=
+  covered=" "
   while IFS= read -r line; do
     case "$line" in
       p*) pid=${line#p} ;;
       n*)
         case "$cand" in *" $pid "*) ;; *) continue ;; esac
         [ -n "$pid" ] || continue
+        covered="$covered$pid "
         case "${line#n}" in
           "$wt_real"|"$wt_real"/*|"$wt"|"$wt"/*)
             printf 'match\tprocess %s is working in the recorded worktree' "$pid"
@@ -717,6 +757,20 @@ EOF
   done <<EOF
 $lsof_out
 EOF
+  # lsof silently leaves out a process it could not inspect, so every
+  # candidate it did not report is unproven unless it has positively exited
+  # or is a zombie.
+  for pid in $cand; do
+    case "$covered" in *" $pid "*) continue ;; esac
+    state=$(LC_ALL=C ps -o stat= -p "$pid" 2>/dev/null) || state=
+    state=${state#"${state%%[![:space:]]*}"}
+    case "$state" in
+      Z*) continue ;;
+      '') kill -0 "$pid" 2>/dev/null || continue ;;
+    esac
+    printf 'unreadable\tlsof did not report the working directory of process %s' "$pid"
+    return 0
+  done
   printf 'none\t'
 }
 
