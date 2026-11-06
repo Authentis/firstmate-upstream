@@ -5,7 +5,8 @@
 # advanced after the worktree was allocated.
 # These tests drive the real spawn path with a fake terminal, then prove it
 # starts the worker from the fetched origin tip, launches a clean origin-less
-# pool as-is, or stops when a configured origin is unusable.
+# pool as-is, or stops when a configured origin is unusable. An attached spawn
+# starts it on a preserved branch and head instead, or refuses untouched.
 set -u
 
 # shellcheck source=tests/fixtures.sh
@@ -1057,6 +1058,272 @@ test_scout_base_branch_refused_on_gerrit_forge() {
   pass "a based scout on a forge=gerrit project is refused at spawn"
 }
 
+# --- attach: a task with no record, only a preserved head ------------------
+#
+# A task whose record is gone can still have its work preserved as a head in a
+# cleanup bundle, with a no-mistakes run parked on that branch. Attaching
+# starts the worker on that exact branch and head instead of a branch it cuts
+# itself, so it can answer the parked run rather than start a second one.
+
+# preserve_head <branch> <bundle>: commit work on <branch> in the publisher
+# clone without pushing it, and write a bundle whose HEAD is that commit, the
+# shape cleanup leaves behind. Prints the preserved commit.
+preserve_head() {  # <branch> <bundle>
+  git -C "$CASE_DIR/publisher" checkout --quiet -b "$1"
+  printf 'preserved work\n' > "$CASE_DIR/publisher/preserved.txt"
+  git -C "$CASE_DIR/publisher" add preserved.txt
+  git -C "$CASE_DIR/publisher" -c user.name='Firstmate Tests' -c user.email='tests@example.invalid' \
+    commit -qm preserved-work
+  git -C "$CASE_DIR/publisher" bundle create -q "$2" HEAD
+  git -C "$CASE_DIR/publisher" rev-parse HEAD
+}
+
+project_heads() {
+  git -C "$PROJECT_DIR" for-each-ref --format='%(refname) %(objectname)' refs/heads | LC_ALL=C sort
+}
+
+test_attach_restores_a_preserved_head_from_its_bundle() {
+  local rec id out status head bundle heads_before heads_after
+  id='pool-attach-bundle-r1'
+  rec=$(make_case attach-bundle "$id")
+  read_case_record "$rec"
+  bundle="$CASE_DIR/preserved.bundle"
+  head=$(preserve_head "fm/$id" "$bundle")
+  ! git -C "$PROJECT_DIR" cat-file -e "$head^{commit}" 2>/dev/null \
+    || fail "fixture did not keep the preserved head out of the project"
+  heads_before=$(project_heads)
+
+  out=$(run_spawn "$id" --mode no-mistakes --yolo off \
+    --attach-branch "fm/$id" --attach-head "$head" --attach-bundle "$bundle")
+  status=$?
+  expect_code 0 "$status" "an attach from a preserved bundle should launch"$'\n'"$out"
+  [ "$(git -C "$POOL_DIR" rev-parse HEAD)" = "$head" ] \
+    || fail "the attached copy is not at the preserved head"
+  [ "$(git -C "$POOL_DIR" symbolic-ref -q HEAD)" = "refs/heads/fm/$id" ] \
+    || fail "the attached copy is not on the preserved branch"
+  assert_grep 'preserved work' "$POOL_DIR/preserved.txt" "the attached copy lacks the preserved work"
+  assert_grep "branch=fm/$id" "$HOME_DIR/state/$id.meta" "the record does not carry the attached branch"
+  heads_after=$(project_heads)
+  [ "$heads_after" = "$(printf '%s\nrefs/heads/fm/%s %s' "$heads_before" "$id" "$head" | LC_ALL=C sort)" ] \
+    || fail "attaching should add exactly the preserved branch and touch no other ref"$'\n'"before: $heads_before"$'\n'"after: $heads_after"
+  pass "attach: a preserved head is restored from its bundle onto its own branch"
+}
+
+test_attach_restores_a_home_relative_bundle() {
+  local rec id out status head bundle
+  id='pool-attach-relative-r1'
+  rec=$(make_case attach-relative "$id")
+  read_case_record "$rec"
+  bundle='data/bundles/preserved work.bundle'
+  mkdir -p "$HOME_DIR/data/bundles"
+  head=$(preserve_head "fm/$id" "$HOME_DIR/$bundle")
+  ! git -C "$PROJECT_DIR" cat-file -e "$head^{commit}" 2>/dev/null \
+    || fail 'fixture must keep the preserved head out of the project'
+
+  out=$(cd "$HOME_DIR" && run_spawn "$id" --mode no-mistakes --yolo off \
+    --attach-branch "fm/$id" --attach-head "$head" --attach-bundle "$bundle")
+  status=$?
+  expect_code 0 "$status" 'a home-relative bundle should restore and launch'$'\n'"$out"
+  [ "$(git -C "$POOL_DIR" rev-parse HEAD)" = "$head" ] \
+    || fail 'the attached copy must restore the supplied bundle head'
+  [ "$(git -C "$POOL_DIR" symbolic-ref -q HEAD)" = "refs/heads/fm/$id" ] \
+    || fail 'the attached copy must be on the preserved branch'
+  assert_grep 'preserved work' "$POOL_DIR/preserved.txt" 'the restored copy must contain the preserved work'
+  pass 'attach: a home-relative bundle restores its head and branch from the invocation directory'
+}
+
+test_attach_checks_out_a_branch_already_at_the_head() {
+  local rec id out status heads_before
+  id='pool-attach-existing-r1'
+  rec=$(make_case attach-existing "$id")
+  read_case_record "$rec"
+  git -C "$PROJECT_DIR" branch "fm/$id" "$INITIAL_SHA"
+  heads_before=$(project_heads)
+
+  out=$(run_spawn "$id" --mode no-mistakes --yolo off \
+    --attach-branch "fm/$id" --attach-head "$INITIAL_SHA")
+  status=$?
+  expect_code 0 "$status" "an attach to a branch already at the head should launch"$'\n'"$out"
+  [ "$(git -C "$POOL_DIR" rev-parse HEAD)" = "$INITIAL_SHA" ] \
+    || fail "the attached copy is not at the preserved head"
+  [ "$(git -C "$POOL_DIR" symbolic-ref -q HEAD)" = "refs/heads/fm/$id" ] \
+    || fail "the attached copy is not on the existing branch"
+  [ "$(project_heads)" = "$heads_before" ] || fail "attaching to an existing branch cut or moved a branch"
+  pass "attach: an existing branch at the preserved head is checked out, never re-cut"
+}
+
+# assert_attach_refused <id> <expected-text> <what> <spawn args...>
+assert_attach_refused() {  # <id> <expected-text> <what> <args...>
+  local id=$1 expect=$2 what=$3 out status heads_before
+  shift 3
+  heads_before=$(project_heads)
+  out=$(run_spawn "$id" "$@")
+  status=$?
+  [ "$status" -ne 0 ] || fail "attach should refuse: $what"$'\n'"$out"
+  assert_contains "$out" "$expect" "the refusal should explain itself: $what"
+  [ ! -e "$HOME_DIR/state/$id.meta" ] || fail "a refused attach published task metadata: $what"
+  [ "$(git -C "$POOL_DIR" rev-parse HEAD)" = "$INITIAL_SHA" ] || fail "a refused attach moved the pooled copy: $what"
+  [ "$(project_heads)" = "$heads_before" ] || fail "a refused attach cut or moved a branch: $what"
+}
+
+test_attach_refusals_leave_everything_untouched() {
+  local rec id head bundle other
+  id='pool-attach-refuse-r1'
+  rec=$(make_case attach-refuse "$id")
+  read_case_record "$rec"
+  bundle="$CASE_DIR/preserved.bundle"
+  head=$(preserve_head "fm/$id" "$bundle")
+  other=0123456789abcdef0123456789abcdef01234567
+
+  assert_attach_refused "$id" "is not present in" "a head the project lacks, with no bundle" \
+    --mode no-mistakes --yolo off --attach-branch "fm/$id" --attach-head "$head"
+  assert_attach_refused "$id" "is not a head of bundle" "a head the bundle does not carry" \
+    --mode no-mistakes --yolo off --attach-branch "fm/$id" --attach-head "$other" --attach-bundle "$bundle"
+  git -C "$PROJECT_DIR" branch "fm/$id" "$INITIAL_SHA"
+  assert_attach_refused "$id" "already exists at $INITIAL_SHA" "a branch that exists at a different head" \
+    --mode no-mistakes --yolo off --attach-branch "fm/$id" --attach-head "$head" --attach-bundle "$bundle"
+  assert_attach_refused "$id" "needs both" "a branch without a head" \
+    --mode no-mistakes --yolo off --attach-branch "fm/$id"
+  assert_attach_refused "$id" "full lowercase commit id" "an abbreviated head" \
+    --mode no-mistakes --yolo off --attach-branch "fm/$id" --attach-head "${head:0:12}"
+  assert_attach_refused "$id" "drop --branch-prefix" "an explicit branch beside a prefix" \
+    --mode no-mistakes --yolo off --branch-prefix fm/ --attach-branch "fm/$id" --attach-head "$head"
+  assert_attach_refused "$id" "apply only to ship spawns" "a scout" \
+    --scout --attach-branch "fm/$id" --attach-head "$head"
+  assert_attach_refused "$id" "for a task with no record" "a relaunch, which attaches to its own record" \
+    --relaunch --attach-branch "fm/$id" --attach-head "$head"
+  pass "attach: every refusal stops before the copy, the record, or any branch is touched"
+}
+
+test_attach_refuses_a_branch_origin_moved_elsewhere() {
+  local rec id out status head bundle heads_before
+  id='pool-attach-origin-r1'
+  rec=$(make_case attach-origin "$id")
+  read_case_record "$rec"
+  bundle="$CASE_DIR/preserved.bundle"
+  head=$(preserve_head "fm/$id" "$bundle")
+  # origin carries the branch at a later commit the project has not fetched
+  # yet, so only the copy's own refreshed view of origin can see it.
+  printf 'moved on\n' > "$CASE_DIR/publisher/later.txt"
+  git -C "$CASE_DIR/publisher" add later.txt
+  git -C "$CASE_DIR/publisher" -c user.name='Firstmate Tests' -c user.email='tests@example.invalid' \
+    commit -qm later
+  git -C "$CASE_DIR/publisher" push --quiet origin "fm/$id"
+  heads_before=$(project_heads)
+
+  out=$(run_spawn "$id" --mode no-mistakes --yolo off \
+    --attach-branch "fm/$id" --attach-head "$head" --attach-bundle "$bundle")
+  status=$?
+  [ "$status" -ne 0 ] || fail "attach should refuse a branch origin already moved past the head"$'\n'"$out"
+  assert_contains "$out" "already exists on origin at" "the origin refusal should explain itself"
+  [ ! -e "$HOME_DIR/state/$id.meta" ] || fail "a refused attach published task metadata"
+  [ "$(project_heads)" = "$heads_before" ] || fail "a refused attach cut or moved a branch"
+  pass "attach: a branch origin moved past the preserved head refuses without creating it"
+}
+
+test_attach_asks_origin_past_a_narrow_fetch_refspec() {
+  local rec id out status head bundle heads_before def repo
+  id='pool-attach-narrow-r1'
+  rec=$(make_case attach-narrow "$id")
+  read_case_record "$rec"
+  bundle="$CASE_DIR/preserved.bundle"
+  head=$(preserve_head "fm/$id" "$bundle")
+  printf 'moved on\n' > "$CASE_DIR/publisher/later.txt"
+  git -C "$CASE_DIR/publisher" add later.txt
+  git -C "$CASE_DIR/publisher" -c user.name='Firstmate Tests' -c user.email='tests@example.invalid' \
+    commit -qm later
+  git -C "$CASE_DIR/publisher" push --quiet origin "fm/$id"
+  # Fetching only the default branch, neither the project nor its pooled copy
+  # ever gets a remote-tracking ref for the branch origin now holds elsewhere.
+  def=$(git -C "$PROJECT_DIR" symbolic-ref --short HEAD)
+  for repo in "$PROJECT_DIR" "$POOL_DIR"; do
+    git -C "$repo" config remote.origin.fetch "+refs/heads/$def:refs/remotes/origin/$def"
+    git -C "$repo" update-ref -d "refs/remotes/origin/fm/$id" 2>/dev/null || true
+  done
+  heads_before=$(project_heads)
+
+  out=$(run_spawn "$id" --mode no-mistakes --yolo off \
+    --attach-branch "fm/$id" --attach-head "$head" --attach-bundle "$bundle")
+  status=$?
+  [ "$status" -ne 0 ] || fail "attach should refuse a branch origin holds elsewhere even past a narrow fetch refspec"$'\n'"$out"
+  assert_contains "$out" "already exists on origin at" "the origin refusal should explain itself"
+  [ ! -e "$HOME_DIR/state/$id.meta" ] || fail "a refused attach published task metadata"
+  [ "$(git -C "$POOL_DIR" rev-parse HEAD)" = "$INITIAL_SHA" ] || fail "a refused attach moved the pooled copy"
+  [ "$(project_heads)" = "$heads_before" ] || fail "a refused attach cut or moved a branch"
+  pass "attach: origin is asked for the exact branch, so a narrow fetch refspec cannot hide another head"
+}
+
+test_attach_on_an_originless_project() {
+  local rec id out status
+  id='pool-attach-originless-r1'
+  rec=$(make_originless_case attach-originless "$id")
+  read_case_record "$rec"
+  # Ordinary spawns support a project with no origin; a head the project
+  # already holds is a valid attach there too, with no remote to ask.
+  out=$(run_spawn "$id" --mode no-mistakes --yolo off \
+    --attach-branch "fm/$id" --attach-head "$INITIAL_SHA")
+  status=$?
+  expect_code 0 "$status" "an attach on an originless project should launch"$'\n'"$out"
+  [ "$(git -C "$POOL_DIR" rev-parse HEAD)" = "$INITIAL_SHA" ] || fail "the attached copy is not at the preserved head"
+  [ "$(git -C "$POOL_DIR" symbolic-ref -q HEAD)" = "refs/heads/fm/$id" ] || fail "the attached copy is not on the preserved branch"
+  pass "attach: a project with no origin attaches a head it already holds"
+}
+
+test_attach_prelaunch_failure_restores_the_copy_for_a_retry() {
+  local rec id out status bundle head
+  id='pool-attach-trust-r1'
+  rec=$(make_case attach-trust "$id")
+  read_case_record "$rec"
+  bundle="$CASE_DIR/preserved.bundle"
+  head=$(preserve_head "fm/$id" "$bundle")
+  mkdir -p "$HOME_DIR/user-home"
+  printf 'invalid json\n' > "$HOME_DIR/user-home/.claude.json"
+
+  out=$(run_spawn "$id" --harness claude --mode no-mistakes --yolo off \
+    --attach-branch "fm/$id" --attach-head "$head" --attach-bundle "$bundle")
+  status=$?
+  [ "$status" -ne 0 ] || fail "an attach whose trust registration fails should refuse"$'\n'"$out"
+  assert_contains "$out" "could not pre-register Claude workspace trust" "the failure should come from trust registration, after the checkout"
+  [ ! -e "$HOME_DIR/state/$id.meta" ] || fail "a failed attach published task metadata"
+  # The spawn refreshed the copy to origin's default branch before attaching;
+  # that refreshed, detached head is where the copy goes back to.
+  [ "$(git -C "$POOL_DIR" rev-parse HEAD)" = "$(git -C "$CASE_DIR/publisher" rev-parse "refs/heads/$DEFAULT_BRANCH")" ] \
+    || fail "a failed attach left the copy away from its previous head"
+  ! git -C "$POOL_DIR" symbolic-ref -q HEAD >/dev/null || fail "a failed attach left the copy on a branch, so the slot cannot be acquired again"
+  ! git -C "$PROJECT_DIR" rev-parse --verify -q "refs/heads/fm/$id" >/dev/null \
+    || fail "a failed attach left the branch it created behind"
+
+  rm -f "$HOME_DIR/user-home/.claude.json"
+  # A failed spawn leaves its window for the operator to close, as for any
+  # spawn; closing it is all the retry needs besides the slot.
+  : > "$FAKEBIN_DIR/.spawn-window"
+  out=$(run_spawn "$id" --harness claude --mode no-mistakes --yolo off \
+    --attach-branch "fm/$id" --attach-head "$head" --attach-bundle "$bundle")
+  status=$?
+  expect_code 0 "$status" "a retry after the failed attach should launch"$'\n'"$out"
+  [ "$(git -C "$POOL_DIR" rev-parse HEAD)" = "$head" ] || fail "the retried attach is not at the preserved head"
+  [ "$(git -C "$POOL_DIR" symbolic-ref -q HEAD)" = "refs/heads/fm/$id" ] || fail "the retried attach is not on the preserved branch"
+  pass "attach: a failure after the checkout puts the copy back and drops only the branch it created, so a retry attaches"
+}
+
+test_attach_prelaunch_failure_keeps_a_branch_that_already_existed() {
+  local rec id out status
+  id='pool-attach-trust-existing-r1'
+  rec=$(make_case attach-trust-existing "$id")
+  read_case_record "$rec"
+  git -C "$PROJECT_DIR" branch "fm/$id" "$INITIAL_SHA"
+  mkdir -p "$HOME_DIR/user-home"
+  printf 'invalid json\n' > "$HOME_DIR/user-home/.claude.json"
+  out=$(run_spawn "$id" --harness claude --mode no-mistakes --yolo off \
+    --attach-branch "fm/$id" --attach-head "$INITIAL_SHA")
+  status=$?
+  [ "$status" -ne 0 ] || fail "an attach whose trust registration fails should refuse"$'\n'"$out"
+  ! git -C "$POOL_DIR" symbolic-ref -q HEAD >/dev/null || fail "a failed attach left the copy on the branch"
+  [ "$(git -C "$PROJECT_DIR" rev-parse --verify -q "refs/heads/fm/$id")" = "$INITIAL_SHA" ] \
+    || fail "a failed attach removed or moved a branch it did not create"
+  pass "attach: a failure after the checkout keeps a branch that existed before the attach"
+}
+
 test_remote_seeded_home_spawns_from_treehouse_pool
 test_pool_slot_claim_follows_the_spawn_outcome
 test_protected_pool_slot_refuses_without_touching_it
@@ -1084,5 +1351,14 @@ test_unpushed_submodule_commit_is_still_uncommitted_work
 test_work_inside_submodule_is_still_uncommitted_work
 test_stale_pin_carrying_real_work_is_not_called_stale
 test_stale_pin_beside_other_dirt_reports_one_verdict
+test_attach_restores_a_preserved_head_from_its_bundle
+test_attach_restores_a_home_relative_bundle
+test_attach_checks_out_a_branch_already_at_the_head
+test_attach_refusals_leave_everything_untouched
+test_attach_refuses_a_branch_origin_moved_elsewhere
+test_attach_asks_origin_past_a_narrow_fetch_refspec
+test_attach_on_an_originless_project
+test_attach_prelaunch_failure_restores_the_copy_for_a_retry
+test_attach_prelaunch_failure_keeps_a_branch_that_already_existed
 
 echo "# all fm-spawn-pool-base-freshen tests passed"

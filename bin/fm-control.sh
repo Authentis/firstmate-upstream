@@ -48,30 +48,24 @@
 #              `missing` is put through the control plane's per-backend absence
 #              proof (fm_control_endpoint_absence_verdict) before anything is
 #              claimed about it, because `missing` also covers an endpoint that
-#              is merely unreachable from this seat. That proof exists only on
-#              HERDR, whose reads are scoped to the session the record names:
-#              proven gone reports `endpoint-gone` rather than
-#              `already-stopped`, because the endpoint this verb normally
-#              preserves did not survive; a pane that turns out to be there and
-#              idle is the ordinary `already-stopped`; one whose agent is back
-#              takes the ordinary interrupt-then-exit path. A tmux `missing`
-#              always REFUSES: a task record carries no socket identity for its
-#              endpoint, so this verb cannot tell a destroyed window from one on
-#              a tmux server it cannot address, and it will not claim a stop it
-#              cannot see.
+#              is merely unreachable from this seat. Proven gone reports
+#              `endpoint-gone` rather than `already-stopped`, because the
+#              endpoint this verb normally preserves did not survive; a pane
+#              that turns out to be there and idle is the ordinary
+#              `already-stopped`; one whose agent is back takes the ordinary
+#              interrupt-then-exit path. A tmux `missing` that the shared
+#              proof cannot establish as gone REFUSES rather than claim a
+#              stop it cannot see; fm_control_endpoint_absence_verdict owns
+#              its process-evidence rules and exceptions.
 #   relaunch   Transactionally replace the running agent with a new one, in the
 #              SAME worktree - and the same endpoint whenever that endpoint
 #              still exists - on the same or a newly chosen
 #              harness/model/effort - so switching harness is one ordinary use
-#              of this verb. When the recorded endpoint is instead proven gone -
-#              a Herdr pane or workspace destroyed in churn - the launch owner
-#              re-creates one in that worktree, in the herdr session the record
-#              names, and the task's record rebinds to it; that is how a task
-#              whose terminal was destroyed is reclaimed by the home that owns
-#              it, rather than being stranded with a parked approval nobody can
-#              answer. Reclaim is HERDR-ONLY for the reason `exit` gives above:
-#              a tmux `missing` cannot be proven absent from a task record, so
-#              it refuses.
+#              of this verb. When the recorded endpoint is instead proven gone,
+#              the launch owner re-creates one in that worktree and the task's
+#              record rebinds to it. fm_control_endpoint_absence_verdict owns
+#              the proof shared with `exit`; docs/agent-control.md's reclaim
+#              section owns backend-specific placement and recovery limits.
 #              Outside a matching keyed secondmate pin, an explicit `default`
 #              model or effort clears that axis for the replacement.
 #              With no explicit axis, a secondmate
@@ -786,7 +780,7 @@ do_exit() {
       # "destroyed" with "unreachable from this seat". Route it through the
       # control plane's one absence proof - the same one the relaunch gate uses
       # - and report what that proof actually established, never more.
-      absence=$(fm_control_endpoint_absence_verdict "$BACKEND" "$T")
+      absence=$(fm_control_endpoint_absence_verdict "$BACKEND" "$T" "$ID" "$WT")
       case "${absence%%$'\t'*}" in
         gone)
           # Proven gone, so the agent that lived in it went with it: exit's
@@ -795,6 +789,8 @@ do_exit() {
           # verb normally preserves did not survive. The worktree and every
           # uncommitted change are untouched, and `relaunch` re-creates the
           # endpoint from here.
+          [ -z "${absence#*$'\t'}" ] \
+            || echo "note: task $ID's recorded endpoint $T is proven absent; ${absence#*$'\t'}" >&2
           printf 'endpoint-gone'
           return 0
           ;;
