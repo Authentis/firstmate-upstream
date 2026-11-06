@@ -1221,6 +1221,38 @@ test_attach_refuses_a_branch_origin_moved_elsewhere() {
   pass "attach: a branch origin moved past the preserved head refuses without creating it"
 }
 
+test_attach_asks_origin_past_a_narrow_fetch_refspec() {
+  local rec id out status head bundle heads_before def repo
+  id='pool-attach-narrow-r1'
+  rec=$(make_case attach-narrow "$id")
+  read_case_record "$rec"
+  bundle="$CASE_DIR/preserved.bundle"
+  head=$(preserve_head "fm/$id" "$bundle")
+  printf 'moved on\n' > "$CASE_DIR/publisher/later.txt"
+  git -C "$CASE_DIR/publisher" add later.txt
+  git -C "$CASE_DIR/publisher" -c user.name='Firstmate Tests' -c user.email='tests@example.invalid' \
+    commit -qm later
+  git -C "$CASE_DIR/publisher" push --quiet origin "fm/$id"
+  # Fetching only the default branch, neither the project nor its pooled copy
+  # ever gets a remote-tracking ref for the branch origin now holds elsewhere.
+  def=$(git -C "$PROJECT_DIR" symbolic-ref --short HEAD)
+  for repo in "$PROJECT_DIR" "$POOL_DIR"; do
+    git -C "$repo" config remote.origin.fetch "+refs/heads/$def:refs/remotes/origin/$def"
+    git -C "$repo" update-ref -d "refs/remotes/origin/fm/$id" 2>/dev/null || true
+  done
+  heads_before=$(project_heads)
+
+  out=$(run_spawn "$id" --mode no-mistakes --yolo off \
+    --attach-branch "fm/$id" --attach-head "$head" --attach-bundle "$bundle")
+  status=$?
+  [ "$status" -ne 0 ] || fail "attach should refuse a branch origin holds elsewhere even past a narrow fetch refspec"$'\n'"$out"
+  assert_contains "$out" "already exists on origin at" "the origin refusal should explain itself"
+  [ ! -e "$HOME_DIR/state/$id.meta" ] || fail "a refused attach published task metadata"
+  [ "$(git -C "$POOL_DIR" rev-parse HEAD)" = "$INITIAL_SHA" ] || fail "a refused attach moved the pooled copy"
+  [ "$(project_heads)" = "$heads_before" ] || fail "a refused attach cut or moved a branch"
+  pass "attach: origin is asked for the exact branch, so a narrow fetch refspec cannot hide another head"
+}
+
 test_remote_seeded_home_spawns_from_treehouse_pool
 test_pool_slot_claim_follows_the_spawn_outcome
 test_protected_pool_slot_refuses_without_touching_it
@@ -1253,5 +1285,6 @@ test_attach_restores_a_home_relative_bundle
 test_attach_checks_out_a_branch_already_at_the_head
 test_attach_refusals_leave_everything_untouched
 test_attach_refuses_a_branch_origin_moved_elsewhere
+test_attach_asks_origin_past_a_narrow_fetch_refspec
 
 echo "# all fm-spawn-pool-base-freshen tests passed"

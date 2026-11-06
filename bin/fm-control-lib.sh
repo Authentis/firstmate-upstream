@@ -638,7 +638,7 @@ fm_control_known_non_worker() {  # <proc-root> <pid> <uid> <task-id> <worktree> 
 }
 
 fm_control_task_process_evidence() {  # <task-id> <worktree>
-  local id=${1-} wt=${2-} wt_real self uid table rows line kind pid cwd lsof_out covered state comm
+  local id=${1-} wt=${2-} wt_real self uid table rows line kind pid cwd lsof_out covered state comm fd ftype
   local cand=" " proc=${FM_CONTROL_PROC_ROOT:-/proc} accepted=
   [ -n "$id" ] && [ -n "$wt" ] || { printf 'unreadable\tno task id and worktree to match processes against'; return 0; }
   wt_real=$(cd "$wt" 2>/dev/null && pwd -P) || wt_real=$wt
@@ -735,16 +735,31 @@ EOF
   fi
   command -v lsof >/dev/null 2>&1 \
     || { printf 'unreadable\tneither /proc nor lsof is available to read process working directories'; return 0; }
-  lsof_out=$(lsof -a -d cwd -Fpn 2>/dev/null) \
+  lsof_out=$(lsof -a -d cwd -Fpftn 2>/dev/null) \
     || { printf 'unreadable\tlsof could not read process working directories'; return 0; }
   pid=
   covered=" "
+  fd=
+  ftype=
   while IFS= read -r line; do
     case "$line" in
-      p*) pid=${line#p} ;;
+      p*) pid=${line#p}; fd=; ftype= ;;
+      f*) fd=${line#f}; ftype= ;;
+      t*) ftype=${line#t} ;;
       n*)
         case "$cand" in *" $pid "*) ;; *) continue ;; esac
         [ -n "$pid" ] || continue
+        # Only a resolved cwd directory is coverage: lsof reports a directory
+        # it could not resolve as a name carrying its error, such as
+        # "/proc/<pid>/cwd (readlink: Permission denied)", with no DIR type.
+        [ "$fd" = cwd ] && [ "$ftype" = DIR ] || continue
+        case "${line#n}" in
+          /*) ;;
+          *) continue ;;
+        esac
+        case "${line#n}" in
+          *' (readlink: '*|*' (stat: '*) continue ;;
+        esac
         covered="$covered$pid "
         case "${line#n}" in
           "$wt_real"|"$wt_real"/*|"$wt"|"$wt"/*)
@@ -757,9 +772,9 @@ EOF
   done <<EOF
 $lsof_out
 EOF
-  # lsof silently leaves out a process it could not inspect, so every
-  # candidate it did not report is unproven unless it has positively exited
-  # or is a zombie.
+  # lsof silently leaves out a process it could not inspect, or reports its
+  # directory unresolved, so every candidate without a resolved cwd directory
+  # is unproven unless it has positively exited or is a zombie.
   for pid in $cand; do
     case "$covered" in *" $pid "*) continue ;; esac
     state=$(LC_ALL=C ps -o stat= -p "$pid" 2>/dev/null) || state=
@@ -768,7 +783,7 @@ EOF
       Z*) continue ;;
       '') kill -0 "$pid" 2>/dev/null || continue ;;
     esac
-    printf 'unreadable\tlsof did not report the working directory of process %s' "$pid"
+    printf 'unreadable\tlsof did not report a resolved working directory for process %s' "$pid"
     return 0
   done
   printf 'none\t'

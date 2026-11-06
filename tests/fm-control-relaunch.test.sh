@@ -2282,7 +2282,7 @@ lsof_stub() {  # <dir> <pid...>
   local dir=$1 p
   shift
   : > "$dir/fake/lsof-out"
-  for p in "$@"; do printf 'p%s\nfcwd\nn/\n' "$p" >> "$dir/fake/lsof-out"; done
+  for p in "$@"; do printf 'p%s\nfcwd\ntDIR\nn/\n' "$p" >> "$dir/fake/lsof-out"; done
   cat > "$dir/fakebin/lsof" <<'SH'
 #!/usr/bin/env bash
 cat "$FM_FAKE_DIR/lsof-out"
@@ -2303,12 +2303,18 @@ test_evidence_lsof_refuses_an_unreported_live_candidate() {
   out=$(run_evidence "$dir" ev5 "$dir/no-proc")
   [ "${out%%$'\t'*}" = unreadable ] || fail "a live candidate lsof left out must refuse"$'\n'"$out"
   assert_contains "$out" "process $b" "the refusal should name the unreported process"
+  # lsof reports a directory it could not resolve as an error-bearing name,
+  # which is no coverage of that process.
+  printf 'p%s\nfcwd\ntunknown\nn/proc/%s/cwd (readlink: Permission denied)\n' "$b" "$b" >> "$dir/fake/lsof-out"
+  out=$(run_evidence "$dir" ev5 "$dir/no-proc")
+  [ "${out%%$'\t'*}" = unreadable ] || fail "an error-bearing lsof cwd record must not count as coverage"$'\n'"$out"
+  assert_contains "$out" "process $b" "the refusal should name the unresolved process"
   lsof_stub "$dir" "$a" "$b"
   out=$(run_evidence "$dir" ev5 "$dir/no-proc")
   [ "${out%%$'\t'*}" = none ] || fail "full lsof coverage of the live candidates should prove absence (an exited one needs none)"$'\n'"$out"
   kill "$a" "$b" 2>/dev/null || true
   wait "$a" "$b" 2>/dev/null || true
-  pass "evidence: the lsof fallback refuses unless every live candidate's directory was reported"
+  pass "evidence: the lsof fallback refuses unless every live candidate reported a resolved cwd directory"
 }
 
 test_tmux_reclaim_attaches_to_the_recorded_branch_and_worktree() {

@@ -4310,6 +4310,35 @@ spawn_attach_preflight() {
       exit 1
     }
   done
+  spawn_attach_remote_check "$PROJ_ABS" || exit 1
+}
+
+# spawn_attach_remote_check <git-dir>: ask origin itself for the exact branch,
+# since a remote-tracking ref is absent or stale whenever origin's fetch
+# refspec does not cover it. Absent on origin, or present at the preserved
+# head, passes; present at another commit, or a query that could not be made,
+# refuses.
+spawn_attach_remote_check() {  # <git-dir>
+  local out rc
+  out=$(git -C "$1" ls-remote --exit-code origin "refs/heads/$ATTACH_BRANCH" 2>/dev/null) && rc=0 || rc=$?
+  case "$rc" in
+    2) return 0 ;;
+    0) ;;
+    *)
+      echo "error: could not ask origin whether branch $ATTACH_BRANCH exists (git ls-remote exited $rc); refusing to attach without knowing origin's head for it" >&2
+      return 1
+      ;;
+  esac
+  out=$(printf '%s\n' "$out" | awk -v r="refs/heads/$ATTACH_BRANCH" '$2 == r { print $1 }')
+  case "$out" in
+    "$ATTACH_HEAD") return 0 ;;
+    '')
+      echo "error: origin's answer for branch $ATTACH_BRANCH could not be read; refusing to attach" >&2
+      return 1
+      ;;
+  esac
+  echo "error: branch $ATTACH_BRANCH already exists on origin at $(printf '%s' "$out" | head -n1), not at --attach-head $ATTACH_HEAD; refusing to attach to a branch with a different head" >&2
+  return 1
 }
 spawn_attach_preflight
 
@@ -4331,12 +4360,9 @@ spawn_attach_checkout() {  # <worktree>
     echo "error: --attach-head $ATTACH_HEAD is not present in $wt" >&2
     return 1
   }
-  # The base refresh just fetched origin, so its copy of the branch is re-read.
-  if existing=$(git -C "$wt" rev-parse --verify -q "refs/remotes/origin/$ATTACH_BRANCH^{commit}" 2>/dev/null) &&
-    [ "$existing" != "$ATTACH_HEAD" ]; then
-    echo "error: branch $ATTACH_BRANCH already exists on origin at $existing, not at --attach-head $ATTACH_HEAD; refusing to attach to a branch with a different head" >&2
-    return 1
-  fi
+  # Origin is asked again directly, since the branch may have been pushed
+  # since the preflight and no fetch refspec need cover it.
+  spawn_attach_remote_check "$wt" || return 1
   if existing=$(git -C "$wt" rev-parse --verify -q "refs/heads/$ATTACH_BRANCH^{commit}" 2>/dev/null); then
     [ "$existing" = "$ATTACH_HEAD" ] || {
       echo "error: branch $ATTACH_BRANCH already exists at $existing, not at --attach-head $ATTACH_HEAD; refusing to attach to a branch with a different head" >&2
