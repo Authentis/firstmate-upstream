@@ -1,0 +1,22 @@
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.v
+note: task live-recover's recorded endpoint gone-session:fm-live-recover is proven absent; unreadable working directories accepted as known non-workers: 1267 (sd-pam), 1487 gpg-agent
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.v
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+note: task live-recover's recorded endpoint gone-session:fm-live-recover is proven absent; unreadable working directories accepted as known non-workers: 1267 (sd-pam), 1487 gpg-agent
+warning: {run-worktree}/.v/data/live-recover/launch-brief.md records no ship branch; defaulting to legacy branch fm/live-recover
+warning: {run-worktree}/.v/data/live-recover/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+relaunched live-recover harness=codex from=codex model=default effort=default backend=tmux endpoint=primary:fm-live-recover worktree={run-worktree}/.v/wt
+control exit=0
+primary:bash path={run-worktree} command=bash
+primary:fm-live-recover path={run-worktree}/.v/wt command=codex
+{run-worktree}/.v/wt/work.txt: OK
+Preserved branch=fm/live-recover; before HEAD=8e7ef687973179e9319ab056bf5f56abe03cd2e0; after HEAD=8e7ef687973179e9319ab056bf5f56abe03cd2e0
+Before file checksum: 6beb47e3673407b2691c25143b2182641e3d1322efb4dc9c38915eaab65eeb8d  {run-worktree}/.v/wt/work.txt
+After file checksum: 6beb47e3673407b2691c25143b2182641e3d1322efb4dc9c38915eaab65eeb8d  {run-worktree}/.v/wt/work.txt
+ M work.txt

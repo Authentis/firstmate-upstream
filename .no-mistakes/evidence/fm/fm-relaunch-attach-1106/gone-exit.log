@@ -1,0 +1,8 @@
+
+$ {run-worktree}/bin/fm-control.sh live-exit exit 
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.v
+note: task live-exit's recorded endpoint gone-session:fm-live-exit is proven absent; unreadable working directories accepted as known non-workers: 1267 (sd-pam), 1487 gpg-agent
+endpoint-gone live-exit harness=codex backend=tmux endpoint=gone-session:fm-live-exit worktree={run-worktree}/.v/live-exit
+exit=0
+{run-worktree}/.v/state/live-exit.meta: OK
+{run-worktree}/.v/data/live-exit/brief.md: OK

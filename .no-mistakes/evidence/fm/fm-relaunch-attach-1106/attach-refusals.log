@@ -1,0 +1,35 @@
+
+$ fm-spawn.sh live-badhead project --mode no-mistakes --yolo off --harness codex --attach-branch fm/live-badhead --attach-head 0123456789abcdef0123456789abcdef01234567 --attach-bundle {run-worktree}/.v/data/bundles/saved\ work.bundle 
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.v
+WARNING: watcher still down (same stale episode; last beat: 26s ago, grace 300s) - full banner already printed this episode.
+error: --attach-head 0123456789abcdef0123456789abcdef01234567 is not a head of bundle '{run-worktree}/.v/data/bundles/saved work.bundle'; refusing to attach to a commit it does not carry
+exit=1
+Verified: no task record, no new endpoint, no changed local branch refs.
+
+$ fm-spawn.sh live-half project --mode no-mistakes --yolo off --harness codex --attach-branch fm/live-half --attach-head 8fb12a620bcd4d11ce9878795de8e939eb43b49d --attach-branch '' 
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.v
+WARNING: watcher still down (same stale episode; last beat: 27s ago, grace 300s) - full banner already printed this episode.
+error: attaching to a preserved head needs both --attach-branch <branch> and --attach-head <commit>
+exit=1
+Verified: no task record, no new endpoint, no changed local branch refs.
+
+$ fm-spawn.sh live-conflict project --mode no-mistakes --yolo off --harness codex --attach-branch fm/live-conflict --attach-head 8fb12a620bcd4d11ce9878795de8e939eb43b49d --attach-bundle {run-worktree}/.v/data/bundles/saved\ work.bundle 
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.v
+WARNING: watcher still down (same stale episode; last beat: 28s ago, grace 300s) - full banner already printed this episode.
+error: branch fm/live-conflict already exists at e9ff8d7b734d55afa0ce07bf0c1d42b6700cd235 (refs/heads/fm/live-conflict), not at --attach-head 8fb12a620bcd4d11ce9878795de8e939eb43b49d; refusing to attach to a branch with a different head
+exit=1
+Verified: no task record, no new endpoint, no changed local branch refs.
+
+$ fm-spawn.sh live-remote project --mode no-mistakes --yolo off --harness codex --attach-branch fm/live-remote --attach-head 8fb12a620bcd4d11ce9878795de8e939eb43b49d --attach-bundle {run-worktree}/.v/data/bundles/saved\ work.bundle 
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.v
+WARNING: watcher still down (same stale episode; last beat: 29s ago, grace 300s) - full banner already printed this episode.
+error: branch fm/live-remote already exists on origin at e9ff8d7b734d55afa0ce07bf0c1d42b6700cd235, not at --attach-head 8fb12a620bcd4d11ce9878795de8e939eb43b49d; refusing to attach to a branch with a different head
+exit=1
+Verified: no task record, no new endpoint, no changed local branch refs.
+
+$ fm-spawn.sh live-unreachable project --mode no-mistakes --yolo off --harness codex --attach-branch fm/live-unreachable --attach-head 8fb12a620bcd4d11ce9878795de8e939eb43b49d --attach-bundle {run-worktree}/.v/data/bundles/saved\ work.bundle 
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.v
+WARNING: watcher still down (same stale episode; last beat: 31s ago, grace 300s) - full banner already printed this episode.
+error: could not ask origin whether branch fm/live-unreachable exists (git ls-remote exited 128); refusing to attach without knowing origin's head for it
+exit=1
+Verified: no task record, no new endpoint, no changed local branch refs.

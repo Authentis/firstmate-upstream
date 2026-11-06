@@ -1,0 +1,33 @@
+
+$ {run-worktree}/bin/fm-control.sh live-retry relaunch --harness claude --note Trust\ failure\ must\ clean\ replacement. 
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.v
+note: task live-retry's recorded endpoint gone-session:fm-live-retry is proven absent; unreadable working directories accepted as known non-workers: 1267 (sd-pam), 1487 gpg-agent
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.v
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  4 task(s) in flight, but no live watcher process holds this home lock (last beat: 9s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+note: task live-retry's recorded endpoint gone-session:fm-live-retry is proven absent; unreadable working directories accepted as known non-workers: 1267 (sd-pam), 1487 gpg-agent
+error: Unexpected token 'i', "invalid json
+" is not valid JSON
+error: refusing to pre-register Claude trust: could not record trust for '{run-worktree}/.v/live-retry' and project '{run-worktree}/.v/project' in '{run-worktree}/.v/user/.claude.json'
+error: could not pre-register Claude workspace trust for {run-worktree}/.v/live-retry; refusing to launch a claude worker that would wedge on the trust dialog; inspect window primary:fm-live-retry
+error: the replacement agent for live-retry could not be launched on claude
+error: live-retry's agent was stopped but the replacement did not launch; no agent is running, and its work plus the recorded progress note are preserved at {run-worktree}/.v/live-retry
+exit=1
+{run-worktree}/.v/state/live-retry.meta: OK
+unused replacement absent after trust refusal
+
+$ {run-worktree}/bin/fm-control.sh live-retry relaunch --note Retry\ on\ original\ codex\ harness. 
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.v
+note: task live-retry's recorded endpoint gone-session:fm-live-retry is proven absent; unreadable working directories accepted as known non-workers: 1267 (sd-pam), 1487 gpg-agent
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.v
+WARNING: watcher still down (same stale episode; last beat: 13s ago, grace 300s) - full banner already printed this episode.
+note: task live-retry's recorded endpoint gone-session:fm-live-retry is proven absent; unreadable working directories accepted as known non-workers: 1267 (sd-pam), 1487 gpg-agent
+relaunched live-retry harness=codex from=codex model=default effort=default backend=tmux endpoint=primary:fm-live-retry worktree={run-worktree}/.v/live-retry
+exit=0
+primary:bash command=bash path={run-worktree}
+primary:fm-live-retry command=codex path={run-worktree}/.v/live-retry

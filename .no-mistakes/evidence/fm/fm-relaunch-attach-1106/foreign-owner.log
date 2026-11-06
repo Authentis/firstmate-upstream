@@ -1,0 +1,23 @@
+
+$ {run-worktree}/bin/fm-control.sh live-guard relaunch --note Must\ refuse\ foreign\ cwd\ owner. 
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.v
+error: task live-guard's endpoint gone-session:fm-live-guard reads 'missing', but process 2254339 is working in the recorded worktree, so its agent may still be running in a tmux window this process cannot address; exit will not claim an agent stopped at an address it cannot trust, nor send lifecycle input to one
+error: relaunch of live-guard failed while stopping the old agent and its state is 'missing', so it was not proven stopped; its original instructions were restored and the durable record was retained for recovery
+exit=1
+{run-worktree}/.v/state/live-guard.meta: OK
+{run-worktree}/.v/data/live-guard/brief.md: OK
+
+$ {run-worktree}/bin/fm-control.sh live-guard exit 
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.v
+error: task live-guard's endpoint gone-session:fm-live-guard reads 'missing', but process 2254339 is working in the recorded worktree, so its agent may still be running in a tmux window this process cannot address; exit will not claim an agent stopped at an address it cannot trust, nor send lifecycle input to one
+exit=1
+{run-worktree}/.v/state/live-guard.meta: OK
+{run-worktree}/.v/data/live-guard/brief.md: OK
+
+$ {run-worktree}/bin/fm-control.sh live-guard relaunch --note Must\ refuse\ foreign\ argv\ owner. 
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.v
+error: task live-guard's endpoint gone-session:fm-live-guard reads 'missing', but process 2261765 names the task in its arguments, so its agent may still be running in a tmux window this process cannot address; exit will not claim an agent stopped at an address it cannot trust, nor send lifecycle input to one
+error: relaunch of live-guard failed while stopping the old agent and its state is 'missing', so it was not proven stopped; its original instructions were restored and the durable record was retained for recovery
+exit=1
+{run-worktree}/.v/state/live-guard.meta: OK
+{run-worktree}/.v/data/live-guard/brief.md: OK

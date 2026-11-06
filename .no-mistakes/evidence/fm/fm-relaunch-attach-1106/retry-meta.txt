@@ -1,0 +1,14 @@
+window=primary:fm-live-retry
+endpoint_task_id=live-retry
+worktree={run-worktree}/.v/live-retry
+project={run-worktree}/.v/project
+harness=codex
+kind=ship
+mode=no-mistakes
+yolo=off
+branch=fm/live-retry
+tasktmp=/tmp/fm-live-retry
+model=default
+effort=default
+spawn_gen=s1793987093.2283719.2424
+control_relaunch_tx=2280508.20261106T174450Z.11944

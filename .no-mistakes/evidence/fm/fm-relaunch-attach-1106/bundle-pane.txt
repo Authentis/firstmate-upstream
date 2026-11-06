@@ -1,35 +1,40 @@
-     *                                       █████▓▓░
-                                 *         ███▓░     ░░
-            ░░░░░░                        ███▓░
-    ░░░   ░░░░░░░░░░                      ███▓░
-   ░░░░░░░░░░░░░░░░░░░    *                ██▓░░      ▓
-                                             ░▓▓███▓▓░
- *                                 ░░░░
-                                 ░░░░░░░░
-                               ░░░░░░░░░░░░░░░░
-       █████████                                        *
-      ██▄█████▄██                        *
-       █████████      *
-.......█ █   █ █..........................................
+  Welcome to Codex, OpenAI's command-line coding agent
 
- Let's get started.
+  Choose how you want to use Codex.
 
- Choose the text style that looks best with your terminal
- To change this later, run /theme
+> 1. Sign in with ChatGPT
+     Usage included with Plus, Pro, Business, and Enterprise plans
 
-     Auto (match terminal)
- ❯ ✔ Dark mode
-     Light mode
-     Dark mode (colorblind-friendly)
-     Light mode (colorblind-friendly)
-     Dark mode (ANSI colors only)
-     Light mode (ANSI colors only)
+  2. Sign in with Device Code
+     Sign in from another device with a one-time code
 
- ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
-  1  function greet() {
-  2 -  console.log("Hello, World!");
-  2 +  console.log("Hello, Claude!");
-  3  }
- ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
-  Syntax theme: Monokai Extended (ctrl+t to disable)
+  3. Use an OpenAI API key
+     Pay for what you use
+
+  4. Use Amazon Bedrock
+     Connect using your AWS credentials
+
+  Press enter to continue
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 

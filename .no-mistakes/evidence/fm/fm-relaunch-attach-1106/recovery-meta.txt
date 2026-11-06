@@ -1,0 +1,14 @@
+window=primary:fm-live-recover
+endpoint_task_id=live-recover
+worktree={run-worktree}/.v/wt
+project={run-worktree}/.v/project
+harness=codex
+kind=ship
+mode=no-mistakes
+yolo=off
+branch=fm/live-recover
+tasktmp=/tmp/fm-live-recover
+model=default
+effort=default
+spawn_gen=s1793987071.2238112.25343
+control_relaunch_tx=2236360.20261106T174428Z.25819

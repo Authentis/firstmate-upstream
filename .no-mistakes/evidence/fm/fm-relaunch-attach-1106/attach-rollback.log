@@ -1,0 +1,17 @@
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.v
+WARNING: watcher still down (same stale episode; last beat: 33s ago, grace 300s) - full banner already printed this episode.
+🌳 Setting up worktree...
+🌳 Leased worktree at {run-worktree}/.v/pool/.treehouse/project-0a3669/2/project. Run 'treehouse return {run-worktree}/.v/pool/.treehouse/project-0a3669/2/project' to release it.
+error: Unexpected token 'i', "invalid json
+" is not valid JSON
+error: refusing to pre-register Claude trust: could not record trust for '{run-worktree}/.v/pool/.treehouse/project-0a3669/2/project' and project '{run-worktree}/.v/project' in '{run-worktree}/.v/user/.claude.json'
+error: could not pre-register Claude workspace trust for {run-worktree}/.v/pool/.treehouse/project-0a3669/2/project; refusing to launch a claude worker that would wedge on the trust dialog; inspect window primary:fm-live-rollback
+trust-failure exit=1
+Restored pooled copy: {run-worktree}/.v/pool/.treehouse/project-0a3669/2/project
+HEAD=e9ff8d7b734d55afa0ce07bf0c1d42b6700cd235; expected prior HEAD=e9ff8d7b734d55afa0ce07bf0c1d42b6700cd235; detached checkout; new branch absent; task record absent.
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.v
+WARNING: watcher still down (same stale episode; last beat: 37s ago, grace 300s) - full banner already printed this episode.
+🌳 Setting up worktree...
+🌳 Leased worktree at {run-worktree}/.v/pool/.treehouse/project-0a3669/2/project. Run 'treehouse return {run-worktree}/.v/pool/.treehouse/project-0a3669/2/project' to release it.
+spawned live-rollback harness=codex kind=ship mode=no-mistakes yolo=off window=primary:fm-live-rollback worktree={run-worktree}/.v/pool/.treehouse/project-0a3669/2/project
+Retry exit=0; branch=fm/live-rollback; HEAD=8fb12a620bcd4d11ce9878795de8e939eb43b49d
