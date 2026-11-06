@@ -1,0 +1,4 @@
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.attach-lab/home
+warning: {run-worktree}/.attach-lab/home/data/labattach1106/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode local-only - confirm its definition of done matches
+notice: labattach1106 ships mode=local-only while the standing posture for proj is no-mistakes - less rigor than the captain's standing posture; proceed only on a current explicit captain instruction or an intake judgment you can state
+error: branch fm/labattach1106 already exists on origin at 564ef07a32e379c9f7e46c62fab767ebb342e519, not at --attach-head e07575ebbbf5ac6fc85c5c1d51bfc77b66700f22; refusing to attach to a branch with a different head

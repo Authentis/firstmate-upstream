@@ -1,0 +1,110 @@
+{run-worktree}/.live-lab/home
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live-lab/home
+error: task labrecover1106's recorded endpoint gone-session:fm-labrecover1106 reads 'missing', but process 2115118 is working in the recorded worktree, so its agent may still be running in a tmux window this process cannot address. An endpoint that cannot be proven absent may still hold a live agent on this task's worktree; refusing rather than launching a second agent into it
+guard=hidden-cwd exit=1
+error: task labrecover1106's recorded endpoint gone-session:fm-labrecover1106 reads 'missing', but process 2115118 is working in the recorded worktree, so its agent may still be running in a tmux window this process cannot address. An endpoint that cannot be proven absent may still hold a live agent on this task's worktree; refusing rather than launching a second agent into it
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live-lab/home
+error: task labrecover1106's recorded endpoint gone-session:fm-labrecover1106 reads 'missing', but process 2121507 names the task in its arguments, so its agent may still be running in a tmux window this process cannot address. An endpoint that cannot be proven absent may still hold a live agent on this task's worktree; refusing rather than launching a second agent into it
+guard=hidden-args exit=1
+error: task labrecover1106's recorded endpoint gone-session:fm-labrecover1106 reads 'missing', but process 2121507 names the task in its arguments, so its agent may still be running in a tmux window this process cannot address. An endpoint that cannot be proven absent may still hold a live agent on this task's worktree; refusing rather than launching a second agent into it
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live-lab/home
+error: task labrecover1106's recorded endpoint gone-session:fm-labrecover1106 reads 'missing', but the working directory of process 2123841 could not be read. An endpoint that cannot be proven absent may still hold a live agent on this task's worktree; refusing rather than launching a second agent into it
+guard=hidden-unreadable exit=1
+error: task labrecover1106's recorded endpoint gone-session:fm-labrecover1106 reads 'missing', but the working directory of process 2123841 could not be read. An endpoint that cannot be proven absent may still hold a live agent on this task's worktree; refusing rather than launching a second agent into it
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live-lab/home
+error: task labrecover1106's recorded endpoint gone-session:fm-labrecover1106 reads 'missing', but a window named 'fm-labrecover1106' is still in the window inventory of the tmux server this process addresses. An endpoint that cannot be proven absent may still hold a live agent on this task's worktree; refusing rather than launching a second agent into it
+same_name_exit=1
+LIVE_REFUSAL_GUARDS_PASS
+
+=== Missing recorded endpoint: spawn --relaunch ===
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live-lab/home
+note: task labrecover1106's recorded endpoint gone-session:fm-labrecover1106 is proven absent; unreadable working directories accepted as known non-workers: 1267 (sd-pam), 1487 gpg-agent, 4002860 sshd
+warning: {run-worktree}/.live-lab/home/data/labrecover1106/launch-brief.md records no ship branch; defaulting to legacy branch fm/labrecover1106
+warning: {run-worktree}/.live-lab/home/data/labrecover1106/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode local-only - confirm its definition of done matches
+notice: labrecover1106 ships mode=local-only while the standing posture for proj is no-mistakes - less rigor than the captain's standing posture; proceed only on a current explicit captain instruction or an intake judgment you can state
+spawned labrecover1106 harness=codex kind=ship mode=local-only yolo=off window=primary:fm-labrecover1106 worktree={run-worktree}/.live-lab/wt
+spawn_exit=0
+window=primary:fm-labrecover1106
+endpoint_task_id=labrecover1106
+worktree={run-worktree}/.live-lab/wt
+project={run-worktree}/.live-lab/proj
+harness=codex
+kind=ship
+mode=local-only
+yolo=off
+branch=fm/labrecover1106
+tasktmp=/tmp/fm-labrecover1106
+model=default
+effort=default
+spawn_gen=s1793976069.2130531.12435
+primary:bash cwd={run-worktree} command=bash
+primary:fm-labrecover1106 cwd={run-worktree}/.live-lab/wt command=codex
+  Welcome to Codex, OpenAI's command-line coding agent
+
+  Choose how you want to use Codex.
+
+> 1. Sign in with ChatGPT
+     Usage included with Plus, Pro, Business, and Enterprise plans
+
+  2. Sign in with Device Code
+     Sign in from another device with a one-time code
+
+  3. Use an OpenAI API key
+     Pay for what you use
+
+  4. Use Amazon Bedrock
+     Connect using your AWS credentials
+
+  Press enter to continue
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+RECOVERY_PRESERVATION_PASS
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live-lab/home
+note: task labrecover1106's recorded endpoint gone-session:fm-labrecover1106 is proven absent; unreadable working directories accepted as known non-workers: 1267 (sd-pam), 1487 gpg-agent, 4002860 sshd
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live-lab/home
+note: task labrecover1106's recorded endpoint gone-session:fm-labrecover1106 is proven absent; unreadable working directories accepted as known non-workers: 1267 (sd-pam), 1487 gpg-agent, 4002860 sshd
+warning: {run-worktree}/.live-lab/home/data/labrecover1106/launch-brief.md records no ship branch; defaulting to legacy branch fm/labrecover1106
+warning: {run-worktree}/.live-lab/home/data/labrecover1106/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode local-only - confirm its definition of done matches
+notice: labrecover1106 ships mode=local-only while the standing posture for proj is no-mistakes - less rigor than the captain's standing posture; proceed only on a current explicit captain instruction or an intake judgment you can state
+relaunched labrecover1106 harness=codex from=codex model=default effort=default backend=tmux endpoint=primary:fm-labrecover1106 worktree={run-worktree}/.live-lab/wt
+control_exit=0
+v1
+task=labrecover1106
+phase=complete
+ts=2026-11-06T14:41:23Z
+backend=tmux
+endpoint=primary:fm-labrecover1106
+worktree={run-worktree}/.live-lab/wt
+kind=ship
+from_harness=codex
+from_model=default
+from_effort=default
+to_harness=codex
+to_model=default
+to_effort=default
+worktree_head=d5e41d9c3a11e9c0d819f1d3fcd6215bc0edb88d
+worktree_dirty=yes
+note_file={run-worktree}/.live-lab/home/state/labrecover1106.control-relaunch.note
+exit_result=endpoint-gone
+CONTROL_RECOVERY_PASS

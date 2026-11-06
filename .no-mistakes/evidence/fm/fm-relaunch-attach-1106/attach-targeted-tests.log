@@ -1,0 +1,7 @@
+ok - attach: a preserved head is restored from its bundle onto its own branch
+ok - attach: a home-relative bundle restores its head and branch from the invocation directory
+ok - attach: an existing branch at the preserved head is checked out, never re-cut
+ok - attach: every refusal stops before the copy, the record, or any branch is touched
+ok - attach: a branch origin moved past the preserved head refuses without creating it
+ok - attach: origin is asked for the exact branch, so a narrow fetch refspec cannot hide another head
+# focused attach tests passed

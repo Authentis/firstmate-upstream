@@ -1,0 +1,39 @@
+{run-worktree}/.live-lab/home
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live-lab/home
+note: task labrecover1106's recorded endpoint gone-session:fm-labrecover1106 is proven absent; unreadable working directories accepted as known non-workers: 1267 (sd-pam), 1487 gpg-agent, 4002860 sshd
+warning: {run-worktree}/.live-lab/home/data/labrecover1106/launch-brief.md records no ship branch; defaulting to legacy branch fm/labrecover1106
+warning: {run-worktree}/.live-lab/home/data/labrecover1106/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode local-only - confirm its definition of done matches
+notice: labrecover1106 ships mode=local-only while the standing posture for proj is no-mistakes - less rigor than the captain's standing posture; proceed only on a current explicit captain instruction or an intake judgment you can state
+error: Expected property name or '}' in JSON at position 1 (line 1 column 2)
+error: refusing to pre-register Claude trust: could not record trust for '{run-worktree}/.live-lab/wt' and project '{run-worktree}/.live-lab/proj' in '{run-worktree}/.live-lab/user/.claude.json'
+error: could not pre-register Claude workspace trust for {run-worktree}/.live-lab/wt; refusing to launch a claude worker that would wedge on the trust dialog; inspect window primary:fm-labrecover1106
+prepublication_failure_exit=1
+ABORT_REMOVED_ONLY_REPLACEMENT_AND_KEPT_OLD_META
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live-lab/home
+note: task labrecover1106's recorded endpoint gone-session:fm-labrecover1106 is proven absent; unreadable working directories accepted as known non-workers: 1267 (sd-pam), 1487 gpg-agent, 4002860 sshd
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live-lab/home
+note: task labrecover1106's recorded endpoint gone-session:fm-labrecover1106 is proven absent; unreadable working directories accepted as known non-workers: 1267 (sd-pam), 1487 gpg-agent, 4002860 sshd
+warning: {run-worktree}/.live-lab/home/data/labrecover1106/launch-brief.md records no ship branch; defaulting to legacy branch fm/labrecover1106
+warning: {run-worktree}/.live-lab/home/data/labrecover1106/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode local-only - confirm its definition of done matches
+notice: labrecover1106 ships mode=local-only while the standing posture for proj is no-mistakes - less rigor than the captain's standing posture; proceed only on a current explicit captain instruction or an intake judgment you can state
+relaunched labrecover1106 harness=codex from=codex model=default effort=default backend=tmux endpoint=primary:fm-labrecover1106 worktree={run-worktree}/.live-lab/wt
+retry_exit=0
+v1
+task=labrecover1106
+phase=complete
+ts=2026-11-06T14:42:52Z
+backend=tmux
+endpoint=primary:fm-labrecover1106
+worktree={run-worktree}/.live-lab/wt
+kind=ship
+from_harness=codex
+from_model=default
+from_effort=default
+to_harness=codex
+to_model=default
+to_effort=default
+worktree_head=90ba4c94e0adb3cd0f20cf59d52a89cbcc467be0
+worktree_dirty=yes
+note_file={run-worktree}/.live-lab/home/state/labrecover1106.control-relaunch.note
+exit_result=endpoint-gone
+ABORT_CLEANUP_RETRY_PASS

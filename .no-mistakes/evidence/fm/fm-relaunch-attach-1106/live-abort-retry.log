@@ -1,0 +1,8 @@
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live-lab/home
+note: task labrecover1106's recorded endpoint gone-session:fm-labrecover1106 is proven absent; unreadable working directories accepted as known non-workers: 1267 (sd-pam), 1487 gpg-agent, 4002860 sshd
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live-lab/home
+note: task labrecover1106's recorded endpoint gone-session:fm-labrecover1106 is proven absent; unreadable working directories accepted as known non-workers: 1267 (sd-pam), 1487 gpg-agent, 4002860 sshd
+warning: {run-worktree}/.live-lab/home/data/labrecover1106/launch-brief.md records no ship branch; defaulting to legacy branch fm/labrecover1106
+warning: {run-worktree}/.live-lab/home/data/labrecover1106/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode local-only - confirm its definition of done matches
+notice: labrecover1106 ships mode=local-only while the standing posture for proj is no-mistakes - less rigor than the captain's standing posture; proceed only on a current explicit captain instruction or an intake judgment you can state
+relaunched labrecover1106 harness=codex from=codex model=default effort=default backend=tmux endpoint=primary:fm-labrecover1106 worktree={run-worktree}/.live-lab/wt

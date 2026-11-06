@@ -1,0 +1,6 @@
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.attach-lab/home
+warning: {run-worktree}/.attach-lab/home/data/labattach1106/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode local-only - confirm its definition of done matches
+notice: labattach1106 ships mode=local-only while the standing posture for proj is no-mistakes - less rigor than the captain's standing posture; proceed only on a current explicit captain instruction or an intake judgment you can state
+🌳 Setting up worktree...
+🌳 Leased worktree at {run-worktree}/.attach-lab/pool/.treehouse/proj-20042f/1/proj. Run 'treehouse return {run-worktree}/.attach-lab/pool/.treehouse/proj-20042f/1/proj' to release it.
+spawned labattach1106 harness=codex kind=ship mode=local-only yolo=off window=primary:fm-labattach1106 worktree={run-worktree}/.attach-lab/pool/.treehouse/proj-20042f/1/proj
