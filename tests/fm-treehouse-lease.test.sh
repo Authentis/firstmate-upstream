@@ -275,7 +275,7 @@ make_teardown_case() {
   fakebin="$case_dir/fakebin"
   mkdir -p "$case_dir/state" "$case_dir/config" "$case_dir/data" "$fakebin"
   make_fake_treehouse "$fakebin"
-  fm_fake_exit0 "$fakebin" tmux gh no-mistakes
+  fm_fake_exit0 "$fakebin" tmux gh no-mistakes lsof
   cat > "$fakebin/gh-axi" <<'SH'
 #!/usr/bin/env bash
 case "${1:-} ${2:-}" in
@@ -730,6 +730,63 @@ SH
     done
   done
   pass "late tracked, untracked, and unlanded work survives current and old pool cleanup"
+}
+
+test_missing_lsof_refuses_only_forced_ship_cleanup() {
+  local pool mode case_dir slot out status no_lsof_path worker
+  local TD_WT_REL=pool/1/repo
+  no_lsof_path=$(fm_test_base_path_sans "$PATH" lsof)
+  for pool in current old; do
+    for mode in forced unforced scout; do
+      if [ "$pool" = current ]; then
+        case_dir=$(make_teardown_case "td-no-lsof-$pool-$mode")
+        write_teardown_meta "$case_dir" "lease_id=lease0123abcd"
+        add_hook "$case_dir"
+      else
+        case_dir=$(url_rewrite_old_pool_case "td-no-lsof-$pool-$mode" lease0123abcd)
+      fi
+      slot="$case_dir/pool/1/repo"
+      rm "$case_dir/fakebin/lsof"
+      if [ "$mode" = scout ]; then
+        write_teardown_meta "$case_dir" "lease_id=lease0123abcd" "kind=scout" \
+          "decisions_reviewed=1" "decision_keys="
+        mkdir -p "$case_dir/data/task-x1"
+        printf 'report\n' > "$case_dir/data/task-x1/report.md"
+      fi
+      (cd "$slot" && exec sleep 300) &
+      worker=$!
+      if [ "$pool" = current ]; then
+        if [ "$mode" = forced ]; then
+          out=$(PATH="$no_lsof_path" FM_FAKE_SLOT_LEASE=lease0123abcd run_teardown "$case_dir" --force)
+        else
+          out=$(PATH="$no_lsof_path" FM_FAKE_SLOT_LEASE=lease0123abcd run_teardown "$case_dir")
+        fi
+      elif [ "$mode" = forced ]; then
+        out=$(PATH="$no_lsof_path" FM_FAKE_SLOT_LEASE=lease0123abcd run_url_rewrite_teardown "$case_dir" --force)
+      else
+        out=$(PATH="$no_lsof_path" FM_FAKE_SLOT_LEASE=lease0123abcd run_url_rewrite_teardown "$case_dir")
+      fi
+      status=$?
+      if [ "$mode" = forced ]; then
+        kill -0 "$worker" 2>/dev/null || fail "$pool: control worker must remain alive without lsof"
+      fi
+      kill "$worker" 2>/dev/null || true
+      wait "$worker" 2>/dev/null || true
+      if [ "$mode" = forced ]; then
+        [ "$status" -ne 0 ] || fail "$pool: forced cleanup must refuse without verified writer shutdown"$'\n'"$out"
+        assert_contains "$out" 'writer shutdown cannot be verified' "$pool: missing shutdown proof was not reported"
+        [ "$(git -C "$slot" branch --show-current)" = fm/task-x1 ] || fail "$pool: forced refusal detached the branch"
+        assert_present "$slot/.claude/settings.local.json" "$pool: forced refusal removed hooks"
+        assert_present "$case_dir/state/task-x1.meta" "$pool: forced refusal removed the task record"
+        assert_no_grep '^return ' "$case_dir/treehouse.log" "$pool: forced refusal attempted a return"
+      else
+        expect_code 0 "$status" "$pool/$mode: missing lsof must not block safe unforced or scout teardown"$'\n'"$out"
+        assert_absent "$case_dir/state/task-x1.meta" "$pool/$mode: successful teardown kept a live record"
+        assert_grep 'return ' "$case_dir/treehouse.log" "$pool/$mode: teardown did not return the slot"
+      fi
+    done
+  done
+  pass "without lsof forced ships refuse, while unforced ships and scouts still return current and old pool slots"
 }
 
 test_forced_return_retry_rechecks_work() {
@@ -1229,6 +1286,7 @@ test_url_rewrite_never_overrides_unlanded_work_or_the_current_pool
 test_url_rewrite_old_pool_relet_after_confirmation_leaves_the_new_holder_alone
 test_url_rewrite_old_pool_refuses_untracked_claude_work
 test_work_written_after_initial_proof_survives_teardown
+test_missing_lsof_refuses_only_forced_ship_cleanup
 test_forced_return_retry_rechecks_work
 test_held_project_lock_is_waited_out_within_the_bound
 test_dirty_slot_return_is_refused_not_forced

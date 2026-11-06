@@ -2940,6 +2940,10 @@ reap_task_worktree_processes() {  # <label> <dir>...
   local -a tracked_pids tracked_identities remaining_pids remaining_identities
   shift
   if ! command -v lsof >/dev/null 2>&1; then
+    if [ "$FORCE" = --force ] && [ "$KIND" = ship ] && [ -n "$TEARDOWN_RETURN_LEASE_ID" ]; then
+      echo "REFUSED: lsof is unavailable, so writer shutdown cannot be verified for forced ship-slot cleanup of $WT; nothing was returned or discarded" >&2
+      return 1
+    fi
     reap_task_backend_process_group "$label"
     return 0
   fi
