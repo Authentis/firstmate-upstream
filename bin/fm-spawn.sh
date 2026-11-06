@@ -1500,6 +1500,10 @@ SPAWN_TASK_SET_LOCK_HELD=0
 SPAWN_TREEHOUSE_PROJECT_LOCK=
 SPAWN_TREEHOUSE_PROJECT_LOCK_HELD=0
 SPAWN_SLOT_CLAIMED=0
+ATTACH_RESTORE_PENDING=0
+ATTACH_PREV_HEAD=
+ATTACH_PREV_BRANCH=
+ATTACH_BRANCH_CREATED=0
 SPAWN_LEASE_ID=
 RELAUNCH_REPLACEMENT_PENDING=0
 RELAUNCH_REPLACEMENT_BUSY_GEN=
@@ -1656,6 +1660,15 @@ spawn_abort_cleanup() {
   if [ "$SPAWN_META_LOCK_HELD" = 1 ]; then
     SPAWN_META_LOCK_HELD=0
     fm_lock_release "$SPAWN_META_LOCK" || true
+  fi
+  # An attach that put the copy on its branch but then aborted before any
+  # record survives, and before any worker could be using the copy, puts the
+  # copy back where it was so the slot can be acquired again.
+  if [ "$ATTACH_RESTORE_PENDING" = 1 ] && [ -n "${WT:-}" ] &&
+    [ ! -e "$STATE/$ID.meta" ] && [ ! -L "$STATE/$ID.meta" ] &&
+    { [ "$SPAWN_LAUNCH_SENT" = 0 ] || [ "$SPAWN_ENDPOINT_CLOSED" = 1 ]; }; then
+    ATTACH_RESTORE_PENDING=0
+    spawn_attach_restore "$WT" || true
   fi
   # A spawn that aborts after claiming its slot but before its record survives
   # must not leave a claim naming a task no record describes. The release is a
@@ -4317,9 +4330,20 @@ spawn_attach_preflight() {
 # since a remote-tracking ref is absent or stale whenever origin's fetch
 # refspec does not cover it. Absent on origin, or present at the preserved
 # head, passes; present at another commit, or a query that could not be made,
-# refuses.
+# refuses. A project with no origin configured passes.
 spawn_attach_remote_check() {  # <git-dir>
   local out rc
+  # An originless project has no remote to hold the branch, as for any spawn;
+  # only an origin that is configured must answer.
+  out=$(git -C "$1" config --get remote.origin.url 2>/dev/null) && rc=0 || rc=$?
+  case "$rc" in
+    1) return 0 ;;
+    0) ;;
+    *)
+      echo "error: could not read whether origin is configured for $1 (git config exited $rc); refusing to attach" >&2
+      return 1
+      ;;
+  esac
   out=$(git -C "$1" ls-remote --exit-code origin "refs/heads/$ATTACH_BRANCH" 2>/dev/null) && rc=0 || rc=$?
   case "$rc" in
     2) return 0 ;;
@@ -4363,6 +4387,15 @@ spawn_attach_checkout() {  # <worktree>
   # Origin is asked again directly, since the branch may have been pushed
   # since the preflight and no fetch refspec need cover it.
   spawn_attach_remote_check "$wt" || return 1
+  # Remember where the copy was, so an abort before any record survives can put
+  # it back (spawn_attach_restore, from the abort trap).
+  ATTACH_PREV_HEAD=$(git -C "$wt" rev-parse --verify -q HEAD 2>/dev/null) || {
+    echo "error: could not read the current HEAD of $wt before attaching" >&2
+    return 1
+  }
+  ATTACH_PREV_BRANCH=$(git -C "$wt" symbolic-ref -q HEAD 2>/dev/null) || ATTACH_PREV_BRANCH=
+  ATTACH_BRANCH_CREATED=0
+  ATTACH_RESTORE_PENDING=1
   if existing=$(git -C "$wt" rev-parse --verify -q "refs/heads/$ATTACH_BRANCH^{commit}" 2>/dev/null); then
     [ "$existing" = "$ATTACH_HEAD" ] || {
       echo "error: branch $ATTACH_BRANCH already exists at $existing, not at --attach-head $ATTACH_HEAD; refusing to attach to a branch with a different head" >&2
@@ -4377,6 +4410,7 @@ spawn_attach_checkout() {  # <worktree>
       echo "error: could not create branch $ATTACH_BRANCH at $ATTACH_HEAD in $wt" >&2
       return 1
     }
+    ATTACH_BRANCH_CREATED=1
   fi
   head=$(git -C "$wt" rev-parse --verify -q HEAD 2>/dev/null) || head=
   branch=$(git -C "$wt" symbolic-ref -q HEAD 2>/dev/null) || branch=
@@ -4384,6 +4418,40 @@ spawn_attach_checkout() {  # <worktree>
     echo "error: $wt is not on $ATTACH_BRANCH at $ATTACH_HEAD after attaching (HEAD ${head:-unreadable} on ${branch:-no branch})" >&2
     return 1
   }
+}
+
+# spawn_attach_restore <worktree>: undo an attach checkout after an abort that
+# left no task record. Work is never discarded: a copy with any uncommitted
+# change, or one no longer on the attached branch at the attached head, is
+# left as it is with a warning. Otherwise the copy goes back to its previous
+# checkout, and the branch is removed only when this attach created it and it
+# still points at the attached head, which the bundle or project still holds.
+spawn_attach_restore() {  # <worktree>
+  local wt=$1 head branch dirty
+  [ -n "$ATTACH_PREV_HEAD" ] || return 0
+  head=$(git -C "$wt" rev-parse --verify -q HEAD 2>/dev/null) || head=
+  branch=$(git -C "$wt" symbolic-ref -q HEAD 2>/dev/null) || branch=
+  if [ "$head" = "$ATTACH_PREV_HEAD" ] && [ "$branch" = "$ATTACH_PREV_BRANCH" ]; then
+    return 0
+  fi
+  if ! dirty=$(git -C "$wt" status --porcelain --untracked-files=normal 2>/dev/null) || [ -n "$dirty" ] ||
+    [ "$head" != "$ATTACH_HEAD" ] || [ "$branch" != "refs/heads/$ATTACH_BRANCH" ]; then
+    echo "warning: leaving $wt on ${branch:-a detached HEAD} at ${head:-an unreadable HEAD}: it has changed since the aborted attach of $ID, so it is not put back automatically" >&2
+    return 1
+  fi
+  if [ -n "$ATTACH_PREV_BRANCH" ]; then
+    git -C "$wt" checkout -q "${ATTACH_PREV_BRANCH#refs/heads/}" -- >/dev/null 2>&1
+  else
+    git -C "$wt" checkout -q --detach "$ATTACH_PREV_HEAD" -- >/dev/null 2>&1
+  fi || {
+    echo "warning: could not put $wt back at $ATTACH_PREV_HEAD after the aborted attach of $ID; it stays on $ATTACH_BRANCH" >&2
+    return 1
+  }
+  if [ "$ATTACH_BRANCH_CREATED" = 1 ]; then
+    git -C "$wt" update-ref -d "refs/heads/$ATTACH_BRANCH" "$ATTACH_HEAD" 2>/dev/null ||
+      echo "warning: could not remove branch $ATTACH_BRANCH created by the aborted attach of $ID" >&2
+  fi
+  return 0
 }
 
 if [ "$SPAWN_META_LOCK_HELD" != 1 ]; then
