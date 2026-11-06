@@ -514,7 +514,8 @@ fm_control_backend_state_verified() {  # <backend>
 #     working this task is a process in this machine's process table, either
 #     named by the task (its id or its fm-<id> lane) or sitting in or naming
 #     the recorded worktree. So tmux answers `gone` only when ALL of these
-#     hold, and `unproven` on any ambiguity or unreadable read:
+#     hold, and `unproven` on any ambiguity or unexcused unreadable read
+#     (the process-evidence helper below owns the exclusions and exceptions):
 #       - this server's whole window inventory was read (a server that
 #         definitively does not exist reads as an empty one) and neither the
 #         recorded window nor any window of the same name is in it;

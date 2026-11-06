@@ -53,10 +53,10 @@
 #              endpoint this verb normally preserves did not survive; a pane
 #              that turns out to be there and idle is the ordinary
 #              `already-stopped`; one whose agent is back takes the ordinary
-#              interrupt-then-exit path. A tmux `missing` that the proof cannot
-#              establish as gone (a window of that name still listed, a
-#              process naming the task or working in its worktree, or any
-#              unreadable read) REFUSES rather than claim a stop it cannot see.
+#              interrupt-then-exit path. A tmux `missing` that the shared
+#              proof cannot establish as gone REFUSES rather than claim a
+#              stop it cannot see; fm_control_endpoint_absence_verdict owns
+#              its process-evidence rules and exceptions.
 #   relaunch   Transactionally replace the running agent with a new one, in the
 #              SAME worktree - and the same endpoint whenever that endpoint
 #              still exists - on the same or a newly chosen
