@@ -1,0 +1,29 @@
+Scenario: detached; real fm-teardown + Treehouse + tmux + Git; synthetic local origin
+tip=a93fd2bd5957834242bbb4b93de1d3c517ab5207
+previous=898db5fd87ad26f2556f02458d957beada036e65
+lease=19dff1fc3e0aa29b4f82717d3558aec7
+
+BEFORE refs:
+
+BEFORE pool:
+[{"name":"1","path":"{run-worktree}/.validation/live/detached/pool/.treehouse/project-77456c/1/project","status":"leased","branch":"","detached":true,"flavor":"git","lease_id":"19dff1fc3e0aa29b4f82717d3558aec7","lease_holder":"","leased_at":"2026-11-06T17:19:02.714420503+01:00","processes":[]}]
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.validation/live/detached
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+teardown: reaping leaked worktree process group for live-task: 3852396
+🌳 Worktree returned to pool.
+teardown live-task complete (window fm-lab-keepref:fm-live-task, worktree {run-worktree}/.validation/live/detached/pool/.treehouse/project-77456c/1/project)
+Backlog: live-task just finished (this home keeps no markdown backlog at {run-worktree}/.validation/live/detached/data/backlog.md). Update {run-worktree}/.validation/live/detached/data/backlog.md - move live-task to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+
+teardown exit=0
+AFTER refs:
+
+AFTER pool:
+[{"name":"1","path":"{run-worktree}/.validation/live/detached/pool/.treehouse/project-77456c/1/project","status":"available","branch":"","detached":true,"flavor":"git","lease_id":"","lease_holder":"","leased_at":null,"processes":[]}]
+
+Verified: retention contract; task record removed; real pool returned available.

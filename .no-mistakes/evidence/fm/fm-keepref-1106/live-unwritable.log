@@ -1,0 +1,32 @@
+Scenario: unwritable; real fm-teardown + Treehouse + tmux + Git; synthetic local origin
+tip=0fb0864f449b812a2b5e7f8ba2792ee51c8b7241
+previous=3b27ee4ab2cb7c4383ded1c44a74595b8f2a0b06
+lease=b5224fa0d85c1dc8eac971c223e49658
+
+BEFORE refs:
+refs/heads/fm/live-task 0fb0864f449b812a2b5e7f8ba2792ee51c8b7241
+
+BEFORE pool:
+[{"name":"1","path":"{run-worktree}/.validation/live/unwritable/pool/.treehouse/project-f00d4a/1/project","status":"leased","branch":"fm/live-task","flavor":"git","lease_id":"b5224fa0d85c1dc8eac971c223e49658","lease_holder":"","leased_at":"2026-11-06T17:18:58.132723097+01:00","processes":[]}]
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.validation/live/unwritable
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 0s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+teardown: reaping leaked worktree process group for live-task: 3838617
+warning: could not record a keep ref for branch fm/live-task; leaving the branch in place
+🌳 Worktree returned to pool.
+teardown live-task complete (window fm-lab-keepref:fm-live-task, worktree {run-worktree}/.validation/live/unwritable/pool/.treehouse/project-f00d4a/1/project)
+Backlog: live-task just finished (this home keeps no markdown backlog at {run-worktree}/.validation/live/unwritable/data/backlog.md). Update {run-worktree}/.validation/live/unwritable/data/backlog.md - move live-task to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+
+teardown exit=0
+AFTER refs:
+refs/heads/fm/live-task 0fb0864f449b812a2b5e7f8ba2792ee51c8b7241
+
+AFTER pool:
+[{"name":"1","path":"{run-worktree}/.validation/live/unwritable/pool/.treehouse/project-f00d4a/1/project","status":"available","branch":"","detached":true,"flavor":"git","lease_id":"","lease_holder":"","leased_at":null,"processes":[]}]
+
+Verified: retention contract; task record removed; real pool returned available.

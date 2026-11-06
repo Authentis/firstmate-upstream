@@ -1,0 +1,33 @@
+Scenario: reuse; real fm-teardown + Treehouse + tmux + Git; synthetic local origin
+tip=7c39b960b77388b551d4c953934520a5bd30b718
+previous=659cf9943efe1f00305a501caf6bce2ea52e2187
+lease=403d6a78090f5d6d36a6deedb47571c4
+
+BEFORE refs:
+refs/fm-keep/fm/live-task 7c39b960b77388b551d4c953934520a5bd30b718
+refs/heads/fm/live-task 7c39b960b77388b551d4c953934520a5bd30b718
+
+BEFORE pool:
+[{"name":"1","path":"{run-worktree}/.validation/live/reuse/pool/.treehouse/project-f8c38a/1/project","status":"leased","branch":"fm/live-task","flavor":"git","lease_id":"403d6a78090f5d6d36a6deedb47571c4","lease_holder":"","leased_at":"2026-11-06T17:18:44.328164372+01:00","processes":[]}]
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.validation/live/reuse
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 0s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+teardown: reaping leaked worktree process group for live-task: 3799015
+teardown: force-killing leaked worktree process group for live-task: 3799015
+🌳 Worktree returned to pool.
+teardown live-task complete (window fm-lab-keepref:fm-live-task, worktree {run-worktree}/.validation/live/reuse/pool/.treehouse/project-f8c38a/1/project)
+Backlog: live-task just finished (this home keeps no markdown backlog at {run-worktree}/.validation/live/reuse/data/backlog.md). Update {run-worktree}/.validation/live/reuse/data/backlog.md - move live-task to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+
+teardown exit=0
+AFTER refs:
+refs/fm-keep/fm/live-task 7c39b960b77388b551d4c953934520a5bd30b718
+
+AFTER pool:
+[{"name":"1","path":"{run-worktree}/.validation/live/reuse/pool/.treehouse/project-f8c38a/1/project","status":"available","branch":"","detached":true,"flavor":"git","lease_id":"","lease_holder":"","leased_at":null,"processes":[]}]
+
+Verified: retention contract; task record removed; real pool returned available.

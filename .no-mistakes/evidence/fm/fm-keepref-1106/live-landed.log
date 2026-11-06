@@ -1,0 +1,32 @@
+Scenario: landed; real fm-teardown + Treehouse + tmux + Git; synthetic local origin
+tip=b38b05b03f88603df75af043cc16b34178df7ad1
+previous=c01eef0da822c8b344d9b9a0e209ddc34f23ff4d
+lease=59d392b146125e850846a6a565ac93fa
+
+BEFORE refs:
+refs/heads/fm/live-task b38b05b03f88603df75af043cc16b34178df7ad1
+
+BEFORE pool:
+[{"name":"1","path":"{run-worktree}/.validation/live/landed/pool/.treehouse/project-24d81b/1/project","status":"leased","branch":"fm/live-task","flavor":"git","lease_id":"59d392b146125e850846a6a565ac93fa","lease_holder":"","leased_at":"2026-11-06T17:18:39.981612765+01:00","processes":[]}]
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.validation/live/landed
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 0s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+teardown: reaping leaked worktree process group for live-task: 3784329
+teardown: force-killing leaked worktree process group for live-task: 3784329
+🌳 Worktree returned to pool.
+teardown live-task complete (window fm-lab-keepref:fm-live-task, worktree {run-worktree}/.validation/live/landed/pool/.treehouse/project-24d81b/1/project)
+Backlog: live-task just finished (this home keeps no markdown backlog at {run-worktree}/.validation/live/landed/data/backlog.md). Update {run-worktree}/.validation/live/landed/data/backlog.md - move live-task to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+
+teardown exit=0
+AFTER refs:
+refs/fm-keep/fm/live-task b38b05b03f88603df75af043cc16b34178df7ad1
+
+AFTER pool:
+[{"name":"1","path":"{run-worktree}/.validation/live/landed/pool/.treehouse/project-24d81b/1/project","status":"available","branch":"","detached":true,"flavor":"git","lease_id":"","lease_holder":"","leased_at":null,"processes":[]}]
+
+Verified: retention contract; task record removed; real pool returned available.

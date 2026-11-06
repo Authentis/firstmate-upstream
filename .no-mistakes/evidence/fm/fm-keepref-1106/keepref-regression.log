@@ -1,0 +1,5 @@
+ok - teardown preserves both occupied keep refs and leaves the branch with one warning
+ok - teardown keeps refs/fm-keep/<branch> for a branch already reachable from the remote default
+ok - teardown with unpushed commits keeps its bundle and preserve ref and also gets the keep ref
+ok - teardown suffixes a keep ref that already points elsewhere and still drops the branch
+ok - teardown leaves the branch in place and warns when the keep ref cannot be written

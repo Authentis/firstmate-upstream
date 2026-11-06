@@ -1,0 +1,36 @@
+Scenario: double-collision; real fm-teardown + Treehouse + tmux + Git; synthetic local origin
+tip=1bf9ad9de09391688d159040ae4d41c97e0974ef
+previous=730101d02871dc09c0fab9d673a35e40c4890e5f
+lease=5bf5c66946daf4be9cc8809f7c880202
+
+BEFORE refs:
+refs/fm-keep/fm/live-task 730101d02871dc09c0fab9d673a35e40c4890e5f
+refs/fm-keep/fm/live-task-1bf9ad9d 730101d02871dc09c0fab9d673a35e40c4890e5f
+refs/heads/fm/live-task 1bf9ad9de09391688d159040ae4d41c97e0974ef
+
+BEFORE pool:
+[{"name":"1","path":"{run-worktree}/.validation/live/double-collision/pool/.treehouse/project-6cccef/1/project","status":"leased","branch":"fm/live-task","flavor":"git","lease_id":"5bf5c66946daf4be9cc8809f7c880202","lease_holder":"","leased_at":"2026-11-06T17:18:53.399306303+01:00","processes":[]}]
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.validation/live/double-collision
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+teardown: reaping leaked worktree process group for live-task: 3823877
+warning: could not record a keep ref for branch fm/live-task; leaving the branch in place
+🌳 Worktree returned to pool.
+teardown live-task complete (window fm-lab-keepref:fm-live-task, worktree {run-worktree}/.validation/live/double-collision/pool/.treehouse/project-6cccef/1/project)
+Backlog: live-task just finished (this home keeps no markdown backlog at {run-worktree}/.validation/live/double-collision/data/backlog.md). Update {run-worktree}/.validation/live/double-collision/data/backlog.md - move live-task to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+
+teardown exit=0
+AFTER refs:
+refs/fm-keep/fm/live-task 730101d02871dc09c0fab9d673a35e40c4890e5f
+refs/fm-keep/fm/live-task-1bf9ad9d 730101d02871dc09c0fab9d673a35e40c4890e5f
+refs/heads/fm/live-task 1bf9ad9de09391688d159040ae4d41c97e0974ef
+
+AFTER pool:
+[{"name":"1","path":"{run-worktree}/.validation/live/double-collision/pool/.treehouse/project-6cccef/1/project","status":"available","branch":"","detached":true,"flavor":"git","lease_id":"","lease_holder":"","leased_at":null,"processes":[]}]
+
+Verified: retention contract; task record removed; real pool returned available.
