@@ -4407,6 +4407,27 @@ fi
 # pruned code root. Best effort - a sweep failure never blocks this teardown.
 "$SCRIPT_DIR/fm-remote-job-reap-orphans.sh" >&2 || true
 
+# Drop a task's local branch after recording refs/fm-keep/<branch> at its tip, so
+# the branch name and tip survive even when nothing else (bundle, preserve/ ref)
+# records them. A keep ref that already points elsewhere is never overwritten:
+# the tip's short sha is suffixed instead. If no keep ref can be written and
+# verified, the branch is left in place and one warning names it.
+teardown_drop_task_branch() {
+  local wt=$1 branch=$2 tip keep
+  tip=$(git -C "$wt" rev-parse --verify -q "refs/heads/$branch" 2>/dev/null) || return 0
+  keep="refs/fm-keep/$branch"
+  if git -C "$wt" rev-parse --verify -q "$keep" >/dev/null 2>&1 \
+     && [ "$(git -C "$wt" rev-parse --verify -q "$keep" 2>/dev/null)" != "$tip" ]; then
+    keep="$keep-$(printf '%.8s' "$tip")"
+  fi
+  if git -C "$wt" update-ref "$keep" "$tip" 2>/dev/null \
+     && [ "$(git -C "$wt" rev-parse --verify -q "$keep" 2>/dev/null)" = "$tip" ]; then
+    git -C "$wt" branch -D -- "$branch" >/dev/null 2>&1 || true
+  else
+    echo "warning: could not record a keep ref for branch $branch; leaving the branch in place" >&2
+  fi
+}
+
 # Best-effort: drop the local task branch so the shared repo does not accumulate refs.
 if [ "$BACKEND" = orca ] && [ "$KIND" != secondmate ]; then
   if [ "$ORCA_PATH_MATCH_VERIFIED" != 1 ]; then
@@ -4417,7 +4438,7 @@ if [ "$BACKEND" = orca ] && [ "$KIND" != secondmate ]; then
     branch=$(git -C "$WT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo HEAD)
     if [ "$branch" != "HEAD" ]; then
       if git -C "$WT" checkout --detach -q 2>/dev/null; then
-        git -C "$WT" branch -D "$branch" >/dev/null 2>&1 || true
+        teardown_drop_task_branch "$WT" "$branch"
       fi
     fi
     rm -f "$WT/.claude/settings.local.json" "$WT/.opencode/plugins/fm-turn-end.js" \
@@ -4443,7 +4464,7 @@ elif [ -d "$WT" ] && [ "$KIND" != secondmate ] && [ "$TEARDOWN_RECORD_ONLY" != 1
   fi
   if [ "$branch" != "HEAD" ]; then
     if git -C "$WT" checkout --detach -q 2>/dev/null; then
-      git -C "$WT" branch -D "$branch" >/dev/null 2>&1 || true
+      teardown_drop_task_branch "$WT" "$branch"
     fi
   fi
   # Remove our hook file so a reused pool worktree cannot fire signals for a dead task.

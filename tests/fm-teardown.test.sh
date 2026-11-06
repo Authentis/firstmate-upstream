@@ -74,6 +74,12 @@
 # and completes without touching the recorded dummy path:
 #   (ad) merged PR head matches the record                  -> ALLOW + verified bundle
 #   (ae) recorded head is not the PR head                   -> REFUSE, no bundle
+#
+# Branch deletion first records refs/fm-keep/<branch> at the tip:
+#   (af) tip already reachable from the remote default       -> keep ref, branch gone
+#   (ag) unpushed commits (bundle + preserve ref)            -> keep ref too, branch gone
+#   (ah) keep ref cannot be written                          -> branch left, one warning
+#   (ai) keep ref already points elsewhere                   -> suffixed keep ref, branch gone
 set -u
 
 # shellcheck source=tests/lib.sh disable=SC1091
@@ -4033,6 +4039,88 @@ land_shippable_commit() {
   git -C "$case_dir/project" fetch -q origin
 }
 
+# Teardown records refs/fm-keep/<branch> at the branch tip before deleting the
+# local task branch, so the branch name survives even when nothing else does.
+test_teardown_keeps_a_ref_for_an_already_landed_branch() {
+  local case_dir rc=0 tip
+  case_dir=$(make_case keepref-landed)
+  write_meta "$case_dir" no-mistakes ship
+  land_shippable_commit "$case_dir"
+  tip=$(git -C "$case_dir/wt" rev-parse HEAD)
+  git -C "$case_dir/origin.git" update-ref refs/heads/main "$tip"
+  git -C "$case_dir/project" fetch -q origin
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+  expect_code 0 "$rc" "keepref-landed: teardown should succeed"$'\n'"$(cat "$case_dir/stderr")"
+  [ "$(git -C "$case_dir/project" rev-parse --verify -q refs/fm-keep/fm/task-x1)" = "$tip" ] \
+    || fail "keepref-landed: keep ref missing or not at the old tip"
+  ! git -C "$case_dir/project" show-ref --verify --quiet refs/heads/fm/task-x1 \
+    || fail "keepref-landed: teardown kept the task branch"
+  pass "teardown keeps refs/fm-keep/<branch> for a branch already reachable from the remote default"
+}
+
+test_teardown_keepref_coexists_with_bundle_and_preserve_ref() {
+  local case_dir rc=0 pr_head local_head
+  case_dir=$(make_case keepref-preserve)
+  write_meta "$case_dir" no-mistakes ship
+  wt_commit_file "$case_dir" feature.txt hello "add feature"
+  append_pr_meta_for_current_head "$case_dir"
+  pr_head=$(git -C "$case_dir/wt" rev-parse HEAD)
+  wt_commit_file "$case_dir" later.txt local-only "local follow-up"
+  local_head=$(git -C "$case_dir/wt" rev-parse HEAD)
+  add_gh_pr_merged_for_head "$case_dir" "$pr_head"
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+  expect_code 0 "$rc" "keepref-preserve: teardown should succeed"$'\n'"$(cat "$case_dir/stderr")"
+  git bundle verify "$case_dir/data/bundles/task-x1.bundle" >/dev/null 2>&1 \
+    || fail "keepref-preserve: bundle missing or invalid"
+  [ "$(git -C "$case_dir/origin.git" rev-parse refs/heads/preserve/fm/task-x1)" = "$local_head" ] \
+    || fail "keepref-preserve: origin preserve ref missing"
+  [ "$(git -C "$case_dir/project" rev-parse --verify -q refs/fm-keep/fm/task-x1)" = "$local_head" ] \
+    || fail "keepref-preserve: keep ref missing or not at the local head"
+  ! git -C "$case_dir/project" show-ref --verify --quiet refs/heads/fm/task-x1 \
+    || fail "keepref-preserve: teardown kept the task branch"
+  pass "teardown with unpushed commits keeps its bundle and preserve ref and also gets the keep ref"
+}
+
+test_teardown_suffixes_a_keep_ref_that_points_elsewhere() {
+  local case_dir rc=0 tip other
+  case_dir=$(make_case keepref-suffix)
+  write_meta "$case_dir" no-mistakes ship
+  land_shippable_commit "$case_dir"
+  tip=$(git -C "$case_dir/wt" rev-parse HEAD)
+  other=$(git -C "$case_dir/project" rev-parse main)
+  git -C "$case_dir/origin.git" update-ref refs/heads/main "$tip"
+  git -C "$case_dir/project" fetch -q origin
+  git -C "$case_dir/project" update-ref refs/fm-keep/fm/task-x1 "$other"
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+  expect_code 0 "$rc" "keepref-suffix: teardown should succeed"$'\n'"$(cat "$case_dir/stderr")"
+  [ "$(git -C "$case_dir/project" rev-parse --verify -q refs/fm-keep/fm/task-x1)" = "$other" ] \
+    || fail "keepref-suffix: the existing keep ref was changed"
+  [ "$(git -C "$case_dir/project" rev-parse --verify -q "refs/fm-keep/fm/task-x1-${tip:0:8}")" = "$tip" ] \
+    || fail "keepref-suffix: the new tip was not recorded at the suffixed keep ref"
+  ! git -C "$case_dir/project" show-ref --verify --quiet refs/heads/fm/task-x1 \
+    || fail "keepref-suffix: teardown kept the task branch"
+  pass "teardown suffixes a keep ref that already points elsewhere and still drops the branch"
+}
+
+test_teardown_leaves_the_branch_when_the_keep_ref_cannot_be_written() {
+  local case_dir rc=0 tip
+  case_dir=$(make_case keepref-unwritable)
+  write_meta "$case_dir" no-mistakes ship
+  land_shippable_commit "$case_dir"
+  tip=$(git -C "$case_dir/wt" rev-parse HEAD)
+  git -C "$case_dir/origin.git" update-ref refs/heads/main "$tip"
+  git -C "$case_dir/project" fetch -q origin
+  # A plain file at refs/fm-keep makes every refs/fm-keep/<branch> unwritable.
+  printf 'block\n' > "$case_dir/project/.git/refs/fm-keep"
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+  expect_code 0 "$rc" "keepref-unwritable: teardown should still complete"$'\n'"$(cat "$case_dir/stderr")"
+  [ "$(git -C "$case_dir/project" rev-parse --verify -q refs/heads/fm/task-x1)" = "$tip" ] \
+    || fail "keepref-unwritable: the task branch was not left at its tip"
+  [ "$(grep -c 'could not record a keep ref for branch fm/task-x1' "$case_dir/stderr")" = 1 ] \
+    || fail "keepref-unwritable: expected exactly one warning naming the branch"$'\n'"$(cat "$case_dir/stderr")"
+  pass "teardown leaves the branch in place and warns when the keep ref cannot be written"
+}
+
 # Cleanup keeps the task's no-mistakes pipeline spend in this home's records
 # (bin/fm-pipeline-spend.sh) while the task branch that attributes its runs and
 # the task record still exist, then removes both as before.
@@ -6106,6 +6194,10 @@ test_transient_index_lock_clears_after_first_attempt_and_retry_succeeds
 test_persistent_index_lock_exhausts_retries_and_refuses_loudly
 test_empty_retry_wait_uses_default_without_aborting
 test_fractional_legacy_retry_wait_refuses_without_arithmetic_error
+test_teardown_keeps_a_ref_for_an_already_landed_branch
+test_teardown_keepref_coexists_with_bundle_and_preserve_ref
+test_teardown_suffixes_a_keep_ref_that_points_elsewhere
+test_teardown_leaves_the_branch_when_the_keep_ref_cannot_be_written
 test_teardown_records_the_task_pipeline_spend
 test_teardown_skips_pipeline_spend_when_disabled
 test_teardown_records_unavailable_spend_for_a_gone_worktree
