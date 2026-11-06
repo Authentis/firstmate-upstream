@@ -1,201 +1,254 @@
-
-$ git -C {run-worktree}/.l/projects init -q -b main {run-worktree}/.l/projects/attach
-
-exit=0
-
-$ git -C {run-worktree}/.l/projects/attach add base.txt
+$ git -C {run-worktree}/.live/project clone -q {run-worktree}/.live/project {run-worktree}/.live/publisher
 
 exit=0
-
-$ git -C {run-worktree}/.l/projects/attach -c user.name=Lab -c user.email=lab@example.invalid commit -qm base
-
-exit=0
-
-$ git -C {run-worktree}/.l/projects/attach rev-parse HEAD
-cc28535f949e5a9dfa577dbd2a26cd03ea461e13
+$ git -C {run-worktree}/.live/publisher checkout -q -b preserved-source
 
 exit=0
-
-$ git clone -q {run-worktree}/.l/projects/attach {run-worktree}/.l/publisher
-
-exit=0
-
-$ git -C {run-worktree}/.l/publisher checkout -qb saved1106
+$ git -C {run-worktree}/.live/publisher add preserved.txt
 
 exit=0
-
-$ git -C {run-worktree}/.l/publisher add preserved.txt
-
-exit=0
-
-$ git -C {run-worktree}/.l/publisher -c user.name=Lab -c user.email=lab@example.invalid commit -qm preserved
+$ git -C {run-worktree}/.live/publisher -c user.name=Lab -c user.email=lab@example.invalid commit -qm saved bundle
 
 exit=0
-
-$ git -C {run-worktree}/.l/publisher rev-parse HEAD
-a9ae5170e3cc9298bf78ffa93ec8f2ee626ef36b
-
-exit=0
-
-$ git -C {run-worktree}/.l/publisher bundle create -q {run-worktree}/.l/data/bundles/preserved work.bundle HEAD
+$ git -C {run-worktree}/.live/publisher rev-parse HEAD
+cdf56bc9996cf1214d5c5369d87d50a9f248dd68
 
 exit=0
+$ git -C {run-worktree}/.live/publisher bundle create {run-worktree}/.live/home/data/bundles/preserved work.bundle HEAD
 
-$ git -C {run-worktree}/.l/projects/attach cat-file -e a9ae5170e3cc9298bf78ffa93ec8f2ee626ef36b^{commit}
-fatal: Not a valid object name a9ae5170e3cc9298bf78ffa93ec8f2ee626ef36b^{commit}
+exit=0
+$ git -C {run-worktree}/.live/project cat-file -e cdf56bc9996cf1214d5c5369d87d50a9f248dd68^{commit}
+fatal: Not a valid object name cdf56bc9996cf1214d5c5369d87d50a9f248dd68^{commit}
 
 exit=128
-
-$ git -C {run-worktree}/.l/projects/attach for-each-ref --format=%(refname) %(objectname)
-refs/heads/main cc28535f949e5a9dfa577dbd2a26cd03ea461e13
-
-exit=0
-
-$ tmux list-windows -a -F #{session_name}:#{window_name}
-primary:claude
-
-exit=0
-
-$ {run-worktree}/bin/fm-spawn.sh badattach1106 {run-worktree}/.l/projects/attach --mode local-only --yolo off --harness claude --attach-branch saved1106 --attach-head 0123456789abcdef0123456789abcdef01234567 --attach-bundle data/bundles/preserved work.bundle
-fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.l
+$ {run-worktree}/bin/fm-spawn.sh gatebundle21 {run-worktree}/.live/project --mode local-only --yolo off --harness codex --attach-branch fm/gatebundle21 --attach-head cdf56bc9996cf1214d5c5369d87d50a9f248dd68 --attach-bundle data/bundles/preserved work.bundle
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live/home
 WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
-notice: badattach1106 ships mode=local-only while the standing posture for attach is no-mistakes - less rigor than the captain's standing posture; proceed only on a current explicit captain instruction or an intake judgment you can state
-notice: badattach1106 ships branch=saved1106 while attach registers the ship-branch prefix 'fm/' (branch fm/badattach1106) - the task's branch and PR will read as firstmate-authored; proceed only on a current explicit captain instruction or an intake judgment you can state
-error: --attach-head 0123456789abcdef0123456789abcdef01234567 is not a head of bundle '{run-worktree}/.l/data/bundles/preserved work.bundle'; refusing to attach to a commit it does not carry
-
-exit=1
-
-$ git -C {run-worktree}/.l/projects/attach for-each-ref --format=%(refname) %(objectname)
-refs/heads/main cc28535f949e5a9dfa577dbd2a26cd03ea461e13
-
-exit=0
-
-$ tmux list-windows -a -F #{session_name}:#{window_name}
-primary:claude
-
-exit=0
-
-$ git -C {run-worktree}/.l/projects/attach branch saved1106 cc28535f949e5a9dfa577dbd2a26cd03ea461e13
-
-exit=0
-
-$ {run-worktree}/bin/fm-spawn.sh badattach1106 {run-worktree}/.l/projects/attach --mode local-only --yolo off --harness claude --attach-branch saved1106 --attach-head a9ae5170e3cc9298bf78ffa93ec8f2ee626ef36b --attach-bundle data/bundles/preserved work.bundle
-fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.l
-WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
-notice: badattach1106 ships mode=local-only while the standing posture for attach is no-mistakes - less rigor than the captain's standing posture; proceed only on a current explicit captain instruction or an intake judgment you can state
-notice: badattach1106 ships branch=saved1106 while attach registers the ship-branch prefix 'fm/' (branch fm/badattach1106) - the task's branch and PR will read as firstmate-authored; proceed only on a current explicit captain instruction or an intake judgment you can state
-error: branch saved1106 already exists at cc28535f949e5a9dfa577dbd2a26cd03ea461e13 (refs/heads/saved1106), not at --attach-head a9ae5170e3cc9298bf78ffa93ec8f2ee626ef36b; refusing to attach to a branch with a different head
-
-exit=1
-
-$ git -C {run-worktree}/.l/projects/attach rev-parse saved1106
-cc28535f949e5a9dfa577dbd2a26cd03ea461e13
-
-exit=0
-
-$ tmux list-windows -a -F #{session_name}:#{window_name}
-primary:claude
-
-exit=0
-
-$ git -C {run-worktree}/.l/projects/attach branch -D saved1106
-Deleted branch saved1106 (was cc28535).
-
-exit=0
-Oracle: missing bundle head and conflicting existing branch both refuse before endpoint/metadata mutation.
-
-$ {run-worktree}/bin/fm-spawn.sh attach1106 {run-worktree}/.l/projects/attach --mode local-only --yolo off --harness claude --attach-branch saved1106 --attach-head a9ae5170e3cc9298bf78ffa93ec8f2ee626ef36b --attach-bundle data/bundles/preserved work.bundle
-fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.l
-WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
-notice: attach1106 ships mode=local-only while the standing posture for attach is no-mistakes - less rigor than the captain's standing posture; proceed only on a current explicit captain instruction or an intake judgment you can state
-notice: attach1106 ships branch=saved1106 while attach registers the ship-branch prefix 'fm/' (branch fm/attach1106) - the task's branch and PR will read as firstmate-authored; proceed only on a current explicit captain instruction or an intake judgment you can state
+warning: {run-worktree}/.live/home/data/gatebundle21/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode local-only - confirm its definition of done matches
+notice: gatebundle21 ships mode=local-only while the standing posture for project is no-mistakes - less rigor than the captain's standing posture; proceed only on a current explicit captain instruction or an intake judgment you can state
 🌳 Setting up worktree...
-🌳 Leased worktree at {run-worktree}/.l/pool/.treehouse/attach-2c409f/1/attach. Run 'treehouse return {run-worktree}/.l/pool/.treehouse/attach-2c409f/1/attach' to release it.
-spawned attach1106 harness=claude kind=ship mode=local-only yolo=off window=primary:fm-attach1106 worktree={run-worktree}/.l/pool/.treehouse/attach-2c409f/1/attach
+🌳 Leased worktree at {run-worktree}/.live/pool/.treehouse/project-f428ea/1/project. Run 'treehouse return {run-worktree}/.live/pool/.treehouse/project-f428ea/1/project' to release it.
+spawned gatebundle21 harness=codex kind=ship mode=local-only yolo=off window=lab:fm-gatebundle21 worktree={run-worktree}/.live/pool/.treehouse/project-f428ea/1/project
 
 exit=0
-
 Published metadata:
-window=primary:fm-attach1106
-endpoint_task_id=attach1106
-worktree={run-worktree}/.l/pool/.treehouse/attach-2c409f/1/attach
-lease_id=723bf834e53a1c0f71c80d283e17a8e3
-project={run-worktree}/.l/projects/attach
-harness=claude
+window=lab:fm-gatebundle21
+endpoint_task_id=gatebundle21
+worktree={run-worktree}/.live/pool/.treehouse/project-f428ea/1/project
+lease_id=4fbe6bf1a6c0958a917f1ab4dd7c0ce7
+project={run-worktree}/.live/project
+harness=codex
 kind=ship
 mode=local-only
 yolo=off
-branch=saved1106
-tasktmp=/tmp/fm-attach1106
+branch=fm/gatebundle21
+tasktmp=/tmp/fm-gatebundle21
 model=default
 effort=default
-busy_gen=g1793969434.467889.26010
-spawn_gen=s1793969434.463769.11283
-spawn_first=1793969434
-
-$ git -C {run-worktree}/.l/pool/.treehouse/attach-2c409f/1/attach rev-parse HEAD
-a9ae5170e3cc9298bf78ffa93ec8f2ee626ef36b
+spawn_gen=s1793973434.3714031.13557
+spawn_first=1793973434
+$ git -C {run-worktree}/.live/pool/.treehouse/project-f428ea/1/project rev-parse HEAD
+cdf56bc9996cf1214d5c5369d87d50a9f248dd68
 
 exit=0
-
-$ git -C {run-worktree}/.l/pool/.treehouse/attach-2c409f/1/attach symbolic-ref HEAD
-refs/heads/saved1106
-
-exit=0
-
-$ git -C {run-worktree}/.l/projects/attach rev-parse main
-cc28535f949e5a9dfa577dbd2a26cd03ea461e13
+$ git -C {run-worktree}/.live/pool/.treehouse/project-f428ea/1/project symbolic-ref --short HEAD
+fm/gatebundle21
 
 exit=0
-Oracle: invocation-relative bundle with spaces restored its exact commit/content onto saved1106; main unchanged.
+Oracle: supplied bundle restored exact saved commit, exact branch, and saved file bytes.
+$ tmux capture-pane -p -t lab:fm-gatebundle21
+holu@387548:{run-worktree}/.live/project$ cd -- '~/.
+no-mistakes/worktrees/c9e23aecc4aa/01M6RHM2JQW9BM9XGMAER4ZDRF/.live/pool/.treehouse/project-f428ea/1/project'
+holu@387548:{run-worktree}/.live/pool/.treehouse/project-f428
+ea/1/project$ export GOTMPDIR=/tmp/fm-gatebundle21/gotmp
+holu@387548:{run-worktree}/.live/pool/.treehouse/project-f428
+ea/1/project$ export COMPACT_ADVISER_DISABLE=1
+holu@387548:{run-worktree}/.live/pool/.treehouse/project-f428
+ea/1/project$ export FM_TASK_ID=gatebundle21
+holu@387548:{run-worktree}/.live/pool/.treehouse/project-f428
+ea/1/project$ . '/tmp/fm-gatebundle21+8b6aee54c7c7ea720e6bd46df6b6eb6bd6bf345d11bf6eebe77d26b67e549935/launch.s179397343
+4.3714031.13557.sh'
 
-$ tmux list-windows -a -F #{session_name}:#{window_name} #{pane_current_command} #{pane_current_path}
-primary:claude claude {run-worktree}
-primary:fm-attach1106 claude {run-worktree}/.l/pool/.treehouse/attach-2c409f/1/attach
 
-exit=0
 
-$ tmux capture-pane -p -t primary:fm-attach1106
-     *                                       █████▓▓░
-                                 *         ███▓░     ░░
-            ░░░░░░                        ███▓░
-    ░░░   ░░░░░░░░░░                      ███▓░
-   ░░░░░░░░░░░░░░░░░░░    *                ██▓░░      ▓
-                                             ░▓▓███▓▓░
- *                                 ░░░░
-                                 ░░░░░░░░
-                               ░░░░░░░░░░░░░░░░
-       █████████                                        *
-      ██▄█████▄██                        *
-       █████████      *
-.......█ █   █ █..........................................
 
- Let's get started.
 
- Choose the text style that looks best with your terminal
- To change this later, run /theme
 
-     Auto (match terminal)
- ❯ ✔ Dark mode
-     Light mode
-     Dark mode (colorblind-friendly)
-     Light mode (colorblind-friendly)
-     Dark mode (ANSI colors only)
-     Light mode (ANSI colors only)
 
- ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
-  1  function greet() {
-  2 -  console.log("Hello, World!");
-  2 +  console.log("Hello, Claude!");
-  3  }
- ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
-  Syntax theme: Monokai Extended (ctrl+t to disable)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 exit=0
-
-$ tmux kill-window -t primary:fm-attach1106
+$ git -C {run-worktree}/.live/project rev-parse main
+14a2dbfd514ba86d8bc6e5b024da179c984141a2
 
 exit=0
+$ git -C {run-worktree}/.live/project branch fm/gatebundle22 14a2dbfd514ba86d8bc6e5b024da179c984141a2
 
-ALL LOCAL FRESH-ATTACH SCENARIOS PASSED
+exit=0
+$ git -C {run-worktree}/.live/project for-each-ref --format=%(refname) %(objectname) refs/heads
+refs/heads/fm/gateattach11 b5c03de13d6a9b7be42cb53e9b37547545067ae5
+refs/heads/fm/gateattach12 b5c03de13d6a9b7be42cb53e9b37547545067ae5
+refs/heads/fm/gateattach13 b5c03de13d6a9b7be42cb53e9b37547545067ae5
+refs/heads/fm/gatebundle21 cdf56bc9996cf1214d5c5369d87d50a9f248dd68
+refs/heads/fm/gatebundle22 14a2dbfd514ba86d8bc6e5b024da179c984141a2
+refs/heads/main 14a2dbfd514ba86d8bc6e5b024da179c984141a2
+
+exit=0
+$ {run-worktree}/bin/fm-spawn.sh gatebundle22 {run-worktree}/.live/project --mode local-only --yolo off --harness codex --attach-branch fm/gatebundle22 --attach-head 14a2dbfd514ba86d8bc6e5b024da179c984141a2
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live/home
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+warning: {run-worktree}/.live/home/data/gatebundle22/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode local-only - confirm its definition of done matches
+notice: gatebundle22 ships mode=local-only while the standing posture for project is no-mistakes - less rigor than the captain's standing posture; proceed only on a current explicit captain instruction or an intake judgment you can state
+🌳 Setting up worktree...
+🌳 Leased worktree at {run-worktree}/.live/pool/.treehouse/project-f428ea/2/project. Run 'treehouse return {run-worktree}/.live/pool/.treehouse/project-f428ea/2/project' to release it.
+spawned gatebundle22 harness=codex kind=ship mode=local-only yolo=off window=lab:fm-gatebundle22 worktree={run-worktree}/.live/pool/.treehouse/project-f428ea/2/project
+
+exit=0
+Published metadata:
+window=lab:fm-gatebundle22
+endpoint_task_id=gatebundle22
+worktree={run-worktree}/.live/pool/.treehouse/project-f428ea/2/project
+lease_id=6bf02f95189a2f06fbf3caa1603cc4f8
+project={run-worktree}/.live/project
+harness=codex
+kind=ship
+mode=local-only
+yolo=off
+branch=fm/gatebundle22
+tasktmp=/tmp/fm-gatebundle22
+model=default
+effort=default
+spawn_gen=s1793973438.3726695.20152
+spawn_first=1793973438
+$ git -C {run-worktree}/.live/pool/.treehouse/project-f428ea/2/project rev-parse HEAD
+14a2dbfd514ba86d8bc6e5b024da179c984141a2
+
+exit=0
+$ git -C {run-worktree}/.live/pool/.treehouse/project-f428ea/2/project symbolic-ref --short HEAD
+fm/gatebundle22
+
+exit=0
+$ git -C {run-worktree}/.live/project for-each-ref --format=%(refname) %(objectname) refs/heads
+refs/heads/fm/gateattach11 b5c03de13d6a9b7be42cb53e9b37547545067ae5
+refs/heads/fm/gateattach12 b5c03de13d6a9b7be42cb53e9b37547545067ae5
+refs/heads/fm/gateattach13 b5c03de13d6a9b7be42cb53e9b37547545067ae5
+refs/heads/fm/gatebundle21 cdf56bc9996cf1214d5c5369d87d50a9f248dd68
+refs/heads/fm/gatebundle22 14a2dbfd514ba86d8bc6e5b024da179c984141a2
+refs/heads/main 14a2dbfd514ba86d8bc6e5b024da179c984141a2
+
+exit=0
+Oracle: existing branch checked out at original commit with no ref changes.
+$ git -C {run-worktree}/.live/project branch fm/gatebundle23 14a2dbfd514ba86d8bc6e5b024da179c984141a2
+
+exit=0
+$ git -C {run-worktree}/.live/project for-each-ref --format=%(refname) %(objectname) refs/heads
+refs/heads/fm/gateattach11 b5c03de13d6a9b7be42cb53e9b37547545067ae5
+refs/heads/fm/gateattach12 b5c03de13d6a9b7be42cb53e9b37547545067ae5
+refs/heads/fm/gateattach13 b5c03de13d6a9b7be42cb53e9b37547545067ae5
+refs/heads/fm/gatebundle21 cdf56bc9996cf1214d5c5369d87d50a9f248dd68
+refs/heads/fm/gatebundle22 14a2dbfd514ba86d8bc6e5b024da179c984141a2
+refs/heads/fm/gatebundle23 14a2dbfd514ba86d8bc6e5b024da179c984141a2
+refs/heads/main 14a2dbfd514ba86d8bc6e5b024da179c984141a2
+
+exit=0
+$ {run-worktree}/bin/fm-spawn.sh gatebundle23 {run-worktree}/.live/project --mode local-only --yolo off --harness codex --attach-branch fm/gatebundle23 --attach-head cdf56bc9996cf1214d5c5369d87d50a9f248dd68 --attach-bundle data/bundles/preserved work.bundle
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live/home
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+warning: {run-worktree}/.live/home/data/gatebundle23/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode local-only - confirm its definition of done matches
+notice: gatebundle23 ships mode=local-only while the standing posture for project is no-mistakes - less rigor than the captain's standing posture; proceed only on a current explicit captain instruction or an intake judgment you can state
+error: branch fm/gatebundle23 already exists at 14a2dbfd514ba86d8bc6e5b024da179c984141a2 (refs/heads/fm/gatebundle23), not at --attach-head cdf56bc9996cf1214d5c5369d87d50a9f248dd68; refusing to attach to a branch with a different head
+
+exit=1
+$ tmux list-windows -a -F #{window_name}
+bash
+fm-gateattach11
+fm-gateattach13
+fm-gatebundle21
+fm-gatebundle22
+
+exit=0
+$ git -C {run-worktree}/.live/project for-each-ref --format=%(refname) %(objectname) refs/heads
+refs/heads/fm/gateattach11 b5c03de13d6a9b7be42cb53e9b37547545067ae5
+refs/heads/fm/gateattach12 b5c03de13d6a9b7be42cb53e9b37547545067ae5
+refs/heads/fm/gateattach13 b5c03de13d6a9b7be42cb53e9b37547545067ae5
+refs/heads/fm/gatebundle21 cdf56bc9996cf1214d5c5369d87d50a9f248dd68
+refs/heads/fm/gatebundle22 14a2dbfd514ba86d8bc6e5b024da179c984141a2
+refs/heads/fm/gatebundle23 14a2dbfd514ba86d8bc6e5b024da179c984141a2
+refs/heads/main 14a2dbfd514ba86d8bc6e5b024da179c984141a2
+
+exit=0
+Oracle: conflicting branch refused without moving refs, publishing metadata, or creating endpoint.
+$ git -C {run-worktree}/.live/project for-each-ref --format=%(refname) %(objectname) refs/heads
+refs/heads/fm/gateattach11 b5c03de13d6a9b7be42cb53e9b37547545067ae5
+refs/heads/fm/gateattach12 b5c03de13d6a9b7be42cb53e9b37547545067ae5
+refs/heads/fm/gateattach13 b5c03de13d6a9b7be42cb53e9b37547545067ae5
+refs/heads/fm/gatebundle21 cdf56bc9996cf1214d5c5369d87d50a9f248dd68
+refs/heads/fm/gatebundle22 14a2dbfd514ba86d8bc6e5b024da179c984141a2
+refs/heads/fm/gatebundle23 14a2dbfd514ba86d8bc6e5b024da179c984141a2
+refs/heads/main 14a2dbfd514ba86d8bc6e5b024da179c984141a2
+
+exit=0
+$ {run-worktree}/bin/fm-spawn.sh gatebundle23 {run-worktree}/.live/project --mode local-only --yolo off --harness codex --attach-branch fm/gatebundle23 --attach-head 0123456789abcdef0123456789abcdef01234567 --attach-bundle data/bundles/preserved work.bundle
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live/home
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+warning: {run-worktree}/.live/home/data/gatebundle23/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode local-only - confirm its definition of done matches
+notice: gatebundle23 ships mode=local-only while the standing posture for project is no-mistakes - less rigor than the captain's standing posture; proceed only on a current explicit captain instruction or an intake judgment you can state
+error: --attach-head 0123456789abcdef0123456789abcdef01234567 is not a head of bundle '{run-worktree}/.live/home/data/bundles/preserved work.bundle'; refusing to attach to a commit it does not carry
+
+exit=1
+$ tmux list-windows -a -F #{window_name}
+bash
+fm-gateattach11
+fm-gateattach13
+fm-gatebundle21
+fm-gatebundle22
+
+exit=0
+$ git -C {run-worktree}/.live/project for-each-ref --format=%(refname) %(objectname) refs/heads
+refs/heads/fm/gateattach11 b5c03de13d6a9b7be42cb53e9b37547545067ae5
+refs/heads/fm/gateattach12 b5c03de13d6a9b7be42cb53e9b37547545067ae5
+refs/heads/fm/gateattach13 b5c03de13d6a9b7be42cb53e9b37547545067ae5
+refs/heads/fm/gatebundle21 cdf56bc9996cf1214d5c5369d87d50a9f248dd68
+refs/heads/fm/gatebundle22 14a2dbfd514ba86d8bc6e5b024da179c984141a2
+refs/heads/fm/gatebundle23 14a2dbfd514ba86d8bc6e5b024da179c984141a2
+refs/heads/main 14a2dbfd514ba86d8bc6e5b024da179c984141a2
+
+exit=0
+Oracle: head not in bundle refused without moving refs, publishing metadata, or creating endpoint.
+$ git -C {run-worktree}/.live/wtparent/gateattach12 rev-parse HEAD
+b5c03de13d6a9b7be42cb53e9b37547545067ae5
+
+exit=0
+$ {run-worktree}/bin/fm-control.sh gateattach12 relaunch --note Continue the saved task
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live/home
+note: task gateattach12's recorded endpoint lab:fm-gateattach12 is proven absent; unreadable working directories accepted as known non-workers: 1267 (sd-pam), 1487 gpg-agent, 4002860 sshd
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live/home
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+note: task gateattach12's recorded endpoint lab:fm-gateattach12 is proven absent; unreadable working directories accepted as known non-workers: 1267 (sd-pam), 1487 gpg-agent, 4002860 sshd
+warning: {run-worktree}/.live/home/data/gateattach12/launch-brief.md records no ship branch; defaulting to legacy branch fm/gateattach12
+warning: {run-worktree}/.live/home/data/gateattach12/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode local-only - confirm its definition of done matches
+notice: gateattach12 ships mode=local-only while the standing posture for project is no-mistakes - less rigor than the captain's standing posture; proceed only on a current explicit captain instruction or an intake judgment you can state
+relaunched gateattach12 harness=codex from=codex model=default effort=default backend=tmux endpoint=lab:fm-gateattach12 worktree={run-worktree}/.live/wtparent/gateattach12
+
+exit=0
+$ git -C {run-worktree}/.live/wtparent/gateattach12 rev-parse HEAD
+b5c03de13d6a9b7be42cb53e9b37547545067ae5
+
+exit=0
+Oracle: missing-window recovery in existing session preserved committed and unfinished work.

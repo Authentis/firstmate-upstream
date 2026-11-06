@@ -1,0 +1,90 @@
+$ tmux -S {run-worktree}/.live/s2 -f /dev/null new-session -d -s other -x 120 -y 35 -c {run-worktree} bash --noprofile --norc
+
+exit=0
+$ tmux -S {run-worktree}/.live/s2 new-window -d -n unrelated -c {run-worktree}/.live/wtparent/gateattach12 sleep 300
+
+exit=0
+$ bin/fm-control.sh gateattach12 relaunch --note hidden server cwd adversary
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live/home
+error: task gateattach12's endpoint gone-session:fm-gateattach12 reads 'missing', but process 2960134 is working in the recorded worktree, so its agent may still be running in a tmux window this process cannot address; exit will not claim an agent stopped at an address it cannot trust, nor send lifecycle input to one
+error: relaunch of gateattach12 failed while stopping the old agent and its state is 'missing', so it was not proven stopped; its original instructions were restored and the durable record was retained for recovery
+
+exit=1
+Oracle: refusal left original task metadata byte-identical.
+$ tmux -S {run-worktree}/.live/s2 kill-server
+
+exit=0
+$ bin/fm-control.sh gateattach12 relaunch --note task argv adversary
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live/home
+error: task gateattach12's endpoint gone-session:fm-gateattach12 reads 'missing', but process 2963259 names the task in its arguments, so its agent may still be running in a tmux window this process cannot address; exit will not claim an agent stopped at an address it cannot trust, nor send lifecycle input to one
+error: relaunch of gateattach12 failed while stopping the old agent and its state is 'missing', so it was not proven stopped; its original instructions were restored and the durable record was retained for recovery
+
+exit=1
+Oracle: refusal left original task metadata byte-identical.
+$ tmux new-session -d -s collision -n fm-gateattach12 -x 120 -y 35 -c {run-worktree} bash --noprofile --norc
+
+exit=0
+$ bin/fm-control.sh gateattach12 relaunch --note same window name adversary
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live/home
+error: task gateattach12's endpoint gone-session:fm-gateattach12 reads 'missing', but a window named 'fm-gateattach12' is still in the window inventory of the tmux server this process addresses; exit will not claim an agent stopped at an address it cannot trust, nor send lifecycle input to one
+error: relaunch of gateattach12 failed while stopping the old agent and its state is 'missing', so it was not proven stopped; its original instructions were restored and the durable record was retained for recovery
+
+exit=1
+Oracle: refusal left original task metadata byte-identical.
+$ tmux kill-session -t collision
+
+exit=0
+$ bin/fm-control.sh gateattach12 relaunch --note unknown hidden process adversary
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live/home
+error: task gateattach12's endpoint gone-session:fm-gateattach12 reads 'missing', but the working directory of process 2965476 could not be read; exit will not claim an agent stopped at an address it cannot trust, nor send lifecycle input to one
+error: relaunch of gateattach12 failed while stopping the old agent and its state is 'missing', so it was not proven stopped; its original instructions were restored and the durable record was retained for recovery
+
+exit=1
+Oracle: refusal left original task metadata byte-identical.
+$ bin/fm-spawn.sh --relaunch gateattach13
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live/home
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+note: task gateattach13's recorded endpoint gone-session:fm-gateattach13 is proven absent; unreadable working directories accepted as known non-workers: 1267 (sd-pam), 1487 gpg-agent, 4002860 sshd
+warning: {run-worktree}/.live/home/data/gateattach13/launch-brief.md records no ship branch; defaulting to legacy branch fm/gateattach13
+warning: {run-worktree}/.live/home/data/gateattach13/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode local-only - confirm its definition of done matches
+notice: gateattach13 ships mode=local-only while the standing posture for project is no-mistakes - less rigor than the captain's standing posture; proceed only on a current explicit captain instruction or an intake judgment you can state
+error: Expected property name or '}' in JSON at position 1 (line 1 column 2)
+error: refusing to pre-register Claude trust: could not record trust for '{run-worktree}/.live/wtparent/gateattach13' and project '{run-worktree}/.live/project' in '{run-worktree}/.live/user/.claude.json'
+error: could not pre-register Claude workspace trust for {run-worktree}/.live/wtparent/gateattach13; refusing to launch a claude worker that would wedge on the trust dialog; inspect window lab:fm-gateattach13
+
+exit=1
+$ tmux list-windows -a -F #{session_name}:#{window_name}
+lab:bash
+lab:fm-gateattach11
+
+exit=0
+Oracle: pre-publication failure preserved metadata and removed only the unused replacement.
+$ bin/fm-control.sh gateattach13 relaunch --note Retry after fixing trust setup
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live/home
+note: task gateattach13's recorded endpoint gone-session:fm-gateattach13 is proven absent; unreadable working directories accepted as known non-workers: 1267 (sd-pam), 1487 gpg-agent, 4002860 sshd
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live/home
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+note: task gateattach13's recorded endpoint gone-session:fm-gateattach13 is proven absent; unreadable working directories accepted as known non-workers: 1267 (sd-pam), 1487 gpg-agent, 4002860 sshd
+warning: {run-worktree}/.live/home/data/gateattach13/launch-brief.md records no ship branch; defaulting to legacy branch fm/gateattach13
+warning: {run-worktree}/.live/home/data/gateattach13/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode local-only - confirm its definition of done matches
+notice: gateattach13 ships mode=local-only while the standing posture for project is no-mistakes - less rigor than the captain's standing posture; proceed only on a current explicit captain instruction or an intake judgment you can state
+relaunched gateattach13 harness=codex from=codex model=default effort=default backend=tmux endpoint=lab:fm-gateattach13 worktree={run-worktree}/.live/wtparent/gateattach13
+
+exit=0
+Oracle: retry recovered successfully.
+$ {run-worktree}/bin/fm-spawn.sh gateflags24 {run-worktree}/.live/project --mode local-only --yolo off --attach-branch fm/gateflags24
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live/home
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+error: attaching to a preserved head needs both --attach-branch <branch> and --attach-head <commit>
+exit=1
+$ {run-worktree}/bin/fm-spawn.sh gateflags24 {run-worktree}/.live/project --scout --attach-branch fm/gateflags24 --attach-head 0123456789abcdef0123456789abcdef01234567
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live/home
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+error: --attach-branch/--attach-head/--attach-bundle apply only to ship spawns
+exit=1
+$ {run-worktree}/bin/fm-spawn.sh gateflags24 {run-worktree}/.live/project --relaunch --attach-branch fm/gateflags24 --attach-head 0123456789abcdef0123456789abcdef01234567
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live/home
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+error: --relaunch already attaches to the task's recorded branch and worktree; --attach-branch/--attach-head/--attach-bundle are for a task with no record
+exit=1
+Oracle: incomplete attach and incompatible scout/relaunch flags refused before metadata or endpoint creation.

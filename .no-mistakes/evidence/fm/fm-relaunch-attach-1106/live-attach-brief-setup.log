@@ -1,0 +1,29 @@
+$ git -C {run-worktree}/.live/project clone -q {run-worktree}/.live/project {run-worktree}/.live/publisher
+
+exit=0
+$ git -C {run-worktree}/.live/publisher checkout -q -b preserved-source
+
+exit=0
+$ git -C {run-worktree}/.live/publisher add preserved.txt
+
+exit=0
+$ git -C {run-worktree}/.live/publisher -c user.name=Lab -c user.email=lab@example.invalid commit -qm saved bundle
+
+exit=0
+$ git -C {run-worktree}/.live/publisher rev-parse HEAD
+04ed23d2cae414b43aabc52c71183955ae40ebae
+
+exit=0
+$ git -C {run-worktree}/.live/publisher bundle create {run-worktree}/.live/home/data/bundles/preserved work.bundle HEAD
+
+exit=0
+$ git -C {run-worktree}/.live/project cat-file -e 04ed23d2cae414b43aabc52c71183955ae40ebae^{commit}
+fatal: Not a valid object name 04ed23d2cae414b43aabc52c71183955ae40ebae^{commit}
+
+exit=128
+$ {run-worktree}/bin/fm-spawn.sh gatebundle21 {run-worktree}/.live/project --mode local-only --yolo off --harness codex --attach-branch fm/gatebundle21 --attach-head 04ed23d2cae414b43aabc52c71183955ae40ebae --attach-bundle data/bundles/preserved work.bundle
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live/home
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+error: branch mismatch for gatebundle21: the brief says branch=`fm/gatebundle21` but this spawn selected branch=fm/gatebundle21
+
+exit=1

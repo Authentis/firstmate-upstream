@@ -1,0 +1,29 @@
+$ git -C {run-worktree}/.live/project clone -q {run-worktree}/.live/project {run-worktree}/.live/publisher
+
+exit=0
+$ git -C {run-worktree}/.live/publisher checkout -q -b preserved-source
+
+exit=0
+$ git -C {run-worktree}/.live/publisher add preserved.txt
+
+exit=0
+$ git -C {run-worktree}/.live/publisher -c user.name=Lab -c user.email=lab@example.invalid commit -qm saved bundle
+
+exit=0
+$ git -C {run-worktree}/.live/publisher rev-parse HEAD
+52ecb11d0a864e586e8cf35a36a35f9f74106ed8
+
+exit=0
+$ git -C {run-worktree}/.live/publisher bundle create {run-worktree}/.live/home/data/bundles/preserved work.bundle HEAD
+
+exit=0
+$ git -C {run-worktree}/.live/project cat-file -e 52ecb11d0a864e586e8cf35a36a35f9f74106ed8^{commit}
+fatal: Not a valid object name 52ecb11d0a864e586e8cf35a36a35f9f74106ed8^{commit}
+
+exit=128
+$ {run-worktree}/bin/fm-spawn.sh gatebundle21 {run-worktree}/.live/project --mode local-only --yolo off --harness codex --attach-branch fm/gatebundle21 --attach-head 52ecb11d0a864e586e8cf35a36a35f9f74106ed8 --attach-bundle data/bundles/preserved work.bundle
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live/home
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+error: {run-worktree}/.live/home/data/gatebundle21/brief.md must contain nonempty ## Captain's intent and ## Firstmate spec subsections (or a nonempty legacy # Task body) before spawn
+
+exit=1

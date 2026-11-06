@@ -1,0 +1,6 @@
+Private lab pane/process ids before teardown: [2590959, 2647378, 2657493, 2976873, 2981138, 3718173, 3726501, 3729815, 3738567, 3764693, 3774098]
+Private tmux kill-server exit=0
+Remaining live lab processes: []
+Private tmux post-stop probe: exit=1 no server running on {run-worktree}/.live/s
+Initial fixture removal hit read-only generated hook directories; chmod -R u+w .live and removal then succeeded.
+Disposed lab home, project, pool, CLI caches, task scratch, and temporary test selector.
