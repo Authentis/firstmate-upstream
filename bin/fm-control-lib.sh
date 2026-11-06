@@ -592,9 +592,10 @@ fm_control_endpoint_absence_verdict() {  # <backend> <target> [<task-id> <worktr
 #   match      - a process names the task id, its fm-<id> lane, or the
 #                worktree in its arguments, or its current directory is the
 #                worktree or under it; the reason names the pid and which.
-#   unreadable - the process table, or the working directory of a process not
-#                positively known to have exited or to be a zombie, could not
-#                be read, so nothing is proven.
+#   unreadable - the process table could not be read, or a candidate's working
+#                directory could not be read and it was neither positively
+#                exited, a zombie, nor accepted by fm_control_known_non_worker,
+#                so nothing is proven.
 #
 # Argument matching is by whole token: arguments are split on every character
 # outside [A-Za-z0-9_.-], and a token matches when it is the id, the fm-<id>
@@ -703,10 +704,9 @@ EOF
   if [ -n "$(readlink "$proc/self/cwd" 2>/dev/null)" ]; then
     for pid in $cand; do
       if ! cwd=$(readlink "$proc/$pid/cwd" 2>/dev/null) || [ -z "$cwd" ]; then
-        # Only a process positively known to have exited since the snapshot,
-        # or to be a zombie, has no directory to be working in. Any other
-        # process whose directory cannot be read, whatever the reason, could
-        # still be the worker, so nothing is proven.
+        # An exited or zombie process cannot be working. For every other
+        # hidden directory, only the closed known-non-worker check below may
+        # excuse the missing evidence; otherwise the proof must refuse.
         [ -e "$proc/$pid" ] || continue
         case "$(awk '{ sub(/^.*\) /, ""); print $1 }' "$proc/$pid/stat" 2>/dev/null)" in
           Z|X) continue ;;
