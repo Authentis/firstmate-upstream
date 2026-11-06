@@ -2213,10 +2213,9 @@ if [ "$RELAUNCH" -eq 1 ]; then
   # Two states are agent-free, and both license a relaunch:
   #   dead    - the endpoint exists and confidently holds no agent. The
   #             endpoint is ADOPTED, so the task keeps its exact address.
-  #   missing - the endpoint itself is gone. There is no endpoint AND therefore
-  #             no agent, so a relaunch cannot adopt it: it CREATES a fresh
-  #             endpoint in the recorded worktree and the published record
-  #             rebinds to it.
+  #   missing - only after the shared absence proof below establishes no
+  #             surviving task agent. The launch creates a fresh endpoint in
+  #             the recorded worktree and the published record rebinds to it.
   # `missing` is NOT one state, and that is what the duplicate-agent argument
   # turns on. fm_backend_agent_state's per-backend `missing` conflates "the
   # endpoint was DESTROYED" with "the endpoint is UNREACHABLE from here right
