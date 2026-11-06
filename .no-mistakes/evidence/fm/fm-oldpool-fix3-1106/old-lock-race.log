@@ -1,0 +1,12 @@
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.test-live-teardown/old-lock-race/home
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+teardown: the project's current Treehouse pool does not list {run-worktree}/.test-live-teardown/old-lock-race/pools/.treehouse/project-d2c543/1/project (a git url rewrite can move a project's pool); confirming lease b07cc98be34bf79a73bc7d23f49a0627 against the slot's own pool {run-worktree}/.test-live-teardown/old-lock-race/pools/.treehouse/project-d2c543
+REFUSED: lease changed on {run-worktree}/.test-live-teardown/old-lock-race/pools/.treehouse/project-d2c543/1/project in its own pool {run-worktree}/.test-live-teardown/old-lock-race/pools/.treehouse/project-d2c543 since teardown first confirmed it (recorded b07cc98be34bf79a73bc7d23f49a0627); the slot may now belong to someone else, so nothing in it was changed and nothing was returned
+
+exit=1; competing lease retained; task record, branch and hook all preserved

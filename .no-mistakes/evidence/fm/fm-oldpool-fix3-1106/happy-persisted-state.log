@@ -1,0 +1,16 @@
+Actual Treehouse persisted state after ordinary teardown:
+{
+  "version": 4,
+  "worktrees": null
+}
+{run-worktree}/.test-live-teardown/old-happy-3/home/data/bundles/task-x1-477b535f9bd6.bundle is okay
+The bundle contains this ref:
+477b535f9bd651bfee83bb4b5bece8a949d7a845 HEAD
+The bundle records a complete history.
+The bundle uses this hash algorithm: sha1
+{run-worktree}/.test-live-teardown/old-happy-3/home/data/bundles/task-x1.bundle is okay
+The bundle contains this ref:
+477b535f9bd651bfee83bb4b5bece8a949d7a845 HEAD
+The bundle records a complete history.
+The bundle uses this hash algorithm: sha1
+Task record absent; no leased slot remains.

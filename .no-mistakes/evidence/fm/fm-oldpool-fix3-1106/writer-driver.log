@@ -1,0 +1,34 @@
+COMMAND: FM_HOME=<disposable lab> bin/fm-teardown.sh task-x1 --force
+exit=1
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.test-live-teardown/writer-current/home
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REFUSED: lsof is unavailable, so writer shutdown cannot be verified for forced ship-slot cleanup of {run-worktree}/.test-live-teardown/writer-current/pools/.treehouse/project-af608a/1/project; nothing was returned or discarded
+
+POST git status:
+POST branch: fm/task-x1
+POST task record exists: True
+
+COMMAND: FM_HOME=<disposable lab> bin/fm-teardown.sh task-x1 --force
+exit=1
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.test-live-teardown/writer-old/home
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 0s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+teardown: the project's current Treehouse pool does not list {run-worktree}/.test-live-teardown/writer-old/pools/.treehouse/project-88cfec/1/project (a git url rewrite can move a project's pool); confirming lease 154f4d1165bbd1cf0d2cdb2496ff5bf7 against the slot's own pool {run-worktree}/.test-live-teardown/writer-old/pools/.treehouse/project-88cfec
+Preserved gone-pool-slot lane task-x1: bundle {run-worktree}/.test-live-teardown/writer-old/home/data/bundles/task-x1.bundle
+REFUSED: lsof is unavailable, so writer shutdown cannot be verified for forced ship-slot cleanup of {run-worktree}/.test-live-teardown/writer-old/pools/.treehouse/project-88cfec/1/project; nothing was returned or discarded
+
+POST git status:
+POST branch: fm/task-x1
+POST task record exists: True
+

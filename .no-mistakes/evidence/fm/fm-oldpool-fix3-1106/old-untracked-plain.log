@@ -1,0 +1,21 @@
+COMMAND: FM_HOME=<disposable lab> bin/fm-teardown.sh task-x1
+exit=1
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.test-live-teardown/old-untracked-plain/home
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 0s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+teardown: the project's current Treehouse pool does not list {run-worktree}/.test-live-teardown/old-untracked-plain/pools/.treehouse/project-d8e973/1/project (a git url rewrite can move a project's pool); confirming lease a5be1d402c843a2e01c4fd41f10431b9 against the slot's own pool {run-worktree}/.test-live-teardown/old-untracked-plain/pools/.treehouse/project-d8e973
+REFUSED: worktree {run-worktree}/.test-live-teardown/old-untracked-plain/pools/.treehouse/project-d8e973/1/project has uncommitted changes.
+uncommitted changes present (untracked-only leftovers)
+untracked paths (up to 10):
+  notes.txt
+Commit them (or get the captain's explicit OK to discard, then --force).
+
+POST git status:
+?? notes.txt
+POST branch: fm/task-x1
+POST task record exists: True

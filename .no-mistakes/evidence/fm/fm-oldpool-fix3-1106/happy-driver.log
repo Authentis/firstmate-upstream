@@ -1,0 +1,23 @@
+COMMAND: FM_HOME=<disposable lab> bin/fm-teardown.sh task-x1
+exit=0
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.test-live-teardown/old-happy-3/home
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 0s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+teardown: the project's current Treehouse pool does not list {run-worktree}/.test-live-teardown/old-happy-3/pools/.treehouse/project-1ce9f5/1/project (a git url rewrite can move a project's pool); confirming lease 0fb32dc6a397b1cfc8914ea64e8977eb against the slot's own pool {run-worktree}/.test-live-teardown/old-happy-3/pools/.treehouse/project-1ce9f5
+Preserved gone-pool-slot lane task-x1: bundle {run-worktree}/.test-live-teardown/old-happy-3/home/data/bundles/task-x1.bundle
+teardown: reaping leaked worktree process group for task-x1: 3076810
+Preserved gone-pool-slot lane task-x1: bundle {run-worktree}/.test-live-teardown/old-happy-3/home/data/bundles/task-x1-477b535f9bd6.bundle
+🌳 Worktree returned to pool.
+{run-worktree}/.test-live-teardown/old-happy-3/project: already current
+teardown task-x1 complete (window fm-lab:fm-task-x1, worktree {run-worktree}/.test-live-teardown/old-happy-3/pools/.treehouse/project-1ce9f5/1/project)
+Backlog: task-x1 just finished (this home keeps no markdown backlog at {run-worktree}/.test-live-teardown/old-happy-3/home/data/backlog.md). Update {run-worktree}/.test-live-teardown/old-happy-3/home/data/backlog.md - move task-x1 to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+
+POST git status:
+POST branch: POST task record exists: False
+
+RESULT PASS

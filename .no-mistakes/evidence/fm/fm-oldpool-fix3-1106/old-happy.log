@@ -1,0 +1,8 @@
+COMMAND: FM_HOME=<disposable lab> bin/fm-teardown.sh task-x1
+exit=1
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.test-live-teardown/old-happy/home
+REFUSED: task task-x1 has a missing, empty, or ambiguous window endpoint; preserving task state.
+
+POST git status:
+POST branch: fm/task-x1
+POST task record exists: True

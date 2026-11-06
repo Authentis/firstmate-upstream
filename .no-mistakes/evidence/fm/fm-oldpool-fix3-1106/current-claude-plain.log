@@ -1,0 +1,20 @@
+COMMAND: FM_HOME=<disposable lab> bin/fm-teardown.sh task-x1
+exit=1
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.test-live-teardown/current-claude-plain/home
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+teardown: reaping leaked worktree process group for task-x1: 3243777
+Worktree has uncommitted changes. Clean and return? [Y/n] 🌳 worktree not returned: it has uncommitted changes and the confirmation could not be answered (stdin reached EOF); prune will not reclaim this slot. Use treehouse return --force '{run-worktree}/.test-live-teardown/current-claude-plain/pools/.treehouse/project-646ce2/1/project' to clean and return it
+teardown: worktree return was not performed; treehouse refused the lease-bound return of slot {run-worktree}/.test-live-teardown/current-claude-plain/pools/.treehouse/project-646ce2/1/project under lease 2f7a55dd19c760ff77a156cdbbb65cd2 (its lease changed, or the slot was no longer clean); the slot was not released and nothing was forced
+files blocking the return of {run-worktree}/.test-live-teardown/current-claude-plain/pools/.treehouse/project-646ce2/1/project:
+?? .claude/research.md
+error: treehouse return failed for worktree {run-worktree}/.test-live-teardown/current-claude-plain/pools/.treehouse/project-646ce2/1/project; teardown aborted
+
+POST git status:
+?? .claude/research.md
+POST branch: POST task record exists: True

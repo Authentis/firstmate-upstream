@@ -1,0 +1,19 @@
+COMMAND: FM_HOME=<disposable lab> bin/fm-teardown.sh task-x1 --force
+exit=1
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.test-live-teardown/verified-current-untracked-force/home
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 0s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REFUSED: worktree {run-worktree}/.test-live-teardown/verified-current-untracked-force/pools/.treehouse/project-1ec914/1/project has uncommitted changes or untracked files that no commit or backup holds; --force never discards them from a leased slot, so nothing was returned and nothing was discarded - commit and push them, or move them out of the copy, then retry teardown.
+uncommitted changes present (untracked-only leftovers)
+untracked paths (up to 10):
+  notes.txt
+
+POST git status:
+?? notes.txt
+POST branch: fm/task-x1
+POST task record exists: True

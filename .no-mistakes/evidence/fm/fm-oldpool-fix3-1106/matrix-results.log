@@ -1,0 +1,16 @@
+verified-old-tracked-plain: refusal preserves user content, HEAD commit and task record
+verified-old-tracked-force: refusal preserves user content, HEAD commit and task record
+verified-old-untracked-plain: refusal preserves user content, HEAD commit and task record
+verified-old-untracked-force: refusal preserves user content, HEAD commit and task record
+verified-old-claude-plain: refusal preserves user content, HEAD commit and task record
+verified-old-claude-force: refusal preserves user content, HEAD commit and task record
+verified-old-unpushed-plain: refusal preserves user content, HEAD commit and task record
+verified-old-unpushed-force: refusal preserves user content, HEAD commit and task record
+verified-current-tracked-plain: refusal preserves user content, HEAD commit and task record
+verified-current-tracked-force: refusal preserves user content, HEAD commit and task record
+verified-current-untracked-plain: refusal preserves user content, HEAD commit and task record
+verified-current-untracked-force: refusal preserves user content, HEAD commit and task record
+verified-current-claude-plain: refusal preserves user content, HEAD commit and task record
+verified-current-claude-force: refusal preserves user content, HEAD commit and task record
+verified-current-unpushed-plain: refusal preserves user content, HEAD commit and task record
+verified-current-unpushed-force: refusal preserves user content, HEAD commit and task record

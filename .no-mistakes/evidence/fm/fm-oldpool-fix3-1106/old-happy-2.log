@@ -1,0 +1,23 @@
+COMMAND: FM_HOME=<disposable lab> bin/fm-teardown.sh task-x1
+exit=1
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.test-live-teardown/old-happy-2/home
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+teardown: the project's current Treehouse pool does not list {run-worktree}/.test-live-teardown/old-happy-2/pools/.treehouse/project-f5b8de/1/project (a git url rewrite can move a project's pool); confirming lease 988020c76e38f21fbd9f3918e4ea58b9 against the slot's own pool {run-worktree}/.test-live-teardown/old-happy-2/pools/.treehouse/project-f5b8de
+Preserved gone-pool-slot lane task-x1: bundle {run-worktree}/.test-live-teardown/old-happy-2/home/data/bundles/task-x1.bundle
+warning: lsof is unavailable; cannot resolve the tmux pane process group for task-x1
+Preserved gone-pool-slot lane task-x1: bundle {run-worktree}/.test-live-teardown/old-happy-2/home/data/bundles/task-x1-67857b4ae1f1.bundle
+🌳 Worktree returned to pool.
+error: tmux window fm-lab:fm-task-x1 could not be read after its close, so whether it survived is unknown
+error: the tmux endpoint fm-lab:fm-task-x1 for task-x1 could not be closed, so it may still be live.
+error: stopping this cleanup without removing the task's records, so the record naming fm-lab:fm-task-x1 is still here to reconcile from.
+error: that retention is not durable across a session start: if this task carries a backlog transition, the next session replays its pending close and removes the retained record, so reconcile the surviving endpoint yourself rather than trusting the retention.
+error: rerun teardown once the close can succeed, or rerun with --force to discard this task's records deliberately.
+
+POST git status:
+POST branch: POST task record exists: True

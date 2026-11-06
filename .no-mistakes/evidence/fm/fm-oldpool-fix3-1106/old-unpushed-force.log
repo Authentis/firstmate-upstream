@@ -1,0 +1,18 @@
+COMMAND: FM_HOME=<disposable lab> bin/fm-teardown.sh task-x1 --force
+exit=1
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.test-live-teardown/old-unpushed-force/home
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+teardown: the project's current Treehouse pool does not list {run-worktree}/.test-live-teardown/old-unpushed-force/pools/.treehouse/project-774b90/1/project (a git url rewrite can move a project's pool); confirming lease 5441d1cb166d232c57956e7141351a6e against the slot's own pool {run-worktree}/.test-live-teardown/old-unpushed-force/pools/.treehouse/project-774b90
+REFUSED: gone-pool-slot worktree {run-worktree}/.test-live-teardown/old-unpushed-force/pools/.treehouse/project-774b90/1/project has work not on any remote and not landed; the pool no longer lists this slot, so nothing was returned and nothing was discarded - push the branch or land its PR, then retry teardown.
+unpushed commits:
+7f1f094 unlanded
+
+POST git status:
+POST branch: fm/task-x1
+POST task record exists: True
