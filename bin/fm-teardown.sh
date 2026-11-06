@@ -2458,8 +2458,11 @@ teardown_verify_slot_lease() {
 
 # Return a worktree/home via `treehouse return` (see return_args), tolerating a transient or
 # stale git index.lock left by a killed crew process. See the script header.
-teardown_treehouse_return() {
-  local dir=$1 cd_dir=$2 label=$3 post_cleanup_check=${4:-}
+# <pre-attempt-check>, when given, runs before every return attempt; the forced
+# leased-slot recheck uses it. <post-cleanup-check> runs only after a stale-lock
+# removal, where the copy changed under teardown.
+teardown_treehouse_return() {  # <dir> <cd-dir> <label> [post-cleanup-check] [pre-attempt-check]
+  local dir=$1 cd_dir=$2 label=$3 post_cleanup_check=${4:-} pre_attempt_check=${5:-}
   local out lock attempt=0 max_retries lock_desc
   # A task whose slot was taken as a lease (lease_id= in its record) returns
   # exactly that lease, so a slot since handed to anyone else is refused rather
@@ -2479,8 +2482,8 @@ teardown_treehouse_return() {
 
   # Capture stdout+stderr so non-lock failures stay visible and lock failures can
   # be matched by signature even when the lock file is already gone mid-check.
-  if [ -n "$post_cleanup_check" ]; then
-    "$post_cleanup_check" || return 1
+  if [ -n "$pre_attempt_check" ]; then
+    "$pre_attempt_check" || return 1
   fi
   if out=$( ( cd "$cd_dir" && treehouse return "${return_args[@]}" "$dir" </dev/null ) 2>&1 ); then
     [ -n "$out" ] && printf '%s\n' "$out"
@@ -2519,8 +2522,8 @@ teardown_treehouse_return() {
     echo "teardown: $label return failed with transient git lock ($lock_desc); waiting ${TREEHOUSE_RETURN_LOCK_RETRY_WAIT_SECS}s and retrying ($attempt/${max_retries})" >&2
     sleep "$TREEHOUSE_RETURN_LOCK_RETRY_WAIT_SECS"
 
-    if [ -n "$post_cleanup_check" ]; then
-      "$post_cleanup_check" || return 1
+    if [ -n "$pre_attempt_check" ]; then
+      "$pre_attempt_check" || return 1
     fi
     if out=$( ( cd "$cd_dir" && treehouse return "${return_args[@]}" "$dir" </dev/null ) 2>&1 ); then
       [ -n "$out" ] && printf '%s\n' "$out"
@@ -4451,10 +4454,12 @@ elif [ -d "$WT" ] && [ "$KIND" != secondmate ] && [ "$TEARDOWN_RECORD_ONLY" != 1
   # the project. teardown_treehouse_return tolerates transient and stale git locks
   # left by a killed crew process; see the script header for retry and stale-lock proof.
   post_lock_cleanup_check=
+  pre_return_check=
   if [ "$FORCE" != "--force" ] && [ "$KIND" != scout ] && [ "$KIND" != secondmate ]; then
     post_lock_cleanup_check=validate_worktree_teardown_safety
   elif [ "$teardown_forced_cleanup_rechecks" = 1 ]; then
     post_lock_cleanup_check=teardown_forced_cleanup_recheck
+    pre_return_check=teardown_forced_cleanup_recheck
     teardown_forced_cleanup_recheck || exit 1
   fi
   if [ "$KIND" = scout ] || [ "$FORCE" = "--force" ]; then
@@ -4472,7 +4477,7 @@ elif [ -d "$WT" ] && [ "$KIND" != secondmate ] && [ "$TEARDOWN_RECORD_ONLY" != 1
   # post_lock_cleanup_check), so the owner's own gate step is a no-op here.
   teardown_slot_retire_gate() { return 0; }
   teardown_slot_retire_return() {
-    teardown_treehouse_return "$WT" "$PROJ" "worktree" "$post_lock_cleanup_check"
+    teardown_treehouse_return "$WT" "$PROJ" "worktree" "$post_lock_cleanup_check" "$pre_return_check"
   }
   FM_SLOT_RETIRE_GATE=teardown_slot_retire_gate FM_SLOT_RETIRE_RETURN=teardown_slot_retire_return \
     fm_treehouse_slot_retire "$WT" "$ID" || {
