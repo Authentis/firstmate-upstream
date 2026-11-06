@@ -63,12 +63,18 @@
 #   commit id that <file> lists as a head, or without a bundle one the project already
 #   has; the spawn refuses before any endpoint exists when it is not, and when
 #   <branch> already exists locally or on origin at a different commit.
+#   A configured origin must answer a direct query for that branch; a project
+#   with no origin can attach a head it already holds without a remote query.
 #   Relative bundle paths resolve from the invocation directory, not the
 #   project or acquired worktree. A bundle head is fetched into the copy
 #   without writing any ref, and the
 #   branch is created at <commit> or, when it already points there, checked
-#   out. Refused on scouts, secondmates, and relaunches (a relaunch already
-#   attaches to its recorded branch and worktree).
+#   out. If the spawn aborts without a task record and no worker can still be
+#   using the copy, it restores the prior checkout and removes only a branch
+#   this attach created, provided the copy is unchanged; otherwise it warns
+#   and preserves the copy. An unused fresh-spawn window may still need closing
+#   before retrying. Refused on scouts, secondmates, and relaunches (a relaunch
+#   already attaches to its recorded branch and worktree).
 #   Ship/scout launches always put fm-dod-lib.sh's current worker role scope
 #   first in the private launch-brief overlay, including the exact task-owned
 #   steering inbox. This never rewrites a project's instruction files or a
