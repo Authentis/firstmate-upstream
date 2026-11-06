@@ -1,0 +1,514 @@
+
+$ tmux kill-window -t primary:fm-recover1106
+can't find window: fm-recover1106
+
+exit=1
+
+$ git -C {run-worktree}/.l/worker rev-parse HEAD
+77cd474874b1215fbc302e0261911f005a96e884
+
+exit=0
+
+$ git -C {run-worktree}/.l/worker symbolic-ref HEAD
+refs/heads/preserved1106
+
+exit=0
+
+$ git -C {run-worktree}/.l/projects/demo for-each-ref --format=%(refname) %(objectname) refs/heads
+refs/heads/master cf86c00dba4978ea1516de7da9339e2bf15aae22
+refs/heads/preserved1106 77cd474874b1215fbc302e0261911f005a96e884
+
+exit=0
+
+$ git -C {run-worktree}/.l/worker status --porcelain
+A  staged.txt
+ M task.txt
+?? untracked.txt
+
+exit=0
+
+$ git -C {run-worktree}/.l/worker diff --cached --binary
+diff --git a/staged.txt b/staged.txt
+new file mode 100644
+index 0000000..248d032
+--- /dev/null
++++ b/staged.txt
+@@ -0,0 +1 @@
++staged work
+
+exit=0
+
+$ git -C {run-worktree}/.l/worker diff --binary
+diff --git a/task.txt b/task.txt
+index cc9969e..e6c277f 100644
+--- a/task.txt
++++ b/task.txt
+@@ -1,2 +1,3 @@
+ initial
+ committed work
++unfinished work
+
+exit=0
+
+### Missing window: recover recorded task on existing branch/worktree
+
+$ bin/fm-control.sh recover1106 relaunch --note Resume the preserved task; validation only, do not edit files
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.l
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.l
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+warning: {run-worktree}/.l/data/recover1106/launch-brief.md records no ship branch; defaulting to legacy branch fm/recover1106
+warning: {run-worktree}/.l/data/recover1106/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode local-only - confirm its definition of done matches
+notice: recover1106 ships mode=local-only while the standing posture for demo is no-mistakes - less rigor than the captain's standing posture; proceed only on a current explicit captain instruction or an intake judgment you can state
+relaunched recover1106 harness=claude from=claude model=default effort=default backend=tmux endpoint=primary:fm-recover1106 worktree={run-worktree}/.l/worker
+
+exit=0
+
+$ git -C {run-worktree}/.l/worker rev-parse HEAD
+77cd474874b1215fbc302e0261911f005a96e884
+
+exit=0
+
+$ git -C {run-worktree}/.l/worker symbolic-ref HEAD
+refs/heads/preserved1106
+
+exit=0
+
+$ git -C {run-worktree}/.l/projects/demo for-each-ref --format=%(refname) %(objectname) refs/heads
+refs/heads/master cf86c00dba4978ea1516de7da9339e2bf15aae22
+refs/heads/preserved1106 77cd474874b1215fbc302e0261911f005a96e884
+
+exit=0
+
+$ git -C {run-worktree}/.l/worker status --porcelain
+A  staged.txt
+ M task.txt
+?? untracked.txt
+
+exit=0
+
+$ git -C {run-worktree}/.l/worker diff --cached --binary
+diff --git a/staged.txt b/staged.txt
+new file mode 100644
+index 0000000..248d032
+--- /dev/null
++++ b/staged.txt
+@@ -0,0 +1 @@
++staged work
+
+exit=0
+
+$ git -C {run-worktree}/.l/worker diff --binary
+diff --git a/task.txt b/task.txt
+index cc9969e..e6c277f 100644
+--- a/task.txt
++++ b/task.txt
+@@ -1,2 +1,3 @@
+ initial
+ committed work
++unfinished work
+
+exit=0
+
+$ tmux list-windows -a -F #{session_name}:#{window_name} #{window_id} #{pane_current_command} #{pane_current_path}
+primary:claude @0 claude {run-worktree}
+primary:fm-recover1106 @4 claude {run-worktree}/.l/worker
+
+exit=0
+Persisted task metadata:
+window=primary:fm-recover1106
+endpoint_task_id=recover1106
+worktree={run-worktree}/.l/worker
+project={run-worktree}/.l/projects/demo
+harness=claude
+kind=ship
+mode=local-only
+yolo=off
+branch=fm/recover1106
+tasktmp=/tmp/fm-recover1106
+model=default
+effort=default
+busy_gen=g1793969283.42010.18419
+spawn_gen=s1793969284.31575.9465
+control_relaunch_tx=24648.20261106T124800Z.31419
+Oracle: HEAD, branch, refs, staged/unstaged diff, untracked file bytes and status history preserved.
+
+$ tmux capture-pane -p -t primary:fm-recover1106
+holu@387548:{run-worktree}/.l/worker$ cd -- '~/.no-m
+istakes/worktrees/c9e23aecc4aa/01M6RCPJC6ZQDQE7REYF4YF7C2/.l/worker'
+holu@387548:{run-worktree}/.l/worker$ export GOTMPDIR=/tmp/fm
+-recover1106/gotmp
+holu@387548:{run-worktree}/.l/worker$ export COMPACT_ADVISER_
+DISABLE=1
+holu@387548:{run-worktree}/.l/worker$ export FM_TASK_ID=recov
+er1106
+holu@387548:{run-worktree}/.l/worker$ . '/tmp/fm-recover1106+
+e32dfd832b862a16608bf4a9e67fc2c493fe946be455bc6f9a3183eb0c8908e8/launch.s1793969284.31575.9465.sh'
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+exit=0
+
+$ tmux kill-window -t primary:fm-recover1106
+
+exit=0
+
+### Duplicate guard: same task window moved to another session on same server
+
+$ tmux new-session -d -s other1106 -n fm-recover1106 -c {run-worktree} sleep 300
+
+exit=0
+
+$ tmux list-windows -a -F #{session_name}:#{window_name}
+other1106:fm-recover1106
+primary:claude
+
+exit=0
+
+$ bin/fm-control.sh recover1106 exit
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.l
+error: task recover1106's endpoint vanished1106:fm-recover1106 reads 'missing', but a window named 'fm-recover1106' is still in the window inventory of the tmux server this process addresses; exit will not claim an agent stopped at an address it cannot trust, nor send lifecycle input to one
+
+exit=1
+
+$ bin/fm-control.sh recover1106 relaunch --note Preserve work
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.l
+error: task recover1106's endpoint vanished1106:fm-recover1106 reads 'missing', but a window named 'fm-recover1106' is still in the window inventory of the tmux server this process addresses; exit will not claim an agent stopped at an address it cannot trust, nor send lifecycle input to one
+error: relaunch of recover1106 failed while stopping the old agent and its state is 'missing', so it was not proven stopped; its original instructions were restored and the durable record was retained for recovery
+
+exit=1
+
+$ bin/fm-spawn.sh recover1106 --relaunch --harness claude
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.l
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+error: task recover1106's recorded endpoint vanished1106:fm-recover1106 reads 'missing', but a window named 'fm-recover1106' is still in the window inventory of the tmux server this process addresses. An endpoint that cannot be proven absent may still hold a live agent on this task's worktree; refusing rather than launching a second agent into it
+
+exit=1
+
+$ tmux list-windows -a -F #{session_name}:#{window_name}
+other1106:fm-recover1106
+primary:claude
+
+exit=0
+Oracle: all three entrypoints refused; metadata and window inventory unchanged.
+
+$ tmux kill-session -t other1106
+
+exit=0
+
+### Duplicate guard: foreign socket process has cwd inside the recorded worktree
+
+$ tmux -L fm-foreign new-session -d -s foreign1106 -x 120 -y 35 -c {run-worktree}
+
+exit=0
+
+$ tmux -L fm-foreign send-keys -t foreign1106 cd {run-worktree}/.l/worker; exec sleep 300 Enter
+
+exit=0
+
+$ tmux list-windows -a -F #{session_name}:#{window_name}
+primary:claude
+
+exit=0
+
+$ bin/fm-control.sh recover1106 exit
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.l
+error: task recover1106's endpoint vanished1106:fm-recover1106 reads 'missing', but process 52956 is working in the recorded worktree, so its agent may still be running in a tmux window this process cannot address; exit will not claim an agent stopped at an address it cannot trust, nor send lifecycle input to one
+
+exit=1
+
+$ bin/fm-control.sh recover1106 relaunch --note Preserve work
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.l
+error: task recover1106's endpoint vanished1106:fm-recover1106 reads 'missing', but process 52956 is working in the recorded worktree, so its agent may still be running in a tmux window this process cannot address; exit will not claim an agent stopped at an address it cannot trust, nor send lifecycle input to one
+error: relaunch of recover1106 failed while stopping the old agent and its state is 'missing', so it was not proven stopped; its original instructions were restored and the durable record was retained for recovery
+
+exit=1
+
+$ bin/fm-spawn.sh recover1106 --relaunch --harness claude
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.l
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+error: task recover1106's recorded endpoint vanished1106:fm-recover1106 reads 'missing', but process 52956 is working in the recorded worktree, so its agent may still be running in a tmux window this process cannot address. An endpoint that cannot be proven absent may still hold a live agent on this task's worktree; refusing rather than launching a second agent into it
+
+exit=1
+
+$ tmux list-windows -a -F #{session_name}:#{window_name}
+primary:claude
+
+exit=0
+Oracle: all three entrypoints refused; metadata and window inventory unchanged.
+
+$ tmux -L fm-foreign kill-server
+
+exit=0
+
+### Duplicate guard: foreign socket process names task while cwd is elsewhere
+
+$ tmux -L fm-foreign new-session -d -s foreign1106 -x 120 -y 35 -c {run-worktree} bash -c 'exec -a fm-recover1106 sleep 300'
+
+exit=0
+
+$ tmux list-windows -a -F #{session_name}:#{window_name}
+primary:claude
+
+exit=0
+
+$ bin/fm-control.sh recover1106 exit
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.l
+error: task recover1106's endpoint vanished1106:fm-recover1106 reads 'missing', but process 60148 names the task in its arguments, so its agent may still be running in a tmux window this process cannot address; exit will not claim an agent stopped at an address it cannot trust, nor send lifecycle input to one
+
+exit=1
+
+$ bin/fm-control.sh recover1106 relaunch --note Preserve work
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.l
+error: task recover1106's endpoint vanished1106:fm-recover1106 reads 'missing', but process 60148 names the task in its arguments, so its agent may still be running in a tmux window this process cannot address; exit will not claim an agent stopped at an address it cannot trust, nor send lifecycle input to one
+error: relaunch of recover1106 failed while stopping the old agent and its state is 'missing', so it was not proven stopped; its original instructions were restored and the durable record was retained for recovery
+
+exit=1
+
+$ bin/fm-spawn.sh recover1106 --relaunch --harness claude
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.l
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+error: task recover1106's recorded endpoint vanished1106:fm-recover1106 reads 'missing', but process 60148 names the task in its arguments, so its agent may still be running in a tmux window this process cannot address. An endpoint that cannot be proven absent may still hold a live agent on this task's worktree; refusing rather than launching a second agent into it
+
+exit=1
+
+$ tmux list-windows -a -F #{session_name}:#{window_name}
+primary:claude
+
+exit=0
+Oracle: all three entrypoints refused; metadata and window inventory unchanged.
+
+$ tmux -L fm-foreign kill-server
+
+exit=0
+
+### Pre-publication abort: real invalid Claude trust store; cleanup then retry
+
+$ tmux list-windows -a -F #{session_name}:#{window_name} #{window_id}
+primary:claude @0
+
+exit=0
+
+$ bin/fm-control.sh recover1106 relaunch --note Recover from the missing session
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.l
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.l
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+warning: {run-worktree}/.l/data/recover1106/launch-brief.md records no ship branch; defaulting to legacy branch fm/recover1106
+warning: {run-worktree}/.l/data/recover1106/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode local-only - confirm its definition of done matches
+notice: recover1106 ships mode=local-only while the standing posture for demo is no-mistakes - less rigor than the captain's standing posture; proceed only on a current explicit captain instruction or an intake judgment you can state
+error: Unexpected token 'i', "invalid json
+" is not valid JSON
+error: refusing to pre-register Claude trust: could not record trust for '{run-worktree}/.l/worker' and project '{run-worktree}/.l/projects/demo' in '{run-worktree}/.l/user/.claude/.claude.json'
+error: could not pre-register Claude workspace trust for {run-worktree}/.l/worker; refusing to launch a claude worker that would wedge on the trust dialog; inspect window primary:fm-recover1106
+error: the replacement agent for recover1106 could not be launched on claude
+error: recover1106's agent was stopped but the replacement did not launch; no agent is running, and its work plus the recorded progress note are preserved at {run-worktree}/.l/worker
+
+exit=1
+
+$ tmux list-windows -a -F #{session_name}:#{window_name} #{window_id}
+primary:claude @0
+
+exit=0
+Oracle: failed launch retained old record and removed only its unused replacement; primary window survives.
+
+$ bin/fm-control.sh recover1106 relaunch --note Retry missing-session recovery; do not edit files
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.l
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.l
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+warning: {run-worktree}/.l/data/recover1106/launch-brief.md records no ship branch; defaulting to legacy branch fm/recover1106
+warning: {run-worktree}/.l/data/recover1106/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode local-only - confirm its definition of done matches
+notice: recover1106 ships mode=local-only while the standing posture for demo is no-mistakes - less rigor than the captain's standing posture; proceed only on a current explicit captain instruction or an intake judgment you can state
+relaunched recover1106 harness=claude from=claude model=default effort=default backend=tmux endpoint=primary:fm-recover1106 worktree={run-worktree}/.l/worker
+
+exit=0
+
+$ git -C {run-worktree}/.l/worker rev-parse HEAD
+77cd474874b1215fbc302e0261911f005a96e884
+
+exit=0
+
+$ git -C {run-worktree}/.l/worker symbolic-ref HEAD
+refs/heads/preserved1106
+
+exit=0
+
+$ git -C {run-worktree}/.l/projects/demo for-each-ref --format=%(refname) %(objectname) refs/heads
+refs/heads/master cf86c00dba4978ea1516de7da9339e2bf15aae22
+refs/heads/preserved1106 77cd474874b1215fbc302e0261911f005a96e884
+
+exit=0
+
+$ git -C {run-worktree}/.l/worker status --porcelain
+A  staged.txt
+ M task.txt
+?? untracked.txt
+
+exit=0
+
+$ git -C {run-worktree}/.l/worker diff --cached --binary
+diff --git a/staged.txt b/staged.txt
+new file mode 100644
+index 0000000..248d032
+--- /dev/null
++++ b/staged.txt
+@@ -0,0 +1 @@
++staged work
+
+exit=0
+
+$ git -C {run-worktree}/.l/worker diff --binary
+diff --git a/task.txt b/task.txt
+index cc9969e..e6c277f 100644
+--- a/task.txt
++++ b/task.txt
+@@ -1,2 +1,3 @@
+ initial
+ committed work
++unfinished work
+
+exit=0
+Oracle: same recovery immediately succeeds on retry, work preserved.
+
+$ tmux capture-pane -p -t primary:fm-recover1106
+     *                                       █████▓▓░
+                                 *         ███▓░     ░░
+            ░░░░░░                        ███▓░
+    ░░░   ░░░░░░░░░░                      ███▓░
+   ░░░░░░░░░░░░░░░░░░░    *                ██▓░░      ▓
+                                             ░▓▓███▓▓░
+ *                                 ░░░░
+                                 ░░░░░░░░
+                               ░░░░░░░░░░░░░░░░
+       █████████                                        *
+      ██▄█████▄██                        *
+       █████████      *
+.......█ █   █ █..........................................
+
+ Let's get started.
+
+ Choose the text style that looks best with your terminal
+ To change this later, run /theme
+
+     Auto (match terminal)
+ ❯ ✔ Dark mode
+     Light mode
+     Dark mode (colorblind-friendly)
+     Light mode (colorblind-friendly)
+     Dark mode (ANSI colors only)
+     Light mode (ANSI colors only)
+
+ ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+  1  function greet() {
+  2 -  console.log("Hello, World!");
+  2 +  console.log("Hello, Claude!");
+  3  }
+ ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+  Syntax theme: Monokai Extended (ctrl+t to disable)
+
+
+exit=0
+
+$ tmux kill-window -t primary:fm-recover1106
+
+exit=0
+
+### Dead server: exit proof and recovery after private server is restarted
+
+$ tmux kill-server
+
+exit=0
+
+$ tmux -L fm-lab new-session -d -s primary -x 120 -y 35 -c {run-worktree} -e FM_HOME={run-worktree}/.l -e HOME={run-worktree}/.l/user -e CLAUDE_CONFIG_DIR={run-worktree}/.l/user/.claude claude
+
+exit=0
+
+$ bin/fm-control.sh recover1106 exit
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.l
+endpoint-gone recover1106 harness=claude backend=tmux endpoint=primary:fm-recover1106 worktree={run-worktree}/.l/worker
+
+exit=0
+
+$ bin/fm-spawn.sh recover1106 --relaunch --harness claude
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.l
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+warning: {run-worktree}/.l/data/recover1106/launch-brief.md records no ship branch; defaulting to legacy branch fm/recover1106
+warning: {run-worktree}/.l/data/recover1106/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode local-only - confirm its definition of done matches
+notice: recover1106 ships mode=local-only while the standing posture for demo is no-mistakes - less rigor than the captain's standing posture; proceed only on a current explicit captain instruction or an intake judgment you can state
+spawned recover1106 harness=claude kind=ship mode=local-only yolo=off window=primary:fm-recover1106 worktree={run-worktree}/.l/worker
+
+exit=0
+
+$ git -C {run-worktree}/.l/worker rev-parse HEAD
+77cd474874b1215fbc302e0261911f005a96e884
+
+exit=0
+
+$ git -C {run-worktree}/.l/worker symbolic-ref HEAD
+refs/heads/preserved1106
+
+exit=0
+
+$ git -C {run-worktree}/.l/projects/demo for-each-ref --format=%(refname) %(objectname) refs/heads
+refs/heads/master cf86c00dba4978ea1516de7da9339e2bf15aae22
+refs/heads/preserved1106 77cd474874b1215fbc302e0261911f005a96e884
+
+exit=0
+
+$ git -C {run-worktree}/.l/worker status --porcelain
+A  staged.txt
+ M task.txt
+?? untracked.txt
+
+exit=0
+
+$ git -C {run-worktree}/.l/worker diff --cached --binary
+diff --git a/staged.txt b/staged.txt
+new file mode 100644
+index 0000000..248d032
+--- /dev/null
++++ b/staged.txt
+@@ -0,0 +1 @@
++staged work
+
+exit=0
+
+$ git -C {run-worktree}/.l/worker diff --binary
+diff --git a/task.txt b/task.txt
+index cc9969e..e6c277f 100644
+--- a/task.txt
++++ b/task.txt
+@@ -1,2 +1,3 @@
+ initial
+ committed work
++unfinished work
+
+exit=0
+Oracle: after server loss, exit reports endpoint-gone; direct relaunch recreates endpoint and preserves work.
+
+$ tmux kill-window -t primary:fm-recover1106
+
+exit=0
+
+ALL LOCAL RECOVERY AND GUARD SCENARIOS PASSED

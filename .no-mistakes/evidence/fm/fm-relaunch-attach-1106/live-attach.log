@@ -1,0 +1,201 @@
+
+$ git -C {run-worktree}/.l/projects init -q -b main {run-worktree}/.l/projects/attach
+
+exit=0
+
+$ git -C {run-worktree}/.l/projects/attach add base.txt
+
+exit=0
+
+$ git -C {run-worktree}/.l/projects/attach -c user.name=Lab -c user.email=lab@example.invalid commit -qm base
+
+exit=0
+
+$ git -C {run-worktree}/.l/projects/attach rev-parse HEAD
+cc28535f949e5a9dfa577dbd2a26cd03ea461e13
+
+exit=0
+
+$ git clone -q {run-worktree}/.l/projects/attach {run-worktree}/.l/publisher
+
+exit=0
+
+$ git -C {run-worktree}/.l/publisher checkout -qb saved1106
+
+exit=0
+
+$ git -C {run-worktree}/.l/publisher add preserved.txt
+
+exit=0
+
+$ git -C {run-worktree}/.l/publisher -c user.name=Lab -c user.email=lab@example.invalid commit -qm preserved
+
+exit=0
+
+$ git -C {run-worktree}/.l/publisher rev-parse HEAD
+a9ae5170e3cc9298bf78ffa93ec8f2ee626ef36b
+
+exit=0
+
+$ git -C {run-worktree}/.l/publisher bundle create -q {run-worktree}/.l/data/bundles/preserved work.bundle HEAD
+
+exit=0
+
+$ git -C {run-worktree}/.l/projects/attach cat-file -e a9ae5170e3cc9298bf78ffa93ec8f2ee626ef36b^{commit}
+fatal: Not a valid object name a9ae5170e3cc9298bf78ffa93ec8f2ee626ef36b^{commit}
+
+exit=128
+
+$ git -C {run-worktree}/.l/projects/attach for-each-ref --format=%(refname) %(objectname)
+refs/heads/main cc28535f949e5a9dfa577dbd2a26cd03ea461e13
+
+exit=0
+
+$ tmux list-windows -a -F #{session_name}:#{window_name}
+primary:claude
+
+exit=0
+
+$ {run-worktree}/bin/fm-spawn.sh badattach1106 {run-worktree}/.l/projects/attach --mode local-only --yolo off --harness claude --attach-branch saved1106 --attach-head 0123456789abcdef0123456789abcdef01234567 --attach-bundle data/bundles/preserved work.bundle
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.l
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+notice: badattach1106 ships mode=local-only while the standing posture for attach is no-mistakes - less rigor than the captain's standing posture; proceed only on a current explicit captain instruction or an intake judgment you can state
+notice: badattach1106 ships branch=saved1106 while attach registers the ship-branch prefix 'fm/' (branch fm/badattach1106) - the task's branch and PR will read as firstmate-authored; proceed only on a current explicit captain instruction or an intake judgment you can state
+error: --attach-head 0123456789abcdef0123456789abcdef01234567 is not a head of bundle '{run-worktree}/.l/data/bundles/preserved work.bundle'; refusing to attach to a commit it does not carry
+
+exit=1
+
+$ git -C {run-worktree}/.l/projects/attach for-each-ref --format=%(refname) %(objectname)
+refs/heads/main cc28535f949e5a9dfa577dbd2a26cd03ea461e13
+
+exit=0
+
+$ tmux list-windows -a -F #{session_name}:#{window_name}
+primary:claude
+
+exit=0
+
+$ git -C {run-worktree}/.l/projects/attach branch saved1106 cc28535f949e5a9dfa577dbd2a26cd03ea461e13
+
+exit=0
+
+$ {run-worktree}/bin/fm-spawn.sh badattach1106 {run-worktree}/.l/projects/attach --mode local-only --yolo off --harness claude --attach-branch saved1106 --attach-head a9ae5170e3cc9298bf78ffa93ec8f2ee626ef36b --attach-bundle data/bundles/preserved work.bundle
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.l
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+notice: badattach1106 ships mode=local-only while the standing posture for attach is no-mistakes - less rigor than the captain's standing posture; proceed only on a current explicit captain instruction or an intake judgment you can state
+notice: badattach1106 ships branch=saved1106 while attach registers the ship-branch prefix 'fm/' (branch fm/badattach1106) - the task's branch and PR will read as firstmate-authored; proceed only on a current explicit captain instruction or an intake judgment you can state
+error: branch saved1106 already exists at cc28535f949e5a9dfa577dbd2a26cd03ea461e13 (refs/heads/saved1106), not at --attach-head a9ae5170e3cc9298bf78ffa93ec8f2ee626ef36b; refusing to attach to a branch with a different head
+
+exit=1
+
+$ git -C {run-worktree}/.l/projects/attach rev-parse saved1106
+cc28535f949e5a9dfa577dbd2a26cd03ea461e13
+
+exit=0
+
+$ tmux list-windows -a -F #{session_name}:#{window_name}
+primary:claude
+
+exit=0
+
+$ git -C {run-worktree}/.l/projects/attach branch -D saved1106
+Deleted branch saved1106 (was cc28535).
+
+exit=0
+Oracle: missing bundle head and conflicting existing branch both refuse before endpoint/metadata mutation.
+
+$ {run-worktree}/bin/fm-spawn.sh attach1106 {run-worktree}/.l/projects/attach --mode local-only --yolo off --harness claude --attach-branch saved1106 --attach-head a9ae5170e3cc9298bf78ffa93ec8f2ee626ef36b --attach-bundle data/bundles/preserved work.bundle
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.l
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+notice: attach1106 ships mode=local-only while the standing posture for attach is no-mistakes - less rigor than the captain's standing posture; proceed only on a current explicit captain instruction or an intake judgment you can state
+notice: attach1106 ships branch=saved1106 while attach registers the ship-branch prefix 'fm/' (branch fm/attach1106) - the task's branch and PR will read as firstmate-authored; proceed only on a current explicit captain instruction or an intake judgment you can state
+🌳 Setting up worktree...
+🌳 Leased worktree at {run-worktree}/.l/pool/.treehouse/attach-2c409f/1/attach. Run 'treehouse return {run-worktree}/.l/pool/.treehouse/attach-2c409f/1/attach' to release it.
+spawned attach1106 harness=claude kind=ship mode=local-only yolo=off window=primary:fm-attach1106 worktree={run-worktree}/.l/pool/.treehouse/attach-2c409f/1/attach
+
+exit=0
+
+Published metadata:
+window=primary:fm-attach1106
+endpoint_task_id=attach1106
+worktree={run-worktree}/.l/pool/.treehouse/attach-2c409f/1/attach
+lease_id=723bf834e53a1c0f71c80d283e17a8e3
+project={run-worktree}/.l/projects/attach
+harness=claude
+kind=ship
+mode=local-only
+yolo=off
+branch=saved1106
+tasktmp=/tmp/fm-attach1106
+model=default
+effort=default
+busy_gen=g1793969434.467889.26010
+spawn_gen=s1793969434.463769.11283
+spawn_first=1793969434
+
+$ git -C {run-worktree}/.l/pool/.treehouse/attach-2c409f/1/attach rev-parse HEAD
+a9ae5170e3cc9298bf78ffa93ec8f2ee626ef36b
+
+exit=0
+
+$ git -C {run-worktree}/.l/pool/.treehouse/attach-2c409f/1/attach symbolic-ref HEAD
+refs/heads/saved1106
+
+exit=0
+
+$ git -C {run-worktree}/.l/projects/attach rev-parse main
+cc28535f949e5a9dfa577dbd2a26cd03ea461e13
+
+exit=0
+Oracle: invocation-relative bundle with spaces restored its exact commit/content onto saved1106; main unchanged.
+
+$ tmux list-windows -a -F #{session_name}:#{window_name} #{pane_current_command} #{pane_current_path}
+primary:claude claude {run-worktree}
+primary:fm-attach1106 claude {run-worktree}/.l/pool/.treehouse/attach-2c409f/1/attach
+
+exit=0
+
+$ tmux capture-pane -p -t primary:fm-attach1106
+     *                                       █████▓▓░
+                                 *         ███▓░     ░░
+            ░░░░░░                        ███▓░
+    ░░░   ░░░░░░░░░░                      ███▓░
+   ░░░░░░░░░░░░░░░░░░░    *                ██▓░░      ▓
+                                             ░▓▓███▓▓░
+ *                                 ░░░░
+                                 ░░░░░░░░
+                               ░░░░░░░░░░░░░░░░
+       █████████                                        *
+      ██▄█████▄██                        *
+       █████████      *
+.......█ █   █ █..........................................
+
+ Let's get started.
+
+ Choose the text style that looks best with your terminal
+ To change this later, run /theme
+
+     Auto (match terminal)
+ ❯ ✔ Dark mode
+     Light mode
+     Dark mode (colorblind-friendly)
+     Light mode (colorblind-friendly)
+     Dark mode (ANSI colors only)
+     Light mode (ANSI colors only)
+
+ ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+  1  function greet() {
+  2 -  console.log("Hello, World!");
+  2 +  console.log("Hello, Claude!");
+  3  }
+ ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+  Syntax theme: Monokai Extended (ctrl+t to disable)
+
+
+exit=0
+
+$ tmux kill-window -t primary:fm-attach1106
+
+exit=0
+
+ALL LOCAL FRESH-ATTACH SCENARIOS PASSED

@@ -1,0 +1,11 @@
+ok - a remote-seeded secondmate home allocates and launches from its Treehouse pool
+ok - a Treehouse slot claim names the launched task, refuses when unclaimable, and is dropped by a locked abort
+ok - protected pool slot (owned-branch-unique) refuses acquisition and stays byte-identical
+ok - protected pool slot (owned-detached-clean) refuses acquisition and stays byte-identical
+ok - protected pool slot (branch-unique) refuses acquisition and stays byte-identical
+ok - protected pool slot (detached-unique) refuses acquisition and stays byte-identical
+ok - protected pool slot (unlocatable-owner) refuses acquisition and stays byte-identical
+ok - free pool slot (stale-claim) still acquires and refreshes normally
+ok - free pool slot (preserved-elsewhere) still acquires and refreshes normally
+not ok - two refused spawns left a claim: task=pool-race-b-r1
+home=/tmp/fm-spawn-pool-base-freshen.J7DmMZ/race/home

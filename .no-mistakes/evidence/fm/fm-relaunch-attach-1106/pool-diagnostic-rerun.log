@@ -1,0 +1,22 @@
+ok - a remote-seeded secondmate home allocates and launches from its Treehouse pool
+ok - a Treehouse slot claim names the launched task, refuses when unclaimable, and is dropped by a locked abort
+ok - protected pool slot (owned-branch-unique) refuses acquisition and stays byte-identical
+ok - protected pool slot (owned-detached-clean) refuses acquisition and stays byte-identical
+ok - protected pool slot (branch-unique) refuses acquisition and stays byte-identical
+ok - protected pool slot (detached-unique) refuses acquisition and stays byte-identical
+ok - protected pool slot (unlocatable-owner) refuses acquisition and stays byte-identical
+ok - free pool slot (stale-claim) still acquires and refreshes normally
+ok - free pool slot (preserved-elsewhere) still acquires and refreshes normally
+race A exit=1
+warning: /tmp/fm-spawn-pool-base-freshen.xcO8qV/race/home/data/pool-race-a-r1/launch-brief.md records no ship branch; defaulting to legacy branch fm/pool-race-a-r1
+warning: /tmp/fm-spawn-pool-base-freshen.xcO8qV/race/home/data/pool-race-a-r1/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode local-only - confirm its definition of done matches
+notice: pool-race-a-r1 ships mode=local-only while the standing posture for project is no-mistakes - less rigor than the captain's standing posture; proceed only on a current explicit captain instruction or an intake judgment you can state
+warning: leaving task pool-race-a-r1's slot claim on /tmp/fm-spawn-pool-base-freshen.xcO8qV/race/slots/1/project in place; the Treehouse project lock is no longer held, so the next spawn's claim replaces it
+race B exit=1
+warning: /tmp/fm-spawn-pool-base-freshen.xcO8qV/race/home/data/pool-race-b-r1/launch-brief.md records no ship branch; defaulting to legacy branch fm/pool-race-b-r1
+warning: /tmp/fm-spawn-pool-base-freshen.xcO8qV/race/home/data/pool-race-b-r1/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode local-only - confirm its definition of done matches
+notice: pool-race-b-r1 ships mode=local-only while the standing posture for project is no-mistakes - less rigor than the captain's standing posture; proceed only on a current explicit captain instruction or an intake judgment you can state
+error: Treehouse pool slot /tmp/fm-spawn-pool-base-freshen.xcO8qV/race/slots/1/project still belongs to recorded task pool-race-a-r1 (home /tmp/fm-spawn-pool-base-freshen.xcO8qV/race/home); refusing to take over or refresh its copy
+error: leaving that copy and its claim untouched; inspect window firstmate:fm-pool-race-b-r1
+not ok - two refused spawns left a claim: task=pool-race-a-r1
+home=/tmp/fm-spawn-pool-base-freshen.xcO8qV/race/home

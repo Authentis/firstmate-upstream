@@ -1,0 +1,8 @@
+race A exit=1
+error: this home's task set is locked by another spawn; refusing to create task pool-race-a-r1 rather than racing it
+race B exit=0
+warning: {run-worktree}/.testtmp/fm-spawn-pool-base-freshen.G8RJPS/race/home/data/pool-race-b-r1/launch-brief.md records no ship branch; defaulting to legacy branch fm/pool-race-b-r1
+warning: {run-worktree}/.testtmp/fm-spawn-pool-base-freshen.G8RJPS/race/home/data/pool-race-b-r1/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode local-only - confirm its definition of done matches
+notice: pool-race-b-r1 ships mode=local-only while the standing posture for project is no-mistakes - less rigor than the captain's standing posture; proceed only on a current explicit captain instruction or an intake judgment you can state
+spawned pool-race-b-r1 harness=codex kind=ship mode=local-only yolo=off window=firstmate:fm-pool-race-b-r1 worktree={run-worktree}/.testtmp/fm-spawn-pool-base-freshen.G8RJPS/race/slots/1/project
+ok - concurrent slot acquisitions keep exactly one owner, and its slot stays protected

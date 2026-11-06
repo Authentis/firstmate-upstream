@@ -1,0 +1,3 @@
+private fm-lab kill-server exit=0
+no server running on {run-worktree}/.l/tmux/tmux-1000/fm-foreign
+foreign private server inspection exit=1 (expected absent)
