@@ -32,7 +32,9 @@
 # (teardown_refuse_forced_unlanded_return), with the copy, branch, hooks, and
 # record kept. The gone-pool proof exempts only those same generated files.
 # Both proofs run again after process cleanup, before branch or file cleanup;
-# forced non-scout lease-bound returns also recheck work before each attempt.
+# forced non-scout lease-bound returns also recheck work before the branch
+# cleanup, before the scrub, and before each return attempt, restoring the
+# branch name when a recheck after its deletion refuses.
 # Forced ship cleanup of a leased slot requires lsof to verify writer shutdown;
 # without it teardown refuses before branch, hook, or scratch cleanup. Other
 # paths retain the backend process-group fallback when lsof is missing.
@@ -2006,6 +2008,22 @@ teardown_refuse_forced_unlanded_return() {
   echo "REFUSED: worktree $WT has work not on any remote and not landed; --force never returns a leased slot holding unlanded commits, so nothing was returned and nothing was discarded - push the branch or land its PR, then retry teardown." >&2
   printf 'unpushed commits:\n%s\n' "$unpushed" >&2
   return 1
+}
+
+# The same proof during the slot cleanup, after the task branch was detached and
+# deleted: a refusal there puts the branch name back on the still-checked-out
+# head, so the refused copy keeps its branch as well as its work.
+teardown_forced_cleanup_recheck() {
+  local rc=0 branch=${TEARDOWN_WORKTREE_BRANCH_FOR_SAFETY:-}
+  teardown_refuse_forced_unlanded_return || rc=$?
+  [ "$rc" != 0 ] || return 0
+  if [ -n "$branch" ] && [ "$branch" != HEAD ] \
+     && ! git -C "$WT" symbolic-ref -q HEAD >/dev/null 2>&1 \
+     && ! git -C "$WT" rev-parse --verify -q "refs/heads/$branch" >/dev/null 2>&1; then
+    git -C "$WT" checkout -q -b "$branch" 2>/dev/null \
+      || echo "warning: could not restore branch $branch on $WT; its head is $(git -C "$WT" rev-parse HEAD 2>/dev/null || echo unknown)" >&2
+  fi
+  return "$rc"
 }
 
 # Record-only proof and backup: see the script header for the safety contract.
@@ -4412,6 +4430,13 @@ elif [ "$KIND" != secondmate ] && ! teardown_owns_worktree; then
 elif [ -d "$WT" ] && [ "$KIND" != secondmate ] && [ "$TEARDOWN_RECORD_ONLY" != 1 ] && [ "$TEARDOWN_POOL_LISTING_GONE" != 1 ]; then
   branch=$(git -C "$WT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo HEAD)
   TEARDOWN_WORKTREE_BRANCH_FOR_SAFETY=$branch
+  # A forced leased ship slot proves its work again before anything below
+  # detaches, deletes, or scrubs, and once more right before the scrub.
+  teardown_forced_cleanup_rechecks=0
+  if [ "$FORCE" = --force ] && [ -n "$TEARDOWN_RETURN_LEASE_ID" ] && [ "$KIND" != scout ]; then
+    teardown_forced_cleanup_rechecks=1
+    teardown_refuse_forced_unlanded_return || exit 1
+  fi
   if [ "$branch" != "HEAD" ]; then
     if git -C "$WT" checkout --detach -q 2>/dev/null; then
       git -C "$WT" branch -D "$branch" >/dev/null 2>&1 || true
@@ -4427,8 +4452,9 @@ elif [ -d "$WT" ] && [ "$KIND" != secondmate ] && [ "$TEARDOWN_RECORD_ONLY" != 1
   post_lock_cleanup_check=
   if [ "$FORCE" != "--force" ] && [ "$KIND" != scout ] && [ "$KIND" != secondmate ]; then
     post_lock_cleanup_check=validate_worktree_teardown_safety
-  elif [ "$FORCE" = --force ] && [ -n "$TEARDOWN_RETURN_LEASE_ID" ] && [ "$KIND" != scout ]; then
-    post_lock_cleanup_check=teardown_refuse_forced_unlanded_return
+  elif [ "$teardown_forced_cleanup_rechecks" = 1 ]; then
+    post_lock_cleanup_check=teardown_forced_cleanup_recheck
+    teardown_forced_cleanup_recheck || exit 1
   fi
   if [ "$KIND" = scout ] || [ "$FORCE" = "--force" ]; then
     teardown_scrub_scratch_copy "$WT" || exit 1

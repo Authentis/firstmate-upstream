@@ -789,6 +789,39 @@ test_missing_lsof_refuses_only_forced_ship_cleanup() {
   pass "without lsof forced ships refuse, while unforced ships and scouts still return current and old pool slots"
 }
 
+# Work written during the slot cleanup itself - here by the project's
+# post-checkout hook, which teardown's own detach fires after every earlier
+# proof passed - must stop a forced return before the scrub deletes it, and the
+# refused copy keeps its branch.
+test_work_written_during_forced_cleanup_survives_before_the_scrub() {
+  local case_dir out status hooks
+  case_dir=$(make_teardown_case td-late-cleanup)
+  write_teardown_meta "$case_dir" "lease_id=lease0123abcd"
+  add_hook "$case_dir"
+  hooks=$(git -C "$case_dir/project" rev-parse --path-format=absolute --git-common-dir)/hooks
+  mkdir -p "$hooks"
+  cat > "$hooks/post-checkout" <<SH
+#!/usr/bin/env bash
+[ ! -e "$case_dir/write-done" ] || exit 0
+: > "$case_dir/write-done"
+printf 'late work\n' > "$case_dir/wt/new-work.txt"
+SH
+  chmod +x "$hooks/post-checkout"
+  : > "$case_dir/treehouse.log"
+  out=$(FM_FAKE_SLOT_LEASE=lease0123abcd run_teardown "$case_dir" --force)
+  status=$?
+  assert_present "$case_dir/write-done" "control: the cleanup never fired the late writer"
+  [ "$status" -ne 0 ] || fail "work written during the cleanup must refuse the forced return"$'\n'"$out"
+  assert_contains "$out" "uncommitted changes or untracked files" "the refusal must name the late work"
+  assert_grep "late work" "$case_dir/wt/new-work.txt" "the scrub deleted work written during the cleanup"
+  [ "$(wt_branch "$case_dir")" = fm/task-x1 ] || fail "the refused copy must get its branch back"
+  git -C "$case_dir/project" rev-parse --verify -q refs/heads/fm/task-x1 >/dev/null \
+    || fail "the task branch must exist after the refusal"
+  assert_present "$case_dir/state/task-x1.meta" "a refused teardown must keep the task record"
+  assert_no_grep "^return " "$case_dir/treehouse.log" "no return may be attempted"
+  pass "work written during forced slot cleanup refuses the return before the scrub, and the branch is restored"
+}
+
 test_forced_return_retry_rechecks_work() {
   local case_dir out status
   case_dir=$(make_teardown_case td-late-retry)
@@ -1288,6 +1321,7 @@ test_url_rewrite_old_pool_refuses_untracked_claude_work
 test_work_written_after_initial_proof_survives_teardown
 test_missing_lsof_refuses_only_forced_ship_cleanup
 test_forced_return_retry_rechecks_work
+test_work_written_during_forced_cleanup_survives_before_the_scrub
 test_held_project_lock_is_waited_out_within_the_bound
 test_dirty_slot_return_is_refused_not_forced
 test_forced_and_scout_teardowns_force_the_lease_bound_return
