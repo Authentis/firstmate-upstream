@@ -2115,6 +2115,7 @@ test_tmux_refuses_a_process_naming_the_task() {
   pass "tmux: an unfindable session refuses both verbs while a process still names the task"
 }
 
+# shellcheck disable=SC2031 # $! is read right after this function's own background start
 test_tmux_refuses_a_process_working_in_the_worktree() {
   local dir live
   dir=$(new_case tmux-noserver rl62)
@@ -2290,6 +2291,7 @@ SH
   chmod +x "$dir/fakebin/lsof"
 }
 
+# shellcheck disable=SC2031 # $! is read right after this function's own background starts
 test_evidence_lsof_refuses_an_unreported_live_candidate() {
   local dir out a b gone
   dir=$(evidence_case lsof)
