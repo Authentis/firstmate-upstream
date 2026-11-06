@@ -29,12 +29,13 @@
 # non-scout leased slot's work: a slot holding commits on no remote and not
 # landed, or any uncommitted or untracked file beyond the generated hook files
 # (TEARDOWN_GENERATED_UNTRACKED_RE), refuses its forced return
-# (teardown_refuse_forced_unlanded_return), with the copy, branch, hooks, and
-# record kept. The gone-pool proof exempts only those same generated files.
+# (teardown_refuse_forced_unlanded_return) before copy, branch, hook, or record
+# cleanup. The gone-pool proof exempts only those same generated files.
 # Both proofs run again after process cleanup, before branch or file cleanup;
 # forced non-scout lease-bound returns also recheck work before the branch
 # cleanup, before the scrub, and before each return attempt, restoring the
-# branch name when a recheck after its deletion refuses.
+# branch name when a recheck after its deletion refuses. A late refusal keeps
+# the work and task record but may follow removal of the generated hooks.
 # Forced ship cleanup of a leased slot requires lsof to verify writer shutdown;
 # without it teardown refuses before branch, hook, or scratch cleanup. Other
 # paths retain the backend process-group fallback when lsof is missing.
@@ -218,7 +219,7 @@
 # Firstmate home's state directory, as resolved by bin/fm-wake-lib.sh's
 # fm_firstmate_root_home; a home seeded from another machine is its own local
 # root, since a lock on this filesystem cannot be held or observed across that
-# boundary. Fresh Treehouse spawns for that project in
+# boundary. Fresh Treehouse spawns for the same origin identity in
 # every local Firstmate home hold the same lock from before slot allocation
 # through metadata publication, closing the publication
 # gap; forced secondmate teardown takes it and runs the same checks for every
@@ -258,9 +259,9 @@
 # leased home and state in place instead of hiding a still-held lease.
 # Usage: fm-teardown.sh <task-id> [--force] [--legacy-record]
 #   --force skips ordinary-task dirty and landed-work checks, skips scout report
-#   checks, and discards secondmate child work for kind=secondmate, subject to
-#   the leased-slot and gone-pool protections at the top of this header. Only
-#   use it when the captain has explicitly said to discard the work.
+#   checks, and discards secondmate child work for kind=secondmate. It does not
+#   relax the leased-slot or gone-pool protections at the top of this header.
+#   Only use it when the captain has explicitly said to discard the work.
 #   --legacy-record accepts a task record that predates the spawn_gen field:
 #   teardown then proceeds only when the recorded endpoint is confirmed dead or
 #   agent-less (bin/fm-backend.sh's recovery-grade classifier), and without
