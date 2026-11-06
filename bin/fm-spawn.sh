@@ -62,8 +62,10 @@
 #   brief's Ship branch line must match it). <commit> must be a full commit id
 #   that <file> lists as a head, or without a bundle one the project already
 #   has; the spawn refuses before any endpoint exists when it is not, and when
-#   <branch> already exists locally or on origin at a different commit. A
-#   bundle head is fetched into the copy without writing any ref, and the
+#   <branch> already exists locally or on origin at a different commit.
+#   Relative bundle paths resolve from the invocation directory, not the
+#   project or acquired worktree. A bundle head is fetched into the copy
+#   without writing any ref, and the
 #   branch is created at <commit> or, when it already points there, checked
 #   out. Refused on scouts, secondmates, and relaunches (a relaunch already
 #   attaches to its recorded branch and worktree).
