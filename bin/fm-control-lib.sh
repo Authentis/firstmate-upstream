@@ -482,14 +482,15 @@ fm_control_backend_state_verified() {  # <backend>
 # unreachable from this seat. Call it only for a `missing` raw state.
 #
 # Prints "<verdict>\t<reason>" - always exactly one TAB, so a caller splits
-# unambiguously with ${raw%%$'\t'*} and ${raw#*$'\t'}. The reason is empty
-# except on `unproven`, where it is the concrete sentence the caller's refusal
-# message embeds. It is returned on stdout rather than set in a variable
+# unambiguously with ${raw%%$'\t'*} and ${raw#*$'\t'}. On `unproven`, the
+# reason is the concrete sentence the caller's refusal message embeds; on
+# `gone`, it may name accepted known-non-worker evidence for caller diagnostics.
+# It is returned on stdout rather than set in a variable
 # because every caller reads this through a command substitution, where an
 # assignment made here could never reach them.
 #
 # The verdicts:
-#   gone     - absence is PROVEN. There is no endpoint and therefore no agent.
+#   gone     - the backend-specific proof establishes no surviving task agent.
 #   dead     - the endpoint is there after all and holds no agent.
 #   alive    - the endpoint is there and an agent is running in it.
 #   unproven - neither could be established; the caller must refuse.
