@@ -4276,6 +4276,10 @@ spawn_attach_preflight() {
   local ref existing
   [ "$ATTACH_SET" -eq 1 ] || return 0
   if [ -n "$ATTACH_BUNDLE" ]; then
+    case "$ATTACH_BUNDLE" in
+      /*) ;;
+      *) ATTACH_BUNDLE="$(pwd -P)/$ATTACH_BUNDLE" ;;
+    esac
     [ -f "$ATTACH_BUNDLE" ] && [ ! -L "$ATTACH_BUNDLE" ] || {
       echo "error: --attach-bundle '$ATTACH_BUNDLE' is not a regular file" >&2
       exit 1

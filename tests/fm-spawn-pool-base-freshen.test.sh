@@ -1109,6 +1109,29 @@ test_attach_restores_a_preserved_head_from_its_bundle() {
   pass "attach: a preserved head is restored from its bundle onto its own branch"
 }
 
+test_attach_restores_a_home_relative_bundle() {
+  local rec id out status head bundle
+  id='pool-attach-relative-r1'
+  rec=$(make_case attach-relative "$id")
+  read_case_record "$rec"
+  bundle='data/bundles/preserved work.bundle'
+  mkdir -p "$HOME_DIR/data/bundles"
+  head=$(preserve_head "fm/$id" "$HOME_DIR/$bundle")
+  ! git -C "$PROJECT_DIR" cat-file -e "$head^{commit}" 2>/dev/null \
+    || fail 'fixture must keep the preserved head out of the project'
+
+  out=$(cd "$HOME_DIR" && run_spawn "$id" --mode no-mistakes --yolo off \
+    --attach-branch "fm/$id" --attach-head "$head" --attach-bundle "$bundle")
+  status=$?
+  expect_code 0 "$status" 'a home-relative bundle should restore and launch'$'\n'"$out"
+  [ "$(git -C "$POOL_DIR" rev-parse HEAD)" = "$head" ] \
+    || fail 'the attached copy must restore the supplied bundle head'
+  [ "$(git -C "$POOL_DIR" symbolic-ref -q HEAD)" = "refs/heads/fm/$id" ] \
+    || fail 'the attached copy must be on the preserved branch'
+  assert_grep 'preserved work' "$POOL_DIR/preserved.txt" 'the restored copy must contain the preserved work'
+  pass 'attach: a home-relative bundle restores its head and branch from the invocation directory'
+}
+
 test_attach_checks_out_a_branch_already_at_the_head() {
   local rec id out status heads_before
   id='pool-attach-existing-r1'
@@ -1226,6 +1249,7 @@ test_work_inside_submodule_is_still_uncommitted_work
 test_stale_pin_carrying_real_work_is_not_called_stale
 test_stale_pin_beside_other_dirt_reports_one_verdict
 test_attach_restores_a_preserved_head_from_its_bundle
+test_attach_restores_a_home_relative_bundle
 test_attach_checks_out_a_branch_already_at_the_head
 test_attach_refusals_leave_everything_untouched
 test_attach_refuses_a_branch_origin_moved_elsewhere
