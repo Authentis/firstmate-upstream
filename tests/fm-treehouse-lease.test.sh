@@ -630,10 +630,10 @@ test_url_rewrite_old_pool_relet_after_confirmation_leaves_the_new_holder_alone()
   case_dir=$(url_rewrite_old_pool_case td-rewrite-relet lease0123abcd)
   slot="$case_dir/pool/1/repo"
   head=$(git -C "$slot" rev-parse HEAD)
-  # The worker's no-mistakes query runs after the lease check and before the
-  # slot cleanup; the fake re-lets the slot there, exactly once.
-  cat > "$case_dir/fakebin/no-mistakes" <<SH
+  cat > "$case_dir/fakebin/jq" <<SH
 #!/usr/bin/env bash
+"$(command -v jq)" "\$@" || exit \$?
+[ "\${!#}" = "$case_dir/pool/treehouse-state.json" ] || exit 0
 [ ! -e "$case_dir/relet-done" ] || exit 0
 : > "$case_dir/relet-done"
 perl -e '
@@ -647,6 +647,11 @@ perl -e '
   '{"version":4,"worktrees":[{"name":"1","path":"$(cd "$slot" && pwd -P)","leased":true,"lease_id":"new-holders-lease"}]}'
 exit 0
 SH
+  chmod +x "$case_dir/fakebin/jq"
+  cat > "$case_dir/fakebin/no-mistakes" <<SH
+#!/usr/bin/env bash
+: > "$case_dir/run-touched"
+SH
   chmod +x "$case_dir/fakebin/no-mistakes"
   : > "$case_dir/treehouse.log"
   out=$(FM_FAKE_SLOT_LEASE=new-holders-lease run_url_rewrite_teardown "$case_dir")
@@ -654,6 +659,7 @@ SH
   assert_present "$case_dir/relet-done" "control: the slot was never re-let during teardown"
   [ "$status" -ne 0 ] || fail "a slot re-let after its lease was confirmed must not be torn down"$'\n'"$out"
   assert_contains "$out" "lease changed" "teardown did not report the changed lease"
+  assert_absent "$case_dir/run-touched" "a reassigned slot's run must not be queried or terminated"
   [ "$(wt_branch "$case_dir")" = fm/task-x1 ] || fail "the new holder's branch must stay checked out"
   [ "$(git -C "$slot" rev-parse HEAD)" = "$head" ] || fail "the new holder's head changed"
   git -C "$case_dir/project" rev-parse --verify -q refs/heads/fm/task-x1 >/dev/null \
@@ -662,6 +668,94 @@ SH
   assert_no_grep "return" "$case_dir/treehouse.log" "no return may be attempted"
   assert_present "$case_dir/state/task-x1.meta" "a refused teardown must keep the task record"
   pass "after a url rewrite, a slot re-let in its own pool after the lease check keeps the new holder's branch, head, and hooks"
+}
+
+test_work_written_after_initial_proof_survives_teardown() {
+  local pool mode case_dir slot out status
+  local TD_WT_REL=pool/1/repo
+  for pool in current old old-unforced; do
+    for mode in tracked untracked commit; do
+      if [ "$pool" = current ]; then
+        case_dir=$(make_teardown_case "td-late-$pool-$mode")
+        write_teardown_meta "$case_dir" "lease_id=lease0123abcd"
+        add_hook "$case_dir"
+      else
+        case_dir=$(url_rewrite_old_pool_case "td-late-$pool-$mode" lease0123abcd)
+      fi
+      slot="$case_dir/pool/1/repo"
+      printf 'pushed\n' > "$slot/notes.txt"
+      git -C "$slot" add notes.txt
+      git -C "$slot" commit -qm notes
+      git -C "$slot" push -q origin fm/task-x1
+      cat > "$case_dir/fakebin/no-mistakes" <<SH
+#!/usr/bin/env bash
+[ ! -e "$case_dir/write-done" ] || exit 0
+: > "$case_dir/write-done"
+if [ "$pool" != current ]; then
+  perl -e 'use Fcntl qw(:flock); open(my \$f, ">>", \$ARGV[0]) or exit 2; flock(\$f, LOCK_EX | LOCK_NB) and exit 1; exit 0' \
+    "$case_dir/pool/treehouse-state.lock" || exit 1
+  : > "$case_dir/pool-lock-held"
+fi
+case "$mode" in
+  tracked) printf 'late work\n' >> "$slot/notes.txt" ;;
+  untracked) printf 'late work\n' > "$slot/new-work.txt" ;;
+  commit)
+    printf 'late work\n' > "$slot/new-work.txt"
+    git -C "$slot" add new-work.txt
+    git -C "$slot" -c user.name=t -c user.email=t@t commit -qm 'late unlanded work' ;;
+esac
+exit 0
+SH
+      chmod +x "$case_dir/fakebin/no-mistakes"
+      if [ "$pool" = current ]; then
+        out=$(FM_FAKE_SLOT_LEASE=lease0123abcd run_teardown "$case_dir" --force)
+      elif [ "$pool" = old ]; then
+        out=$(FM_FAKE_SLOT_LEASE=lease0123abcd run_url_rewrite_teardown "$case_dir" --force)
+      else
+        out=$(FM_FAKE_SLOT_LEASE=lease0123abcd run_url_rewrite_teardown "$case_dir")
+      fi
+      status=$?
+      [ "$status" -ne 0 ] || fail "$pool/$mode: late work must refuse teardown"$'\n'"$out"
+      assert_present "$case_dir/write-done" "$pool/$mode: late writer never ran"
+      [ "$pool" = current ] || assert_present "$case_dir/pool-lock-held" "$pool/$mode: run cleanup was not protected by the pool lock"
+      if [ "$mode" = tracked ]; then
+        assert_grep 'late work' "$slot/notes.txt" "$pool/$mode: tracked work was lost"
+      else
+        assert_grep 'late work' "$slot/new-work.txt" "$pool/$mode: new work was lost"
+      fi
+      [ "$(git -C "$slot" branch --show-current)" = fm/task-x1 ] || fail "$pool/$mode: branch was detached"
+      assert_present "$slot/.claude/settings.local.json" "$pool/$mode: hooks were removed"
+      assert_present "$case_dir/state/task-x1.meta" "$pool/$mode: task record was removed"
+      assert_no_grep '^return ' "$case_dir/treehouse.log" "$pool/$mode: unsafe return was attempted"
+    done
+  done
+  pass "late tracked, untracked, and unlanded work survives current and old pool cleanup"
+}
+
+test_forced_return_retry_rechecks_work() {
+  local case_dir out status
+  case_dir=$(make_teardown_case td-late-retry)
+  write_teardown_meta "$case_dir" "lease_id=lease0123abcd"
+  mv "$case_dir/fakebin/treehouse" "$case_dir/fakebin/treehouse-original"
+  cat > "$case_dir/fakebin/treehouse" <<SH
+#!/usr/bin/env bash
+if [ "\${1:-}" = return ]; then
+  printf 'return attempt\n' >> "$case_dir/attempts"
+  printf 'late work\n' > "$case_dir/wt/new-work.txt"
+  echo "fatal: Unable to create '$case_dir/wt/.git/index.lock': File exists." >&2
+  exit 1
+fi
+exec "$case_dir/fakebin/treehouse-original" "\$@"
+SH
+  chmod +x "$case_dir/fakebin/treehouse"
+  out=$(FM_FAKE_SLOT_LEASE=lease0123abcd run_teardown "$case_dir" --force)
+  status=$?
+  [ "$status" -ne 0 ] || fail "a forced retry must refuse new work"$'\n'"$out"
+  assert_contains "$out" 'uncommitted changes or untracked files' "retry did not recheck work"
+  [ "$(wc -l < "$case_dir/attempts" | tr -d ' ')" = 1 ] || fail "return retried without proving late work safe"
+  assert_grep 'late work' "$case_dir/wt/new-work.txt" "retry lost new work"
+  assert_present "$case_dir/state/task-x1.meta" "refused retry lost the task record"
+  pass "forced return retries recheck and preserve newly written work"
 }
 
 # HEAD is pushed, so no commit is at risk, but the copy holds uncommitted work:
@@ -1134,6 +1228,8 @@ test_url_rewrite_keeps_old_and_new_pool_slots_tearing_down
 test_url_rewrite_never_overrides_unlanded_work_or_the_current_pool
 test_url_rewrite_old_pool_relet_after_confirmation_leaves_the_new_holder_alone
 test_url_rewrite_old_pool_refuses_untracked_claude_work
+test_work_written_after_initial_proof_survives_teardown
+test_forced_return_retry_rechecks_work
 test_held_project_lock_is_waited_out_within_the_bound
 test_dirty_slot_return_is_refused_not_forced
 test_forced_and_scout_teardowns_force_the_lease_bound_return

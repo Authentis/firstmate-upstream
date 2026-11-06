@@ -634,6 +634,9 @@ teardown_release_locks() {
     fm_lock_release "$CONTROL_LOCK" || true
     CONTROL_LOCK_HELD=0
   fi
+  if [ -n "${TEARDOWN_OWN_POOL_LOCK_PID:-}" ]; then
+    teardown_own_pool_unlock
+  fi
   if [ "$TREEHOUSE_PROJECT_LOCK_HELD" = 1 ]; then
     fm_lock_release "$TREEHOUSE_PROJECT_LOCK" || true
     TREEHOUSE_PROJECT_LOCK_HELD=0
@@ -1986,7 +1989,8 @@ teardown_refuse_forced_unlanded_return() {
     return 1
   fi
   [ -n "$unpushed" ] || return 0
-  branch=$(git -C "$WT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo HEAD)
+  branch=${TEARDOWN_WORKTREE_BRANCH_FOR_SAFETY:-}
+  [ -n "$branch" ] || branch=$(git -C "$WT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo HEAD)
   work_is_landed "$branch" && return 0
   echo "REFUSED: worktree $WT has work not on any remote and not landed; --force never returns a leased slot holding unlanded commits, so nothing was returned and nothing was discarded - push the branch or land its PR, then retry teardown." >&2
   printf 'unpushed commits:\n%s\n' "$unpushed" >&2
@@ -2323,7 +2327,8 @@ teardown_own_pool_lock_reconfirm() {
   }
   perl -e '
     use Fcntl qw(:flock);
-    my ($path, $wait, $parent) = @ARGV;
+    my ($path, $wait, $parent, $pool) = @ARGV;
+    chdir($pool) or exit 1;
     $| = 1;
     open(my $fh, ">>", $path) or do { print "error\n"; exit 1 };
     my $end = time + $wait;
@@ -2333,7 +2338,7 @@ teardown_own_pool_lock_reconfirm() {
     }
     print "locked\n";
     select(undef, undef, undef, 0.2) while kill(0, $parent);
-  ' "$lock" "$TEARDOWN_OWN_POOL_LOCK_WAIT_SECS" "$$" >"$ready" 2>/dev/null </dev/null &
+  ' "$lock" "$TEARDOWN_OWN_POOL_LOCK_WAIT_SECS" "$$" "$pool" >"$ready" 2>/dev/null </dev/null &
   TEARDOWN_OWN_POOL_LOCK_PID=$!
   while [ "$n" -lt $(( (TEARDOWN_OWN_POOL_LOCK_WAIT_SECS + 5) * 10 )) ]; do
     got=$(cat "$ready" 2>/dev/null || true)
@@ -2444,6 +2449,9 @@ teardown_treehouse_return() {
 
   # Capture stdout+stderr so non-lock failures stay visible and lock failures can
   # be matched by signature even when the lock file is already gone mid-check.
+  if [ -n "$post_cleanup_check" ]; then
+    "$post_cleanup_check" || return 1
+  fi
   if out=$( ( cd "$cd_dir" && treehouse return "${return_args[@]}" "$dir" </dev/null ) 2>&1 ); then
     [ -n "$out" ] && printf '%s\n' "$out"
     return 0
@@ -2481,6 +2489,9 @@ teardown_treehouse_return() {
     echo "teardown: $label return failed with transient git lock ($lock_desc); waiting ${TREEHOUSE_RETURN_LOCK_RETRY_WAIT_SECS}s and retrying ($attempt/${max_retries})" >&2
     sleep "$TREEHOUSE_RETURN_LOCK_RETRY_WAIT_SECS"
 
+    if [ -n "$post_cleanup_check" ]; then
+      "$post_cleanup_check" || return 1
+    fi
     if out=$( ( cd "$cd_dir" && treehouse return "${return_args[@]}" "$dir" </dev/null ) 2>&1 ); then
       [ -n "$out" ] && printf '%s\n' "$out"
       echo "teardown: $label return succeeded on retry; lock cleared on its own" >&2
@@ -2500,6 +2511,9 @@ teardown_treehouse_return() {
   if [ -n "$lock" ] && [ -e "$lock" ]; then
     lock_desc=$lock
     if fm_lock_is_provably_stale "$lock" "$dir" "$STALE_WORKTREE_LOCK_AGE_SECS"; then
+      if [ "$TEARDOWN_LEASE_FROM_OWN_POOL" = 1 ]; then
+        teardown_own_pool_lock_reconfirm || return 1
+      fi
       rm -f "$lock"
       echo "teardown: removed provably-stale git lock $lock (age >= ${STALE_WORKTREE_LOCK_AGE_SECS}s, no live holder) and retrying $label return" >&2
       if [ -n "$post_cleanup_check" ]; then
@@ -2508,6 +2522,7 @@ teardown_treehouse_return() {
           return 1
         fi
       fi
+      teardown_own_pool_unlock
       if out=$( ( cd "$cd_dir" && treehouse return "${return_args[@]}" "$dir" </dev/null ) 2>&1 ); then
         [ -n "$out" ] && printf '%s\n' "$out"
         echo "teardown: $label return succeeded after stale-lock cleanup" >&2
@@ -4169,6 +4184,9 @@ fi
 # lock removal inside the safety check below.
 if [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ] && teardown_owns_worktree; then
   teardown_verify_slot_lease || exit 1
+  if [ "$TEARDOWN_LEASE_FROM_OWN_POOL" = 1 ] && [ -n "$TEARDOWN_RETURN_LEASE_ID" ]; then
+    teardown_own_pool_lock_reconfirm || exit 1
+  fi
 fi
 
 if teardown_owns_worktree && [ -d "$WT" ] && [ "$FORCE" != "--force" ] && [ "$TEARDOWN_RECORD_ONLY" != 1 ]; then
@@ -4334,6 +4352,11 @@ if [ "$KIND" != secondmate ] && teardown_owns_worktree && [ "$TEARDOWN_RECORD_ON
   conclude_task_no_mistakes_run "$WT"
   reap_task_worktree_processes worktree "$WT" "$TASK_TMP"
   refuse_branch_custody_held "$WT"
+  if [ "$TEARDOWN_POOL_LISTING_GONE" = 1 ] || [ "$TEARDOWN_LEASE_FROM_OWN_POOL" = 1 ]; then
+    teardown_backup_gone_pool_slot || exit 1
+  elif [ "$FORCE" = --force ] && [ -n "$TEARDOWN_RETURN_LEASE_ID" ] && [ "$KIND" != scout ]; then
+    teardown_refuse_forced_unlanded_return || exit 1
+  fi
 elif [ "$KIND" != secondmate ]; then
   reap_task_worktree_processes tasktmp "$TASK_TMP"
 fi
@@ -4372,13 +4395,8 @@ if [ "$BACKEND" = orca ] && [ "$KIND" != secondmate ]; then
 elif [ "$KIND" != secondmate ] && ! teardown_owns_worktree; then
   :
 elif [ -d "$WT" ] && [ "$KIND" != secondmate ] && [ "$TEARDOWN_RECORD_ONLY" != 1 ] && [ "$TEARDOWN_POOL_LISTING_GONE" != 1 ]; then
-  # A lease confirmed only through the slot's own pool is confirmed again under
-  # that pool's own Treehouse lock, held across every slot mutation below up to
-  # the return (see teardown_own_pool_lock_reconfirm).
-  if [ "$TEARDOWN_LEASE_FROM_OWN_POOL" = 1 ]; then
-    teardown_own_pool_lock_reconfirm || exit 1
-  fi
   branch=$(git -C "$WT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo HEAD)
+  TEARDOWN_WORKTREE_BRANCH_FOR_SAFETY=$branch
   if [ "$branch" != "HEAD" ]; then
     if git -C "$WT" checkout --detach -q 2>/dev/null; then
       git -C "$WT" branch -D "$branch" >/dev/null 2>&1 || true
@@ -4394,6 +4412,8 @@ elif [ -d "$WT" ] && [ "$KIND" != secondmate ] && [ "$TEARDOWN_RECORD_ONLY" != 1
   post_lock_cleanup_check=
   if [ "$FORCE" != "--force" ] && [ "$KIND" != scout ] && [ "$KIND" != secondmate ]; then
     post_lock_cleanup_check=validate_worktree_teardown_safety
+  elif [ "$FORCE" = --force ] && [ -n "$TEARDOWN_RETURN_LEASE_ID" ] && [ "$KIND" != scout ]; then
+    post_lock_cleanup_check=teardown_refuse_forced_unlanded_return
   fi
   if [ "$KIND" = scout ] || [ "$FORCE" = "--force" ]; then
     teardown_scrub_scratch_copy "$WT" || exit 1
