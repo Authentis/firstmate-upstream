@@ -1,0 +1,54 @@
+$ git config --global user.name Lab
+[exit 0]
+$ git config --global user.email lab@example.invalid
+[exit 0]
+$ {run-worktree}/bin/fm-lab-home.sh create {run-worktree}/.live-validation/cases/current-unpushed-forced/fmhome
+{run-worktree}/.live-validation/cases/current-unpushed-forced/fmhome
+[exit 0]
+$ git init -q --bare --initial-branch=main {run-worktree}/.live-validation/cases/current-unpushed-forced/origin.git
+[exit 0]
+$ git clone -q {run-worktree}/.live-validation/cases/current-unpushed-forced/origin.git {run-worktree}/.live-validation/cases/current-unpushed-forced/project
+warning: You appear to have cloned an empty repository.
+[exit 0]
+$ git -C {run-worktree}/.live-validation/cases/current-unpushed-forced/project add .
+[exit 0]
+$ git -C {run-worktree}/.live-validation/cases/current-unpushed-forced/project commit -qm baseline
+[exit 0]
+$ git -C {run-worktree}/.live-validation/cases/current-unpushed-forced/project push -q origin main
+[exit 0]
+$ treehouse get --lease --json --no-fetch -b fm/task-x1
+{"path":"{run-worktree}/.live-validation/cases/current-unpushed-forced/pools/.treehouse/project-9ed559/1/project","lease_id":"b4c54ebf2d28c1a9b879c7ad77eaee1d","lease_holder":"","leased_at":"2026-11-06T13:02:12.588791056+01:00","base_branch":"main"}
+🌳 Setting up worktree...
+🌳 Leased worktree at {run-worktree}/.live-validation/cases/current-unpushed-forced/pools/.treehouse/project-9ed559/1/project. Run 'treehouse return {run-worktree}/.live-validation/cases/current-unpushed-forced/pools/.treehouse/project-9ed559/1/project' to release it.
+[exit 0]
+$ tmux -S {run-worktree}/.lv-socket new-session -d -s lab -n keep sleep 1000
+[exit 0]
+$ git -C {run-worktree}/.live-validation/cases/current-unpushed-forced/pools/.treehouse/project-9ed559/1/project add tracked.txt
+[exit 0]
+$ git -C {run-worktree}/.live-validation/cases/current-unpushed-forced/pools/.treehouse/project-9ed559/1/project commit -qm unpushed
+[exit 0]
+$ git -C {run-worktree}/.live-validation/cases/current-unpushed-forced/pools/.treehouse/project-9ed559/1/project rev-parse HEAD
+af22530b0260b43657007fc7d1e6c94f9abae556
+[exit 0]
+$ {run-worktree}/bin/fm-teardown.sh task-x1 --force
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live-validation/cases/current-unpushed-forced/fmhome
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REFUSED: worktree {run-worktree}/.live-validation/cases/current-unpushed-forced/pools/.treehouse/project-9ed559/1/project has work not on any remote and not landed; --force never returns a leased slot holding unlanded commits, so nothing was returned and nothing was discarded - push the branch or land its PR, then retry teardown.
+unpushed commits:
+af22530 unpushed
+[exit 1]
+$ git -C {run-worktree}/.live-validation/cases/current-unpushed-forced/pools/.treehouse/project-9ed559/1/project rev-parse HEAD
+af22530b0260b43657007fc7d1e6c94f9abae556
+[exit 0]
+$ git -C {run-worktree}/.live-validation/cases/current-unpushed-forced/pools/.treehouse/project-9ed559/1/project symbolic-ref --short HEAD
+fm/task-x1
+[exit 0]
+OBSERVED: record, branch, hook, lease and tested work preserved.
+$ tmux -S {run-worktree}/.lv-socket kill-server
+[exit 0]

@@ -14,5 +14,5 @@ not ok - teardown reported success after a close that failed: ●━━━━━
 ●  This is a supervision warning only; the guarded operation WILL still run.
 ●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
 ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-teardown: reaping leaked worktree process group for strand-task: 1995400
-teardown: force-killing leaked worktree process group for strand-task: 1995400
+teardown: reaping leaked worktree process group for strand-task: 3104710
+teardown: force-killing leaked worktree process group for strand-task: 3104710

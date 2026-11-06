@@ -1,0 +1,14 @@
+[
+  {
+    "pid": 3104660,
+    "cwd": "{run-worktree}/.live-validation/tmp/fm-teardown-endpoint-safety.ns6Xio/close-failure (deleted)"
+  },
+  {
+    "pid": 3405399,
+    "cwd": "{run-worktree}/.live-validation/tmp/fm-teardown-endpoint-safety.QaFxvx/secondmate-child-close-failure (deleted)"
+  },
+  {
+    "pid": 3654364,
+    "cwd": "{run-worktree}/.live-validation/tmp/fm-teardown-endpoint-safety.WYRHqI/secondmate-child-close-failure (deleted)"
+  }
+]

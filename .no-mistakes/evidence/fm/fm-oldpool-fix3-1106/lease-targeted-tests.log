@@ -21,6 +21,7 @@ ok - after a url rewrite, untracked .claude/ work in an old-pool slot refuses te
 ok - late tracked, untracked, and unlanded work survives current and old pool cleanup
 ok - without lsof forced ships refuse, while unforced ships and scouts still return current and old pool slots
 ok - forced return retries recheck and preserve newly written work
+ok - work written during forced slot cleanup refuses the return before the scrub, and the branch is restored
 ok - teardown waits out a live project-lock holder for up to 120s, then refuses exactly as before
 ok - a slot treehouse will not return unforced is reported and left, never forced
 ok - an explicit --force teardown and a scout return a dirty slot forced, still lease-bound

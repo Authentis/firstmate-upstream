@@ -1,0 +1,48 @@
+FAIL current-clean-unforced command failed ['tmux', '-S', '{run-worktree}/.live-validation/cases/current-clean-unforced/socket', 'new-session', '-d', '-s', 'lab', '-n', 'keep', 'sleep 1000']: error connecting to {run-worktree}/.live-validation/cases/current-clean-unforced/socket (File name too long)
+
+FAIL current-clean-forced command failed ['tmux', '-S', '{run-worktree}/.live-validation/cases/current-clean-forced/socket', 'new-session', '-d', '-s', 'lab', '-n', 'keep', 'sleep 1000']: error connecting to {run-worktree}/.live-validation/cases/current-clean-forced/socket (File name too long)
+
+FAIL current-tracked-unforced command failed ['tmux', '-S', '{run-worktree}/.live-validation/cases/current-tracked-unforced/socket', 'new-session', '-d', '-s', 'lab', '-n', 'keep', 'sleep 1000']: error connecting to {run-worktree}/.live-validation/cases/current-tracked-unforced/socket (File name too long)
+
+FAIL current-tracked-forced command failed ['tmux', '-S', '{run-worktree}/.live-validation/cases/current-tracked-forced/socket', 'new-session', '-d', '-s', 'lab', '-n', 'keep', 'sleep 1000']: error connecting to {run-worktree}/.live-validation/cases/current-tracked-forced/socket (File name too long)
+
+FAIL current-untracked-unforced command failed ['tmux', '-S', '{run-worktree}/.live-validation/cases/current-untracked-unforced/socket', 'new-session', '-d', '-s', 'lab', '-n', 'keep', 'sleep 1000']: error connecting to {run-worktree}/.live-validation/cases/current-untracked-unforced/socket (File name too long)
+
+FAIL current-untracked-forced command failed ['tmux', '-S', '{run-worktree}/.live-validation/cases/current-untracked-forced/socket', 'new-session', '-d', '-s', 'lab', '-n', 'keep', 'sleep 1000']: error connecting to {run-worktree}/.live-validation/cases/current-untracked-forced/socket (File name too long)
+
+FAIL current-claude-forced command failed ['tmux', '-S', '{run-worktree}/.live-validation/cases/current-claude-forced/socket', 'new-session', '-d', '-s', 'lab', '-n', 'keep', 'sleep 1000']: error connecting to {run-worktree}/.live-validation/cases/current-claude-forced/socket (File name too long)
+
+FAIL current-unpushed-unforced command failed ['tmux', '-S', '{run-worktree}/.live-validation/cases/current-unpushed-unforced/socket', 'new-session', '-d', '-s', 'lab', '-n', 'keep', 'sleep 1000']: error connecting to {run-worktree}/.live-validation/cases/current-unpushed-unforced/socket (File name too long)
+
+FAIL current-unpushed-forced command failed ['tmux', '-S', '{run-worktree}/.live-validation/cases/current-unpushed-forced/socket', 'new-session', '-d', '-s', 'lab', '-n', 'keep', 'sleep 1000']: error connecting to {run-worktree}/.live-validation/cases/current-unpushed-forced/socket (File name too long)
+
+FAIL current-missing-lsof command failed ['tmux', '-S', '{run-worktree}/.live-validation/cases/current-missing-lsof/socket', 'new-session', '-d', '-s', 'lab', '-n', 'keep', 'sleep 1000']: error connecting to {run-worktree}/.live-validation/cases/current-missing-lsof/socket (File name too long)
+
+FAIL current-late-writer command failed ['tmux', '-S', '{run-worktree}/.live-validation/cases/current-late-writer/socket', 'new-session', '-d', '-s', 'lab', '-n', 'keep', 'sleep 1000']: error connecting to {run-worktree}/.live-validation/cases/current-late-writer/socket (File name too long)
+
+FAIL old-clean-unforced command failed ['tmux', '-S', '{run-worktree}/.live-validation/cases/old-clean-unforced/socket', 'new-session', '-d', '-s', 'lab', '-n', 'keep', 'sleep 1000']: error connecting to {run-worktree}/.live-validation/cases/old-clean-unforced/socket (File name too long)
+
+FAIL old-clean-forced command failed ['tmux', '-S', '{run-worktree}/.live-validation/cases/old-clean-forced/socket', 'new-session', '-d', '-s', 'lab', '-n', 'keep', 'sleep 1000']: error connecting to {run-worktree}/.live-validation/cases/old-clean-forced/socket (File name too long)
+
+FAIL old-tracked-unforced command failed ['tmux', '-S', '{run-worktree}/.live-validation/cases/old-tracked-unforced/socket', 'new-session', '-d', '-s', 'lab', '-n', 'keep', 'sleep 1000']: error connecting to {run-worktree}/.live-validation/cases/old-tracked-unforced/socket (File name too long)
+
+FAIL old-tracked-forced command failed ['tmux', '-S', '{run-worktree}/.live-validation/cases/old-tracked-forced/socket', 'new-session', '-d', '-s', 'lab', '-n', 'keep', 'sleep 1000']: error connecting to {run-worktree}/.live-validation/cases/old-tracked-forced/socket (File name too long)
+
+FAIL old-untracked-unforced command failed ['tmux', '-S', '{run-worktree}/.live-validation/cases/old-untracked-unforced/socket', 'new-session', '-d', '-s', 'lab', '-n', 'keep', 'sleep 1000']: error connecting to {run-worktree}/.live-validation/cases/old-untracked-unforced/socket (File name too long)
+
+FAIL old-untracked-forced command failed ['tmux', '-S', '{run-worktree}/.live-validation/cases/old-untracked-forced/socket', 'new-session', '-d', '-s', 'lab', '-n', 'keep', 'sleep 1000']: error connecting to {run-worktree}/.live-validation/cases/old-untracked-forced/socket (File name too long)
+
+FAIL old-claude-unforced command failed ['tmux', '-S', '{run-worktree}/.live-validation/cases/old-claude-unforced/socket', 'new-session', '-d', '-s', 'lab', '-n', 'keep', 'sleep 1000']: error connecting to {run-worktree}/.live-validation/cases/old-claude-unforced/socket (File name too long)
+
+FAIL old-claude-forced command failed ['tmux', '-S', '{run-worktree}/.live-validation/cases/old-claude-forced/socket', 'new-session', '-d', '-s', 'lab', '-n', 'keep', 'sleep 1000']: error connecting to {run-worktree}/.live-validation/cases/old-claude-forced/socket (File name too long)
+
+FAIL old-unpushed-unforced command failed ['tmux', '-S', '{run-worktree}/.live-validation/cases/old-unpushed-unforced/socket', 'new-session', '-d', '-s', 'lab', '-n', 'keep', 'sleep 1000']: error connecting to {run-worktree}/.live-validation/cases/old-unpushed-unforced/socket (File name too long)
+
+FAIL old-unpushed-forced command failed ['tmux', '-S', '{run-worktree}/.live-validation/cases/old-unpushed-forced/socket', 'new-session', '-d', '-s', 'lab', '-n', 'keep', 'sleep 1000']: error connecting to {run-worktree}/.live-validation/cases/old-unpushed-forced/socket (File name too long)
+
+FAIL old-missing-lsof command failed ['tmux', '-S', '{run-worktree}/.live-validation/cases/old-missing-lsof/socket', 'new-session', '-d', '-s', 'lab', '-n', 'keep', 'sleep 1000']: error connecting to {run-worktree}/.live-validation/cases/old-missing-lsof/socket (File name too long)
+
+FAIL old-late-writer command failed ['tmux', '-S', '{run-worktree}/.live-validation/cases/old-late-writer/socket', 'new-session', '-d', '-s', 'lab', '-n', 'keep', 'sleep 1000']: error connecting to {run-worktree}/.live-validation/cases/old-late-writer/socket (File name too long)
+
+FAIL old-stale-race command failed ['tmux', '-S', '{run-worktree}/.live-validation/cases/old-stale-race/socket', 'new-session', '-d', '-s', 'lab', '-n', 'keep', 'sleep 1000']: error connecting to {run-worktree}/.live-validation/cases/old-stale-race/socket (File name too long)
+

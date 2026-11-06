@@ -1,78 +1,122 @@
 [
   {
-    "case": "old clean",
-    "result": "pass"
+    "name": "current-tracked-unforced",
+    "result": "pass",
+    "evidence": "~/.no-mistakes/evidence/01M6RAYB5N0KERA06ATB89TSR3/current-tracked-unforced.log"
   },
   {
-    "case": "current clean",
-    "result": "pass"
+    "name": "current-tracked-forced",
+    "result": "pass",
+    "evidence": "~/.no-mistakes/evidence/01M6RAYB5N0KERA06ATB89TSR3/current-tracked-forced.log"
   },
   {
-    "case": "actual old-pool return/re-lease between read and lock",
-    "result": "pass"
+    "name": "current-untracked-unforced",
+    "result": "pass",
+    "evidence": "~/.no-mistakes/evidence/01M6RAYB5N0KERA06ATB89TSR3/current-untracked-unforced.log"
   },
   {
-    "case": "old-dirty-tracked-False",
-    "result": "pass"
+    "name": "current-untracked-forced",
+    "result": "pass",
+    "evidence": "~/.no-mistakes/evidence/01M6RAYB5N0KERA06ATB89TSR3/current-untracked-forced.log"
   },
   {
-    "case": "old-dirty-untracked-False",
-    "result": "pass"
+    "name": "current-claude-forced",
+    "result": "pass",
+    "evidence": "~/.no-mistakes/evidence/01M6RAYB5N0KERA06ATB89TSR3/current-claude-forced.log"
   },
   {
-    "case": "old-dirty-claude-False",
-    "result": "pass"
+    "name": "current-unpushed-unforced",
+    "result": "pass",
+    "evidence": "~/.no-mistakes/evidence/01M6RAYB5N0KERA06ATB89TSR3/current-unpushed-unforced.log"
   },
   {
-    "case": "old-unlanded-False",
-    "result": "pass"
+    "name": "current-unpushed-forced",
+    "result": "pass",
+    "evidence": "~/.no-mistakes/evidence/01M6RAYB5N0KERA06ATB89TSR3/current-unpushed-forced.log"
   },
   {
-    "case": "old-dirty-tracked-True",
-    "result": "pass"
+    "name": "current-missing-lsof",
+    "result": "pass",
+    "evidence": "~/.no-mistakes/evidence/01M6RAYB5N0KERA06ATB89TSR3/current-missing-lsof.log"
   },
   {
-    "case": "old-dirty-untracked-True",
-    "result": "pass"
+    "name": "current-late-writer",
+    "result": "pass",
+    "evidence": "~/.no-mistakes/evidence/01M6RAYB5N0KERA06ATB89TSR3/current-late-writer.log"
   },
   {
-    "case": "old-dirty-claude-True",
-    "result": "pass"
+    "name": "old-tracked-unforced",
+    "result": "pass",
+    "evidence": "~/.no-mistakes/evidence/01M6RAYB5N0KERA06ATB89TSR3/old-tracked-unforced.log"
   },
   {
-    "case": "old-unlanded-True",
-    "result": "pass"
+    "name": "old-tracked-forced",
+    "result": "pass",
+    "evidence": "~/.no-mistakes/evidence/01M6RAYB5N0KERA06ATB89TSR3/old-tracked-forced.log"
   },
   {
-    "case": "old-no-lsof-writer",
-    "result": "pass"
+    "name": "old-untracked-unforced",
+    "result": "pass",
+    "evidence": "~/.no-mistakes/evidence/01M6RAYB5N0KERA06ATB89TSR3/old-untracked-unforced.log"
   },
   {
-    "case": "current-dirty-tracked-False",
-    "result": "pass"
+    "name": "old-untracked-forced",
+    "result": "pass",
+    "evidence": "~/.no-mistakes/evidence/01M6RAYB5N0KERA06ATB89TSR3/old-untracked-forced.log"
   },
   {
-    "case": "current-dirty-untracked-False",
-    "result": "pass"
+    "name": "old-claude-unforced",
+    "result": "pass",
+    "evidence": "~/.no-mistakes/evidence/01M6RAYB5N0KERA06ATB89TSR3/old-claude-unforced.log"
   },
   {
-    "case": "current-unlanded-False",
-    "result": "pass"
+    "name": "old-claude-forced",
+    "result": "pass",
+    "evidence": "~/.no-mistakes/evidence/01M6RAYB5N0KERA06ATB89TSR3/old-claude-forced.log"
   },
   {
-    "case": "current-dirty-tracked-True",
-    "result": "pass"
+    "name": "old-unpushed-unforced",
+    "result": "pass",
+    "evidence": "~/.no-mistakes/evidence/01M6RAYB5N0KERA06ATB89TSR3/old-unpushed-unforced.log"
   },
   {
-    "case": "current-dirty-untracked-True",
-    "result": "pass"
+    "name": "old-unpushed-forced",
+    "result": "pass",
+    "evidence": "~/.no-mistakes/evidence/01M6RAYB5N0KERA06ATB89TSR3/old-unpushed-forced.log"
   },
   {
-    "case": "current-unlanded-True",
-    "result": "pass"
+    "name": "old-missing-lsof",
+    "result": "pass",
+    "evidence": "~/.no-mistakes/evidence/01M6RAYB5N0KERA06ATB89TSR3/old-missing-lsof.log"
   },
   {
-    "case": "current-no-lsof-writer",
-    "result": "pass"
+    "name": "old-late-writer",
+    "result": "pass",
+    "evidence": "~/.no-mistakes/evidence/01M6RAYB5N0KERA06ATB89TSR3/old-late-writer.log"
+  },
+  {
+    "name": "current-clean-unforced",
+    "result": "pass",
+    "evidence": "~/.no-mistakes/evidence/01M6RAYB5N0KERA06ATB89TSR3/current-clean-unforced.log"
+  },
+  {
+    "name": "current-clean-forced",
+    "result": "pass",
+    "evidence": "~/.no-mistakes/evidence/01M6RAYB5N0KERA06ATB89TSR3/current-clean-forced.log"
+  },
+  {
+    "name": "old-clean-unforced",
+    "result": "pass",
+    "evidence": "~/.no-mistakes/evidence/01M6RAYB5N0KERA06ATB89TSR3/old-clean-unforced.log"
+  },
+  {
+    "name": "old-clean-forced",
+    "result": "pass",
+    "evidence": "~/.no-mistakes/evidence/01M6RAYB5N0KERA06ATB89TSR3/old-clean-forced.log"
+  },
+  {
+    "name": "old-stale-race",
+    "result": "pass",
+    "evidence": "~/.no-mistakes/evidence/01M6RAYB5N0KERA06ATB89TSR3/old-stale-race.log"
   }
 ]

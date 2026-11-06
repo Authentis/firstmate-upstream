@@ -1,0 +1,54 @@
+$ git config --global user.name Lab
+[exit 0]
+$ git config --global user.email lab@example.invalid
+[exit 0]
+$ {run-worktree}/bin/fm-lab-home.sh create {run-worktree}/.live-validation/cases/old-untracked-unforced/fmhome
+{run-worktree}/.live-validation/cases/old-untracked-unforced/fmhome
+[exit 0]
+$ git init -q --bare --initial-branch=main {run-worktree}/.live-validation/cases/old-untracked-unforced/origin.git
+[exit 0]
+$ git clone -q {run-worktree}/.live-validation/cases/old-untracked-unforced/origin.git {run-worktree}/.live-validation/cases/old-untracked-unforced/project
+warning: You appear to have cloned an empty repository.
+[exit 0]
+$ git -C {run-worktree}/.live-validation/cases/old-untracked-unforced/project add .
+[exit 0]
+$ git -C {run-worktree}/.live-validation/cases/old-untracked-unforced/project commit -qm baseline
+[exit 0]
+$ git -C {run-worktree}/.live-validation/cases/old-untracked-unforced/project push -q origin main
+[exit 0]
+$ treehouse get --lease --json --no-fetch -b fm/task-x1
+{"path":"{run-worktree}/.live-validation/cases/old-untracked-unforced/pools/.treehouse/project-64f8dd/1/project","lease_id":"4faf8661cfa6cdfd8993f573157dbe4e","lease_holder":"","leased_at":"2026-11-06T13:02:46.101452434+01:00","base_branch":"main"}
+🌳 Setting up worktree...
+🌳 Leased worktree at {run-worktree}/.live-validation/cases/old-untracked-unforced/pools/.treehouse/project-64f8dd/1/project. Run 'treehouse return {run-worktree}/.live-validation/cases/old-untracked-unforced/pools/.treehouse/project-64f8dd/1/project' to release it.
+[exit 0]
+$ tmux -S {run-worktree}/.lv-socket new-session -d -s lab -n keep sleep 1000
+[exit 0]
+$ git clone -q --bare {run-worktree}/.live-validation/cases/old-untracked-unforced/origin.git {run-worktree}/.live-validation/cases/old-untracked-unforced/rewritten.git
+[exit 0]
+$ git -C {run-worktree}/.live-validation/cases/old-untracked-unforced/project config --global url./home/holu/.no-mistakes/worktrees/c9e23aecc4aa/01M6RAYB5N0KERA06ATB89TSR3/.live-validation/cases/old-untracked-unforced/rewritten.git.insteadOf {run-worktree}/.live-validation/cases/old-untracked-unforced/origin.git
+[exit 0]
+$ treehouse status --json
+[]
+[exit 0]
+$ {run-worktree}/bin/fm-teardown.sh task-x1
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live-validation/cases/old-untracked-unforced/fmhome
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 0s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+teardown: the project's current Treehouse pool does not list {run-worktree}/.live-validation/cases/old-untracked-unforced/pools/.treehouse/project-64f8dd/1/project (a git url rewrite can move a project's pool); confirming lease 4faf8661cfa6cdfd8993f573157dbe4e against the slot's own pool {run-worktree}/.live-validation/cases/old-untracked-unforced/pools/.treehouse/project-64f8dd
+REFUSED: worktree {run-worktree}/.live-validation/cases/old-untracked-unforced/pools/.treehouse/project-64f8dd/1/project has uncommitted changes.
+uncommitted changes present (untracked-only leftovers)
+untracked paths (up to 10):
+  notes.txt
+Commit them (or get the captain's explicit OK to discard, then --force).
+[exit 1]
+$ git -C {run-worktree}/.live-validation/cases/old-untracked-unforced/pools/.treehouse/project-64f8dd/1/project symbolic-ref --short HEAD
+fm/task-x1
+[exit 0]
+OBSERVED: record, branch, hook, lease and tested work preserved.
+$ tmux -S {run-worktree}/.lv-socket kill-server
+[exit 0]

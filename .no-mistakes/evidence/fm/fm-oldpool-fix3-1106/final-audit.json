@@ -1,0 +1,11 @@
+{
+  "head": "04901a93d32e38adb3bfadad0f1cc582af400b6b",
+  "live_cases": 24,
+  "all_final_live_results": "pass",
+  "lease_test_exit": 0,
+  "endpoint_final_test_exit": 0,
+  "working_tree_status": "",
+  "owned_fixture_tmux_servers_remaining": [],
+  "disposable_worktree_data_removed": true,
+  "unrelated_older_fixture_processes": "not touched"
+}

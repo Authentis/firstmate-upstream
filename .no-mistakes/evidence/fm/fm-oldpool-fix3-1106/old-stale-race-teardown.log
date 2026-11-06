@@ -1,0 +1,10 @@
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live-validation/cases/old-stale-race/fmhome
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+teardown: the project's current Treehouse pool does not list {run-worktree}/.live-validation/cases/old-stale-race/pools/.treehouse/project-5afa59/1/project (a git url rewrite can move a project's pool); confirming lease 351225934cd312b7f8f96f73781d148b against the slot's own pool {run-worktree}/.live-validation/cases/old-stale-race/pools/.treehouse/project-5afa59
+REFUSED: lease changed on {run-worktree}/.live-validation/cases/old-stale-race/pools/.treehouse/project-5afa59/1/project in its own pool {run-worktree}/.live-validation/cases/old-stale-race/pools/.treehouse/project-5afa59 since teardown first confirmed it (recorded 351225934cd312b7f8f96f73781d148b); the slot may now belong to someone else, so nothing in it was changed and nothing was returned

@@ -1,0 +1,18 @@
+{run-worktree}/.live-validation/probe/fmhome
+warning: You appear to have cloned an empty repository.
+🌳 Setting up worktree...
+🌳 Leased worktree at {run-worktree}/.live-validation/probe/pools/.treehouse/project-44e9bd/1/project. Run 'treehouse return {run-worktree}/.live-validation/probe/pools/.treehouse/project-44e9bd/1/project' to release it.
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live-validation/probe/fmhome
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+teardown: reaping leaked worktree process group for task-x1: 1261666
+🌳 Worktree returned to pool.
+{run-worktree}/.live-validation/probe/project: already current
+teardown task-x1 complete (window lab:fm-task-x1, worktree {run-worktree}/.live-validation/probe/pools/.treehouse/project-44e9bd/1/project)
+Backlog: task-x1 just finished (this home keeps no markdown backlog at {run-worktree}/.live-validation/probe/fmhome/data/backlog.md). Update {run-worktree}/.live-validation/probe/fmhome/data/backlog.md - move task-x1 to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+[{"name":"1","path":"{run-worktree}/.live-validation/probe/pools/.treehouse/project-44e9bd/1/project","status":"available","branch":"","detached":true,"flavor":"git","lease_id":"","lease_holder":"","leased_at":null,"processes":[]}]

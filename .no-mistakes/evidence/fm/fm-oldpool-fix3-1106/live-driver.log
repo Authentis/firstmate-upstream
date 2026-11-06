@@ -1,0 +1,24 @@
+FAIL current-clean-unforced 'leased'
+FAIL current-clean-forced 'leased'
+PASS current-tracked-unforced
+PASS current-tracked-forced
+PASS current-untracked-unforced
+PASS current-untracked-forced
+PASS current-claude-forced
+PASS current-unpushed-unforced
+PASS current-unpushed-forced
+PASS current-missing-lsof
+PASS current-late-writer
+FAIL old-clean-unforced 'leased'
+FAIL old-clean-forced 'leased'
+PASS old-tracked-unforced
+PASS old-tracked-forced
+PASS old-untracked-unforced
+PASS old-untracked-forced
+PASS old-claude-unforced
+PASS old-claude-forced
+PASS old-unpushed-unforced
+PASS old-unpushed-forced
+PASS old-missing-lsof
+PASS old-late-writer
+FAIL old-stale-race [Errno 2] No such file or directory: '{run-worktree}/.live-validation/cases/old-stale-race/pools/.treehouse/project-5afa59/1/project/.claude/settings.local.json'

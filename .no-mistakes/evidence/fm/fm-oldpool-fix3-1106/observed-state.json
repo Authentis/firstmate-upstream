@@ -1,0 +1,904 @@
+[
+  {
+    "scenario": "current-claude-forced",
+    "meta_exists": true,
+    "pool_state": {
+      "version": 4,
+      "worktrees": [
+        {
+          "name": "1",
+          "path": "{run-worktree}/.live-validation/cases/current-claude-forced/pools/.treehouse/project-441987/1/project",
+          "created_at": "2026-11-06T13:02:06.033902835+01:00",
+          "leased": true,
+          "lease_id": "fc04ff9961c011f47df9dab04951e99f",
+          "leased_at": "2026-11-06T13:02:06.11027289+01:00",
+          "seed_inventory_known": true,
+          "seed_inventory_digest": "f247fe65b0f82cd206e2ac724b316deaa6f4e85dbb6d11109e24f3332845f135"
+        }
+      ]
+    },
+    "head": {
+      "exit": 0,
+      "stdout": "97031dfd3c454bd71138360b6ab877e61a26db1e\n",
+      "stderr": ""
+    },
+    "branch": {
+      "exit": 0,
+      "stdout": "fm/task-x1\n",
+      "stderr": ""
+    },
+    "status": {
+      "exit": 0,
+      "stdout": "?? .claude/precious-work.md\n?? .claude/settings.local.json\n",
+      "stderr": ""
+    },
+    "tracked": "baseline\n",
+    "work_files": {
+      ".claude/precious-work.md": "irreplaceable uncommitted work\n",
+      ".claude/settings.local.json": "{}\n"
+    }
+  },
+  {
+    "scenario": "current-clean-forced",
+    "meta_exists": false,
+    "pool_state": {
+      "version": 4,
+      "worktrees": [
+        {
+          "name": "1",
+          "path": "{run-worktree}/.live-validation/cases/current-clean-forced/pools/.treehouse/project-7b00b2/1/project",
+          "created_at": "2026-11-06T13:04:13.566686814+01:00",
+          "seed_inventory_known": true,
+          "seed_inventory_digest": "f2200dc45b0d4dd0bcc652c771f12e345e540f74763d6c68ef8d47e7160c0223"
+        }
+      ]
+    },
+    "head": {
+      "exit": 0,
+      "stdout": "e0f26d559cb8a045bd52e736d1f71cd252687af8\n",
+      "stderr": ""
+    },
+    "branch": {
+      "exit": 128,
+      "stdout": "",
+      "stderr": "fatal: ref HEAD is not a symbolic ref\n"
+    },
+    "status": {
+      "exit": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    "tracked": "baseline\n",
+    "work_files": {}
+  },
+  {
+    "scenario": "current-clean-unforced",
+    "meta_exists": false,
+    "pool_state": {
+      "version": 4,
+      "worktrees": [
+        {
+          "name": "1",
+          "path": "{run-worktree}/.live-validation/cases/current-clean-unforced/pools/.treehouse/project-08c21d/1/project",
+          "created_at": "2026-11-06T13:04:09.437124851+01:00",
+          "seed_inventory_known": true,
+          "seed_inventory_digest": "2c39e2e5b7b018d5cdab6e7b2e4007abd84549e7d8e8e6a6d0b4b74bed1189e9"
+        }
+      ]
+    },
+    "head": {
+      "exit": 0,
+      "stdout": "9ecb1fdb3163f54a097579070a86213a70c043dd\n",
+      "stderr": ""
+    },
+    "branch": {
+      "exit": 128,
+      "stdout": "",
+      "stderr": "fatal: ref HEAD is not a symbolic ref\n"
+    },
+    "status": {
+      "exit": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    "tracked": "baseline\n",
+    "work_files": {}
+  },
+  {
+    "scenario": "current-late-writer",
+    "meta_exists": true,
+    "pool_state": {
+      "version": 4,
+      "worktrees": [
+        {
+          "name": "1",
+          "path": "{run-worktree}/.live-validation/cases/current-late-writer/pools/.treehouse/project-0e5e93/1/project",
+          "created_at": "2026-11-06T13:02:19.336122463+01:00",
+          "leased": true,
+          "lease_id": "030cfa26da45008777dfeb68b82c0c79",
+          "leased_at": "2026-11-06T13:02:19.38066739+01:00",
+          "seed_inventory_known": true,
+          "seed_inventory_digest": "65e94312607e53bc17f463177f32a946f7dd6068e19c9367c6f8fbaba138e1eb"
+        }
+      ]
+    },
+    "head": {
+      "exit": 0,
+      "stdout": "dd89c6b89c8a5fcb3563327c7293f3ba7219b270\n",
+      "stderr": ""
+    },
+    "branch": {
+      "exit": 0,
+      "stdout": "fm/task-x1\n",
+      "stderr": ""
+    },
+    "status": {
+      "exit": 0,
+      "stdout": "?? .claude/settings.local.json\n?? late-work.txt\n",
+      "stderr": ""
+    },
+    "tracked": "baseline\n",
+    "work_files": {
+      "late-work.txt": "work written during shutdown\n",
+      ".claude/settings.local.json": "{}\n"
+    }
+  },
+  {
+    "scenario": "current-missing-lsof",
+    "meta_exists": true,
+    "pool_state": {
+      "version": 4,
+      "worktrees": [
+        {
+          "name": "1",
+          "path": "{run-worktree}/.live-validation/cases/current-missing-lsof/pools/.treehouse/project-923462/1/project",
+          "created_at": "2026-11-06T13:02:16.174405368+01:00",
+          "leased": true,
+          "lease_id": "72acc684598490785403f0e21791cfc8",
+          "leased_at": "2026-11-06T13:02:16.243172888+01:00",
+          "seed_inventory_known": true,
+          "seed_inventory_digest": "1780bc848879354a579eb47e490a3580df6286fc72be145927339c33afe28dd3"
+        }
+      ]
+    },
+    "head": {
+      "exit": 0,
+      "stdout": "d68d361607ca5c7e880391a0e04cd17febe66018\n",
+      "stderr": ""
+    },
+    "branch": {
+      "exit": 0,
+      "stdout": "fm/task-x1\n",
+      "stderr": ""
+    },
+    "status": {
+      "exit": 0,
+      "stdout": "?? .claude/settings.local.json\n",
+      "stderr": ""
+    },
+    "tracked": "baseline\n",
+    "work_files": {
+      ".claude/settings.local.json": "{}\n"
+    }
+  },
+  {
+    "scenario": "current-tracked-forced",
+    "meta_exists": true,
+    "pool_state": {
+      "version": 4,
+      "worktrees": [
+        {
+          "name": "1",
+          "path": "{run-worktree}/.live-validation/cases/current-tracked-forced/pools/.treehouse/project-9db122/1/project",
+          "created_at": "2026-11-06T13:01:55.623555685+01:00",
+          "leased": true,
+          "lease_id": "cbff7ff27ce78b7180e04a4f73d59c8b",
+          "leased_at": "2026-11-06T13:01:55.693023117+01:00",
+          "seed_inventory_known": true,
+          "seed_inventory_digest": "4aab4122aa20a86a6e9c378e2459e16b201e0908c2d81b9c97f16faabf59bb89"
+        }
+      ]
+    },
+    "head": {
+      "exit": 0,
+      "stdout": "68d7610aada0fbbc0f4d048c384d9f2796eba02d\n",
+      "stderr": ""
+    },
+    "branch": {
+      "exit": 0,
+      "stdout": "fm/task-x1\n",
+      "stderr": ""
+    },
+    "status": {
+      "exit": 0,
+      "stdout": " M tracked.txt\n?? .claude/settings.local.json\n",
+      "stderr": ""
+    },
+    "tracked": "irreplaceable uncommitted work\n",
+    "work_files": {
+      ".claude/settings.local.json": "{}\n"
+    }
+  },
+  {
+    "scenario": "current-tracked-unforced",
+    "meta_exists": true,
+    "pool_state": {
+      "version": 4,
+      "worktrees": [
+        {
+          "name": "1",
+          "path": "{run-worktree}/.live-validation/cases/current-tracked-unforced/pools/.treehouse/project-55b42c/1/project",
+          "created_at": "2026-11-06T13:01:51.601472992+01:00",
+          "leased": true,
+          "lease_id": "de812a275673858ea6cda5391e228d38",
+          "leased_at": "2026-11-06T13:01:51.671637399+01:00",
+          "seed_inventory_known": true,
+          "seed_inventory_digest": "91c568510defa06864a630e19769e35f4d2acec736c3fb664a958cf9fe5aeb6c"
+        }
+      ]
+    },
+    "head": {
+      "exit": 0,
+      "stdout": "2c59d5fadea4098c9e783191e9372b1d6bbb6c0e\n",
+      "stderr": ""
+    },
+    "branch": {
+      "exit": 0,
+      "stdout": "fm/task-x1\n",
+      "stderr": ""
+    },
+    "status": {
+      "exit": 0,
+      "stdout": " M tracked.txt\n?? .claude/settings.local.json\n",
+      "stderr": ""
+    },
+    "tracked": "irreplaceable uncommitted work\n",
+    "work_files": {
+      ".claude/settings.local.json": "{}\n"
+    }
+  },
+  {
+    "scenario": "current-unpushed-forced",
+    "meta_exists": true,
+    "pool_state": {
+      "version": 4,
+      "worktrees": [
+        {
+          "name": "1",
+          "path": "{run-worktree}/.live-validation/cases/current-unpushed-forced/pools/.treehouse/project-9ed559/1/project",
+          "created_at": "2026-11-06T13:02:12.544061332+01:00",
+          "leased": true,
+          "lease_id": "b4c54ebf2d28c1a9b879c7ad77eaee1d",
+          "leased_at": "2026-11-06T13:02:12.588791056+01:00",
+          "seed_inventory_known": true,
+          "seed_inventory_digest": "910833002f85893bf6519b9fb1c91ae00ca1ea0d15accd029caba5833d752380"
+        }
+      ]
+    },
+    "head": {
+      "exit": 0,
+      "stdout": "af22530b0260b43657007fc7d1e6c94f9abae556\n",
+      "stderr": ""
+    },
+    "branch": {
+      "exit": 0,
+      "stdout": "fm/task-x1\n",
+      "stderr": ""
+    },
+    "status": {
+      "exit": 0,
+      "stdout": "?? .claude/settings.local.json\n",
+      "stderr": ""
+    },
+    "tracked": "unpushed commit\n",
+    "work_files": {
+      ".claude/settings.local.json": "{}\n"
+    }
+  },
+  {
+    "scenario": "current-unpushed-unforced",
+    "meta_exists": true,
+    "pool_state": {
+      "version": 4,
+      "worktrees": [
+        {
+          "name": "1",
+          "path": "{run-worktree}/.live-validation/cases/current-unpushed-unforced/pools/.treehouse/project-712e1f/1/project",
+          "created_at": "2026-11-06T13:02:09.123463505+01:00",
+          "leased": true,
+          "lease_id": "397481dcca4d4ea5bac288eef20acea2",
+          "leased_at": "2026-11-06T13:02:09.174836345+01:00",
+          "seed_inventory_known": true,
+          "seed_inventory_digest": "92d133ed49bf7450fa403d6f945ac0ba86132938c050a610c95b4e0f17b17782"
+        }
+      ]
+    },
+    "head": {
+      "exit": 0,
+      "stdout": "e6e2dc92be2ff3d4d5c2c5096a1b7553730b53d7\n",
+      "stderr": ""
+    },
+    "branch": {
+      "exit": 0,
+      "stdout": "fm/task-x1\n",
+      "stderr": ""
+    },
+    "status": {
+      "exit": 0,
+      "stdout": "?? .claude/settings.local.json\n",
+      "stderr": ""
+    },
+    "tracked": "unpushed commit\n",
+    "work_files": {
+      ".claude/settings.local.json": "{}\n"
+    }
+  },
+  {
+    "scenario": "current-untracked-forced",
+    "meta_exists": true,
+    "pool_state": {
+      "version": 4,
+      "worktrees": [
+        {
+          "name": "1",
+          "path": "{run-worktree}/.live-validation/cases/current-untracked-forced/pools/.treehouse/project-d42807/1/project",
+          "created_at": "2026-11-06T13:02:02.803950787+01:00",
+          "leased": true,
+          "lease_id": "60665ac50593bf0214388110f2e29240",
+          "leased_at": "2026-11-06T13:02:02.856151068+01:00",
+          "seed_inventory_known": true,
+          "seed_inventory_digest": "eb976d602f5d1c4bcf38c82cf7be641e27fef435f396c75501e8c559607e4ef3"
+        }
+      ]
+    },
+    "head": {
+      "exit": 0,
+      "stdout": "f2e18ac511e7fda9dc1105ebf6d37b5fb08fa353\n",
+      "stderr": ""
+    },
+    "branch": {
+      "exit": 0,
+      "stdout": "fm/task-x1\n",
+      "stderr": ""
+    },
+    "status": {
+      "exit": 0,
+      "stdout": "?? .claude/settings.local.json\n?? notes.txt\n",
+      "stderr": ""
+    },
+    "tracked": "baseline\n",
+    "work_files": {
+      "notes.txt": "irreplaceable uncommitted work\n",
+      ".claude/settings.local.json": "{}\n"
+    }
+  },
+  {
+    "scenario": "current-untracked-unforced",
+    "meta_exists": true,
+    "pool_state": {
+      "version": 4,
+      "worktrees": [
+        {
+          "name": "1",
+          "path": "{run-worktree}/.live-validation/cases/current-untracked-unforced/pools/.treehouse/project-e17445/1/project",
+          "created_at": "2026-11-06T13:01:59.213191409+01:00",
+          "leased": true,
+          "lease_id": "404409f942ac22d9445d868bc7343c07",
+          "leased_at": "2026-11-06T13:01:59.259255525+01:00",
+          "seed_inventory_known": true,
+          "seed_inventory_digest": "eded90403b38ee989cfe4806e803db3929ba4a3246af00d30f3f639b80c78cf7"
+        }
+      ]
+    },
+    "head": {
+      "exit": 0,
+      "stdout": "146cf890cba587891fe78b2767440cdc8ae193cf\n",
+      "stderr": ""
+    },
+    "branch": {
+      "exit": 0,
+      "stdout": "fm/task-x1\n",
+      "stderr": ""
+    },
+    "status": {
+      "exit": 0,
+      "stdout": "?? .claude/settings.local.json\n?? notes.txt\n",
+      "stderr": ""
+    },
+    "tracked": "baseline\n",
+    "work_files": {
+      "notes.txt": "irreplaceable uncommitted work\n",
+      ".claude/settings.local.json": "{}\n"
+    }
+  },
+  {
+    "scenario": "old-claude-forced",
+    "meta_exists": true,
+    "pool_state": {
+      "version": 4,
+      "worktrees": [
+        {
+          "name": "1",
+          "path": "{run-worktree}/.live-validation/cases/old-claude-forced/pools/.treehouse/project-dfaded/1/project",
+          "created_at": "2026-11-06T13:02:55.038654236+01:00",
+          "leased": true,
+          "lease_id": "ec8b55b41987e3f7b1afa95e31a6f3b0",
+          "leased_at": "2026-11-06T13:02:55.096529418+01:00",
+          "seed_inventory_known": true,
+          "seed_inventory_digest": "186ea22dec241f0f20867c737bc6b75be82954665e86195ffe37f61d9c6df9d2"
+        }
+      ]
+    },
+    "head": {
+      "exit": 0,
+      "stdout": "d4b53b9041318bb3eb304c7924fafa61839f80a8\n",
+      "stderr": ""
+    },
+    "branch": {
+      "exit": 0,
+      "stdout": "fm/task-x1\n",
+      "stderr": ""
+    },
+    "status": {
+      "exit": 0,
+      "stdout": "?? .claude/precious-work.md\n?? .claude/settings.local.json\n",
+      "stderr": ""
+    },
+    "tracked": "baseline\n",
+    "work_files": {
+      ".claude/precious-work.md": "irreplaceable uncommitted work\n",
+      ".claude/settings.local.json": "{}\n"
+    }
+  },
+  {
+    "scenario": "old-claude-unforced",
+    "meta_exists": true,
+    "pool_state": {
+      "version": 4,
+      "worktrees": [
+        {
+          "name": "1",
+          "path": "{run-worktree}/.live-validation/cases/old-claude-unforced/pools/.treehouse/project-6a15da/1/project",
+          "created_at": "2026-11-06T13:02:51.840044381+01:00",
+          "leased": true,
+          "lease_id": "ff3d3383076f60fbccddeddbe03bdf8e",
+          "leased_at": "2026-11-06T13:02:51.903539413+01:00",
+          "seed_inventory_known": true,
+          "seed_inventory_digest": "cf27e04a6ec52b612797af1474b3f5f2fa921811d43855e2324a5cea8ac4cf41"
+        }
+      ]
+    },
+    "head": {
+      "exit": 0,
+      "stdout": "187a08ee53778063512b9bfb301f906cbe2f5b94\n",
+      "stderr": ""
+    },
+    "branch": {
+      "exit": 0,
+      "stdout": "fm/task-x1\n",
+      "stderr": ""
+    },
+    "status": {
+      "exit": 0,
+      "stdout": "?? .claude/precious-work.md\n?? .claude/settings.local.json\n",
+      "stderr": ""
+    },
+    "tracked": "baseline\n",
+    "work_files": {
+      ".claude/precious-work.md": "irreplaceable uncommitted work\n",
+      ".claude/settings.local.json": "{}\n"
+    }
+  },
+  {
+    "scenario": "old-clean-forced",
+    "meta_exists": false,
+    "pool_state": {
+      "version": 4,
+      "worktrees": [
+        {
+          "name": "1",
+          "path": "{run-worktree}/.live-validation/cases/old-clean-forced/pools/.treehouse/project-86c583/1/project",
+          "created_at": "2026-11-06T13:04:22.099002706+01:00",
+          "seed_inventory_known": true,
+          "seed_inventory_digest": "c5319448695d1d84ef01fc032cda7114401f02d5eae22a3fd4f93ee792182fa4"
+        }
+      ]
+    },
+    "head": {
+      "exit": 0,
+      "stdout": "e78e6d49f9f96cf4cbfd134f284f74a92e44157d\n",
+      "stderr": ""
+    },
+    "branch": {
+      "exit": 128,
+      "stdout": "",
+      "stderr": "fatal: ref HEAD is not a symbolic ref\n"
+    },
+    "status": {
+      "exit": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    "tracked": "baseline\n",
+    "work_files": {}
+  },
+  {
+    "scenario": "old-clean-unforced",
+    "meta_exists": false,
+    "pool_state": {
+      "version": 4,
+      "worktrees": [
+        {
+          "name": "1",
+          "path": "{run-worktree}/.live-validation/cases/old-clean-unforced/pools/.treehouse/project-52a39b/1/project",
+          "created_at": "2026-11-06T13:04:17.52255859+01:00",
+          "seed_inventory_known": true,
+          "seed_inventory_digest": "b0ad367e85d5780c22982610d3325c4a3f1a9a691c470594406e253f8a460b7c"
+        }
+      ]
+    },
+    "head": {
+      "exit": 0,
+      "stdout": "a946c2938c463a3d8d0ddb96d10986244d4d00da\n",
+      "stderr": ""
+    },
+    "branch": {
+      "exit": 128,
+      "stdout": "",
+      "stderr": "fatal: ref HEAD is not a symbolic ref\n"
+    },
+    "status": {
+      "exit": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    "tracked": "baseline\n",
+    "work_files": {}
+  },
+  {
+    "scenario": "old-late-writer",
+    "meta_exists": true,
+    "pool_state": {
+      "version": 4,
+      "worktrees": [
+        {
+          "name": "1",
+          "path": "{run-worktree}/.live-validation/cases/old-late-writer/pools/.treehouse/project-3f36bb/1/project",
+          "created_at": "2026-11-06T13:03:10.350834223+01:00",
+          "leased": true,
+          "lease_id": "a88816036e7e8568ca635d9b3a7f13d9",
+          "leased_at": "2026-11-06T13:03:10.419686031+01:00",
+          "seed_inventory_known": true,
+          "seed_inventory_digest": "a237bfd06ab2afbc3695f794aa88e835ed510779be6f1c3528522e8139e90620"
+        }
+      ]
+    },
+    "head": {
+      "exit": 0,
+      "stdout": "bceb037c5e3595500214074c9d75d132489c97fb\n",
+      "stderr": ""
+    },
+    "branch": {
+      "exit": 0,
+      "stdout": "fm/task-x1\n",
+      "stderr": ""
+    },
+    "status": {
+      "exit": 0,
+      "stdout": "?? .claude/settings.local.json\n?? late-work.txt\n",
+      "stderr": ""
+    },
+    "tracked": "baseline\n",
+    "work_files": {
+      "late-work.txt": "work written during shutdown\n",
+      ".claude/settings.local.json": "{}\n"
+    }
+  },
+  {
+    "scenario": "old-missing-lsof",
+    "meta_exists": true,
+    "pool_state": {
+      "version": 4,
+      "worktrees": [
+        {
+          "name": "1",
+          "path": "{run-worktree}/.live-validation/cases/old-missing-lsof/pools/.treehouse/project-ffb659/1/project",
+          "created_at": "2026-11-06T13:03:06.827795466+01:00",
+          "leased": true,
+          "lease_id": "eeb4dab3d921b86c75b873f806bf2707",
+          "leased_at": "2026-11-06T13:03:06.882517018+01:00",
+          "seed_inventory_known": true,
+          "seed_inventory_digest": "06d9a31108a32d7829cd5dc28927238855187d12689f2dffb8221e658643988b"
+        }
+      ]
+    },
+    "head": {
+      "exit": 0,
+      "stdout": "945a847c35e8e8d64c0e4ce229c6a7c992bcdecd\n",
+      "stderr": ""
+    },
+    "branch": {
+      "exit": 0,
+      "stdout": "fm/task-x1\n",
+      "stderr": ""
+    },
+    "status": {
+      "exit": 0,
+      "stdout": "?? .claude/settings.local.json\n",
+      "stderr": ""
+    },
+    "tracked": "baseline\n",
+    "work_files": {
+      ".claude/settings.local.json": "{}\n"
+    }
+  },
+  {
+    "scenario": "old-stale-race",
+    "meta_exists": true,
+    "pool_state": {
+      "version": 4,
+      "worktrees": [
+        {
+          "name": "1",
+          "path": "{run-worktree}/.live-validation/cases/old-stale-race/pools/.treehouse/project-5afa59/1/project",
+          "created_at": "2026-11-06T13:04:26.802324458+01:00",
+          "leased": true,
+          "lease_id": "0717a1b082569e88ac2a3d1627f5e618",
+          "leased_at": "2026-11-06T13:04:29.066451728+01:00",
+          "seed_inventory_known": true,
+          "seed_inventory_digest": "8516722e87b403bb281911bf5a8b40d55a5712275972d70e7ee914b5738396c5"
+        }
+      ]
+    },
+    "head": {
+      "exit": 0,
+      "stdout": "4dd9d849a57639a7135054349b427d6ca9a35204\n",
+      "stderr": ""
+    },
+    "branch": {
+      "exit": 0,
+      "stdout": "fm/new-holder\n",
+      "stderr": ""
+    },
+    "status": {
+      "exit": 0,
+      "stdout": "?? .claude/settings.local.json\n?? new-holder.txt\n",
+      "stderr": ""
+    },
+    "tracked": "baseline\n",
+    "work_files": {
+      "new-holder.txt": "new holder work\n",
+      ".claude/settings.local.json": "new holder hook\n"
+    }
+  },
+  {
+    "scenario": "old-tracked-forced",
+    "meta_exists": true,
+    "pool_state": {
+      "version": 4,
+      "worktrees": [
+        {
+          "name": "1",
+          "path": "{run-worktree}/.live-validation/cases/old-tracked-forced/pools/.treehouse/project-2f1a5d/1/project",
+          "created_at": "2026-11-06T13:02:42.99856294+01:00",
+          "leased": true,
+          "lease_id": "367200c776d62d87a2f139b3fb7db617",
+          "leased_at": "2026-11-06T13:02:43.050899645+01:00",
+          "seed_inventory_known": true,
+          "seed_inventory_digest": "e08be63b49b5dff373be137c7c6ce9276920ff2077bd3b93cb022a65dfc4d97c"
+        }
+      ]
+    },
+    "head": {
+      "exit": 0,
+      "stdout": "0bb13294e2416bf147081d0aa437fdc83154facc\n",
+      "stderr": ""
+    },
+    "branch": {
+      "exit": 0,
+      "stdout": "fm/task-x1\n",
+      "stderr": ""
+    },
+    "status": {
+      "exit": 0,
+      "stdout": " M tracked.txt\n?? .claude/settings.local.json\n",
+      "stderr": ""
+    },
+    "tracked": "irreplaceable uncommitted work\n",
+    "work_files": {
+      ".claude/settings.local.json": "{}\n"
+    }
+  },
+  {
+    "scenario": "old-tracked-unforced",
+    "meta_exists": true,
+    "pool_state": {
+      "version": 4,
+      "worktrees": [
+        {
+          "name": "1",
+          "path": "{run-worktree}/.live-validation/cases/old-tracked-unforced/pools/.treehouse/project-1cef17/1/project",
+          "created_at": "2026-11-06T13:02:40.209885774+01:00",
+          "leased": true,
+          "lease_id": "da5f6fde89847a0d19881e8db1b34e42",
+          "leased_at": "2026-11-06T13:02:40.264118614+01:00",
+          "seed_inventory_known": true,
+          "seed_inventory_digest": "44206f0144aa9afa34fecc9ed5ffd91a3491255d51a20caef0eab3d99b83bfcd"
+        }
+      ]
+    },
+    "head": {
+      "exit": 0,
+      "stdout": "d0430b607423fecde1de9d23e44709303c621b7e\n",
+      "stderr": ""
+    },
+    "branch": {
+      "exit": 0,
+      "stdout": "fm/task-x1\n",
+      "stderr": ""
+    },
+    "status": {
+      "exit": 0,
+      "stdout": " M tracked.txt\n?? .claude/settings.local.json\n",
+      "stderr": ""
+    },
+    "tracked": "irreplaceable uncommitted work\n",
+    "work_files": {
+      ".claude/settings.local.json": "{}\n"
+    }
+  },
+  {
+    "scenario": "old-unpushed-forced",
+    "meta_exists": true,
+    "pool_state": {
+      "version": 4,
+      "worktrees": [
+        {
+          "name": "1",
+          "path": "{run-worktree}/.live-validation/cases/old-unpushed-forced/pools/.treehouse/project-f8ce56/1/project",
+          "created_at": "2026-11-06T13:03:02.510253814+01:00",
+          "leased": true,
+          "lease_id": "0dd3aa8deef050cc261df2de4834494a",
+          "leased_at": "2026-11-06T13:03:02.573606703+01:00",
+          "seed_inventory_known": true,
+          "seed_inventory_digest": "ae9238c5bca23b2fdac839a26102aa8887aecf329d1a5835b55ddb8496217496"
+        }
+      ]
+    },
+    "head": {
+      "exit": 0,
+      "stdout": "8d1a92fbcf796994571c7724fbfd1531ada23902\n",
+      "stderr": ""
+    },
+    "branch": {
+      "exit": 0,
+      "stdout": "fm/task-x1\n",
+      "stderr": ""
+    },
+    "status": {
+      "exit": 0,
+      "stdout": "?? .claude/settings.local.json\n",
+      "stderr": ""
+    },
+    "tracked": "unpushed commit\n",
+    "work_files": {
+      ".claude/settings.local.json": "{}\n"
+    }
+  },
+  {
+    "scenario": "old-unpushed-unforced",
+    "meta_exists": true,
+    "pool_state": {
+      "version": 4,
+      "worktrees": [
+        {
+          "name": "1",
+          "path": "{run-worktree}/.live-validation/cases/old-unpushed-unforced/pools/.treehouse/project-ace4d3/1/project",
+          "created_at": "2026-11-06T13:02:57.822756919+01:00",
+          "leased": true,
+          "lease_id": "49c4880c8edf471905837474c5bee695",
+          "leased_at": "2026-11-06T13:02:57.870226143+01:00",
+          "seed_inventory_known": true,
+          "seed_inventory_digest": "85a4ea24e1decb1d3c9ff98408f614c8abe698bd42dd27465d5d69bcfd38200d"
+        }
+      ]
+    },
+    "head": {
+      "exit": 0,
+      "stdout": "039d8732cc4f83faccc0ddc1aead5750558ee14b\n",
+      "stderr": ""
+    },
+    "branch": {
+      "exit": 0,
+      "stdout": "fm/task-x1\n",
+      "stderr": ""
+    },
+    "status": {
+      "exit": 0,
+      "stdout": "?? .claude/settings.local.json\n",
+      "stderr": ""
+    },
+    "tracked": "unpushed commit\n",
+    "work_files": {
+      ".claude/settings.local.json": "{}\n"
+    }
+  },
+  {
+    "scenario": "old-untracked-forced",
+    "meta_exists": true,
+    "pool_state": {
+      "version": 4,
+      "worktrees": [
+        {
+          "name": "1",
+          "path": "{run-worktree}/.live-validation/cases/old-untracked-forced/pools/.treehouse/project-9007d0/1/project",
+          "created_at": "2026-11-06T13:02:48.891129229+01:00",
+          "leased": true,
+          "lease_id": "84a54489791f81f98baf1e2a55cd8b05",
+          "leased_at": "2026-11-06T13:02:48.948645003+01:00",
+          "seed_inventory_known": true,
+          "seed_inventory_digest": "a441d41272b7a18338159d65c8a603012757aeebbfa6ee69b57b0546f0f59465"
+        }
+      ]
+    },
+    "head": {
+      "exit": 0,
+      "stdout": "a2ec36fe65c6a3b53f3cb4f3767b89d5bc481232\n",
+      "stderr": ""
+    },
+    "branch": {
+      "exit": 0,
+      "stdout": "fm/task-x1\n",
+      "stderr": ""
+    },
+    "status": {
+      "exit": 0,
+      "stdout": "?? .claude/settings.local.json\n?? notes.txt\n",
+      "stderr": ""
+    },
+    "tracked": "baseline\n",
+    "work_files": {
+      "notes.txt": "irreplaceable uncommitted work\n",
+      ".claude/settings.local.json": "{}\n"
+    }
+  },
+  {
+    "scenario": "old-untracked-unforced",
+    "meta_exists": true,
+    "pool_state": {
+      "version": 4,
+      "worktrees": [
+        {
+          "name": "1",
+          "path": "{run-worktree}/.live-validation/cases/old-untracked-unforced/pools/.treehouse/project-64f8dd/1/project",
+          "created_at": "2026-11-06T13:02:46.045921868+01:00",
+          "leased": true,
+          "lease_id": "4faf8661cfa6cdfd8993f573157dbe4e",
+          "leased_at": "2026-11-06T13:02:46.101452434+01:00",
+          "seed_inventory_known": true,
+          "seed_inventory_digest": "9cfacd5d58969fcde0c0dfc1f446dd3f86613415c9d70e0148a3f12ec208f827"
+        }
+      ]
+    },
+    "head": {
+      "exit": 0,
+      "stdout": "3feb6b3d5e722d4a115bdf9694fbb561e77686ac\n",
+      "stderr": ""
+    },
+    "branch": {
+      "exit": 0,
+      "stdout": "fm/task-x1\n",
+      "stderr": ""
+    },
+    "status": {
+      "exit": 0,
+      "stdout": "?? .claude/settings.local.json\n?? notes.txt\n",
+      "stderr": ""
+    },
+    "tracked": "baseline\n",
+    "work_files": {
+      "notes.txt": "irreplaceable uncommitted work\n",
+      ".claude/settings.local.json": "{}\n"
+    }
+  }
+]
