@@ -1,0 +1,24 @@
+🌳 Setting up worktree...
+🌳 Leased worktree at {run-worktree}/.test-tmp/live/landed/pool/.treehouse/project-4066a2/1/project. Run 'treehouse return {run-worktree}/.test-tmp/live/landed/pool/.treehouse/project-4066a2/1/project' to release it.
+allocation: {"path":"{run-worktree}/.test-tmp/live/landed/pool/.treehouse/project-4066a2/1/project","lease_id":"b5519c5ce3c36ec314f50051018d3180","lease_holder":"","leased_at":"2026-11-06T15:53:13.184058946+01:00","base_branch":"main"}
+BEFORE tip=a415a8d44cd1aa4ac2198e492f67412089f61eaa previous=179cdf0e7f82ed79b340d394633aba536deec5de
+refs/heads/fm/keepref-live a415a8d44cd1aa4ac2198e492f67412089f61eaa
+teardown exit=0
+--- stdout ---
+🌳 Worktree returned to pool.
+teardown keepref-live complete (window fm-lab-keepref:fm-keepref-live, worktree {run-worktree}/.test-tmp/live/landed/pool/.treehouse/project-4066a2/1/project)
+Backlog: keepref-live just finished (config/backlog-backend selects manual editing). Update {run-worktree}/.test-tmp/live/landed/fm-lab.sSAy6K/data/backlog.md - move keepref-live to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+--- stderr ---
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.test-tmp/live/landed/fm-lab.sSAy6K
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision according to the session-start block for this harness; do not use shell &.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+teardown: reaping leaked worktree process group for keepref-live: 3873149
+--- persisted refs ---
+refs/fm-keep/fm/keepref-live a415a8d44cd1aa4ac2198e492f67412089f61eaa
+--- pool ---
+[{"name":"1","path":"{run-worktree}/.test-tmp/live/landed/pool/.treehouse/project-4066a2/1/project","status":"available","branch":"","detached":true,"flavor":"git","lease_id":"","lease_holder":"","leased_at":null,"processes":[]}]

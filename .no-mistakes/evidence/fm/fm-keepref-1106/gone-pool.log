@@ -1,0 +1,31 @@
+🌳 Setting up worktree...
+🌳 Leased worktree at {run-worktree}/.test-tmp/live/gone-pool/pool/.treehouse/project-6015ce/1/project. Run 'treehouse return {run-worktree}/.test-tmp/live/gone-pool/pool/.treehouse/project-6015ce/1/project' to release it.
+allocation: {"path":"{run-worktree}/.test-tmp/live/gone-pool/pool/.treehouse/project-6015ce/1/project","lease_id":"271d55cfb9ecf838e63f5d4736f145c4","lease_holder":"","leased_at":"2026-11-06T15:53:41.040172403+01:00","base_branch":"main"}
+🌳 Worktree returned to pool.
+BEFORE tip=27bb6914856130396d268bf83ec381864d152984 previous=fa1dd62fdb3c574727c4ccb8c8426b3751030ddc
+refs/heads/fm/keepref-live 27bb6914856130396d268bf83ec381864d152984
+teardown exit=0
+--- stdout ---
+Preserved gone-pool-slot lane keepref-live: bundle {run-worktree}/.test-tmp/live/gone-pool/fm-lab.QK3XGu/data/bundles/keepref-live.bundle
+Preserved gone-pool-slot lane keepref-live: bundle {run-worktree}/.test-tmp/live/gone-pool/fm-lab.QK3XGu/data/bundles/keepref-live-27bb69148561.bundle
+teardown keepref-live complete (pool slot {run-worktree}/.test-tmp/live/gone-pool/pool/.treehouse/project-6015ce/1/project or its lease no longer listed; copy left in place, backup in {run-worktree}/.test-tmp/live/gone-pool/fm-lab.QK3XGu/data/bundles)
+Backlog: keepref-live just finished (config/backlog-backend selects manual editing). Update {run-worktree}/.test-tmp/live/gone-pool/fm-lab.QK3XGu/data/backlog.md - move keepref-live to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+--- stderr ---
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.test-tmp/live/gone-pool/fm-lab.QK3XGu
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision according to the session-start block for this harness; do not use shell &.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+teardown: reaping leaked worktree process group for keepref-live: 3938795
+--- persisted refs ---
+refs/heads/fm/keepref-live 27bb6914856130396d268bf83ec381864d152984
+--- pool ---
+[{"name":"1","path":"{run-worktree}/.test-tmp/live/gone-pool/pool/.treehouse/project-6015ce/1/project","status":"available","branch":"","detached":true,"flavor":"git","lease_id":"","lease_holder":"","leased_at":null,"processes":[]}]
+{run-worktree}/.test-tmp/live/gone-pool/fm-lab.QK3XGu/data/bundles/keepref-live.bundle is okay
+The bundle contains this ref:
+27bb6914856130396d268bf83ec381864d152984 HEAD
+The bundle records a complete history.
+The bundle uses this hash algorithm: sha1

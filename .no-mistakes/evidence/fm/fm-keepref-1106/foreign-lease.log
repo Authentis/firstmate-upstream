@@ -1,0 +1,21 @@
+🌳 Setting up worktree...
+🌳 Leased worktree at {run-worktree}/.test-tmp/live/foreign-lease/pool/.treehouse/project-e2cc98/1/project. Run 'treehouse return {run-worktree}/.test-tmp/live/foreign-lease/pool/.treehouse/project-e2cc98/1/project' to release it.
+allocation: {"path":"{run-worktree}/.test-tmp/live/foreign-lease/pool/.treehouse/project-e2cc98/1/project","lease_id":"b3077317bd671e544c765e6c3695ec9b","lease_holder":"","leased_at":"2026-11-06T15:53:38.625242508+01:00","base_branch":"main"}
+BEFORE tip=c6b843bb26ccfbc4e169592c29746c3c7df65c7f previous=a5c8d6257df25513be9360eb9e9c878b2e11f284
+refs/heads/fm/keepref-live c6b843bb26ccfbc4e169592c29746c3c7df65c7f
+teardown exit=1
+--- stdout ---
+--- stderr ---
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.test-tmp/live/foreign-lease/fm-lab.X5gBG3
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision according to the session-start block for this harness; do not use shell &.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REFUSED: Treehouse no longer reports lease not-the-owner on {run-worktree}/.test-tmp/live/foreign-lease/pool/.treehouse/project-e2cc98/1/project (the slot's lease changed); the slot may belong to someone else now, so nothing was reaped, detached, deleted, or returned
+--- persisted refs ---
+refs/heads/fm/keepref-live c6b843bb26ccfbc4e169592c29746c3c7df65c7f
+--- pool ---
+[{"name":"1","path":"{run-worktree}/.test-tmp/live/foreign-lease/pool/.treehouse/project-e2cc98/1/project","status":"leased","branch":"fm/keepref-live","flavor":"git","lease_id":"b3077317bd671e544c765e6c3695ec9b","lease_holder":"","leased_at":"2026-11-06T15:53:38.625242508+01:00","processes":[]}]

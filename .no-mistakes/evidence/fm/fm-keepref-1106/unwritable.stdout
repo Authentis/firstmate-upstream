@@ -1,0 +1,3 @@
+🌳 Worktree returned to pool.
+teardown keepref-live complete (window fm-lab-keepref:fm-keepref-live, worktree {run-worktree}/.test-tmp/live/unwritable/pool/.treehouse/project-2aedb7/1/project)
+Backlog: keepref-live just finished (config/backlog-backend selects manual editing). Update {run-worktree}/.test-tmp/live/unwritable/fm-lab.gKNVQU/data/backlog.md - move keepref-live to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.

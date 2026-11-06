@@ -1,0 +1,4 @@
+Preserved gone-pool-slot lane keepref-live: bundle {run-worktree}/.test-tmp/live/gone-pool/fm-lab.QK3XGu/data/bundles/keepref-live.bundle
+Preserved gone-pool-slot lane keepref-live: bundle {run-worktree}/.test-tmp/live/gone-pool/fm-lab.QK3XGu/data/bundles/keepref-live-27bb69148561.bundle
+teardown keepref-live complete (pool slot {run-worktree}/.test-tmp/live/gone-pool/pool/.treehouse/project-6015ce/1/project or its lease no longer listed; copy left in place, backup in {run-worktree}/.test-tmp/live/gone-pool/fm-lab.QK3XGu/data/bundles)
+Backlog: keepref-live just finished (config/backlog-backend selects manual editing). Update {run-worktree}/.test-tmp/live/gone-pool/fm-lab.QK3XGu/data/backlog.md - move keepref-live to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.

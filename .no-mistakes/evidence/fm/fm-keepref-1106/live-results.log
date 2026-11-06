@@ -1,0 +1,14 @@
+=== landed ===
+landed: PASS
+=== same ===
+same: PASS
+=== collision ===
+collision: PASS
+=== double-collision ===
+double-collision: FAIL
+=== unwritable ===
+unwritable: PASS
+=== foreign-lease ===
+foreign-lease: PASS
+=== gone-pool ===
+gone-pool: PASS

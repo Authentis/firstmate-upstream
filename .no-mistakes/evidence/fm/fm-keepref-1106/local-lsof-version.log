@@ -1,0 +1,12 @@
+lsof version information:
+    revision: 4.95.0
+    latest revision: https://github.com/lsof-org/lsof
+    latest FAQ: https://github.com/lsof-org/lsof/blob/master/00FAQ
+    latest (non-formatted) man page: https://github.com/lsof-org/lsof/blob/master/Lsof.8
+    compiler: cc
+    compiler version: 13.2.0 (Ubuntu 13.2.0-23ubuntu3) 
+    compiler flags: -g -O2 -fno-omit-frame-pointer -mno-omit-leaf-frame-pointer -ffile-prefix-map=/build/lsof-8bfuv2/lsof-4.95.0=. -flto=auto -ffat-lto-objects -fstack-protector-strong -fstack-clash-protection -Wformat -Werror=format-security -fcf-protection -fdebug-prefix-map=/build/lsof-8bfuv2/lsof-4.95.0=/usr/src/lsof-4.95.0-1build3 -Wdate-time -D_FORTIFY_SOURCE=3 -DLINUXV=68000 -DGLIBCV=239 -DHASIPv6 -DNEEDS_NETINET_TCPH -DHASSELINUX -DHASUXSOCKEPT -DHASPTYEPT -DHASSOSTATE -DHASSOOPT -D_FILE_OFFSET_BITS=64 -D_LARGEFILE64_SOURCE -DHAS_STRFTIME -DLSOF_VSTR="6.8.0" -I/usr/include/tirpc -O
+    loader flags: -L./lib -llsof -Wl,-Bsymbolic-functions -flto=auto -ffat-lto-objects -Wl,-z,relro -Wl,-z,now -ltirpc -lselinux
+    Anyone can list all files.
+    /dev warnings are disabled.
+    Kernel ID check is disabled.

@@ -1,0 +1,26 @@
+🌳 Setting up worktree...
+🌳 Leased worktree at {run-worktree}/.test-tmp/live/collision/pool/.treehouse/project-837ac1/1/project. Run 'treehouse return {run-worktree}/.test-tmp/live/collision/pool/.treehouse/project-837ac1/1/project' to release it.
+allocation: {"path":"{run-worktree}/.test-tmp/live/collision/pool/.treehouse/project-837ac1/1/project","lease_id":"03ea9f1d8d8a36b6e3fc68fbed2bb749","lease_holder":"","leased_at":"2026-11-06T15:53:23.509674338+01:00","base_branch":"main"}
+BEFORE tip=a0bb1eb30865bbdb527c2716e180d982d9eff830 previous=aed2f89de247517075f623e062bb726e50a44740
+refs/fm-keep/fm/keepref-live aed2f89de247517075f623e062bb726e50a44740
+refs/heads/fm/keepref-live a0bb1eb30865bbdb527c2716e180d982d9eff830
+teardown exit=0
+--- stdout ---
+🌳 Worktree returned to pool.
+teardown keepref-live complete (window fm-lab-keepref:fm-keepref-live, worktree {run-worktree}/.test-tmp/live/collision/pool/.treehouse/project-837ac1/1/project)
+Backlog: keepref-live just finished (config/backlog-backend selects manual editing). Update {run-worktree}/.test-tmp/live/collision/fm-lab.Ok2iJx/data/backlog.md - move keepref-live to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+--- stderr ---
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.test-tmp/live/collision/fm-lab.Ok2iJx
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision according to the session-start block for this harness; do not use shell &.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+teardown: reaping leaked worktree process group for keepref-live: 3895630
+--- persisted refs ---
+refs/fm-keep/fm/keepref-live aed2f89de247517075f623e062bb726e50a44740
+refs/fm-keep/fm/keepref-live-a0bb1eb3 a0bb1eb30865bbdb527c2716e180d982d9eff830
+--- pool ---
+[{"name":"1","path":"{run-worktree}/.test-tmp/live/collision/pool/.treehouse/project-837ac1/1/project","status":"available","branch":"","detached":true,"flavor":"git","lease_id":"","lease_holder":"","leased_at":null,"processes":[]}]

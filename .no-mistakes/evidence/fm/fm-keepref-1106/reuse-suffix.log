@@ -1,0 +1,28 @@
+{run-worktree}/.keepref-live/reuse-suffix/home
+warning: You appear to have cloned an empty repository.
+🌳 Setting up worktree...
+🌳 Leased worktree at {run-worktree}/.keepref-live/reuse-suffix/pool/.treehouse/project-1cbce9/1/project. Run 'treehouse return {run-worktree}/.keepref-live/reuse-suffix/pool/.treehouse/project-1cbce9/1/project' to release it.
+{"path":"{run-worktree}/.keepref-live/reuse-suffix/pool/.treehouse/project-1cbce9/1/project","lease_id":"7f0a856eaafbe37c16e1630c8268dd51","lease_holder":"","leased_at":"2026-11-06T16:29:40.971899049+01:00","base_branch":"main"}
+CASE=reuse-suffix TIP=86d44b9ce8e9f926c224a5796a497b194884fadd OTHER=35929d894567d36c812294fc149cca0a581c47f0
+BEFORE
+refs/fm-keep/fm/keepref-live 35929d894567d36c812294fc149cca0a581c47f0
+refs/fm-keep/fm/keepref-live-86d44b9c 86d44b9ce8e9f926c224a5796a497b194884fadd
+refs/heads/fm/keepref-live 86d44b9ce8e9f926c224a5796a497b194884fadd
+TEARDOWN_EXIT=0
+🌳 Worktree returned to pool.
+teardown keepref-live complete (window lab:fm-keepref-live, worktree {run-worktree}/.keepref-live/reuse-suffix/pool/.treehouse/project-1cbce9/1/project)
+Backlog: keepref-live just finished (config/backlog-backend selects manual editing). Update {run-worktree}/.keepref-live/reuse-suffix/home/data/backlog.md - move keepref-live to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.keepref-live/reuse-suffix/home
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 0s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+teardown: reaping leaked worktree process group for keepref-live: 969640
+AFTER
+refs/fm-keep/fm/keepref-live 35929d894567d36c812294fc149cca0a581c47f0
+refs/fm-keep/fm/keepref-live-86d44b9c 86d44b9ce8e9f926c224a5796a497b194884fadd
+[{"name":"1","path":"{run-worktree}/.keepref-live/reuse-suffix/pool/.treehouse/project-1cbce9/1/project","status":"available","branch":"","detached":true,"flavor":"git","lease_id":"","lease_holder":"","leased_at":null,"processes":[]}]
+Verified retention contract and task retirement for reuse-suffix
