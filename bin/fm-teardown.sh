@@ -4420,7 +4420,8 @@ teardown_drop_task_branch() {
      && [ "$(git -C "$wt" rev-parse --verify -q "$keep" 2>/dev/null)" != "$tip" ]; then
     keep="$keep-$(printf '%.8s' "$tip")"
   fi
-  if git -C "$wt" update-ref "$keep" "$tip" 2>/dev/null \
+  if { [ "$(git -C "$wt" rev-parse --verify -q "$keep" 2>/dev/null)" = "$tip" ] \
+       || git -C "$wt" update-ref "$keep" "$tip" "" 2>/dev/null; } \
      && [ "$(git -C "$wt" rev-parse --verify -q "$keep" 2>/dev/null)" = "$tip" ]; then
     git -C "$wt" branch -D -- "$branch" >/dev/null 2>&1 || true
   else

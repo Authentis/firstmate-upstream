@@ -4102,6 +4102,34 @@ test_teardown_suffixes_a_keep_ref_that_points_elsewhere() {
   pass "teardown suffixes a keep ref that already points elsewhere and still drops the branch"
 }
 
+# The retention contract forbids replacing either existing ref: two occupied
+# names must leave both old tips intact and retain the task branch instead.
+test_teardown_leaves_the_branch_when_both_keep_refs_are_occupied() {
+  local case_dir rc=0 tip other keep suffix
+  case_dir=$(make_case keepref-double-collision)
+  write_meta "$case_dir" no-mistakes ship
+  land_shippable_commit "$case_dir"
+  tip=$(git -C "$case_dir/wt" rev-parse HEAD)
+  other=$(git -C "$case_dir/project" rev-parse main)
+  git -C "$case_dir/origin.git" update-ref refs/heads/main "$tip"
+  git -C "$case_dir/project" fetch -q origin
+  keep=refs/fm-keep/fm/task-x1
+  suffix="$keep-${tip:0:8}"
+  git -C "$case_dir/project" update-ref "$keep" "$other"
+  git -C "$case_dir/project" update-ref "$suffix" "$other"
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+  expect_code 0 "$rc" "keepref-double-collision: teardown should still complete"$'\n'"$(cat "$case_dir/stderr")"
+  [ "$(git -C "$case_dir/project" rev-parse --verify -q "$keep")" = "$other" ] \
+    || fail "keepref-double-collision: the existing keep ref was changed"
+  [ "$(git -C "$case_dir/project" rev-parse --verify -q "$suffix")" = "$other" ] \
+    || fail "keepref-double-collision: the existing suffixed keep ref was changed"
+  [ "$(git -C "$case_dir/project" rev-parse --verify -q refs/heads/fm/task-x1)" = "$tip" ] \
+    || fail "keepref-double-collision: the task branch was not left at its tip"
+  [ "$(grep -c 'could not record a keep ref for branch fm/task-x1' "$case_dir/stderr")" = 1 ] \
+    || fail "keepref-double-collision: expected exactly one warning naming the branch"$'\n'"$(cat "$case_dir/stderr")"
+  pass "teardown preserves both occupied keep refs and leaves the branch with one warning"
+}
+
 test_teardown_leaves_the_branch_when_the_keep_ref_cannot_be_written() {
   local case_dir rc=0 tip
   case_dir=$(make_case keepref-unwritable)
@@ -6074,6 +6102,14 @@ test_record_only_lane_with_unverifiable_head_refuses() {
 }
 
 # Focused regression entry points; avoid running unrelated teardown cases.
+if [ "${1:-}" = --keepref ]; then
+  test_teardown_leaves_the_branch_when_both_keep_refs_are_occupied
+  test_teardown_keeps_a_ref_for_an_already_landed_branch
+  test_teardown_keepref_coexists_with_bundle_and_preserve_ref
+  test_teardown_suffixes_a_keep_ref_that_points_elsewhere
+  test_teardown_leaves_the_branch_when_the_keep_ref_cannot_be_written
+  exit 0
+fi
 if [ "${1:-}" = --gone-state ]; then
   test_invalid_pool_inventory_refuses_before_cleanup
   test_missing_pool_lease_uses_backup_without_returning_slot
@@ -6197,6 +6233,7 @@ test_fractional_legacy_retry_wait_refuses_without_arithmetic_error
 test_teardown_keeps_a_ref_for_an_already_landed_branch
 test_teardown_keepref_coexists_with_bundle_and_preserve_ref
 test_teardown_suffixes_a_keep_ref_that_points_elsewhere
+test_teardown_leaves_the_branch_when_both_keep_refs_are_occupied
 test_teardown_leaves_the_branch_when_the_keep_ref_cannot_be_written
 test_teardown_records_the_task_pipeline_spend
 test_teardown_skips_pipeline_spend_when_disabled
