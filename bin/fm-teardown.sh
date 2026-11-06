@@ -115,6 +115,16 @@
 # refs/heads/preserve/<branch> on origin (plain push, never forced; an existing
 # ref with different content refuses), re-runs the remote-reachability test, and
 # proceeds. See preserve_merged_lane_commits.
+# Before deleting a local task branch, teardown retains its tip locally at
+# refs/fm-keep/<branch>, independently of any bundle or origin preserve/ ref.
+# If that name points elsewhere, it tries refs/fm-keep/<branch>-<tip's first
+# eight hex digits> instead. Neither existing ref is overwritten: a candidate
+# already at the tip is reused, otherwise creation requires an absent ref.
+# If the chosen ref cannot be written and verified (including a suffix
+# collision), teardown leaves the branch and emits one warning naming it;
+# the rest of cleanup continues. This adds no keep ref for detached HEAD or
+# paths that do not delete a branch, such as gone-pool and record-only lanes.
+# tests/fm-teardown.test.sh --keepref pins retention and collision handling.
 # Uncommitted changes are never landed; dirty refusals distinguish untracked-only
 # leftovers from tracked edits and list at most ten non-exempt untracked paths.
 # local-only projects additionally accept work merged into the local default
@@ -4407,7 +4417,25 @@ fi
 # pruned code root. Best effort - a sweep failure never blocks this teardown.
 "$SCRIPT_DIR/fm-remote-job-reap-orphans.sh" >&2 || true
 
-# Best-effort: drop the local task branch so the shared repo does not accumulate refs.
+# The header owns branch retention; deletion requires a verified keep ref.
+teardown_drop_task_branch() {
+  local wt=$1 branch=$2 tip keep
+  tip=$(git -C "$wt" rev-parse --verify -q "refs/heads/$branch" 2>/dev/null) || return 0
+  keep="refs/fm-keep/$branch"
+  if git -C "$wt" rev-parse --verify -q "$keep" >/dev/null 2>&1 \
+     && [ "$(git -C "$wt" rev-parse --verify -q "$keep" 2>/dev/null)" != "$tip" ]; then
+    keep="$keep-$(printf '%.8s' "$tip")"
+  fi
+  if { [ "$(git -C "$wt" rev-parse --verify -q "$keep" 2>/dev/null)" = "$tip" ] \
+       || git -C "$wt" update-ref "$keep" "$tip" "" 2>/dev/null; } \
+     && [ "$(git -C "$wt" rev-parse --verify -q "$keep" 2>/dev/null)" = "$tip" ]; then
+    git -C "$wt" branch -D -- "$branch" >/dev/null 2>&1 || true
+  else
+    echo "warning: could not record a keep ref for branch $branch; leaving the branch in place" >&2
+  fi
+}
+
+# Best-effort: retire the task branch name under the header's retention contract.
 if [ "$BACKEND" = orca ] && [ "$KIND" != secondmate ]; then
   if [ "$ORCA_PATH_MATCH_VERIFIED" != 1 ]; then
     require_orca_worktree_path_match_if_present "$ORCA_WORKTREE_ID" "$WT" || exit 1
@@ -4417,7 +4445,7 @@ if [ "$BACKEND" = orca ] && [ "$KIND" != secondmate ]; then
     branch=$(git -C "$WT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo HEAD)
     if [ "$branch" != "HEAD" ]; then
       if git -C "$WT" checkout --detach -q 2>/dev/null; then
-        git -C "$WT" branch -D "$branch" >/dev/null 2>&1 || true
+        teardown_drop_task_branch "$WT" "$branch"
       fi
     fi
     rm -f "$WT/.claude/settings.local.json" "$WT/.opencode/plugins/fm-turn-end.js" \
@@ -4443,7 +4471,7 @@ elif [ -d "$WT" ] && [ "$KIND" != secondmate ] && [ "$TEARDOWN_RECORD_ONLY" != 1
   fi
   if [ "$branch" != "HEAD" ]; then
     if git -C "$WT" checkout --detach -q 2>/dev/null; then
-      git -C "$WT" branch -D "$branch" >/dev/null 2>&1 || true
+      teardown_drop_task_branch "$WT" "$branch"
     fi
   fi
   # Remove our hook file so a reused pool worktree cannot fire signals for a dead task.
