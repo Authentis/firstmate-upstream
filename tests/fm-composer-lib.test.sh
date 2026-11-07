@@ -1387,6 +1387,38 @@ test_matrix_opencode_leftbar_abs_cwd_furniture() {
   pass "matrix: opencode's absolute cwd rail on a wide pane reads empty busy and idle; typed text stays pending"
 }
 
+test_matrix_opencode_leftbar_status_row_under_floor() {
+  # OpenCode 1.19.5 worker pane captured read-only on 2026-10-31 through the
+  # Herdr adapter's styled capture, sanitized with equal visible widths. Under
+  # the half-block floor 1.19 draws its own status row: the working directory,
+  # the "ctrl+p commands" hint, then the "• OpenCode <version>" tag. That row is
+  # furniture, so the idle composer reads empty; any other row under the floor
+  # still means the envelope is stale.
+  local fixture idle plain typed busy tool
+  fixture="$ROOT/tests/fixtures/opencode-1.19.5-status-row/opencode-1.19.5-idle-status-row.ansi"
+  idle=$(<"$fixture")
+  plain=$(printf '%s\n' "$idle" | sed $'s/\x1b\\[[0-9;]*m//g')
+  assert_screen "opencode 1.19.5 idle status row under the floor on herdr" empty "$CAPS_STYLED" "$idle" '' "$(printf 'opencode\tidle')"
+  assert_screen "opencode 1.19.5 status row without a native identity stays unproven" unknown "$CAPS_PLAIN" "$plain"
+  # text typed at the rail stays pending
+  typed=$(printf '%s\n' "$idle" | sed '3s/┃\(\x1b\[[0-9;]*m\)*  /&Reply with OK./')
+  assert_screen "opencode 1.19.5 typed text above the status row is never empty" unknown "$CAPS_STYLED" "$typed" '' "$(printf 'opencode\tidle')"
+  # a tool-output rail row above the composer stays pending, the safe direction
+  tool=$(printf '%s\n' "$idle" | sed '4s/┃\(\x1b\[[0-9;]*m\)*  /&$ find . -name x.py/')
+  assert_screen "opencode 1.19.5 rail row with text stays pending" pending "$CAPS_STYLED" "$tool" '' "$(printf 'opencode\tidle')"
+  # a busy line under the floor is not the status row and still vetoes the envelope
+  busy=$(printf '%s\n' "$plain" | sed '8s/.*/   Working on request.../')
+  assert_screen "opencode 1.19.5 unrelated row under the floor is not furniture" unknown "$CAPS_STYLED" "$busy" '' "$(printf 'opencode\tidle')"
+  # a live row below the status row still vetoes the envelope
+  busy=$(printf '%s\n' "$plain" | sed '9s/.*/Working on request.../')
+  assert_screen "opencode 1.19.5 activity below the status row is not empty" unknown "$CAPS_STYLED" "$busy" '' "$(printf 'opencode\tidle')"
+  # a status-looking row without the floor above it is not skipped
+  busy=$(printf '%s\n' "$plain" | sed '7d')
+  [ "$(fm_composer_classify_screen "$CAPS_PLAIN" "$busy")" != empty ] \
+    || fail "a status row with no floor above it must not read empty"
+  pass "matrix: opencode 1.19.5's status row under the floor is furniture; text and other rows are not"
+}
+
 test_matrix_grok_titled_bottom_border() {
   # Grok 1.0.5 widened its titled BOTTOM border three columns past the top and
   # content rows. This is the idle capture from issue #3436; Herdr has no
@@ -1777,6 +1809,7 @@ test_matrix_opencode_wrapped_label
 test_opencode_keybind_hint_below_floor
 test_matrix_opencode_leftbar_cwd_furniture
 test_matrix_opencode_leftbar_abs_cwd_furniture
+test_matrix_opencode_leftbar_status_row_under_floor
 test_matrix_grok_titled_bottom_border
 test_matrix_claude_titled_top_rule
 test_matrix_live_idle_prompts_read_cursorless

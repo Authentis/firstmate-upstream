@@ -1909,6 +1909,15 @@ _fm_composer_leftbar_floor_row() {  # <trimmed-row>
   [ -z "${blocks//▀/}" ]
 }
 
+# _fm_composer_leftbar_status_row: 0 when <trimmed-row> is opencode 1.19's own
+# status row under the composer floor: the working directory first, the
+# `ctrl+p commands` hint, then the `• OpenCode <version>` tag last.
+_fm_composer_leftbar_status_row() {  # <trimmed-row>
+  local row=$1
+  local re='^[/~][^[:space:]]*[[:space:]]+([0-9.]+[KMkm]?[[:space:]]+\([0-9]+%\)[[:space:]]+)?ctrl\+p commands[[:space:]]+• OpenCode [0-9][0-9.]*$'
+  [[ $row =~ $re ]]
+}
+
 # _fm_composer_row_is_composer_furniture: 0 when <trimmed-row> is DEMONSTRABLY
 # a harness's own furniture drawn below its composer, given <proof-glyph> - the
 # agent glyph that proved the envelope above it. Exactly four things qualify,
@@ -2299,6 +2308,16 @@ _fm_composer_select_cursorless() {
     raw=$(_fm_composer_screen_row "$next" "$plain")
     trimmed=$raw
     fm_composer_normalize_trim_var trimmed
+    # opencode 1.19 draws its own status row directly under the half-block
+    # floor; once that floor closed the envelope the row is furniture, not a
+    # lower live shape.
+    if [ "$FM_COMPOSER_SELECTED_KIND" = leftbar ] \
+       && [ "$boundary" -gt "$FM_COMPOSER_SELECTED_LAST" ] \
+       && _fm_composer_leftbar_status_row "$trimmed"; then
+      raw=$(_fm_composer_screen_row "$((next + 1))" "$plain")
+      trimmed=$raw
+      fm_composer_normalize_trim_var trimmed
+    fi
     if [ -n "$trimmed" ] && ! fm_composer_row_has_edge "$trimmed"; then
       FM_COMPOSER_SELECTED_KIND=
       return 1

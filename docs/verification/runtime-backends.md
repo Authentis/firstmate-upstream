@@ -2739,3 +2739,24 @@ Because that shape carries no registered busy signature, the send guard refuses 
 Claude Code 2.1.296 idle and draft screens read `empty` and `pending` on both the cursor and cursorless paths, and a live ring through `fm_backend_send_text_submit` on tmux submitted the doorbell rather than leaving a draft.
 The Herdr-side Claude draft observed on bosgame was not reproduced without a Herdr lab.
 Portable regressions: `bin/fm-test-run.sh tests/fm-composer-lib.test.sh` and `tests/fm-send-screen-guard.test.sh`.
+
+### 2026-10-31 opencode 1.19.5 status row under the left-bar composer floor
+
+Verified on 2026-10-31 on Linux (netcup) against opencode 1.19.5 read through `fm_tmux_composer_state`.
+Opencode 1.19.x draws a status row directly under the composer's floor row, carrying the working directory, the context usage, `ctrl+p commands`, and the `• OpenCode <version>` banner.
+`_fm_composer_select_cursorless` treated any non-blank row below the floor that has no box edge as proof the envelope was stale, so an idle composer read `unknown` and every doorbell steer and restart on such a pane was refused.
+`_fm_composer_leftbar_status_row` now recognizes exactly that row, and only directly below a left-bar floor, and the selection ignores it.
+Any other text under the floor still makes the envelope stale.
+The portable regression is `test_matrix_opencode_leftbar_status_row_under_floor` in `tests/fm-composer-lib.test.sh`, using the sanitized capture in `tests/fixtures/opencode-1.19.5-status-row/`.
+The live guard is `tests/fm-composer-matrix-live-e2e.test.sh`:
+
+```sh
+FM_COMPOSER_MATRIX_LIVE=1 tests/fm-composer-matrix-live-e2e.test.sh
+```
+
+```text
+ok - opencode (1.19.5): real idle composer classifies empty
+ok - opencode (1.19.5): the same idle pane read cursorless is not pending (verdict: unknown)
+```
+
+The same run reported `pi`, `kimi`, and `muse` failing to reach `empty` in this scratch folder on their first-run trust dialogs, which is environmental and unrelated to this change.
