@@ -1,0 +1,6 @@
+kind=ship
+mode=no-mistakes
+pr=https://gitlab.example.invalid/group/project/-/merge_requests/1
+pr_head=0123456789abcdef0123456789abcdef01234567
+spawn_gen=3
+pr=https://gitlab.example.invalid/group/project/-/merge_requests/1

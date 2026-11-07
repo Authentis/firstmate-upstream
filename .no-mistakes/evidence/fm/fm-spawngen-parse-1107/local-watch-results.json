@@ -1,0 +1,46 @@
+[
+  {
+    "scenario": "control",
+    "metadata": "kind=ship\nmode=no-mistakes\npr=https://gitlab.example.invalid/group/project/-/merge_requests/1\npr_head=0123456789abcdef0123456789abcdef01234567\n",
+    "expected": "authenticated poll remains accepted without false rejection wake",
+    "observed_check_cycle": true,
+    "running_after_cycle": true,
+    "watcher_exit": -15,
+    "stdout": "",
+    "stderr": "",
+    "result": "pass"
+  },
+  {
+    "scenario": "spawn-gen",
+    "metadata": "kind=ship\nmode=no-mistakes\npr=https://gitlab.example.invalid/group/project/-/merge_requests/1\npr_head=0123456789abcdef0123456789abcdef01234567\nspawn_gen=3\n",
+    "expected": "authenticated poll remains accepted without false rejection wake",
+    "observed_check_cycle": true,
+    "running_after_cycle": true,
+    "watcher_exit": -15,
+    "stdout": "",
+    "stderr": "",
+    "result": "pass"
+  },
+  {
+    "scenario": "unknown-tail",
+    "metadata": "kind=ship\nmode=no-mistakes\npr=https://gitlab.example.invalid/group/project/-/merge_requests/1\npr_head=0123456789abcdef0123456789abcdef01234567\nspawn_gen=3\nevil=1\n",
+    "expected": "reject unsafe poll and surface rejection wake",
+    "observed_check_cycle": false,
+    "running_after_cycle": false,
+    "watcher_exit": 0,
+    "stdout": "check: rejected unauthenticated state checks: {run-worktree}/.fm-spawn-gen-live/state/task-a.check.sh\n",
+    "stderr": "",
+    "result": "pass"
+  },
+  {
+    "scenario": "duplicate-pr",
+    "metadata": "kind=ship\nmode=no-mistakes\npr=https://gitlab.example.invalid/group/project/-/merge_requests/1\npr_head=0123456789abcdef0123456789abcdef01234567\nspawn_gen=3\npr=https://gitlab.example.invalid/group/project/-/merge_requests/1\n",
+    "expected": "reject unsafe poll and surface rejection wake",
+    "observed_check_cycle": false,
+    "running_after_cycle": false,
+    "watcher_exit": 0,
+    "stdout": "check: rejected unauthenticated state checks: {run-worktree}/.fm-spawn-gen-live/state/task-a.check.sh\n",
+    "stderr": "",
+    "result": "pass"
+  }
+]

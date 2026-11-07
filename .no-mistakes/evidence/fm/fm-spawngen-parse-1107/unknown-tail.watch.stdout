@@ -1,0 +1,1 @@
+check: rejected unauthenticated state checks: {run-worktree}/.fm-spawn-gen-live/state/task-a.check.sh

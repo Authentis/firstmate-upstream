@@ -1,0 +1,2 @@
+base parser: exit=1 identity=https://github.com/a/b/pull/1
+target parser: exit=0 identity=https://github.com/a/b/pull/1
