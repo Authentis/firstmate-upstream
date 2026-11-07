@@ -581,6 +581,24 @@ EOF
   pass "raw-byte parser accepts canonical URLs and rejects the complete adversarial matrix"
 }
 
+# A relaunched task's meta carries spawn_gen after pr_head; that is accepted,
+# while a tampered tail (unknown key or a second pr=) is still refused.
+test_metadata_identity_accepts_spawn_gen() {
+  local dir meta url=https://github.com/a/b/pull/1 head=0123456789abcdef0123456789abcdef01234567
+  dir=$(make_case meta-spawn-gen)
+  meta="$dir/meta"
+  printf 'pr=%s\npr_head=%s\n' "$url" "$head" > "$meta"
+  fm_pr_metadata_identity_parse "$meta" || fail "control meta ending at pr_head was refused"
+  printf 'pr=%s\npr_head=%s\nspawn_gen=3\n' "$url" "$head" > "$meta"
+  fm_pr_metadata_identity_parse "$meta" || fail "meta with spawn_gen after pr_head was refused"
+  [ "$FM_PR_META_URL" = "$url" ] || fail "spawn_gen meta lost the PR identity"
+  printf 'pr=%s\npr_head=%s\nspawn_gen=3\nevil=1\n' "$url" "$head" > "$meta"
+  ! fm_pr_metadata_identity_parse "$meta" || fail "unknown key after pr_head was accepted"
+  printf 'pr=%s\npr_head=%s\nspawn_gen=3\npr=%s\n' "$url" "$head" "$url" > "$meta"
+  ! fm_pr_metadata_identity_parse "$meta" || fail "second pr= was accepted"
+  pass "metadata identity accepts spawn_gen after pr_head and refuses tampered tails"
+}
+
 test_invalid_entrypoints_have_zero_side_effects() {
   local dir before after value rc
   dir=$(make_case invalid-entrypoints)
@@ -3623,6 +3641,7 @@ SH
 }
 
 test_parser_matrix
+test_metadata_identity_accepts_spawn_gen
 test_gitlab_merge_watch
 test_forgejo_merge_watch
 test_forgejo_login_list_shapes
