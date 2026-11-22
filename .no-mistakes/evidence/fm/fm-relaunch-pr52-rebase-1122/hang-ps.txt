@@ -1,0 +1,12 @@
+      1       0 S    bash .live-validation/live.sh
+     23       1 Ss   tmux -L fm-lab new-session -d -s primary -x 120 -y 35 -c {run-worktree} -e FM_HOME={run-worktree}/.l claude
+     24      23 Ssl+ claude
+   4355       1 Ts   tmux -S {run-worktree}/.l/other.sock new-session -d -s foreign -n unrelated -x 120 -y 35 -c {run-worktree}/.l claude --append-system-prompt 'Task liveproof; remain idle and do not run tools.'
+   4356    4355 Zs   [claude] <defunct>
+   4648    4355 Ss+  sleep 300
+   4651       1 S    bash .live-validation/live.sh
+   4652    4651 S    bash {run-worktree}/bin/fm-control.sh liveproof relaunch --note Must refuse unreadable evidence.
+   4767    4652 S    bash {run-worktree}/bin/fm-control.sh liveproof relaunch --note Must refuse unreadable evidence.
+   4776    4767 S    bash {run-worktree}/bin/fm-control.sh liveproof relaunch --note Must refuse unreadable evidence.
+   4779    4776 S    bash {run-worktree}/bin/fm-control.sh liveproof relaunch --note Must refuse unreadable evidence.
+   4904       0 R    ps -A -o pid= -o ppid= -o stat= -o args=

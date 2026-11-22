@@ -1,0 +1,109 @@
+{run-worktree}/.l
+Existing real Claude login available in copy-on-write lab: True
+
+=== Destroyed server: exit must prove endpoint-gone ===
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.l
+endpoint-gone liveproof harness=claude backend=tmux endpoint=vanished:fm-liveproof worktree={run-worktree}/.l/task
+
+=== Destroyed server: relaunch must create one replacement and preserve work ===
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.l
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.l
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e {run-worktree}/.pi/extensions/fm-primary-turnend-guard.ts -e {run-worktree}/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+warning: {run-worktree}/.l/data/liveproof/launch-brief.md records no ship branch; relaunching on the task's recorded branch task
+warning: {run-worktree}/.l/data/liveproof/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+notice: liveproof ships branch=task while project registers the ship-branch prefix 'fm/' (branch fm/liveproof) - the task's branch and PR will read as firstmate-authored; proceed only on a current explicit captain instruction or an intake judgment you can state
+relaunched liveproof harness=claude from=claude model=default effort=default backend=tmux endpoint=primary:fm-liveproof worktree={run-worktree}/.l/task
+relaunch exit=0
+window=primary:fm-liveproof
+endpoint_task_id=liveproof
+worktree={run-worktree}/.l/task
+project={run-worktree}/.l/project
+harness=claude
+kind=ship
+mode=no-mistakes
+yolo=off
+branch=task
+tasktmp=/tmp/fm-liveproof
+model=default
+effort=default
+busy_gen=g1795336525.1111.21608
+spawn_gen=s1795336525.442.17306
+control_relaunch_tx=237.20261122T083523Z.1514
+v1
+task=liveproof
+phase=complete
+ts=2026-11-22T08:35:27Z
+backend=tmux
+endpoint=primary:fm-liveproof
+worktree={run-worktree}/.l/task
+kind=ship
+from_harness=claude
+from_model=default
+from_effort=default
+to_harness=claude
+to_model=default
+to_effort=default
+worktree_head=ae5e7e55f30ac4be9ee0eee23677da9a2ae2ef29
+worktree_dirty=yes
+note_file={run-worktree}/.l/state/liveproof.control-relaunch.note
+exit_result=endpoint-gone
+original status sentinel
+primary:claude claude {run-worktree}
+primary:fm-liveproof claude {run-worktree}/.l/task
+
+Replacement alive, recorded worktree and unfinished bytes preserved.
+
+=== Destroyed window on surviving server: reclaim once ===
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.l
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.l
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+warning: {run-worktree}/.l/data/liveproof/launch-brief.md records no ship branch; relaunching on the task's recorded branch task
+warning: {run-worktree}/.l/data/liveproof/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+notice: liveproof ships branch=task while project registers the ship-branch prefix 'fm/' (branch fm/liveproof) - the task's branch and PR will read as firstmate-authored; proceed only on a current explicit captain instruction or an intake judgment you can state
+relaunched liveproof harness=claude from=claude model=default effort=default backend=tmux endpoint=primary:fm-liveproof worktree={run-worktree}/.l/task
+original status sentinel
+Replacement CLI remains alive after six-second startup settling.
+One replacement; same HEAD, branch, worktree, status, unfinished bytes.
+
+=== Matching task on another real server: refuse, do not duplicate ===
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.l
+error: task liveproof's endpoint primary:fm-liveproof reads 'missing', but the tmux server at {run-worktree}/.l/other.sock still has a window named fm-liveproof, so the task's window may still be alive on a tmux server this process does not address; exit will not claim an agent stopped at an address it cannot trust, nor send lifecycle input to one
+error: relaunch of liveproof failed while stopping the old agent and its state is 'missing', so it was not proven stopped; its original instructions were restored and the durable record was retained for recovery
+exit=1
+Refusal preserved metadata, instructions and unfinished bytes.
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.l
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+error: task liveproof's recorded endpoint primary:fm-liveproof reads 'missing', but the tmux server at {run-worktree}/.l/other.sock still has a window named fm-liveproof, so the task's window may still be alive on a tmux server this process does not address. An endpoint that cannot be proven absent may still hold a live agent on this task's worktree; refusing rather than launching a second agent into it
+exit=1
+Refusal preserved metadata, instructions and unfinished bytes.
+
+=== Renamed foreign pane remains in worktree: refuse by pane path ===
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.l
+error: task liveproof's endpoint primary:fm-liveproof reads 'missing', but the tmux server at {run-worktree}/.l/other.sock still has a pane (window unrelated) working in the recorded worktree {run-worktree}/.l/task, so the task's window may still be alive on a tmux server this process does not address; exit will not claim an agent stopped at an address it cannot trust, nor send lifecycle input to one
+error: relaunch of liveproof failed while stopping the old agent and its state is 'missing', so it was not proven stopped; its original instructions were restored and the durable record was retained for recovery
+exit=1
+Refusal preserved metadata, instructions and unfinished bytes.
+
+=== Renamed real CLI outside worktree still names task: refuse by process arguments ===
+unrelated {run-worktree}/.l claude
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.l
+error: task liveproof's endpoint primary:fm-liveproof reads 'missing', but process 4422 names the task in its arguments, so the task's window may still be alive on a tmux server this process does not address; exit will not claim an agent stopped at an address it cannot trust, nor send lifecycle input to one
+error: relaunch of liveproof failed while stopping the old agent and its state is 'missing', so it was not proven stopped; its original instructions were restored and the durable record was retained for recovery
+exit=1
+Refusal preserved metadata, instructions and unfinished bytes.
+
+=== Ambiguous unresponsive server: bounded refusal, no mutation ===
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.l
+error: task liveproof's endpoint primary:fm-liveproof reads 'missing', but the tmux server at {run-worktree}/.l/other.sock did not answer within the 5s deadline, so the task's window may still be alive on a tmux server this process does not address; exit will not claim an agent stopped at an address it cannot trust, nor send lifecycle input to one
+error: relaunch of liveproof failed while stopping the old agent and its state is 'missing', so it was not proven stopped; its original instructions were restored and the durable record was retained for recovery
+exit=1
+Refusal preserved metadata, instructions and unfinished bytes.
+Refusal elapsed seconds=5 (budget 5 plus command overhead)
+
+ALL LIVE SCENARIOS PASSED

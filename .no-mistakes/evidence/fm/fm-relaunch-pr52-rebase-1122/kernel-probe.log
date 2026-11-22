@@ -1,0 +1,12 @@
+{run-worktree}/.l
+Sockets discovered from real kernel:
+/tmp/tmux-1000/default
+dedicated.sock
+{run-worktree}/.l/tmux/tmux-1000/fm-lab
+
+No matching task:
+bin/fm-control-lib.sh: line 525: fm_backend_source: command not found
+unproven	backend 'tmux' could not be loaded to prove anything about that endpoint
+Matching window on a private server:
+bin/fm-control-lib.sh: line 525: fm_backend_source: command not found
+unproven	backend 'tmux' could not be loaded to prove anything about that endpoint

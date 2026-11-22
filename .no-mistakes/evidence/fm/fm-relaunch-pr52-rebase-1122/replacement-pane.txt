@@ -1,0 +1,35 @@
+holu@387548:{run-worktree}/.l/task$ cd -- '~/.no-mis
+takes/worktrees/c9e23aecc4aa/01M813G90ZZFBTZENSQ77EDC2M/.l/task'
+holu@387548:{run-worktree}/.l/task$ export GOTMPDIR=/tmp/fm-l
+iveproof/gotmp
+holu@387548:{run-worktree}/.l/task$ export COMPACT_ADVISER_DI
+SABLE=1
+holu@387548:{run-worktree}/.l/task$ export FM_TASK_ID=livepro
+of
+holu@387548:{run-worktree}/.l/task$ . '/tmp/fm-liveproof+40f2
+c1c44aeeb695671220ae5b3c517987cedbb8e496966989d858e4be6aab3c/launch.s1795336528.2078.28245.sh'
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ Adding a new directory:
+
+ {run-worktree}/.l/state/operational-inbox
+
+ This directory is part of the repository at ~/.no-mistakes/repos/c9e23aecc4aa.git. Trusting it trusts that
+ whole repository, including its other worktrees and subdirectories.
+
+ This session hasn't worked here before. Is this a directory you created or one you trust?
+
+ Claude Code'll be able to read, edit, and execute files here. Its skills, commands, and agents load and can run
+ commands, and so can the git settings of its repository. Your answer holds for this session. Starting Claude Code in
+ this directory and trusting it there lasts, and covers its whole repository or everything below it.
+
+ Security guide
+
+ ❯ No, exit
+   Yes, add it
+
+ Enter to confirm · Esc to cancel
+
+
+
+

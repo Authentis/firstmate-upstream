@@ -1,0 +1,6 @@
+      1       0 bash .live-validation/live.sh --inner
+     14       1 tmux -L fm-lab new-session -d -s primary -x 120 -y 35 -c {run-worktree} -e FM_HOME={run-worktree}/.l claude
+     15      14 claude
+   4422       1 tmux -S {run-worktree}/.l/other.sock new-session -d -s foreign -n unrelated -x 120 -y 35 -c {run-worktree}/.l claude --append-system-prompt 'Task liveproof; remain idle and do not run tools.'
+   4423    4422 claude --append-system-prompt Task liveproof; remain idle and do not run tools.
+   4430       1 ps -A -o pid= -o ppid= -o args=
