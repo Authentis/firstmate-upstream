@@ -14,8 +14,8 @@
 #
 # This file owns three capability tables plus their pure artifact-path tables,
 # and TWO named exceptions to that purity - fm_control_endpoint_absence_verdict,
-# the single owner of the per-backend endpoint-absence proof (with its
-# read-only process-table helper fm_control_task_process_evidence), and
+# the single owner of the per-backend endpoint-absence proof (with its tmux
+# server enumeration and read-only task-process evidence helpers), and
 # fm_control_clear_draft, the single owner of the verified composer-draft clear
 # (with its checkpoint-picker helpers fm_control_overlay_open and
 # fm_control_dismiss_overlay); both run backend commands. Everything else has no side effects, runs no
@@ -502,68 +502,35 @@ fm_control_backend_state_verified() {  # <backend>
 # re-creating the endpoint - must come through here rather than trusting the
 # raw verdict.
 #
-# Whether absence is provable, and from what, is a property of the backend:
-#   herdr proves it from the endpoint itself. Every read goes through
-#     fm_backend_herdr_cli, which passes `--session <session>`, so the recheck
-#     starts and reads the session the RECORD names, through that session's own
-#     socket. The answer is about the task's endpoint and nothing else.
-#   tmux cannot prove it from the endpoint, because a task record carries no
-#     socket identity: `list-windows -a` describes only the server the CURRENT
-#     process addresses, so a window absent from it may be alive on another.
-#     It proves it from the AGENT instead. Wherever that window lives, an agent
-#     working this task is a process in this machine's process table, either
-#     named by the task (its id or its fm-<id> lane) or sitting in or naming
-#     the recorded worktree. So tmux answers `gone` only when ALL of these
-#     hold, and `unproven` on any ambiguity or unexcused unreadable read
-#     (the process-evidence helper below owns the exclusions and exceptions):
-#       - this server's whole window inventory was read (a server that
-#         definitively does not exist reads as an empty one) and neither the
-#         recorded window nor any window of the same name is in it;
-#       - fm_backend_agent_alive reads the recorded endpoint as not alive;
-#       - fm_control_task_process_evidence finds no process naming the task or
-#         the worktree, and none whose current directory is in the worktree.
-#     <task-id> and <worktree> are therefore required for tmux; without them
-#     the verdict stays `unproven`.
+# Whether absence is provable AT ALL is a property of the backend, not of the
+# reading:
+#   herdr CAN prove it. Every read goes through fm_backend_herdr_cli, which
+#     passes `--session <session>`, so the recheck starts and reads the session
+#     the RECORD names, through that session's own socket. The answer is about
+#     the task's endpoint and nothing else.
+#   tmux cannot prove it through the ONE server this process addresses:
+#     `list-windows -a` describes only the server its TMUX_TMPDIR/socket names,
+#     and a task's record does not carry the endpoint's socket identity - so a
+#     different but running server would answer "not anywhere" about a window
+#     it was never able to see. fm_control_tmux_absence closes that gap with
+#     endpoint identity on EVERY server instead: it enumerates each live tmux
+#     server of this user from the kernel and asks each one directly whether
+#     any pane still sits in the task's window or in its worktree. It then
+#     checks task-process evidence; fm_control_tmux_absence owns both gates.
 #
 # Both control-plane callers share this one implementation so the proof cannot
 # drift into two answers for the same endpoint.
 fm_control_endpoint_absence_verdict() {  # <backend> <target> [<task-id> <worktree>]
-  local backend=${1-} target=${2-} id=${3-} wt=${4-} inventory window evidence
+  local backend=${1-} target=${2-} id=${3-} wt=${4-} reason
   fm_backend_source "$backend" \
     || { printf 'unproven\tbackend %s could not be loaded to prove anything about that endpoint' "'$backend'"; return 0; }
   case "$backend" in
     tmux)
-      [ -n "$id" ] && [ -n "$wt" ] || {
-        printf 'unproven\tthe caller named no task id and worktree, so no process evidence could stand in for the socket identity a tmux task record does not carry'
-        return 0
-      }
-      case "$target" in
-        *:*:*|'':*|*:'') printf 'unproven\tthe recorded tmux endpoint %s is not a session:window address' "'$target'"; return 0 ;;
-        *:*) window=${target#*:} ;;
-        *) printf 'unproven\tthe recorded tmux endpoint %s is not a session:window address' "'$target'"; return 0 ;;
-      esac
-      if ! inventory=$(LC_ALL=C tmux list-windows -a -F '#{session_name}:#{window_name}' 2>&1); then
-        case "$inventory" in
-          *"no server running on "*|*"error connecting to "*" (No such file or directory)"|*"error connecting to "*" (Connection refused)") inventory= ;;
-          *) printf 'unproven\tthe window inventory of the tmux server this process addresses could not be read'; return 0 ;;
-        esac
-      fi
-      if printf '%s\n' "$inventory" | awk -v t="$target" -v w="$window" '
-          $0 == t { found = 1 }
-          { i = index($0, ":"); if (i && substr($0, i + 1) == w) found = 1 }
-          END { exit !found }'; then
-        printf 'unproven\ta window named %s is still in the window inventory of the tmux server this process addresses' "'$window'"
-        return 0
-      fi
-      case "$(fm_backend_agent_alive tmux "$target")" in
-        dead) ;;
-        *) printf 'unproven\tthe recorded endpoint no longer reads as agent-free'; return 0 ;;
-      esac
-      evidence=$(fm_control_task_process_evidence "$id" "$wt")
-      case "${evidence%%$'\t'*}" in
-        none) printf 'gone\t%s' "${evidence#*$'\t'}" ;;
-        match) printf 'unproven\t%s, so its agent may still be running in a tmux window this process cannot address' "${evidence#*$'\t'}" ;;
-        *) printf 'unproven\t%s' "${evidence#*$'\t'}" ;;
+      reason=$(fm_control_tmux_absence "$target" "$id" "$wt")
+      case "$reason" in
+        proven$'\t'*) printf 'gone\t' ;;
+        '') printf 'unproven\tthe absence proof returned no proven token and no refusal reason, so the task'"'"'s window may still be alive on a tmux server this process does not address' ;;
+        *) printf 'unproven\t%s, so the task'"'"'s window may still be alive on a tmux server this process does not address' "$reason" ;;
       esac
       ;;
     herdr)
@@ -580,6 +547,118 @@ fm_control_endpoint_absence_verdict() {  # <backend> <target> [<task-id> <worktr
     *)
       printf 'unproven\tbackend %s has no recovery-grade classifier, so absence cannot be proven on it at all' "'$backend'"
       ;;
+  esac
+}
+
+# fm_control_tmux_absence: the tmux half of the endpoint-absence proof. Prints
+# a `proven` token followed by a TAB and explanation when absence is PROVEN,
+# otherwise the one concrete reason it is not. The caller trusts only that token: empty or
+# unparsable output refuses.
+#
+# Proof by endpoint identity across every server, not by the server this
+# process happens to address:
+#   1. fm_control_tmux_server_sockets enumerates every live tmux server of this
+#      user from the kernel and resolves each one's listening socket.
+#   2. Each socket is asked directly, with `tmux -S`, for every pane it holds.
+#   3. A pane in a window named like the recorded one (the spawn pins that name,
+#      so it survives the agent or its shell changing directory), or a pane
+#      whose current path is at or below the recorded worktree, means the task
+#      may still be alive there.
+# After every server answers with neither, fm_control_task_process_evidence
+# must also report none: a renamed window whose pane left the worktree can
+# still hold an agent naming the task in its arguments.
+# Every gap is a reason: no /proc, an unreadable process record, a server whose
+# socket cannot be resolved, a query that fails, or no `timeout` to bound it.
+# Server enumeration and queries share FM_CONTROL_ABSENCE_DEADLINE seconds
+# (default 10); the subsequent process-table check is not timeout-bounded.
+# Hosts without /proc (such as macOS) therefore always refuse.
+fm_control_tmux_absence() {  # <target> <task-id> <worktree>
+  local target=${1-} id=${2-} wt=${3-} wname real_wt deadline started sockets sock panes rc remaining name path evidence query_file
+  local tab=$'\t'
+  wname=${target#*:}
+  if [ -z "$wname" ] || [ "$wname" = "$target" ]; then
+    printf 'the recorded endpoint %s names no tmux window' "$target"
+    return 0
+  fi
+  if [ -z "$wt" ]; then
+    printf 'no recorded worktree was supplied to check the panes against'
+    return 0
+  fi
+  real_wt=$(cd "$wt" 2>/dev/null && pwd -P) || real_wt=$wt
+  deadline=${FM_CONTROL_ABSENCE_DEADLINE:-10}
+  case "$deadline" in ''|*[!0-9]*|0) deadline=10 ;; esac
+  command -v timeout >/dev/null 2>&1 || {
+    printf 'the timeout command is unavailable, so the tmux server reads cannot be bounded'
+    return 0
+  }
+  started=$SECONDS
+  if ! sockets=$(fm_control_tmux_server_sockets "$started" "$deadline"); then
+    printf '%s' "$sockets"
+    return 0
+  fi
+  while IFS= read -r sock; do
+    [ -n "$sock" ] || continue
+    remaining=$((deadline - (SECONDS - started)))
+    if [ "$remaining" -le 0 ]; then
+      printf 'checking every tmux server exceeded the %ss deadline' "$deadline"
+      return 0
+    fi
+    # Tmux sends its client's stdio descriptors to the server. A stopped
+    # server can retain a command-substitution pipe even after timeout kills
+    # the client, leaving Bash waiting for EOF past the deadline. Capture into
+    # a private regular file instead; completion then depends only on the
+    # bounded client, never on the server closing a received descriptor.
+    query_file=$(mktemp "${TMPDIR:-/tmp}/fm-tmux-absence.XXXXXX" 2>/dev/null) || {
+      printf 'a private file for the bounded tmux server read could not be created'
+      return 0
+    }
+    rc=0
+    timeout "$remaining" tmux -S "$sock" list-panes -a -F "#{window_name}${tab}#{pane_current_path}" > "$query_file" 2>/dev/null || rc=$?
+    if [ "$rc" -eq 0 ]; then
+      panes=$(cat "$query_file") || rc=1
+    fi
+    rm -f "$query_file"
+    if [ "$rc" -eq 124 ]; then
+      printf 'the tmux server at %s did not answer within the %ss deadline' "$sock" "$deadline"
+      return 0
+    elif [ "$rc" -ne 0 ]; then
+      printf 'the tmux server at %s could not be read (exit %s)' "$sock" "$rc"
+      return 0
+    fi
+    while IFS= read -r line; do
+      # Split on the first TAB by hand: a leading TAB (an empty window name)
+      # is stripped by IFS splitting and would misattribute the pane path,
+      # so read the whole record and divide it explicitly. A bare empty line
+      # is the loop's own heredoc terminator on an empty answer, not a pane.
+      [ -n "$line" ] || continue
+      case "$line" in
+        *"$tab"*) name=${line%%"$tab"*}; path=${line#*"$tab"} ;;
+        *) printf 'the tmux server at %s returned a pane record with no window and path fields' "$sock"; return 0 ;;
+      esac
+      if [ -z "$name" ] || [ -z "$path" ]; then
+        printf 'the tmux server at %s returned a pane with no name or no path, which is not clear' "$sock"
+        return 0
+      fi
+      if [ "$name" = "$wname" ]; then
+        printf 'the tmux server at %s still has a window named %s' "$sock" "$wname"
+        return 0
+      fi
+      case "$path" in
+        "$real_wt"|"$real_wt"/*|"$wt"|"$wt"/*)
+          printf 'the tmux server at %s still has a pane (window %s) working in the recorded worktree %s' "$sock" "$name" "$wt"
+          return 0
+          ;;
+      esac
+    done <<EOF
+$panes
+EOF
+  done <<EOF
+$sockets
+EOF
+  evidence=$(fm_control_task_process_evidence "$id" "$wt")
+  case "${evidence%%$'\t'*}" in
+    none) printf 'proven\tno tmux server holds the recorded window or a pane in the recorded worktree' ;;
+    *) printf '%s' "${evidence#*$'\t'}" ;;
   esac
 }
 
@@ -789,6 +868,78 @@ EOF
     return 0
   done
   printf 'none\t'
+}
+
+# fm_control_tmux_server_sockets: the listening socket path of every live tmux
+# server of this user, one per line, read from the kernel rather than from any
+# tmux socket directory, so a server on a foreign TMUX_TMPDIR or an explicit -S
+# path is found too. On failure prints the reason and returns 1.
+#
+# A process is a tmux server candidate when its command name is tmux's own
+# `tmux: server`, or its executable is a binary named tmux (which also covers a
+# tmux client, whose sockets are connected rather than listening). A process
+# matching neither signal is not read further: a process whose executable the
+# kernel hides from its owner (a non-dumpable one such as gpg-agent) still
+# reports its command name, and a tmux server always names itself. Every
+# candidate's descriptors must be readable, and a `tmux: server` with no
+# listening socket path refuses, because its endpoint cannot be asked.
+# FM_CONTROL_PROC_ROOT overrides /proc for the hermetic tests only.
+fm_control_tmux_server_sockets() {  # <started-seconds> <deadline-seconds>
+  local started=${1-} deadline=${2-} proc=${FM_CONTROL_PROC_ROOT:-/proc}
+  local p pid comm exe fd link inodes found unix all=
+  unix=$(cat "$proc/net/unix" 2>/dev/null) || {
+    printf 'this host has no readable %s/net/unix, so its tmux servers cannot be enumerated' "$proc"
+    return 1
+  }
+  for p in "$proc"/[0-9]*; do
+    [ -d "$p" ] || continue
+    if [ $((SECONDS - started)) -ge "$deadline" ]; then
+      printf 'enumerating tmux servers exceeded the %ss deadline' "$deadline"
+      return 1
+    fi
+    [ -O "$p" ] || continue
+    pid=${p##*/}
+    if ! comm=$(cat "$p/comm" 2>/dev/null); then
+      [ -e "$p" ] || continue
+      printf 'process %s could not be identified' "$pid"
+      return 1
+    fi
+    exe=$(readlink "$p/exe" 2>/dev/null) || exe=
+    case "$comm" in
+      'tmux: server') ;;
+      *) [ "${exe##*/}" = tmux ] || continue ;;
+    esac
+    if [ ! -r "$p/fd" ] || [ ! -x "$p/fd" ]; then
+      [ -e "$p" ] || continue
+      printf 'tmux process %s'"'"'s open sockets could not be read' "$pid"
+      return 1
+    fi
+    inodes=' '
+    for fd in "$p"/fd/*; do
+      link=$(readlink "$fd" 2>/dev/null) || continue
+      case "$link" in
+        'socket:['*']') link=${link#socket:[}; inodes="$inodes${link%]} " ;;
+      esac
+    done
+    # /proc/net/unix columns: Num RefCount Protocol Flags Type St Inode Path;
+    # Flags 00010000 marks a listening socket.
+    found=$(printf '%s\n' "$unix" | awk -v set="$inodes" '
+      NR > 1 && $4 == "00010000" && NF >= 8 && index(set, " " $7 " ") {
+        line = $0
+        sub(/^[ \t]*([^ \t]+[ \t]+){7}/, "", line)
+        print line
+      }')
+    if [ -z "$found" ]; then
+      if [ "$comm" = 'tmux: server' ]; then
+        [ -e "$p" ] || continue
+        printf 'tmux server process %s has no listening socket this process can resolve' "$pid"
+        return 1
+      fi
+      continue
+    fi
+    all="$all$found"$'\n'
+  done
+  printf '%s' "$all" | awk 'NF && !seen[$0]++'
 }
 
 # The per-task wiring artifacts a harness leaves behind, so a relaunch that

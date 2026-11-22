@@ -2221,9 +2221,9 @@ if [ "$RELAUNCH" -eq 1 ]; then
   # endpoint was DESTROYED" with "the endpoint is UNREACHABLE from here right
   # now", and an unreachable endpoint can still hold the live agent this
   # relaunch would duplicate. So absence is PROVEN before it may rebind, never
-  # inferred from a failed read. fm_control_endpoint_absence_verdict owns
-  # the backend-specific proof and process-evidence exceptions shared with
-  # `exit`; keep those rules there rather than duplicating them at this gate.
+  # inferred from a failed read. fm_control_endpoint_absence_verdict owns the
+  # backend-specific proof and its fail-closed server/process evidence gates;
+  # keep those rules there so `exit` and `relaunch` cannot drift.
   RELAUNCH_STATE=$(fm_backend_agent_state "$BACKEND" "$RELAUNCH_TARGET")
   if [ "$RELAUNCH_STATE" = missing ]; then
     RELAUNCH_ABSENCE=$(fm_control_endpoint_absence_verdict "$BACKEND" "$RELAUNCH_TARGET" "$ID" "$(fm_meta_get "$RELAUNCH_META" worktree)")
@@ -4471,14 +4471,17 @@ if [ "$RELAUNCH" -eq 1 ]; then
     WT_TARGET=$T
     SES=${T%%:*}
   elif [ "$BACKEND" = tmux ]; then
-    # The recorded endpoint is authoritatively gone (the gate above rebinds
-    # only on a PROVEN-gone endpoint; fm_control_endpoint_absence_verdict owns
-    # that proof), so there is nothing to adopt: create ONE fresh fm-<id>
-    # window, opened directly in the recorded worktree, in the session a fresh
-    # spawn from this seat would use. The record published below writes
-    # window= from these values, which is the whole rebind - the task id,
-    # brief, branch, worktree, armed poll and status log are untouched, and no
-    # branch is cut or switched.
+    # The recorded endpoint is authoritatively gone, so there is nothing to
+    # adopt: create ONE fresh endpoint for the same task, opened directly in the
+    # recorded worktree. The record published below writes window= from these
+    # values, which is the whole rebind - the task id, brief, worktree, armed
+    # poll and status log are untouched.
+    #
+    # The shared absence proof above passed, so there is no
+    # recorded server or session to stay on, and the window opens exactly where
+    # an ordinary tmux spawn from this seat would open it. A stray dead fm-<id>
+    # window in that session is closed and replaced by the create helper; a
+    # live one refuses.
     SES=$(fm_backend_tmux_container_ensure)
     T="$SES:$W"
     WID=$(fm_backend_tmux_create_task "$SES" "$W" "$WT") || exit 1
@@ -4491,9 +4494,12 @@ if [ "$RELAUNCH" -eq 1 ]; then
     # ids) from these values, which is the whole rebind - the task id, brief,
     # worktree, armed poll and status log are untouched.
     #
-    # Herdr is the only backend left here: the gate above rebinds only on a
-    # PROVEN-gone endpoint on a backend with a recovery-grade classifier, tmux
-    # took the branch above, and every secondmate was already refused.
+    # Herdr is the only other backend that reaches here: the gate above rebinds
+    # only on a PROVEN-gone endpoint, and absence is provable only on tmux
+    # (handled above, from the host) and on herdr, whose every read is scoped
+    # to the session the record names
+    # (fm_control_endpoint_absence_verdict owns that argument). Every secondmate
+    # was already refused, so there is no dispatch left to make.
     #
     # This deliberately uses the FLAT container shape rather than Herdr's
     # presentation projection: projection is a presentation-only layout that is

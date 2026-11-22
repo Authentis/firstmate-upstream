@@ -53,19 +53,23 @@
 #              endpoint this verb normally preserves did not survive; a pane
 #              that turns out to be there and idle is the ordinary
 #              `already-stopped`; one whose agent is back takes the ordinary
-#              interrupt-then-exit path. A tmux `missing` that the shared
-#              proof cannot establish as gone REFUSES rather than claim a
-#              stop it cannot see; fm_control_endpoint_absence_verdict owns
-#              its process-evidence rules and exceptions.
+#              interrupt-then-exit path. An unproven absence REFUSES, naming
+#              why, rather than claiming a stop it cannot see;
+#              fm_control_endpoint_absence_verdict owns the per-backend proof.
 #   relaunch   Transactionally replace the running agent with a new one, in the
 #              SAME worktree - and the same endpoint whenever that endpoint
 #              still exists - on the same or a newly chosen
 #              harness/model/effort - so switching harness is one ordinary use
-#              of this verb. When the recorded endpoint is instead proven gone,
-#              the launch owner re-creates one in that worktree and the task's
-#              record rebinds to it. fm_control_endpoint_absence_verdict owns
-#              the proof shared with `exit`; docs/agent-control.md's reclaim
-#              section owns backend-specific placement and recovery limits.
+#              of this verb. When the recorded endpoint is instead proven gone -
+#              a Herdr pane or workspace destroyed in churn, or a tmux window
+#              or server that vanished with no server still holding it - the
+#              launch owner re-creates one in that worktree (in the herdr
+#              session the record names, or where an ordinary tmux spawn from
+#              this seat would open it), and the task's record rebinds to it;
+#              that is how a task whose terminal was destroyed is reclaimed by
+#              the home that owns it, rather than being stranded with a parked
+#              approval nobody can answer. The proof is the one `exit` uses
+#              above; docs/agent-control.md owns recovery placement and limits.
 #              Outside a matching keyed secondmate pin, an explicit `default`
 #              model or effort clears that axis for the replacement.
 #              With no explicit axis, a secondmate
