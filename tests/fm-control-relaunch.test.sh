@@ -2359,23 +2359,29 @@ test_tmux_absence_reads_a_real_private_server() {
   tmux -S "$sock" list-panes -a -F '#{window_name}' 2>/dev/null | grep -qx fm-rl67 \
     || fail "the private tmux server never reported its window"
   fake_tmux_server "$dir" 4107 real ''
-  # Point the listed socket at the real server.
+  # Point the listed socket at the real server. Direct absence calls below run
+  # with a ps-only stub directory first on PATH: the real tmux binary must
+  # keep answering while the process table reads hermetically empty.
+  make_ps_stub "$dir/fakeps"
   sed -i.bak "s#$dir/sock-real#$sock#" "$dir/fakeproc/net/unix"
 
-  reason=$(FM_CONTROL_PROC_ROOT="$dir/fakeproc" fm_control_tmux_absence "fmses:fm-rl67" rl67 "$wt")
+  reason=$(PATH="$dir/fakeps:$PATH" FM_CONTROL_PROC_ROOT="$dir/fakeproc" fm_control_tmux_absence "fmses:fm-rl67" rl67 "$wt")
   assert_contains "$reason" "tmux server at $sock still has a window named fm-rl67" \
     "a real server holding the window must keep absence unproven"
   tmux -S "$sock" rename-window -t hid:fm-rl67 renamed || fail "could not rename the private window"
-  reason=$(FM_CONTROL_PROC_ROOT="$dir/fakeproc" fm_control_tmux_absence "fmses:fm-rl67" rl67 "$wt")
+  reason=$(PATH="$dir/fakeps:$PATH" FM_CONTROL_PROC_ROOT="$dir/fakeproc" fm_control_tmux_absence "fmses:fm-rl67" rl67 "$wt")
   assert_contains "$reason" "still has a pane (window renamed) working in the recorded worktree" \
     "a real pane in the worktree must keep absence unproven after a rename"
   tmux -S "$sock" kill-server 2>/dev/null
-  reason=$(FM_CONTROL_PROC_ROOT="$dir/fakeproc" fm_control_tmux_absence "fmses:fm-rl67" rl67 "$wt")
+  reason=$(PATH="$dir/fakeps:$PATH" FM_CONTROL_PROC_ROOT="$dir/fakeproc" fm_control_tmux_absence "fmses:fm-rl67" rl67 "$wt")
   assert_contains "$reason" "tmux server at $sock could not be read" \
     "a listed server that no longer answers must keep absence unproven"
   rm -rf "$dir/fakeproc/4107"
-  reason=$(FM_CONTROL_PROC_ROOT="$dir/fakeproc" fm_control_tmux_absence "fmses:fm-rl67" rl67 "$wt")
-  [ -z "$reason" ] || fail "with no tmux server left, absence should be proven, got: $reason"
+  reason=$(PATH="$dir/fakeps:$PATH" FM_CONTROL_PROC_ROOT="$dir/fakeproc" fm_control_tmux_absence "fmses:fm-rl67" rl67 "$wt")
+  case "$reason" in
+    proven$'\t'*) ;;
+    *) fail "with no tmux server left, absence should be proven with the proven token, got: $reason" ;;
+  esac
   pass "tmux: the absence proof reads a real private tmux server by window name and pane path"
 }
 
@@ -2396,6 +2402,109 @@ test_reclaim_refuses_an_unreadable_endpoint() {
     "a refused relaunch must not create an endpoint"
   [ ! -s "$dir/fake/literal" ] || fail "a refused relaunch must launch nothing"
   pass "reclaim: an unclassifiable endpoint is still refused, so two agents cannot share one"
+}
+
+# shellcheck disable=SC2031 # $! is read right after this function's own background start
+test_tmux_refuses_a_cwd_occupant_the_pane_check_misses() {
+  local dir live
+  dir=$(new_case tmux-cwdoccupant rl6d)
+  add_ship_task "$dir" rl6d claude
+  strand_endpoint "$dir" rl6d
+  # Renamed window, pane off the worktree, clean arguments: the pane and
+  # argument checks both miss, so only the occupant's working directory still
+  # ties a live agent to the task.
+  fake_tmux_server "$dir" 4116 renamed 'renamed\t/elsewhere\n'
+  ( cd "$dir/wt" && exec /bin/sleep 600 ) &
+  live=$!
+  printf '%s 1 %s sleep 600\n' "$live" "$(id -u)" > "$dir/fake/ps-table"
+  mkdir -p "$dir/fakeproc/self" "$dir/fakeproc/$live"
+  ln -s / "$dir/fakeproc/self/cwd"
+  ln -s "$dir/wt" "$dir/fakeproc/$live/cwd"
+  # A bare pid directory reads as a tmux server candidate with no command
+  # name, which refuses the whole enumeration; name it a non-server so only
+  # the evidence pass reads it.
+  printf 'sleep\n' > "$dir/fakeproc/$live/comm"
+  assert_tmux_missing_refuses "$dir" rl6d "a live process working in the worktree" \
+    "process $live is working in the recorded worktree"
+  kill "$live" 2>/dev/null
+  wait "$live" 2>/dev/null
+  pass "tmux: a process working in the worktree refuses even when the pane and args look clear"
+}
+
+test_tmux_absence_emits_an_explicit_proven_token() {
+  local dir wt reason
+  dir=$(new_case tmux-token rl6e)
+  add_ship_task "$dir" rl6e claude
+  wt="$dir/wt"
+  strand_endpoint "$dir" rl6e
+  reason=$(PATH="$dir/fakebin:$PATH" FM_CONTROL_PROC_ROOT="$dir/fakeproc" fm_control_tmux_absence "fmses:fm-rl6e" rl6e "$wt")
+  case "$reason" in
+    proven$'\t'*) ;;
+    *) fail "a proven absence must carry the explicit proven token, got: $reason" ;;
+  esac
+  pass "tmux: proven absence carries an explicit token instead of empty output"
+}
+
+test_tmux_refuses_an_unreadable_pane_record() {
+  local dir out rc
+  # A pane whose path tmux reports empty is not clear.
+  dir=$(new_case tmux-emptypath rl6f)
+  add_ship_task "$dir" rl6f claude
+  strand_endpoint "$dir" rl6f
+  fake_tmux_server "$dir" 4117 emptypath 'fm-rl6f\t\n'
+  out=$(run_control "$dir" rl6f exit); rc=$?
+  expect_code 1 "$rc" "a pane with no path must refuse"$'\n'"$out"
+  assert_contains "$out" "no name or no path" "the refusal should name the unreadable pane"
+  # A record with a leading TAB (an empty window name) must not misattribute
+  # the pane path to the window name.
+  dir=$(new_case tmux-emptyname rl6g)
+  add_ship_task "$dir" rl6g claude
+  strand_endpoint "$dir" rl6g
+  fake_tmux_server "$dir" 4118 emptyname '\t/elsewhere\n'
+  out=$(run_control "$dir" rl6g exit); rc=$?
+  expect_code 1 "$rc" "a pane with no window name must refuse"$'\n'"$out"
+  assert_contains "$out" "no name or no path" "the refusal should name the unreadable pane"
+  pass "tmux: a pane with no name or no path refuses instead of reading as clear"
+}
+
+test_tmux_reclaim_abort_removes_only_the_unpublished_window() {
+  local dir out rc real_mv meta
+  # Control entrypoint: abort, then retry.
+  dir=$(new_case tmux-abort rl6i)
+  add_ship_task "$dir" rl6i claude
+  strand_endpoint "$dir" rl6i
+  meta="$dir/home/state/rl6i.meta"
+  real_mv=$(command -v mv)
+  make_mv_failure_stub "$dir"
+  out=$(FM_REAL_MV="$real_mv" FM_FAKE_META_PUBLISH_MV_FAIL="$meta" \
+    run_control "$dir" rl6i relaunch --note "abort before publication"); rc=$?
+  expect_code 1 "$rc" "a failed publication must fail closed"$'\n'"$out"
+  [ "$(cat "$dir/fake/killed-windows")" = '@9' ] \
+    || fail "an aborted reclaim must remove its unpublished window"
+  grep -Fxq 'fm-rl6i' "$dir/fake/windows" \
+    && fail "the unpublished window must be gone from the session inventory"
+  [ "$(meta_field "$dir" rl6i window)" = fmses:fm-rl6i ] \
+    || fail "an aborted reclaim must keep the recorded endpoint"
+  out=$(FM_REAL_MV="$real_mv" run_control "$dir" rl6i relaunch --note "retry after abort"); rc=$?
+  expect_code 0 "$rc" "the control retry after an aborted reclaim must proceed"$'\n'"$out"
+  [ "$(grep -c . "$dir/fake/created-windows")" = 2 ] \
+    || fail "the retry must open one fresh window after the aborted one"
+  # Spawn entrypoint: abort, then retry.
+  dir=$(new_case tmux-abort-spawn rl6j)
+  add_ship_task "$dir" rl6j claude
+  strand_endpoint "$dir" rl6j
+  meta="$dir/home/state/rl6j.meta"
+  make_mv_failure_stub "$dir"
+  out=$(FM_REAL_MV="$real_mv" FM_FAKE_META_PUBLISH_MV_FAIL="$meta" \
+    run_spawn "$dir" rl6j --relaunch --harness claude); rc=$?
+  expect_code 1 "$rc" "a failed publication must fail closed"$'\n'"$out"
+  [ "$(cat "$dir/fake/killed-windows")" = '@9' ] \
+    || fail "an aborted reclaim must remove its unpublished window"
+  out=$(FM_REAL_MV="$real_mv" run_spawn "$dir" rl6j --relaunch --harness claude); rc=$?
+  expect_code 0 "$rc" "the spawn retry after an aborted reclaim must proceed"$'\n'"$out"
+  [ "$(grep -c . "$dir/fake/created-windows")" = 2 ] \
+    || fail "the retry must open one fresh window after the aborted one"
+  pass "tmux: a reclaim abort removes only its unpublished window and permits retry through both entrypoints"
 }
 
 # --- herdr: a stopped server is not a destroyed endpoint --------------------
@@ -3041,6 +3150,10 @@ test_tmux_reclaims_when_the_server_is_gone
 test_tmux_reclaim_follows_the_window_disappearing
 test_tmux_absence_reads_a_real_private_server
 test_reclaim_refuses_an_unreadable_endpoint
+test_tmux_refuses_a_cwd_occupant_the_pane_check_misses
+test_tmux_absence_emits_an_explicit_proven_token
+test_tmux_refuses_an_unreadable_pane_record
+test_tmux_reclaim_abort_removes_only_the_unpublished_window
 test_herdr_relaunch_resumes_only_the_registered_pi_session
 test_herdr_reclaim_adopts_a_pane_that_outlived_its_server
 test_herdr_exit_reports_already_stopped_when_the_pane_outlived_its_server

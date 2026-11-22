@@ -863,6 +863,10 @@ test_proven_gone_tmux_endpoint_reports_endpoint_gone() {
   # The same missing window with nothing in the process table naming the task
   # or its worktree: absence is proven, so the agent went with its endpoint.
   printf '4202 1 %s claude --name fm-t10\n' "$(id -u)" > "$dir/fake/ps-table"
+  # The staged pid is not a real process: point the evidence pass at the staged
+  # tree so it is dismissed as exited rather than reaching for lsof.
+  mkdir -p "$dir/fakeproc/self"
+  ln -s / "$dir/fakeproc/self/cwd"
   out=$(run_control "$dir" t1 exit); rc=$?
   expect_code 0 "$rc" "a proven-gone tmux endpoint should satisfy exit"$'\n'"$out"
   assert_contains "$out" "endpoint-gone t1" "exit should report the endpoint as gone"
