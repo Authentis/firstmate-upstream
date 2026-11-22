@@ -130,7 +130,7 @@ An unreachable endpoint can still hold the live agent a rebind would duplicate, 
   So in that state `exit` - which otherwise reads as a read-only inspection - leaves an idle herdr server behind.
 - **tmux proves it by asking every server, not the one this process addresses.** `list-windows -a` describes only the tmux server the *current process* addresses (its `TMUX_TMPDIR`/socket), and a task record carries no socket identity for its endpoint, so no read of that one server can tell a destroyed window from one on a server this process cannot address.
   A surviving window name or pane path in the recorded worktree on any server of the launching user blocks recovery, including servers on a foreign `TMUX_TMPDIR` or an explicit socket path.
-  Even after those servers are clear, a process whose arguments name the task or worktree blocks recovery; this catches an agent whose window was renamed and whose pane moved outside the worktree.
+  Even after those servers are clear, a process whose arguments name the task or worktree, or whose working directory is in the recorded worktree, blocks recovery; this catches an agent whose window was renamed and whose pane moved outside the worktree.
   Unreadable or malformed process evidence also refuses.
   Server enumeration requires readable Linux `/proc` data, and server queries require `timeout`; hosts without those capabilities, including macOS, refuse missing-endpoint recovery rather than guessing.
   [`fm_control_tmux_absence` and its helpers](../bin/fm-control-lib.sh) own server discovery, argument matching, scan exclusions, and the server-query deadline.
@@ -220,4 +220,5 @@ The empirical basis for each adapter's value is the `harness-adapters` skill's v
 
 - `tests/fm-control.test.sh` - the adapter contract for its verified-harness lane (adapters outside the lane pin their control mechanics in their own harness suites), the backend capability matrix, exact-id scoping, the closed verb list, the busy, idle, dead, and idempotent lifecycle cases, and marker non-regression, all against a stubbed session provider.
 - `tests/fm-control-relaunch.test.sh` - the relaunch transaction: identity preservation, harness switching, the progress note, checkpoint refusals, rollback after a failed launch, and the endpoint-absence proof both verbs share - the Herdr reclaim of a destroyed endpoint, the tmux reclaim of a vanished window or server, and tmux refusals on surviving server or process evidence and unreadable reads, including server queries against a real private tmux server.
+- `tests/fm-control-tmux-timeout.test.sh` - a stopped real tmux server must not retain client descriptors past the absence-proof deadline; requires Linux and permission to create private user, PID, and mount namespaces.
 - `tests/fm-control-herdr-smoke.test.sh` - the second state-verified backend against the real herdr binary, on an isolated throwaway lab session.

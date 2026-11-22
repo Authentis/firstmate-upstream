@@ -551,8 +551,8 @@ fm_control_endpoint_absence_verdict() {  # <backend> <target> [<task-id> <worktr
 }
 
 # fm_control_tmux_absence: the tmux half of the endpoint-absence proof. Prints
-# a `proven` token and nothing else when absence is PROVEN, otherwise the one
-# concrete reason it is not. The caller trusts only that token: empty or
+# a `proven` token followed by a TAB and explanation when absence is PROVEN,
+# otherwise the one concrete reason it is not. The caller trusts only that token: empty or
 # unparsable output refuses.
 #
 # Proof by endpoint identity across every server, not by the server this
