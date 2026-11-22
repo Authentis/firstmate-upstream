@@ -22,7 +22,7 @@ fi
 # The real kernel /proc contains only this fixture's processes. No operator
 # servers or process-table stubs participate in the proof.
 LAB=$(mktemp -d "${TMPDIR:-/tmp}/fm-deadline.XXXXXX")
-SERVER= WATCHDOG=
+SERVER='' WATCHDOG=''
 cleanup() {
   [ -z "$SERVER" ] || kill -CONT "$SERVER" 2>/dev/null || true
   if [ -n "$WATCHDOG" ]; then
@@ -40,7 +40,8 @@ git init -q "$LAB/task"
 unset FM_CONTROL_PROC_ROOT FM_ROOT_OVERRIDE FM_STATE_OVERRIDE FM_DATA_OVERRIDE FM_CONFIG_OVERRIDE FM_PROJECTS_OVERRIDE
 # Each server has a private explicit socket, never the user's default server.
 env -u TMUX tmux -S "$LAB/controller" -f /dev/null new-session -d -s controller -c "$LAB"
-export TMUX="$(tmux -S "$LAB/controller" display-message -p '#{socket_path},#{pid},0')"
+TMUX="$(tmux -S "$LAB/controller" display-message -p '#{socket_path},#{pid},0')"
+export TMUX
 tmux -S "$LAB/foreign" -f /dev/null new-session -d -s foreign -c "$LAB"
 SERVER=$(tmux -S "$LAB/foreign" display-message -p '#{pid}')
 printf 'window=gone:fm-deadlineproof\nworktree=%s\nproject=%s\nharness=claude\nkind=ship\n' "$LAB/task" "$LAB/task" > "$FM_HOME/state/deadlineproof.meta"
