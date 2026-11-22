@@ -2362,6 +2362,7 @@ test_tmux_absence_reads_a_real_private_server() {
   # Point the listed socket at the real server. Direct absence calls below run
   # with a ps-only stub directory first on PATH: the real tmux binary must
   # keep answering while the process table reads hermetically empty.
+  mkdir -p "$dir/fakeps"
   make_ps_stub "$dir/fakeps"
   sed -i.bak "s#$dir/sock-real#$sock#" "$dir/fakeproc/net/unix"
 
