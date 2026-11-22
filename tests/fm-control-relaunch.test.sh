@@ -2130,6 +2130,29 @@ test_tmux_refuses_a_window_missing_from_its_session() {
   pass "tmux: a window that lives on another server refuses both verbs even after its owner left the worktree"
 }
 
+test_tmux_refuses_a_renamed_agent_outside_the_worktree() {
+  local dir
+  dir=$(new_case tmux-renamed-agent rl6p)
+  add_ship_task "$dir" rl6p claude
+  strand_endpoint "$dir" rl6p
+  fake_tmux_server "$dir" 4115 foreign 'renamed\t/elsewhere\n'
+  printf '5115 1 %s claude --instructions /tmp/fm-rl6p/brief.md\n' "$(id -u)" > "$dir/fake/ps-table"
+  assert_tmux_missing_refuses "$dir" rl6p "renamed live agent outside the worktree on another server" \
+    "process 5115 names the task in its arguments"
+  pass "tmux: process evidence refuses a renamed agent outside the worktree on another server"
+}
+
+test_tmux_refuses_an_unreadable_process_table() {
+  local dir
+  dir=$(new_case tmux-ps-broken rl6q)
+  add_ship_task "$dir" rl6q claude
+  strand_endpoint "$dir" rl6q
+  : > "$dir/fake/ps-broken"
+  assert_tmux_missing_refuses "$dir" rl6q "unreadable process table" \
+    "the process table could not be read"
+  pass "tmux: an unreadable process table refuses exit and both relaunch entry points"
+}
+
 test_tmux_refuses_a_session_that_cannot_be_found() {
   local dir
   dir=$(new_case tmux-nosession rl61)
@@ -2339,19 +2362,19 @@ test_tmux_absence_reads_a_real_private_server() {
   # Point the listed socket at the real server.
   sed -i.bak "s#$dir/sock-real#$sock#" "$dir/fakeproc/net/unix"
 
-  reason=$(FM_CONTROL_PROC_ROOT="$dir/fakeproc" fm_control_tmux_absence "fmses:fm-rl67" "$wt")
+  reason=$(FM_CONTROL_PROC_ROOT="$dir/fakeproc" fm_control_tmux_absence "fmses:fm-rl67" rl67 "$wt")
   assert_contains "$reason" "tmux server at $sock still has a window named fm-rl67" \
     "a real server holding the window must keep absence unproven"
   tmux -S "$sock" rename-window -t hid:fm-rl67 renamed || fail "could not rename the private window"
-  reason=$(FM_CONTROL_PROC_ROOT="$dir/fakeproc" fm_control_tmux_absence "fmses:fm-rl67" "$wt")
+  reason=$(FM_CONTROL_PROC_ROOT="$dir/fakeproc" fm_control_tmux_absence "fmses:fm-rl67" rl67 "$wt")
   assert_contains "$reason" "still has a pane (window renamed) working in the recorded worktree" \
     "a real pane in the worktree must keep absence unproven after a rename"
   tmux -S "$sock" kill-server 2>/dev/null
-  reason=$(FM_CONTROL_PROC_ROOT="$dir/fakeproc" fm_control_tmux_absence "fmses:fm-rl67" "$wt")
+  reason=$(FM_CONTROL_PROC_ROOT="$dir/fakeproc" fm_control_tmux_absence "fmses:fm-rl67" rl67 "$wt")
   assert_contains "$reason" "tmux server at $sock could not be read" \
     "a listed server that no longer answers must keep absence unproven"
   rm -rf "$dir/fakeproc/4107"
-  reason=$(FM_CONTROL_PROC_ROOT="$dir/fakeproc" fm_control_tmux_absence "fmses:fm-rl67" "$wt")
+  reason=$(FM_CONTROL_PROC_ROOT="$dir/fakeproc" fm_control_tmux_absence "fmses:fm-rl67" rl67 "$wt")
   [ -z "$reason" ] || fail "with no tmux server left, absence should be proven, got: $reason"
   pass "tmux: the absence proof reads a real private tmux server by window name and pane path"
 }
@@ -3004,6 +3027,8 @@ test_spawn_relaunch_refuses_contradicting_flags
 test_spawn_relaunch_refuses_an_unrecorded_task
 test_spawn_relaunch_refuses_a_pane_outside_the_worktree
 test_tmux_refuses_a_window_missing_from_its_session
+test_tmux_refuses_a_renamed_agent_outside_the_worktree
+test_tmux_refuses_an_unreadable_process_table
 test_tmux_refuses_a_session_that_cannot_be_found
 test_tmux_refuses_when_the_server_is_gone
 test_tmux_refuses_a_server_whose_sockets_cannot_be_read

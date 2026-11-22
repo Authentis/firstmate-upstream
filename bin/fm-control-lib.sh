@@ -520,13 +520,13 @@ fm_control_backend_state_verified() {  # <backend>
 #
 # Both control-plane callers share this one implementation so the proof cannot
 # drift into two answers for the same endpoint.
-fm_control_endpoint_absence_verdict() {  # <backend> <target> [worktree]
-  local backend=${1-} target=${2-} wt=${3-} reason
+fm_control_endpoint_absence_verdict() {  # <backend> <target> [<task-id> <worktree>]
+  local backend=${1-} target=${2-} id=${3-} wt=${4-} reason
   fm_backend_source "$backend" \
     || { printf 'unproven\tbackend %s could not be loaded to prove anything about that endpoint' "'$backend'"; return 0; }
   case "$backend" in
     tmux)
-      reason=$(fm_control_tmux_absence "$target" "$wt")
+      reason=$(fm_control_tmux_absence "$target" "$id" "$wt")
       if [ -z "$reason" ]; then
         printf 'gone\t'
       else
@@ -568,8 +568,8 @@ fm_control_endpoint_absence_verdict() {  # <backend> <target> [worktree]
 # `timeout` to bound a query, and the whole proof running past its deadline
 # (FM_CONTROL_ABSENCE_DEADLINE seconds, default 10). Hosts without /proc (such
 # as macOS) therefore always refuse.
-fm_control_tmux_absence() {  # <target> <worktree>
-  local target=${1-} wt=${2-} wname real_wt deadline started sockets sock panes rc remaining name path
+fm_control_tmux_absence() {  # <target> <task-id> <worktree>
+  local target=${1-} id=${2-} wt=${3-} wname real_wt deadline started sockets sock panes rc remaining name path evidence
   local tab=$'\t'
   wname=${target#*:}
   if [ -z "$wname" ] || [ "$wname" = "$target" ]; then
@@ -625,6 +625,73 @@ EOF
   done <<EOF
 $sockets
 EOF
+  evidence=$(fm_control_task_process_evidence "$id" "$wt")
+  case "${evidence%%$'\t'*}" in
+    none) ;;
+    *) printf '%s' "${evidence#*$'\t'}" ;;
+  esac
+}
+
+fm_control_task_process_evidence() {
+  local id=${1-} wt=${2-} wt_real self table rows kind pid line
+  [ -n "$id" ] && [ -n "$wt" ] || { printf 'unreadable\tno task id and worktree to match processes against'; return 0; }
+  wt_real=$(cd "$wt" 2>/dev/null && pwd -P) || wt_real=$wt
+  self=${BASHPID:-$$}
+  table=$(LC_ALL=C ps -A -o pid= -o ppid= -o uid= -o args= 2>/dev/null) \
+    || { printf 'unreadable\tthe process table could not be read'; return 0; }
+  rows=$(printf '%s\n' "$table" | LC_ALL=C awk -v self="$self" -v id="$id" \
+    -v wt="$wt" -v wtr="$wt_real" '
+    function pathhit(s, p,   rest, i, c) {
+      if (p == "") return 0
+      rest = s
+      while ((i = index(rest, p)) > 0) {
+        c = substr(rest, i + length(p), 1)
+        if (c !~ /[A-Za-z0-9_.-]/) return 1
+        rest = substr(rest, i + 1)
+      }
+      return 0
+    }
+    NF == 0 { next }
+    {
+      if ($1 !~ /^[0-9]+$/ || $2 !~ /^[0-9]+$/) { bad = 1; next }
+      n++; pid[n] = $1; parent[$1] = $2
+      a = $0; sub(/^[ \t]*[0-9]+[ \t]+[0-9]+[ \t]+[^ \t]+[ \t]*/, "", a); args[$1] = a
+    }
+    END {
+      if (bad) { print "bad"; exit }
+      p = self; hops = 0
+      while (p != "" && p != "0" && !(p in skip) && hops < 4096) { skip[p] = 1; p = parent[p]; hops++ }
+      changed = 1
+      while (changed) {
+        changed = 0
+        for (k = 1; k <= n; k++) {
+          q = pid[k]
+          if (!(q in skip) && (parent[q] == self || (parent[q] in desc))) { desc[q] = 1; skip[q] = 1; changed = 1 }
+        }
+      }
+      for (k = 1; k <= n; k++) {
+        q = pid[k]
+        if (q in skip) continue
+        s = args[q]
+        if (pathhit(s, wt) || pathhit(s, wtr)) { print "match " q " names the recorded worktree in its arguments"; continue }
+        t = s; gsub(/[^A-Za-z0-9_.-]+/, " ", t)
+        m = split(t, tok, " ")
+        hit = 0
+        for (j = 1; j <= m; j++) {
+          if (tok[j] == id || tok[j] == "fm-" id || index(tok[j], id ".") == 1) { hit = 1; break }
+        }
+        if (hit) { print "match " q " names the task in its arguments"; continue }
+      }
+    }') || { printf 'unreadable\tthe process table could not be parsed'; return 0; }
+  case "$rows" in bad|bad$'\n'*) printf 'unreadable\tthe process table could not be parsed'; return 0 ;; esac
+  while IFS=' ' read -r kind pid line; do
+    case "$kind" in
+      match) printf 'match\tprocess %s %s' "$pid" "$line"; return 0 ;;
+    esac
+  done <<EOF
+$rows
+EOF
+  printf 'none\t'
 }
 
 # fm_control_tmux_server_sockets: the listening socket path of every live tmux

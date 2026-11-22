@@ -2241,7 +2241,7 @@ if [ "$RELAUNCH" -eq 1 ]; then
   # `relaunch` cannot reach two different answers about one endpoint.
   RELAUNCH_STATE=$(fm_backend_agent_state "$BACKEND" "$RELAUNCH_TARGET")
   if [ "$RELAUNCH_STATE" = missing ]; then
-    RELAUNCH_ABSENCE=$(fm_control_endpoint_absence_verdict "$BACKEND" "$RELAUNCH_TARGET" "$(fm_meta_get "$RELAUNCH_META" worktree)")
+    RELAUNCH_ABSENCE=$(fm_control_endpoint_absence_verdict "$BACKEND" "$RELAUNCH_TARGET" "$ID" "$(fm_meta_get "$RELAUNCH_META" worktree)")
     case "${RELAUNCH_ABSENCE%%$'\t'*}" in
       gone)
         RELAUNCH_STATE=missing
