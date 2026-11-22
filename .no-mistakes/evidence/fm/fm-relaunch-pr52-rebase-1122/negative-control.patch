@@ -1,0 +1,18 @@
+diff --git a/bin/fm-control-lib.sh b/bin/fm-control-lib.sh
+index 4d8b0f7b..27493019 100644
+--- a/bin/fm-control-lib.sh
++++ b/bin/fm-control-lib.sh
+@@ -655,11 +655,8 @@ EOF
+   done <<EOF
+ $sockets
+ EOF
+-  evidence=$(fm_control_task_process_evidence "$id" "$wt")
+-  case "${evidence%%$'\t'*}" in
+-    none) printf 'proven\tno tmux server holds the recorded window or a pane in the recorded worktree' ;;
+-    *) printf '%s' "${evidence#*$'\t'}" ;;
+-  esac
++  printf 'proven\tnegative control: process evidence intentionally removed'
++
+ }
+ 
+ # fm_control_task_process_evidence: whether any process on this machine could

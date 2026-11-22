@@ -1,0 +1,20 @@
+not ok - relaunch must refuse a tmux endpoint whose absence is not proven (renamed live agent outside the worktree on another server)
+warning: {run-worktree}/.regression-tmp/fm-control-relaunch.V9mvI7/tmux-renamed-agent-15894/home/data/rl6p/launch-brief.md records no ship branch; defaulting to legacy branch fm/rl6p
+warning: {run-worktree}/.regression-tmp/fm-control-relaunch.V9mvI7/tmux-renamed-agent-15894/home/data/rl6p/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+spawned rl6p harness=claude kind=ship mode=no-mistakes yolo=off window=firstmate:fm-rl6p worktree={run-worktree}/.regression-tmp/fm-control-relaunch.V9mvI7/tmux-renamed-agent-15894/wt: expected exit 1, got 0
+rm: cannot remove '{run-worktree}/.regression-tmp/fm-control-relaunch.V9mvI7/tmux-renamed-agent-15894/home/state/rl6p.git-hooks/pre-push': Permission denied
+rm: cannot remove '{run-worktree}/.regression-tmp/fm-control-relaunch.V9mvI7/tmux-renamed-agent-15894/home/state/rl6p.git-hooks/post-commit': Permission denied
+rm: cannot remove '{run-worktree}/.regression-tmp/fm-control-relaunch.V9mvI7/tmux-renamed-agent-15894/home/state/rl6p.git-hooks/sendemail-validate': Permission denied
+rm: cannot remove '{run-worktree}/.regression-tmp/fm-control-relaunch.V9mvI7/tmux-renamed-agent-15894/home/state/rl6p.git-hooks/post-rewrite': Permission denied
+rm: cannot remove '{run-worktree}/.regression-tmp/fm-control-relaunch.V9mvI7/tmux-renamed-agent-15894/home/state/rl6p.git-hooks/commit-msg': Permission denied
+rm: cannot remove '{run-worktree}/.regression-tmp/fm-control-relaunch.V9mvI7/tmux-renamed-agent-15894/home/state/rl6p.git-hooks/post-merge': Permission denied
+rm: cannot remove '{run-worktree}/.regression-tmp/fm-control-relaunch.V9mvI7/tmux-renamed-agent-15894/home/state/rl6p.git-hooks/pre-auto-gc': Permission denied
+rm: cannot remove '{run-worktree}/.regression-tmp/fm-control-relaunch.V9mvI7/tmux-renamed-agent-15894/home/state/rl6p.git-hooks/pre-commit': Permission denied
+rm: cannot remove '{run-worktree}/.regression-tmp/fm-control-relaunch.V9mvI7/tmux-renamed-agent-15894/home/state/rl6p.git-hooks/pre-merge-commit': Permission denied
+rm: cannot remove '{run-worktree}/.regression-tmp/fm-control-relaunch.V9mvI7/tmux-renamed-agent-15894/home/state/rl6p.git-hooks/prepare-commit-msg': Permission denied
+rm: cannot remove '{run-worktree}/.regression-tmp/fm-control-relaunch.V9mvI7/tmux-renamed-agent-15894/home/state/rl6p.git-hooks/post-checkout': Permission denied
+rm: cannot remove '{run-worktree}/.regression-tmp/fm-control-relaunch.V9mvI7/tmux-renamed-agent-15894/home/state/rl6p.git-hooks/post-applypatch': Permission denied
+rm: cannot remove '{run-worktree}/.regression-tmp/fm-control-relaunch.V9mvI7/tmux-renamed-agent-15894/home/state/rl6p.git-hooks/pre-rebase': Permission denied
+rm: cannot remove '{run-worktree}/.regression-tmp/fm-control-relaunch.V9mvI7/tmux-renamed-agent-15894/home/state/rl6p.git-hooks/applypatch-msg': Permission denied
+rm: cannot remove '{run-worktree}/.regression-tmp/fm-control-relaunch.V9mvI7/tmux-renamed-agent-15894/home/state/rl6p.git-hooks/pre-applypatch': Permission denied
+NEGATIVE_CONTROL_EXIT=1

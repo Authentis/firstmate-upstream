@@ -1,0 +1,98 @@
+{run-worktree}/.live-lab/h
+{
+  "loggedIn": true,
+  "authMethod": "claude.ai",
+  "apiProvider": "firstParty",
+  "storedClaudeAiLogin": true
+}
+ORIGINAL_ENDPOINT=vanished:fm-lv829 CWD={run-worktree}/.live-lab/w
+SETUP: original endpoint server destroyed; task copy and record retained
+=== foreign-name: bin/fm-control.sh lv829 relaunch --note isolated guard validation ===
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live-lab/h
+error: task lv829's endpoint vanished:fm-lv829 reads 'missing', but the tmux server at {run-worktree}/.live-lab/f still has a window named fm-lv829, so the task's window may still be alive on a tmux server this process does not address; exit will not claim an agent stopped at an address it cannot trust, nor send lifecycle input to one
+error: relaunch of lv829 failed while stopping the old agent and its state is 'missing', so it was not proven stopped; its original instructions were restored and the durable record was retained for recovery
+EXIT=1
+error: task lv829's endpoint vanished:fm-lv829 reads 'missing', but the tmux server at {run-worktree}/.live-lab/f still has a window named fm-lv829, so the task's window may still be alive on a tmux server this process does not address; exit will not claim an agent stopped at an address it cannot trust, nor send lifecycle input to one
+ORACLE: nonzero refusal; durable record byte-identical; no replacement on addressed server
+=== foreign-path: bin/fm-control.sh lv829 relaunch --note isolated guard validation ===
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live-lab/h
+error: task lv829's endpoint vanished:fm-lv829 reads 'missing', but the tmux server at {run-worktree}/.live-lab/f still has a pane (window renamed) working in the recorded worktree {run-worktree}/.live-lab/w, so the task's window may still be alive on a tmux server this process does not address; exit will not claim an agent stopped at an address it cannot trust, nor send lifecycle input to one
+error: relaunch of lv829 failed while stopping the old agent and its state is 'missing', so it was not proven stopped; its original instructions were restored and the durable record was retained for recovery
+EXIT=1
+error: task lv829's endpoint vanished:fm-lv829 reads 'missing', but the tmux server at {run-worktree}/.live-lab/f still has a pane (window renamed) working in the recorded worktree {run-worktree}/.live-lab/w, so the task's window may still be alive on a tmux server this process does not address; exit will not claim an agent stopped at an address it cannot trust, nor send lifecycle input to one
+ORACLE: nonzero refusal; durable record byte-identical; no replacement on addressed server
+=== foreign-process: bin/fm-control.sh lv829 relaunch --note isolated guard validation ===
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live-lab/h
+error: task lv829's endpoint vanished:fm-lv829 reads 'missing', but process 596 names the task in its arguments, so the task's window may still be alive on a tmux server this process does not address; exit will not claim an agent stopped at an address it cannot trust, nor send lifecycle input to one
+error: relaunch of lv829 failed while stopping the old agent and its state is 'missing', so it was not proven stopped; its original instructions were restored and the durable record was retained for recovery
+EXIT=1
+error: task lv829's endpoint vanished:fm-lv829 reads 'missing', but process 596 names the task in its arguments, so the task's window may still be alive on a tmux server this process does not address; exit will not claim an agent stopped at an address it cannot trust, nor send lifecycle input to one
+ORACLE: nonzero refusal; durable record byte-identical; no replacement on addressed server
+WINDOW=renamed CWD={run-worktree}/.live-lab/outside PID=597
+=== stopped-server: bin/fm-control.sh lv829 relaunch --note isolated guard validation ===
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live-lab/h
+error: task lv829's endpoint vanished:fm-lv829 reads 'missing', but the tmux server at {run-worktree}/.live-lab/f3 did not answer within the 2s deadline, so the task's window may still be alive on a tmux server this process does not address; exit will not claim an agent stopped at an address it cannot trust, nor send lifecycle input to one
+error: relaunch of lv829 failed while stopping the old agent and its state is 'missing', so it was not proven stopped; its original instructions were restored and the durable record was retained for recovery
+EXIT=1
+error: task lv829's endpoint vanished:fm-lv829 reads 'missing', but the tmux server at {run-worktree}/.live-lab/f3 did not answer within the 2s deadline, so the task's window may still be alive on a tmux server this process does not address; exit will not claim an agent stopped at an address it cannot trust, nor send lifecycle input to one
+ORACLE: nonzero refusal; durable record byte-identical; no replacement on addressed server
+BOUNDED_REFUSAL_SECONDS=3
+=== unreadable-process-table: bin/fm-control.sh lv829 relaunch --note isolated guard validation ===
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live-lab/h
+error: task lv829's endpoint vanished:fm-lv829 reads 'missing', but the process table could not be read, so the task's window may still be alive on a tmux server this process does not address; exit will not claim an agent stopped at an address it cannot trust, nor send lifecycle input to one
+error: relaunch of lv829 failed while stopping the old agent and its state is 'missing', so it was not proven stopped; its original instructions were restored and the durable record was retained for recovery
+EXIT=1
+error: task lv829's endpoint vanished:fm-lv829 reads 'missing', but the process table could not be read, so the task's window may still be alive on a tmux server this process does not address; exit will not claim an agent stopped at an address it cannot trust, nor send lifecycle input to one
+ORACLE: nonzero refusal; durable record byte-identical; no replacement on addressed server
+=== gone-exit: bin/fm-control.sh lv829 exit  ===
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live-lab/h
+endpoint-gone lv829 harness=claude backend=tmux endpoint=vanished:fm-lv829 worktree={run-worktree}/.live-lab/w
+EXIT=0
+endpoint-gone lv829 harness=claude backend=tmux endpoint=vanished:fm-lv829 worktree={run-worktree}/.live-lab/w
+=== gone-relaunch: bin/fm-control.sh lv829 relaunch --note The terminal vanished. Reply LAB_READY and wait; do not execute tools. ===
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live-lab/h
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live-lab/h
+warning: {run-worktree}/.live-lab/h/data/lv829/launch-brief.md records no ship branch; defaulting to legacy branch fm/lv829
+warning: {run-worktree}/.live-lab/h/data/lv829/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+relaunched lv829 harness=claude from=claude model=default effort=default backend=tmux endpoint=seat:fm-lv829 worktree={run-worktree}/.live-lab/w
+EXIT=0
+root@387548:{run-worktree}/.live-lab/w# c
+d -- '{run-worktree}/.live-lab/w'
+root@387548:{run-worktree}/.live-lab/w# e
+
+ ▐▛███▛█   Claude Code v2.1.329
+▝▜██████▀  Opus 5.5 · Claude Ultra
+ ▝▝   ▝▝   {run-worktree}/.live-lab/w
+
+  Fable 5.2 is here for your longest and toughest coding tasks. It draws down usage faster than Opus
+  5.5. Switch with /model.
+
+❯ : Firstmate operational input waiting: read '{run-worktree}
+  9GRMXP9QRRPHXAHH0F1B6/.live-lab/h/state/operational-inbox/1795374801-847a02c7db32dbae.msg' and
+  handle its contents as Firstmate operational input.
+
+● Auto mode lets Claude handle permission prompts automatically — Claude checks each tool
+  call for risky actions and prompt injection before executing. Actions Claude identifies as
+  safe are executed, while actions Claude identifies as risky are blocked and Claude may
+  try a different approach. Ideal for long-running tasks. Claude can make mistakes that
+  allow harmful commands to run, it's recommended to only use in isolated environments.
+  Shift+Tab to change mode.
+
+  Read 1 file
+
+● LAB_READY
+
+✻ Baked for 10s · done 8:13 PM
+
+
+
+  tmux focus-events off · add 'set -g focus-events on' to ~/.tmux.conf and reattach for focus tra…
+────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ auto mode on (shift+tab to cycle)
+ORACLE: same task/branch/worktree and unfinished content, exactly one replacement window, actual Claude command
+WINDOW=seat CWD={run-worktree}/.live-lab/outside COMMAND=bash
+WINDOW=fm-lv829 CWD={run-worktree}/.live-lab/w COMMAND=claude
+ALL LIVE SCENARIOS PASSED
+CLEANUP: private servers stopped, read-only login unmounted, disposable home and repositories removed

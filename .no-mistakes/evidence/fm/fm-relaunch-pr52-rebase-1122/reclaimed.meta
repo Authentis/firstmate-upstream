@@ -1,0 +1,15 @@
+window=seat:fm-lv829
+endpoint_task_id=lv829
+worktree={run-worktree}/.live-lab/w
+project={run-worktree}/.live-lab/p
+harness=claude
+kind=ship
+mode=no-mistakes
+yolo=off
+branch=fm/lv829
+tasktmp=/tmp/fm-lv829
+model=default
+effort=default
+busy_gen=g1795374800.2274.19843
+spawn_gen=s1795374800.1815.21828
+control_relaunch_tx=1601.20261122T191319Z.13275

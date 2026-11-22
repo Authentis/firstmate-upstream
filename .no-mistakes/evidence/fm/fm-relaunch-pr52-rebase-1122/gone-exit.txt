@@ -1,0 +1,2 @@
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live-lab/h
+endpoint-gone lv829 harness=claude backend=tmux endpoint=vanished:fm-lv829 worktree={run-worktree}/.live-lab/w

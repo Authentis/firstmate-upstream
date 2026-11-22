@@ -1,0 +1,5 @@
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live-lab/h
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.live-lab/h
+warning: {run-worktree}/.live-lab/h/data/lv829/launch-brief.md records no ship branch; defaulting to legacy branch fm/lv829
+warning: {run-worktree}/.live-lab/h/data/lv829/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+relaunched lv829 harness=claude from=claude model=default effort=default backend=tmux endpoint=seat:fm-lv829 worktree={run-worktree}/.live-lab/w
