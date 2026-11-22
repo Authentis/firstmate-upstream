@@ -2451,7 +2451,7 @@ test_tmux_refuses_an_unreadable_pane_record() {
   dir=$(new_case tmux-emptypath rl6f)
   add_ship_task "$dir" rl6f claude
   strand_endpoint "$dir" rl6f
-  fake_tmux_server "$dir" 4117 emptypath 'fm-rl6f\t\n'
+  fake_tmux_server "$dir" 4117 emptypath 'other\t\n'
   out=$(run_control "$dir" rl6f exit); rc=$?
   expect_code 1 "$rc" "a pane with no path must refuse"$'\n'"$out"
   assert_contains "$out" "no name or no path" "the refusal should name the unreadable pane"
