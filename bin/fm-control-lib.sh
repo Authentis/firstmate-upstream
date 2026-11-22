@@ -15,7 +15,7 @@
 # This file owns three capability tables plus their pure artifact-path tables,
 # and TWO named exceptions to that purity - fm_control_endpoint_absence_verdict,
 # the single owner of the per-backend endpoint-absence proof (with its tmux
-# server enumeration fm_control_tmux_absence and its helper), and
+# server enumeration and read-only task-process evidence helpers), and
 # fm_control_clear_draft, the single owner of the verified composer-draft clear
 # (with its checkpoint-picker helpers fm_control_overlay_open and
 # fm_control_dismiss_overlay); both run backend commands. Everything else has no side effects, runs no
@@ -515,8 +515,8 @@ fm_control_backend_state_verified() {  # <backend>
 #     it was never able to see. fm_control_tmux_absence closes that gap with
 #     endpoint identity on EVERY server instead: it enumerates each live tmux
 #     server of this user from the kernel and asks each one directly whether
-#     any pane still sits in the task's window or in its worktree. Only a
-#     complete, in-deadline enumeration that finds neither is `gone`.
+#     any pane still sits in the task's window or in its worktree. It then
+#     checks task-process evidence; fm_control_tmux_absence owns both gates.
 #
 # Both control-plane callers share this one implementation so the proof cannot
 # drift into two answers for the same endpoint.
@@ -562,14 +562,16 @@ fm_control_endpoint_absence_verdict() {  # <backend> <target> [<task-id> <worktr
 #      so it survives the agent or its shell changing directory), or a pane
 #      whose current path is at or below the recorded worktree, means the task
 #      may still be alive there.
-# Absence is proven only when the enumeration completed and every server
-# answered with neither. Every gap is a reason: no /proc, an unreadable process
-# record, a server whose socket cannot be resolved, a query that fails, no
-# `timeout` to bound a query, and the whole proof running past its deadline
-# (FM_CONTROL_ABSENCE_DEADLINE seconds, default 10). Hosts without /proc (such
-# as macOS) therefore always refuse.
+# After every server answers with neither, fm_control_task_process_evidence
+# must also report none: a renamed window whose pane left the worktree can
+# still hold an agent naming the task in its arguments.
+# Every gap is a reason: no /proc, an unreadable process record, a server whose
+# socket cannot be resolved, a query that fails, or no `timeout` to bound it.
+# Server enumeration and queries share FM_CONTROL_ABSENCE_DEADLINE seconds
+# (default 10); the subsequent process-table check is not timeout-bounded.
+# Hosts without /proc (such as macOS) therefore always refuse.
 fm_control_tmux_absence() {  # <target> <task-id> <worktree>
-  local target=${1-} id=${2-} wt=${3-} wname real_wt deadline started sockets sock panes rc remaining name path evidence
+  local target=${1-} id=${2-} wt=${3-} wname real_wt deadline started sockets sock panes rc remaining name path evidence query_file
   local tab=$'\t'
   wname=${target#*:}
   if [ -z "$wname" ] || [ "$wname" = "$target" ]; then
@@ -599,8 +601,21 @@ fm_control_tmux_absence() {  # <target> <task-id> <worktree>
       printf 'checking every tmux server exceeded the %ss deadline' "$deadline"
       return 0
     fi
+    # Tmux sends its client's stdio descriptors to the server. A stopped
+    # server can retain a command-substitution pipe even after timeout kills
+    # the client, leaving Bash waiting for EOF past the deadline. Capture into
+    # a private regular file instead; completion then depends only on the
+    # bounded client, never on the server closing a received descriptor.
+    query_file=$(mktemp "${TMPDIR:-/tmp}/fm-tmux-absence.XXXXXX" 2>/dev/null) || {
+      printf 'a private file for the bounded tmux server read could not be created'
+      return 0
+    }
     rc=0
-    panes=$(timeout "$remaining" tmux -S "$sock" list-panes -a -F "#{window_name}${tab}#{pane_current_path}" 2>/dev/null) || rc=$?
+    timeout "$remaining" tmux -S "$sock" list-panes -a -F "#{window_name}${tab}#{pane_current_path}" > "$query_file" 2>/dev/null || rc=$?
+    if [ "$rc" -eq 0 ]; then
+      panes=$(cat "$query_file") || rc=1
+    fi
+    rm -f "$query_file"
     if [ "$rc" -eq 124 ]; then
       printf 'the tmux server at %s did not answer within the %ss deadline' "$sock" "$deadline"
       return 0
@@ -632,6 +647,12 @@ EOF
   esac
 }
 
+# Read-only argument evidence for a surviving task owner. Prints result<TAB>reason:
+# none, match, or unreadable. Whole tokens match the task id, fm-<id>, or
+# <id>.*; worktree paths match only at path boundaries, including the resolved
+# worktree path. The scanner, its ancestors and descendants are excluded so
+# this control invocation is not evidence against itself. No process cwd is
+# read here; pane paths are checked by fm_control_tmux_absence instead.
 fm_control_task_process_evidence() {
   local id=${1-} wt=${2-} wt_real self table rows kind pid line
   [ -n "$id" ] && [ -n "$wt" ] || { printf 'unreadable\tno task id and worktree to match processes against'; return 0; }

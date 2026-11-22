@@ -2221,24 +2221,9 @@ if [ "$RELAUNCH" -eq 1 ]; then
   # endpoint was DESTROYED" with "the endpoint is UNREACHABLE from here right
   # now", and an unreachable endpoint can still hold the live agent this
   # relaunch would duplicate. So absence is PROVEN before it may rebind, never
-  # inferred from a failed read:
-  #   herdr - the recorded session's server is started, and the recorded pane is
-  #           RE-READ through that session's own socket. `dead` means the pane
-  #           survived the restart and is adopted after all; `alive` means the
-  #           agent came back and refuses; only a second `missing` proves the
-  #           pane itself did not survive.
-  #   tmux  - a task record carries no socket identity for its endpoint, so no
-  #           tmux read of the current server can tell "gone" from "on a
-  #           server I cannot see". So every tmux server of this user is found
-  #           from the kernel and asked directly, and absence is proven only
-  #           when all of them answer within a deadline with no window of the
-  #           recorded name and no pane in the recorded worktree; any match or
-  #           any gap in that proof refuses, naming why.
-  # Every transient or self-contradicting read stays `unreadable`/`ambiguous`
-  # and refuses as it always did (bin/fm-backend.sh's fm_backend_agent_state
-  # owns that vocabulary). The proof itself lives in one place for the whole
-  # control plane - fm_control_endpoint_absence_verdict - so `exit` and
-  # `relaunch` cannot reach two different answers about one endpoint.
+  # inferred from a failed read. fm_control_endpoint_absence_verdict owns the
+  # backend-specific proof and its fail-closed server/process evidence gates;
+  # keep those rules there so `exit` and `relaunch` cannot drift.
   RELAUNCH_STATE=$(fm_backend_agent_state "$BACKEND" "$RELAUNCH_TARGET")
   if [ "$RELAUNCH_STATE" = missing ]; then
     RELAUNCH_ABSENCE=$(fm_control_endpoint_absence_verdict "$BACKEND" "$RELAUNCH_TARGET" "$ID" "$(fm_meta_get "$RELAUNCH_META" worktree)")
@@ -4492,9 +4477,7 @@ if [ "$RELAUNCH" -eq 1 ]; then
     # values, which is the whole rebind - the task id, brief, worktree, armed
     # poll and status log are untouched.
     #
-    # The gate above proved absence across every tmux server of this user, not
-    # one: none holds a window of this name or a pane in the worktree
-    # (fm_control_endpoint_absence_verdict owns that argument). So there is no
+    # The shared absence proof above passed, so there is no
     # recorded server or session to stay on, and the window opens exactly where
     # an ordinary tmux spawn from this seat would open it. A stray dead fm-<id>
     # window in that session is closed and replaced by the create helper; a

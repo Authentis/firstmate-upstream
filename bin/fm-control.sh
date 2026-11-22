@@ -53,14 +53,9 @@
 #              endpoint this verb normally preserves did not survive; a pane
 #              that turns out to be there and idle is the ordinary
 #              `already-stopped`; one whose agent is back takes the ordinary
-#              interrupt-then-exit path. HERDR proves it by re-reading the
-#              session the record names. TMUX proves it across every server:
-#              a task record carries no socket identity for its window, so it
-#              is gone only when every tmux server of this user, found from
-#              the kernel, answers within a deadline with no window of the
-#              recorded name and no pane in the recorded worktree; any server
-#              that still has one, or any gap in that proof, makes the verb
-#              REFUSE, naming why, rather than claim a stop it cannot see.
+#              interrupt-then-exit path. An unproven absence REFUSES, naming
+#              why, rather than claiming a stop it cannot see;
+#              fm_control_endpoint_absence_verdict owns the per-backend proof.
 #   relaunch   Transactionally replace the running agent with a new one, in the
 #              SAME worktree - and the same endpoint whenever that endpoint
 #              still exists - on the same or a newly chosen
@@ -74,7 +69,7 @@
 #              that is how a task whose terminal was destroyed is reclaimed by
 #              the home that owns it, rather than being stranded with a parked
 #              approval nobody can answer. The proof is the one `exit` uses
-#              above, so a tmux window any server still holds refuses.
+#              above; docs/agent-control.md owns recovery placement and limits.
 #              Outside a matching keyed secondmate pin, an explicit `default`
 #              model or effort clears that axis for the replacement.
 #              With no explicit axis, a secondmate
